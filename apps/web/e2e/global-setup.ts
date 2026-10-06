@@ -3,20 +3,20 @@ import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 import postgres from "postgres";
 
-/** Recreate the disposable e2e database contents: create if missing, wipe, migrate, seed. Uploads go too. */
+/**
+ * Recreate the disposable e2e database contents: roles + database if missing, wipe, migrate
+ * as the owner, seed through the platform role; the web server and worker then run as
+ * bukalaris_app / bukalaris_platform exactly like production (ADR-0005). Uploads go too.
+ */
 export default async function globalSetup() {
   rmSync(resolve("var/e2e-media"), { recursive: true, force: true });
   const url = process.env.E2E_DATABASE_URL;
   if (!url || !/_e2e\b/.test(url)) throw new Error("E2E_DATABASE_URL must point at a *_e2e database");
-  const name = new URL(url).pathname.slice(1);
-  const admin = postgres(url.replace(/\/[^/]+$/, "/postgres"), { max: 1, onnotice: () => {} });
-  if ((await admin`select 1 from pg_database where datname = ${name}`).length === 0) await admin.unsafe(`create database "${name}"`);
-  await admin.end();
-  const db = postgres(url, { max: 1, onnotice: () => {} });
-  await db.unsafe("drop schema if exists public cascade; drop schema if exists drizzle cascade; create schema public;");
-  await db.end();
-  const env = { ...process.env, DATABASE_URL: url };
+  const { E2E_OWNER_DATABASE_URL: owner, E2E_APP_DATABASE_URL: app, E2E_PLATFORM_DATABASE_URL: platform } = process.env; // set by playwright.config.ts
+  if (!owner || !app || !platform) throw new Error("role URLs missing: run through playwright.config.ts");
   const cwd = resolve(process.cwd(), "../../packages/db");
+  execFileSync("node", ["src/local-roles.ts", url], { cwd, stdio: "inherit" }); // roles + database + ownership, then wipe
+  const env = { ...process.env, DATABASE_URL: app, PLATFORM_DATABASE_URL: platform, MIGRATION_DATABASE_URL: owner };
   execFileSync("node", ["src/migrate.ts"], { cwd, env, stdio: "inherit" });
   execFileSync("node", ["src/seed.ts"], { cwd, env, stdio: "inherit" });
   // The whole suite (both viewports, every spec) buys the seeded "Kaos Katun Basic";

@@ -13,7 +13,10 @@ id="$(date +%s)$$"
 db="bukalaris_verify_$id"
 ctr="bukalaris-verify-$id"
 vol="bukalaris-verify-media-$id"
-pg_url="postgres://$PG_USER:bukalaris@db:5432/$db" # compose-internal placeholder password (docker-compose.yml)
+# Three roles as in production (ADR-0005); compose-internal placeholder passwords = role names (packages/db/docker/05-roles.sql).
+owner_url="postgres://bukalaris_owner:bukalaris_owner@db:5432/$db"
+app_url="postgres://bukalaris_app:bukalaris_app@db:5432/$db"
+platform_url="postgres://bukalaris_platform:bukalaris_platform@db:5432/$db"
 require_db_container
 refuse_unless_local_name "$db"
 
@@ -32,16 +35,18 @@ t1=$(now_ms)
 size() { docker image inspect -f '{{.Size}}' "$1" | awk '{printf "%.0f MB", $1/1e6}'; }
 log "built in $((t1 - t0)) ms: web $(size bukalaris-web:$tag), migrate $(size bukalaris-migrate:$tag)"
 
-psql_in postgres -c "create database \"$db\"" >/dev/null
-docker run --rm --network "$DB_NETWORK" -e DATABASE_URL="$pg_url" "bukalaris-migrate:$tag"
-docker run --rm --network "$DB_NETWORK" -e DATABASE_URL="$pg_url" "bukalaris-migrate:$tag" >/dev/null # idempotent re-run
+psql_in postgres <"$ROOT/packages/db/docker/05-roles.sql" >/dev/null # roles exist on a fresh volume; idempotent on an old one
+psql_in postgres -c "create database \"$db\" owner bukalaris_owner" >/dev/null
+docker run --rm --network "$DB_NETWORK" -e MIGRATION_DATABASE_URL="$owner_url" "bukalaris-migrate:$tag"
+docker run --rm --network "$DB_NETWORK" -e MIGRATION_DATABASE_URL="$owner_url" "bukalaris-migrate:$tag" >/dev/null # idempotent re-run
 tables=$(psql_in "$db" -c "select count(*) from information_schema.tables where table_schema='public'")
-log "migrated $db: $tables public tables"
+policies=$(psql_in "$db" -c "select count(*) from pg_policies where policyname='tenant_isolation'")
+log "migrated $db: $tables public tables, $policies tenant_isolation policies"
 
 publish=(); [ -n "${VERIFY_PORT:-}" ] && publish=(-p "127.0.0.1:$VERIFY_PORT:3000")
 docker run -d --name "$ctr" --network "$DB_NETWORK" "${publish[@]}" \
   -v "$vol:/data/media" \
-  -e DATABASE_URL="$pg_url" -e BETTER_AUTH_URL="http://localhost:${VERIFY_PORT:-3000}" \
+  -e DATABASE_URL="$app_url" -e PLATFORM_DATABASE_URL="$platform_url" -e BETTER_AUTH_URL="http://localhost:${VERIFY_PORT:-3000}" \
   -e BETTER_AUTH_SECRET="verify-only-$id-not-a-real-secret-0123456789" -e STORE_ROOT_DOMAIN=localhost \
   --health-interval=2s --health-retries=5 --health-start-period=5s \
   "bukalaris-web:$tag" >/dev/null
@@ -57,6 +62,6 @@ user="$(docker exec "$ctr" id -un)"
 media="$(docker exec "$ctr" sh -c 'echo ok > "$MEDIA_DIR/.write-test" && rm "$MEDIA_DIR/.write-test" && echo writable' 2>&1 || true)"
 t2=$(now_ms)
 
-echo "verify:docker health=$health s_nope=$nope login=$login healthcheck=$hc user=$user media=$media total_ms=$((t2 - t0))"
-[ "$health" = 200 ] && [ "$nope" = 404 ] && [ "$login" = 200 ] && [ "$hc" = healthy ] && [ "$user" = app ] && [ "$media" = writable ] ||
+echo "verify:docker health=$health s_nope=$nope login=$login healthcheck=$hc user=$user media=$media policies=$policies total_ms=$((t2 - t0))"
+[ "$health" = 200 ] && [ "$nope" = 404 ] && [ "$login" = 200 ] && [ "$hc" = healthy ] && [ "$user" = app ] && [ "$media" = writable ] && [ "$policies" -ge 26 ] ||
   { docker logs "$ctr" | tail -40 >&2; die "image smoke test failed"; }
