@@ -12,6 +12,7 @@
     "generate": "drizzle-kit generate",
     "migrate": "node --env-file-if-exists=../../.env src/migrate.ts",
     "seed": "node --env-file-if-exists=../../.env src/seed.ts",
+    "worker": "node --env-file-if-exists=../../.env src/worker.ts",
     "typecheck": "tsc --noEmit -p .",
     "test": "vitest run"
   },

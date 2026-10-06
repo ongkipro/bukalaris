@@ -18,14 +18,24 @@ export default defineConfig({
     { name: "mobile-320", use: { ...devices["Desktop Chrome"], viewport: { width: 320, height: 720 }, isMobile: true, hasTouch: true } },
     { name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } } },
   ],
-  webServer: {
-    // The same standalone server the Docker image runs (env comes from .env + below).
-    command: `PORT=${PORT} NEXT_TELEMETRY_DISABLED=1 pnpm start:standalone`,
-    // Better Auth's origin check compares against BETTER_AUTH_URL, so it must match this port.
-    env: { DATABASE_URL: process.env.E2E_DATABASE_URL ?? "", BETTER_AUTH_URL: `http://localhost:${PORT}` },
-    url: `http://localhost:${PORT}/api/health`,
-    // Never reuse a server that may point at the dev database.
-    reuseExistingServer: false,
-    timeout: 60_000,
-  },
+  webServer: [
+    {
+      // The same standalone server the Docker image runs (env comes from .env + below).
+      command: `PORT=${PORT} NEXT_TELEMETRY_DISABLED=1 pnpm start:standalone`,
+      // Better Auth's origin check compares against BETTER_AUTH_URL, so it must match this port.
+      env: { DATABASE_URL: process.env.E2E_DATABASE_URL ?? "", BETTER_AUTH_URL: `http://localhost:${PORT}` },
+      url: `http://localhost:${PORT}/api/health`,
+      // Never reuse a server that may point at the dev database.
+      reuseExistingServer: false,
+      timeout: 60_000,
+    },
+    {
+      // Outbox worker (T-32): transfer orders get their payment reference from it, as in production.
+      command: "node ../../packages/db/src/worker.ts",
+      env: { DATABASE_URL: process.env.E2E_DATABASE_URL ?? "", WORKER_POLL_MS: "1000" },
+      wait: { stdout: /"event":"started"/ },
+      reuseExistingServer: false,
+      timeout: 30_000,
+    },
+  ],
 });

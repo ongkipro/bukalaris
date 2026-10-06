@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { updateVariant } from "../src/catalog.ts";
 import { getBuyerOrder, placeOrder } from "../src/checkout.ts";
+import { runOnce } from "../src/jobs.ts";
 import { fakeProviders, type Providers } from "../src/providers.ts";
 import { order, variant } from "../src/schema.ts";
 import { setCartLine } from "../src/storefront.ts";
@@ -87,15 +88,20 @@ describe("checkout (PR-4, DATA-2, NFR-2)", () => {
     expect(await db.select().from(order)).toHaveLength(0);
   });
 
-  it("transfer orders get a payment instruction after commit; a provider failure leaves an explicit pending state", async () => {
+  it("transfer orders get a payment instruction from the outbox worker; a provider failure leaves an explicit pending state", async () => {
+    // T-32: the instruction is requested by the worker after commit (durable job in the
+    // order transaction), not inline. Until the worker runs, the order is pending without a reference.
     const s = await makeStore("toko-a");
     const c1 = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 1 }, "add");
     const { orderId } = await placeOrder(db, c1, buyer({ paymentMethod: "manual_transfer" }));
+    expect(await getBuyerOrder(db, orderId, c1)).toMatchObject({ status: "awaiting_payment", paymentReference: null });
+    await runOnce(db, { workerId: "test" });
     expect(await getBuyerOrder(db, orderId, c1)).toMatchObject({ status: "awaiting_payment", paymentReference: `FAKE-AL-${orderId}` });
 
     const down: Providers = { ...fakeProviders, payment: { createInstruction: () => Promise.reject(new Error("timeout")) } };
     const c2 = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 1 }, "add");
     const r2 = await placeOrder(db, c2, buyer({ paymentMethod: "manual_transfer" }), down);
+    await runOnce(db, { workerId: "test", providers: down });
     expect(await getBuyerOrder(db, r2.orderId, c2)).toMatchObject({ status: "awaiting_payment", paymentReference: null });
   });
 
