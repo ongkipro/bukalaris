@@ -260,6 +260,8 @@ export const order = pgTable(
     trackingNumber: text("tracking_number"),
     buyerName: text("buyer_name").notNull(),
     buyerPhone: text("buyer_phone").notNull(),
+    /** Optional, lower-cased; only used for order notifications (T-36, PR-21). */
+    buyerEmail: text("buyer_email"),
     shippingAddress: text("shipping_address").notNull(),
     // Shipping snapshot (T-34, Q-12): provider courier key + label, route area ids, and the
     // fee split. `shipping_fee` is what the buyer pays = provider cost + platform margin.
@@ -346,3 +348,4 @@ export * from "./schema-jobs.ts";
 export * from "./schema-shipping.ts";
 export * from "./schema-catalog.ts";
 export * from "./schema-abuse.ts";
+export * from "./schema-notify.ts";

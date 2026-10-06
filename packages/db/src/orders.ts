@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, lt, sql } from "drizzle-orm";
 import { z } from "zod";
+import { enqueueOrderNotifications } from "./notify.ts";
 import { order, orderLine, ORDER_STATUSES, orderStatusHistory, product, stockAdjustment, user, variant, type OrderStatus } from "./schema.ts";
 import { DomainError, requireCap, type SellerScope } from "./scoped.ts";
 export { ORDER_STATUSES, type OrderStatus } from "./schema.ts";
@@ -226,6 +227,7 @@ export async function transitionOrder(scope: SellerScope, orderId: number, actio
       actorUserId: scope.userId,
       note: action === "pay" ? "Pembayaran transfer dikonfirmasi manual oleh penjual" : action === "confirm" ? "Pesanan COD dikonfirmasi oleh penjual" : note,
     });
+    await enqueueOrderNotifications(tx, scope.storeId, orderId, action); // T-36: no-op for actions without a notification
     return t.to;
   });
 }

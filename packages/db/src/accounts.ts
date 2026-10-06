@@ -11,7 +11,7 @@ import { DomainError, requireCap, type Role, type SellerScope } from "./scoped.t
 // Mailer. The only implementation in M2 stores mail in `mail_outbox` (no network);
 // a real provider implements the same interface later (see docs/tracks/accounts.md).
 // ---------------------------------------------------------------------------
-export type Mail = { to: string; subject: string; text: string };
+export type Mail = { to: string; subject: string; text: string; html?: string };
 export interface Mailer {
   send(mail: Mail): Promise<void>;
 }
@@ -19,7 +19,7 @@ export interface Mailer {
 export function dbMailer(exec: Executor): Mailer {
   return {
     async send(mail) {
-      await exec.insert(mailOutbox).values({ toEmail: mail.to, subject: mail.subject, textBody: mail.text });
+      await exec.insert(mailOutbox).values({ toEmail: mail.to, subject: mail.subject, textBody: mail.text, htmlBody: mail.html ?? null });
     },
   };
 }

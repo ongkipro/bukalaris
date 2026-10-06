@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { eq, ne, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getBuyerOrder, placeOrder } from "../src/checkout.ts";
 import {
@@ -8,19 +8,23 @@ import {
   enqueue,
   failJob,
   getHandler,
+  type JobOutcome,
   MAX_ATTEMPTS,
   PAYMENT_INSTRUCTION,
   registerHandler,
   runOnce,
   sanitizeError,
 } from "../src/jobs.ts";
+import { ORDER_NOTIFY } from "../src/notify.ts";
 import { transitionOrder } from "../src/orders.ts";
 import { fakeProviders, type PaymentAdapter, type Providers } from "../src/providers.ts";
 import { job, order } from "../src/schema.ts";
 import { setCartLine } from "../src/storefront.ts";
 import { buyer, db, makeStore } from "./helpers.ts";
 
-const jobs = () => db.select().from(job).orderBy(job.id);
+// Orders also enqueue e-mail notifications (T-36); this file is about the outbox and the payment job.
+const jobs = () => db.select().from(job).where(ne(job.kind, ORDER_NOTIFY)).orderBy(job.id);
+const payments = (out: JobOutcome[]) => out.filter((o) => o.kind !== ORDER_NOTIFY);
 const jobById = async (id: number) => (await db.select().from(job).where(eq(job.id, id)))[0]!;
 /** Time travel: make a job due (and its lease stale) without waiting. */
 const makeDue = (id: number) =>
@@ -110,9 +114,9 @@ describe("outbox (T-32, SEC-18, ARCH-6)", () => {
     expect(await jobById(a!.id)).toMatchObject({ status: "running", lockedBy: "A" });
 
     // Lease still valid: worker B sees nothing. Lease expired: B reclaims and the idempotent handler skips the provider.
-    expect(await runOnce(db, { workerId: "B", providers })).toEqual([]);
+    expect(payments(await runOnce(db, { workerId: "B", providers }))).toEqual([]);
     await makeDue(a!.id);
-    expect(await runOnce(db, { workerId: "B", providers })).toMatchObject([{ id: a!.id, status: "done", attempts: 2 }]);
+    expect(payments(await runOnce(db, { workerId: "B", providers }))).toMatchObject([{ id: a!.id, status: "done", attempts: 2 }]);
     expect(payment.calls).toBe(1);
     expect(await jobById(a!.id)).toMatchObject({ status: "done", lockedBy: null, lockedUntil: null });
 
@@ -171,10 +175,10 @@ describe("outbox (T-32, SEC-18, ARCH-6)", () => {
     expect(await jobs()).toMatchObject([{ kind: PAYMENT_INSTRUCTION, key: `order:${orderId}`, status: "pending" }]);
 
     payment.down = true;
-    const [first] = await runOnce(db, { workerId: "W", providers });
+    const [first] = payments(await runOnce(db, { workerId: "W", providers }));
     expect(first).toMatchObject({ status: "pending", attempts: 1, error: "Error: Error: provider timeout token=[redacted] (Authorization: [redacted] xyz)" });
     expect((await getBuyerOrder(db, orderId, cartId))!.paymentReference).toBeNull(); // explicit pending, no reference (D-5)
-    expect(await runOnce(db, { workerId: "W", providers })).toEqual([]); // not due until the backoff elapses
+    expect(payments(await runOnce(db, { workerId: "W", providers }))).toEqual([]); // not due until the backoff elapses
 
     payment.down = false;
     await makeDue(first!.id);
@@ -192,7 +196,7 @@ describe("outbox (T-32, SEC-18, ARCH-6)", () => {
     const cartId = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 1 }, "add");
     const { orderId } = await placeOrder(db, cartId, buyer({ paymentMethod: "manual_transfer" }));
     await transitionOrder(s.owner, orderId, "cancel", { reason: "Pembeli berubah pikiran" });
-    expect(await runOnce(db, { workerId: "W", providers: { ...fakeProviders, payment } })).toMatchObject([{ status: "done" }]);
+    expect(payments(await runOnce(db, { workerId: "W", providers: { ...fakeProviders, payment } }))).toMatchObject([{ status: "done" }]);
     expect(payment.calls).toBe(0);
     expect((await getBuyerOrder(db, orderId, cartId))!.paymentReference).toBeNull();
   });

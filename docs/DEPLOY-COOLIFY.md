@@ -23,6 +23,7 @@ Values live only in Coolify secrets; never in the repository or image.
 | `DATABASE_URL` | required | required | Postgres URL on the private network. M1 uses one role for both (DECISIONS D-4 plans separate runtime/migration roles) |
 | `BETTER_AUTH_SECRET` | required | — | Generate per environment (`openssl rand -base64 32`); never reuse the `.env.example` placeholder |
 | `BETTER_AUTH_URL` | required | — | Exact public origin of the admin/checkout host, e.g. `https://app.bukalaris.com`; a mismatch makes sign-in return 403 (origin check) |
+| `ORDER_LINK_SECRET` | required | — | HMAC-SHA256 key for buyer order-status links in e-mails (`/o/<id>.<expiry>.<hmac>`, 30-day expiry). Generate per environment (`openssl rand -base64 32`); rotating it invalidates every link already sent. Also needed by the worker process (it renders the mails). Falls back to `BETTER_AUTH_SECRET` when unset (dev convenience) |
 | `STORE_ROOT_DOMAIN` | required | — | e.g. `bukalaris.com`; `toko-a.bukalaris.com` serves store `toko-a` |
 | `MIGRATION_DATABASE_URL` | — | optional | Overrides `DATABASE_URL` for the migrator when roles are split |
 | `DATABASE_POOL_MAX` | optional | — | Default 10 |

@@ -11,6 +11,8 @@ export const mailOutbox = pgTable("mail_outbox", {
   toEmail: text("to_email").notNull(),
   subject: text("subject").notNull(),
   textBody: text("text_body").notNull(),
+  /** Optional HTML alternative (order notifications, T-36). */
+  htmlBody: text("html_body"),
   createdAt: createdAt(),
 });
 

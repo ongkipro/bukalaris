@@ -160,6 +160,11 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
                   <p id="phone-help" className="text-xs text-muted-foreground">Angka saja, 8–15 digit. Penjual menghubungi nomor ini untuk konfirmasi.</p>
                 </div>
                 <div className="grid gap-2">
+                  <Label htmlFor="buyerEmail">Email <span className="font-normal text-muted-foreground">(opsional)</span></Label>
+                  <Input id="buyerEmail" name="buyerEmail" type="email" autoComplete="email" inputMode="email" maxLength={254} aria-describedby="email-help" />
+                  <p id="email-help" className="text-xs text-muted-foreground">Untuk menerima status pesanan dan nomor resi lewat email.</p>
+                </div>
+                <div className="grid gap-2">
                   <Label htmlFor="shippingAddress">Alamat lengkap</Label>
                   <Textarea id="shippingAddress" name="shippingAddress" autoComplete="street-address" required minLength={10} maxLength={500} rows={3} aria-describedby="address-help" />
                   <p id="address-help" className="text-xs text-muted-foreground">Nama jalan, nomor rumah, RT/RW dan patokan di {area.label.split(",")[0]}.</p>
