@@ -3,9 +3,11 @@ import {
   bigint,
   boolean,
   check,
+  customType,
   foreignKey,
   index,
   integer,
+  pgSequence,
   pgTable,
   primaryKey,
   text,
@@ -19,6 +21,17 @@ import {
 const id = () => bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity();
 const idr = (name: string) => bigint(name, { mode: "number" });
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
+
+// External catalog identity (PR-12, DATA-5, docs/DECISIONS.md D-8): one platform-wide sequence shared by
+// products and variants (so an item id never equals a group id), starting at 10000 so every id has at least
+// five digits. Read as a STRING in TypeScript and at every API/feed/event/order-snapshot boundary; the DB
+// keeps it bigint for the sequence and uniqueness. A trigger (migration 0003) makes it immutable after insert.
+export const catalogIdSeq = pgSequence("catalog_id_seq", { startWith: 10000 });
+const catalogIdColumn = customType<{ data: string; driverData: string }>({
+  dataType: () => "bigint",
+  fromDriver: (v) => String(v),
+});
+const catalogId = () => catalogIdColumn("catalog_id").notNull().default(sql`nextval('catalog_id_seq')`).unique();
 
 // ---------------------------------------------------------------------------
 // Better Auth core tables (fields verified against better-auth 1.7.7 getAuthTables()).
@@ -147,10 +160,12 @@ export const product = pgTable(
   "product",
   {
     id: id(),
+    catalogId: catalogId(),
     storeId: bigint("store_id", { mode: "number" }).notNull().references(() => store.id),
     title: text("title").notNull(),
-    // Optional readable slug. Canonical slug = slug ?? String(id) (DATA-5); all-digit
-    // slugs are reserved for ids, so a path segment is never ambiguous.
+    // Optional readable slug. Canonical slug = slug ?? catalogId (DATA-5); all-digit
+    // slugs are reserved for ids, so a path segment is never ambiguous. Old slugs live
+    // on as aliases (product_slug_alias) that redirect to the canonical slug.
     slug: text("slug"),
     description: text("description").notNull().default(""),
     status: text("status", { enum: ["draft", "active", "archived"] }).notNull().default("draft"),
@@ -162,6 +177,7 @@ export const product = pgTable(
     unique("product_store_slug_uq").on(t.storeId, t.slug),
     check("product_status_chk", sql`${t.status} in ('draft', 'active', 'archived')`),
     check("product_slug_chk", sql`${t.slug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$' and ${t.slug} !~ '^[0-9]+$'`),
+    check("product_catalog_id_chk", sql`${t.catalogId} >= 10000`),
   ],
 );
 
@@ -169,6 +185,7 @@ export const variant = pgTable(
   "variant",
   {
     id: id(),
+    catalogId: catalogId(),
     storeId: bigint("store_id", { mode: "number" }).notNull(),
     productId: bigint("product_id", { mode: "number" }).notNull(),
     title: text("title").notNull(),
@@ -183,6 +200,7 @@ export const variant = pgTable(
     index("variant_product_idx").on(t.storeId, t.productId),
     check("variant_price_chk", sql`${t.price} >= 0`),
     check("variant_stock_chk", sql`${t.stock} >= 0`),
+    check("variant_catalog_id_chk", sql`${t.catalogId} >= 10000`),
   ],
 );
 
@@ -264,6 +282,8 @@ export const orderLine = pgTable(
     orderId: bigint("order_id", { mode: "number" }).notNull(),
     storeId: bigint("store_id", { mode: "number" }).notNull(),
     variantId: bigint("variant_id", { mode: "number" }).notNull(),
+    // Snapshot of the variant's external catalog id as a string (PR-12/PR-20 content id); never re-read from variant.
+    variantCatalogId: text("variant_catalog_id").notNull(),
     productTitle: text("product_title").notNull(),
     variantTitle: text("variant_title").notNull(),
     unitPrice: idr("unit_price").notNull(),
@@ -302,3 +322,4 @@ export * from "./schema-content.ts";
 export * from "./schema-channels.ts";
 export * from "./schema-jobs.ts";
 export * from "./schema-shipping.ts";
+export * from "./schema-catalog.ts";

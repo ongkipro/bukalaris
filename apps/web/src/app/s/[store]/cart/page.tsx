@@ -32,7 +32,7 @@ export default async function CartPage({ params, searchParams }: PageProps<"/s/[
         <>
           <ul className="divide-y rounded-xl border">
             {cart.lines.map((l) => {
-              const href = `${base}/products/${canonicalSlug({ id: l.productId, slug: l.productSlug })}`;
+              const href = `${base}/products/${canonicalSlug({ catalogId: l.productCatalogId, slug: l.productSlug })}`;
               return (
                 <li key={l.variantId} className="grid grid-cols-[4rem_minmax(0,1fr)] gap-3 p-4 @xl:grid-cols-[5rem_minmax(0,1fr)_auto] @xl:items-center">
                   <Link href={href} tabIndex={-1} className="row-span-2 @xl:row-span-1">

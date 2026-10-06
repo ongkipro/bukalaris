@@ -1,7 +1,8 @@
 import { and, asc, eq, min, sql } from "drizzle-orm";
 import { z } from "zod";
 import { openCartStore } from "./checkout.ts";
-import { cart, cartLine, product, variant } from "./schema.ts";
+import { isCatalogId } from "./catalog.ts";
+import { cart, cartLine, product, productSlugAlias, variant } from "./schema.ts";
 import { DomainError, type StorefrontScope } from "./scoped.ts";
 
 // Public storefront reads and the server cart (SF-01, SF-04, SF-06).
@@ -11,7 +12,7 @@ const published = (scope: StorefrontScope) => and(eq(product.storeId, scope.stor
 
 export async function listPublishedProducts(scope: StorefrontScope) {
   return scope.exec
-    .select({ id: product.id, title: product.title, slug: product.slug, minPrice: min(variant.price) })
+    .select({ id: product.id, catalogId: product.catalogId, title: product.title, slug: product.slug, minPrice: min(variant.price) })
     .from(product)
     .innerJoin(variant, and(eq(variant.storeId, product.storeId), eq(variant.productId, product.id)))
     .where(published(scope))
@@ -19,16 +20,29 @@ export async function listPublishedProducts(scope: StorefrontScope) {
     .orderBy(asc(product.id));
 }
 
-/** Look up by canonical slug: an all-digit segment is the numeric id, anything else the custom slug. */
+const productCard = { id: product.id, catalogId: product.catalogId, title: product.title, slug: product.slug, description: product.description };
+
+/**
+ * Look up a published product by URL segment: an all-digit segment ≥ 10000 is the catalog id,
+ * a smaller number a legacy database id (pre-D-8 URLs), anything else the readable slug or one
+ * of its historical aliases. The caller compares `canonicalSlug()` with the segment and 308s
+ * when they differ (legacy id, alias, or slug set later) — aliases point at the product, so
+ * one redirect reaches the canonical URL.
+ */
 export async function getPublishedProduct(scope: StorefrontScope, segment: string) {
-  const byId = /^[0-9]{1,15}$/.test(segment);
-  const [p] = await scope.exec
-    .select({ id: product.id, title: product.title, slug: product.slug, description: product.description })
-    .from(product)
-    .where(and(published(scope), byId ? eq(product.id, Number(segment)) : eq(product.slug, segment)));
+  const numeric = /^[0-9]{1,18}$/.test(segment);
+  const where = numeric ? (isCatalogId(segment) ? eq(product.catalogId, segment) : eq(product.id, Number(segment))) : eq(product.slug, segment);
+  let [p] = await scope.exec.select(productCard).from(product).where(and(published(scope), where));
+  if (!p && !numeric) {
+    [p] = await scope.exec
+      .select(productCard)
+      .from(productSlugAlias)
+      .innerJoin(product, and(eq(product.storeId, productSlugAlias.storeId), eq(product.id, productSlugAlias.productId)))
+      .where(and(published(scope), eq(productSlugAlias.storeId, scope.storeId), eq(productSlugAlias.slug, segment)));
+  }
   if (!p) return null;
   const variants = await scope.exec
-    .select({ id: variant.id, title: variant.title, price: variant.price, stock: variant.stock })
+    .select({ id: variant.id, catalogId: variant.catalogId, title: variant.title, price: variant.price, stock: variant.stock })
     .from(variant)
     .where(and(eq(variant.storeId, scope.storeId), eq(variant.productId, p.id)))
     .orderBy(asc(variant.id));
@@ -89,6 +103,7 @@ export async function getCart(scope: StorefrontScope, cartId: string | undefined
       productTitle: product.title,
       productSlug: product.slug,
       productId: product.id,
+      productCatalogId: product.catalogId,
       variantTitle: variant.title,
       price: variant.price,
       stock: variant.stock,

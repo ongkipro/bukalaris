@@ -1,9 +1,11 @@
-import { and, asc, count, desc, eq, min, sum } from "drizzle-orm";
+import { and, asc, count, desc, eq, min, sql, sum } from "drizzle-orm";
 import { z } from "zod";
-import { product, variant } from "./schema.ts";
+import type { Executor } from "./client.ts";
+import { catalogAudit, product, productSlugAlias, user, variant, type CatalogAuditAction, type CatalogSnapshot } from "./schema.ts";
 import { DomainError, requireCap, type SellerScope } from "./scoped.ts";
 
 // Seller catalog operations (SC-02, SC-03, SC-17). All queries are filtered by scope.storeId.
+// Every write records a catalog_audit row in the same transaction (T-31, SEC-17).
 
 const slug = z
   .string()
@@ -33,10 +35,26 @@ export const createProductInput = productInput.extend({ variant: variantInput })
 export type ProductInput = z.input<typeof productInput>;
 export type VariantInput = z.input<typeof variantInput>;
 
-export const canonicalSlug = (p: { id: number; slug: string | null }) => p.slug ?? String(p.id);
+/** Canonical URL segment: the readable slug, else the external catalog id (string, ≥ 5 digits). Never the DB id. */
+export const canonicalSlug = (p: { catalogId: string; slug: string | null }) => p.slug ?? p.catalogId;
+/** Catalog ids start at 10000, so an all-digit URL segment with ≥ 5 digits is a catalog id and a shorter one a legacy DB id (redirected). */
+export const isCatalogId = (segment: string) => /^[1-9][0-9]{4,17}$/.test(segment);
 
-function slugTaken(err: unknown): boolean {
+const slugTaken = () => new DomainError("slug_taken", "Slug sudah dipakai produk lain di toko ini.");
+function isSlugTaken(err: unknown): boolean {
   return (err as { cause?: { constraint_name?: string } })?.cause?.constraint_name === "product_store_slug_uq";
+}
+
+const productSnapshot = (p: { title: string; slug: string | null; status: string }): CatalogSnapshot => ({ title: p.title, slug: p.slug, status: p.status });
+const variantSnapshot = (v: { title: string; sku: string | null; price: number; stock: number }): CatalogSnapshot => ({ title: v.title, sku: v.sku, price: v.price, stock: v.stock });
+const changed = (a: CatalogSnapshot, b: CatalogSnapshot) => Object.keys(a).some((k) => a[k] !== b[k]);
+
+function audit(
+  tx: Executor,
+  scope: SellerScope,
+  row: { productId: number; variantId?: number; action: CatalogAuditAction; before?: CatalogSnapshot; after?: CatalogSnapshot },
+) {
+  return tx.insert(catalogAudit).values({ storeId: scope.storeId, actorUserId: scope.userId, ...row });
 }
 
 export async function listProducts(scope: SellerScope) {
@@ -44,6 +62,7 @@ export async function listProducts(scope: SellerScope) {
   return scope.exec
     .select({
       id: product.id,
+      catalogId: product.catalogId,
       title: product.title,
       slug: product.slug,
       status: product.status,
@@ -73,23 +92,43 @@ export async function getProduct(scope: SellerScope, productId: number) {
   return { ...row, variants };
 }
 
-/** Create a product with its first variant in one transaction; returns the numeric id. */
+/** Create a product with its first variant in one transaction; returns the numeric (database) id. */
 export async function createProduct(scope: SellerScope, raw: unknown): Promise<number> {
   requireCap(scope, "catalog.write");
   const input = createProductInput.parse(raw);
   try {
     return await scope.exec.transaction(async (tx) => {
+      if (input.slug) await assertSlugFree(tx, scope, input.slug, null);
       const [p] = await tx
         .insert(product)
         .values({ storeId: scope.storeId, title: input.title, description: input.description, status: input.status, slug: input.slug })
-        .returning({ id: product.id });
-      await tx.insert(variant).values({ ...input.variant, storeId: scope.storeId, productId: p!.id });
+        .returning({ id: product.id, title: product.title, slug: product.slug, status: product.status });
+      const [v] = await tx.insert(variant).values({ ...input.variant, storeId: scope.storeId, productId: p!.id }).returning();
+      await audit(tx, scope, { productId: p!.id, action: "product.create", after: productSnapshot(p!) });
+      await audit(tx, scope, { productId: p!.id, variantId: v!.id, action: "variant.create", after: variantSnapshot(v!) });
       return p!.id;
     });
   } catch (err) {
-    if (slugTaken(err)) throw new DomainError("slug_taken", "Slug sudah dipakai produk lain di toko ini.");
+    if (isSlugTaken(err)) throw slugTaken();
     throw err;
   }
+}
+
+/**
+ * A slug is free for `productId` when no other product of the store currently uses it (unique index)
+ * and no other product ever used it (alias table). Slug changes of one store are serialised by an
+ * advisory lock so the two checks cannot race each other.
+ */
+async function assertSlugFree(tx: Executor, scope: SellerScope, slugValue: string, productId: number | null) {
+  await tx.execute(sql`select pg_advisory_xact_lock(${scope.storeId})`);
+  const [alias] = await tx
+    .select({ productId: productSlugAlias.productId })
+    .from(productSlugAlias)
+    .where(and(eq(productSlugAlias.storeId, scope.storeId), eq(productSlugAlias.slug, slugValue)));
+  if (!alias) return;
+  if (alias.productId !== productId) throw slugTaken();
+  // The product takes one of its own old slugs back: it becomes current again (no self-redirect).
+  await tx.delete(productSlugAlias).where(and(eq(productSlugAlias.storeId, scope.storeId), eq(productSlugAlias.slug, slugValue)));
 }
 
 export async function updateProduct(scope: SellerScope, productId: number, raw: unknown): Promise<void> {
@@ -97,6 +136,12 @@ export async function updateProduct(scope: SellerScope, productId: number, raw: 
   const input = productInput.parse(raw);
   try {
     await scope.exec.transaction(async (tx) => {
+      const [before] = await tx
+        .select({ title: product.title, slug: product.slug, status: product.status })
+        .from(product)
+        .where(and(eq(product.storeId, scope.storeId), eq(product.id, productId)))
+        .for("update");
+      if (!before) throw new DomainError("not_found", "Produk tidak ditemukan.");
       if (input.status === "active") {
         const [{ n }] = (await tx
           .select({ n: count() })
@@ -104,15 +149,22 @@ export async function updateProduct(scope: SellerScope, productId: number, raw: 
           .where(and(eq(variant.storeId, scope.storeId), eq(variant.productId, productId)))) as [{ n: number }];
         if (n === 0) throw new DomainError("no_variant", "Produk aktif wajib punya minimal satu varian.");
       }
-      const updated = await tx
+      if (input.slug !== before.slug) {
+        if (input.slug) await assertSlugFree(tx, scope, input.slug, productId);
+        // The previous readable slug keeps resolving (308 → canonical) and is never given to another product.
+        if (before.slug) await tx.insert(productSlugAlias).values({ storeId: scope.storeId, slug: before.slug, productId });
+      }
+      const [after] = await tx
         .update(product)
         .set({ ...input, updatedAt: new Date() })
         .where(and(eq(product.storeId, scope.storeId), eq(product.id, productId)))
-        .returning({ id: product.id });
-      if (updated.length === 0) throw new DomainError("not_found", "Produk tidak ditemukan.");
+        .returning({ title: product.title, slug: product.slug, status: product.status });
+      const b = productSnapshot(before);
+      const a = productSnapshot(after!);
+      if (changed(b, a)) await audit(tx, scope, { productId, action: "product.update", before: b, after: a });
     });
   } catch (err) {
-    if (slugTaken(err)) throw new DomainError("slug_taken", "Slug sudah dipakai produk lain di toko ini.");
+    if (isSlugTaken(err)) throw slugTaken();
     throw err;
   }
 }
@@ -120,26 +172,58 @@ export async function updateProduct(scope: SellerScope, productId: number, raw: 
 export async function addVariant(scope: SellerScope, productId: number, raw: unknown): Promise<number> {
   requireCap(scope, "catalog.write");
   const input = variantInput.parse(raw);
-  const [owned] = await scope.exec
-    .select({ id: product.id })
-    .from(product)
-    .where(and(eq(product.storeId, scope.storeId), eq(product.id, productId)));
-  if (!owned) throw new DomainError("not_found", "Produk tidak ditemukan.");
-  // The compound (store_id, product_id) FK also rejects a foreign product at the database.
-  const [v] = await scope.exec
-    .insert(variant)
-    .values({ ...input, storeId: scope.storeId, productId })
-    .returning({ id: variant.id });
-  return v!.id;
+  return scope.exec.transaction(async (tx) => {
+    const [owned] = await tx
+      .select({ id: product.id })
+      .from(product)
+      .where(and(eq(product.storeId, scope.storeId), eq(product.id, productId)));
+    if (!owned) throw new DomainError("not_found", "Produk tidak ditemukan.");
+    // The compound (store_id, product_id) FK also rejects a foreign product at the database.
+    const [v] = await tx.insert(variant).values({ ...input, storeId: scope.storeId, productId }).returning();
+    await audit(tx, scope, { productId, variantId: v!.id, action: "variant.create", after: variantSnapshot(v!) });
+    return v!.id;
+  });
 }
 
 export async function updateVariant(scope: SellerScope, variantId: number, raw: unknown): Promise<void> {
   requireCap(scope, "catalog.write");
   const input = variantInput.parse(raw);
-  const updated = await scope.exec
-    .update(variant)
-    .set(input)
-    .where(and(eq(variant.storeId, scope.storeId), eq(variant.id, variantId)))
-    .returning({ id: variant.id });
-  if (updated.length === 0) throw new DomainError("not_found", "Varian tidak ditemukan.");
+  await scope.exec.transaction(async (tx) => {
+    const [before] = await tx
+      .select()
+      .from(variant)
+      .where(and(eq(variant.storeId, scope.storeId), eq(variant.id, variantId)))
+      .for("update");
+    if (!before) throw new DomainError("not_found", "Varian tidak ditemukan.");
+    const [after] = await tx
+      .update(variant)
+      .set(input)
+      .where(and(eq(variant.storeId, scope.storeId), eq(variant.id, variantId)))
+      .returning();
+    const b = variantSnapshot(before);
+    const a = variantSnapshot(after!);
+    if (changed(b, a)) await audit(tx, scope, { productId: before.productId, variantId, action: "variant.update", before: b, after: a });
+  });
+}
+
+/** Store-scoped change history of one product and its variants, newest first (T-31). */
+export async function listCatalogHistory(scope: SellerScope, productId: number, limit = 50) {
+  requireCap(scope, "catalog.read");
+  return scope.exec
+    .select({
+      id: catalogAudit.id,
+      action: catalogAudit.action,
+      variantId: catalogAudit.variantId,
+      variantTitle: variant.title,
+      actorName: user.name,
+      before: catalogAudit.before,
+      after: catalogAudit.after,
+      createdAt: catalogAudit.createdAt,
+    })
+    .from(catalogAudit)
+    .leftJoin(user, eq(user.id, catalogAudit.actorUserId))
+    .leftJoin(variant, and(eq(variant.storeId, catalogAudit.storeId), eq(variant.id, catalogAudit.variantId)))
+    .where(and(eq(catalogAudit.storeId, scope.storeId), eq(catalogAudit.productId, productId)))
+    .orderBy(desc(catalogAudit.id))
+    .limit(limit);
 }

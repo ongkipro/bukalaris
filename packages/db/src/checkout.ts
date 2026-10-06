@@ -112,6 +112,7 @@ export async function placeOrder(
       const lines = await tx
         .select({
           variantId: variant.id,
+          variantCatalogId: variant.catalogId,
           variantTitle: variant.title,
           price: variant.price,
           productTitle: product.title,
@@ -162,6 +163,7 @@ export async function placeOrder(
           orderId: o.id,
           storeId,
           variantId: l.variantId,
+          variantCatalogId: l.variantCatalogId,
           productTitle: l.productTitle,
           variantTitle: l.variantTitle,
           unitPrice: l.price,
