@@ -342,7 +342,7 @@ the orchestrator merges, consolidates migrations and records evidence here.
   sees status, counts and recent audit on `/admin/stores/[id]`; sellers are denied.
 
 ### T-27 — Database-enforced tenant isolation
-- Status: In progress — track `rls` (wave 3) implementing ADR-0005.
+- Status: Done (merged 2026-10-07) — roles bukalaris_owner/app/platform (bootstrap `packages/db/docker/05-roles.sql`, `scripts/db-roles.sh`), hand-written `0007_rls.sql`: `app_store_id()` + ENABLE/FORCE `tenant_isolation` on 26 tables, least-privilege grants; `withStore` sets `app.store_id` transaction-locally; cross-store resolvers on the platform pool; import-boundary test. Evidence on `main` (`0a3cfd8`): Vitest 137 passed under `bukalaris_app` (8 in `test/rls.test.ts`), Playwright 72 passed + 2 skipped, `verify:docker` policies=26, restore rehearsal rls_ok=yes (26/26 policies, app role 0 rows without context, 3/3 with). Report `docs/tracks/rls.md`.
 - Primary requirement: PR-2
 - Constraints: NFR-1, TEN-3, DATA-1, DECISIONS D-4
 - Dependencies: T-21, T-22, T-23, T-25

@@ -346,3 +346,25 @@ Wave 2a launched from `d7a32f5`: `checkout2` (T-34 phase 2, T-35, T-30),
 - Wave 3: track `rls` (T-27, ADR-0005) launched from `ef809e0`.
 - `pnpm verify:docker` on `main` after wave 2b: health 200, `/s/nope` 404,
   login 200, HEALTHCHECK healthy, user app, media writable; cleanup confirmed.
+
+## 2026-10-07 — Wave 3 integration (rls, T-27)
+
+- Reviewed `0007_rls.sql` and `tenant.ts`: transaction-local `set_config`,
+  `nullif` for the empty-string GUC after a transaction (verified by the track
+  on PG17), store switch inside one transaction throws, 26 policies with FORCE.
+- Dev DB upgrade on `main`: `scripts/db-roles.sh bukalaris` + `pnpm db:migrate`.
+  Found and fixed: the script did not transfer the `public` schema, so a
+  database whose `public` was recreated by another role failed migration 0007
+  with 3F000. After the fix: migrations applied, 26 policies.
+- `.env` on `main`: appended `MIGRATION_DATABASE_URL` and `PLATFORM_DATABASE_URL`
+  (local placeholders). Editing the existing `DATABASE_URL` line is blocked by
+  the env deny rule — it still uses the superuser (bypasses RLS in `pnpm dev`);
+  the owner must switch it to `bukalaris_app` by hand. Gates do not use it.
+- Main results: lint 0, typecheck 0, Vitest 137 passed (app role), build 0,
+  Playwright 72 passed + 2 skipped, `verify:docker` exit 0 (37 tables,
+  26 policies, health 200, HEALTHCHECK healthy).
+- DR gap found and fixed: backups used `--no-owner --no-acl`; restoring such a
+  dump leaves `bukalaris_app` without grants (observed: permission denied for
+  table product). Backups now keep owners/ACLs; the rehearsal asserts policy
+  count, 0 rows without context and full reads with it — new dump rls_ok=yes,
+  old dump fails (exit 1).

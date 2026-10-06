@@ -5,10 +5,11 @@ This file owns current status. Evidence: `BUILD-LOG.md`, `docs/TASKS.md`
 ("M1 implementation evidence"). Nothing is committed yet — the owner approves
 the first commit.
 
-## In progress — M2 wave 3 (2026-10-07)
+## M2 state (2026-10-07)
 
-`rls` (T-27): PostgreSQL RLS with owner/app/platform roles per ADR-0005. Waves
-1, 2a and 2b are merged (see below).
+All M2 tracks are merged on `main` (waves 1, 2a, 2b, 3). Next work needs owner
+input: Q-17 COD remittance, Mengantar write-test approval, ad-platform
+test-event approval, email provider, VPS/DNS for deployment.
 
 Business direction (owner, 2026-10-06): revenue = shipping margin through a
 platform-owned Mengantar account; first segment = COD sellers nationwide; ad
@@ -35,8 +36,11 @@ Mengantar writes stay disabled until the owner approves a write test.
     rate limits + cart caps/cleanup (T-30).
   - Wave 2b: email order notifications + signed status links (T-36), ad
     conversion signals in simulation (T-38), seller/admin UI pass (T-28).
-- Gates on `main` (`3e53efe`): lint 0, typecheck 0, Vitest 129 passed, build 0,
-  Playwright 72 passed + 2 skipped with a CSP-violation guard on every evidence step.
+  - Wave 3: PostgreSQL RLS with owner/app/platform roles (T-27, ADR-0005).
+- Gates on `main` (`0a3cfd8`): lint 0, typecheck 0, Vitest 137 passed (as the
+  RLS-bound app role), build 0, Playwright 72 passed + 2 skipped with a
+  CSP-violation guard on every evidence step, `verify:docker` exit 0
+  (26 policies), backup + restore rehearsal rls_ok=yes.
 
 ## Not done / known gaps (2026-10-07)
 
@@ -46,7 +50,7 @@ Mengantar writes stay disabled until the owner approves a write test.
   locked pending owner approval; AutoLaris still fake; receiver score API is
   403 for this account; `MENGANTAR_ORIGIN_AREA_ID` vs pickup address area mismatch to confirm.
 - No COD remittance ledger (Q-17), no real email provider; ad signals run in simulation until a test-event call is approved.
-- No PostgreSQL RLS / separate DB roles until T-27 merges.
+- Local `.env` `DATABASE_URL` on `main` still uses the superuser (bypasses RLS in `pnpm dev`); switch it to `bukalaris_app` by hand.
 - Single app/origin for admin, storefront and checkout (D-2); no Astro storefront.
 - Rate-limit storage for auth is in memory (single instance only).
 - e2e evidence screenshots live in `docs/evidence/m1/` for every milestone and
