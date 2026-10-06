@@ -222,27 +222,27 @@ links identify planning ownership, not completion. No runtime page is claimed.
 | Page ID | Surface / page | Proposed route | Module and logical data | Requirement / task | Code |
 |---|---|---|---|---|---|
 | AU-01 | Operator / sign in | /login | Authentication and session | PR-15 / T-17 | M1 — see [locators](#m1-implementation-locators) |
-| AU-02 | Operator / recovery | /account/recovery | Auth recovery contract | PR-15 / T-17 | In progress — M2 `m2/accounts` |
+| AU-02 | Operator / recovery | /account/recovery | Auth recovery contract | PR-15 / T-17 | M2 — `apps/web/src/app/account/recovery/page.tsx`, `apps/web/src/app/account/recovery/reset/page.tsx`; Better Auth reset via HTTP; `e2e/accounts.spec.ts` |
 | AU-03 | Seller / context selection | /select-store | Session membership | PR-15 / T-17 | Pending |
-| AU-04 | Operator / invitation acceptance (added 2026-10-06) | /invite/:token | Invitation, membership | PR-15 / T-22 | In progress — M2 `m2/accounts` |
-| AU-05 | Operator / account security and MFA (added 2026-10-06) | /account/security | Two-factor enrolment | PR-15 / T-22 | In progress — M2 `m2/accounts` |
+| AU-04 | Operator / invitation acceptance (added 2026-10-06) | /invite/:token | Invitation, membership | PR-15 / T-22 | M2 — `apps/web/src/app/invite/[token]/page.tsx`, `apps/web/src/app/invite/actions.ts`; `acceptInvitation` (`packages/db/src/accounts.ts`); `test/accounts.test.ts`, `e2e/accounts.spec.ts` |
+| AU-05 | Operator / account security and MFA (added 2026-10-06) | /account/security | Two-factor enrolment | PR-15 / T-22 | M2 — `apps/web/src/app/account/security/page.tsx`; Better Auth `twoFactor` (TOTP); `e2e/accounts.spec.ts` |
 | SA-01 | Super Admin / overview | /admin | Platform operations; store/outcome summaries | PR-1 / T-3 | Pending |
 | SA-02 | Super Admin / seller list | /admin/stores | Tenancy; Store | PR-1 / T-3 | M1 — see [locators](#m1-implementation-locators) |
-| SA-03 | Super Admin / seller detail | /admin/stores/:storeId | Tenancy; Store, membership, audit | PR-1 / T-3 | In progress — M2 `m2/content` |
+| SA-03 | Super Admin / seller detail | /admin/stores/:storeId | Tenancy; Store, membership, audit | PR-1 / T-3 | M2 — `apps/web/src/app/admin/stores/[id]/page.tsx`, `apps/web/src/app/admin/stores/new/page.tsx`; `packages/db/src/content.ts`, `platform.ts`; `e2e/content.spec.ts` |
 | SA-04 | Super Admin / marketplace review | /admin/marketplace | Marketplace Listing | PR-6 / T-7 | Pending |
-| SA-05 | Super Admin / Log System | /admin/logs | Restricted diagnostic sink | PR-11 / T-13 | In progress — M2 `m2/ops` |
-| SA-06 | Super Admin / log detail | /admin/logs/:eventId | Diagnostic event/correlation | PR-11 / T-13 | In progress — M2 `m2/ops` |
+| SA-05 | Super Admin / Log System | /admin/logs | Restricted diagnostic sink | PR-11 / T-13 | M2 — `apps/web/src/app/admin/logs/page.tsx`; `listSystemLogs` (`packages/db/src/ops.ts`); `test/ops.test.ts`, `e2e/ops.spec.ts` |
+| SA-06 | Super Admin / log detail | /admin/logs/:eventId | Diagnostic event/correlation | PR-11 / T-13 | M2 — `apps/web/src/app/admin/logs/[id]/page.tsx`; `getSystemLog`; `test/ops.test.ts`, `e2e/ops.spec.ts` |
 | SC-01 | Seller / overview | /seller | Store commerce summaries | PR-2 / T-3 | Pending |
 | SC-02 | Seller / products | /seller/products | Product | PR-2 / T-3 | M1 — see [locators](#m1-implementation-locators) |
 | SC-03 | Seller / product editor | /seller/products/:productId | Product, Variant | PR-2 / T-3 | M1 — see [locators](#m1-implementation-locators) |
 | SC-04 | Seller / inventory | /seller/inventory | Variant, Inventory | PR-2 / T-3 | M2 — `apps/web/src/app/seller/inventory/page.tsx`; `listInventory`, `adjustStock` (`packages/db/src/orders.ts`); `test/orders.test.ts`, `e2e/orders.spec.ts` |
-| SC-05 | Seller / collections | /seller/collections | Collection | PR-2 / T-3 | In progress — M2 `m2/content` |
-| SC-06 | Seller / collection editor | /seller/collections/:collectionId | Collection, Product | PR-2 / T-3 | In progress — M2 `m2/content` |
-| SC-07 | Seller / CMS pages | /seller/pages | CMS Page | PR-2 / T-3 | In progress — M2 `m2/content` |
-| SC-08 | Seller / CMS page editor | /seller/pages/:pageId | CMS Page | PR-2 / T-3 | In progress — M2 `m2/content` |
+| SC-05 | Seller / collections | /seller/collections | Collection | PR-2 / T-3 | M2 — `apps/web/src/app/seller/collections/page.tsx`, `new/page.tsx`; `packages/db/src/content.ts`; `test/content.test.ts`, `e2e/content.spec.ts` |
+| SC-06 | Seller / collection editor | /seller/collections/:collectionId | Collection, Product | PR-2 / T-3 | M2 — `apps/web/src/app/seller/collections/[id]/page.tsx`; `packages/db/src/content.ts`; `test/content.test.ts` |
+| SC-07 | Seller / CMS pages | /seller/pages | CMS Page | PR-2 / T-3 | M2 — `apps/web/src/app/seller/pages/page.tsx`, `new/page.tsx`; `packages/db/src/content.ts`; `test/content.test.ts`, `e2e/content.spec.ts` |
+| SC-08 | Seller / CMS page editor | /seller/pages/:pageId | CMS Page | PR-2 / T-3 | M2 — `apps/web/src/app/seller/pages/[id]/page.tsx`; `packages/db/src/content.ts`; `test/content.test.ts` |
 | SC-09 | Seller / menus | /seller/menus | Menu | PR-2 / T-3 | Pending |
-| SC-10 | Seller / store settings | /seller/settings | Store, domain, enabled methods | PR-2 / T-3 | In progress — M2 `m2/content` |
-| SC-11 | Seller / theme selection | /seller/themes | Store theme configuration | PR-8 / T-10 | In progress — M2 `m2/content` |
+| SC-10 | Seller / store settings | /seller/settings | Store, domain, enabled methods | PR-2 / T-3 | M2 — `apps/web/src/app/seller/settings/page.tsx`; `packages/db/src/content.ts`; `test/content.test.ts`, `e2e/content.spec.ts` |
+| SC-11 | Seller / theme selection | /seller/themes | Store theme configuration | PR-8 / T-10 | M2 — Theme selection inside `apps/web/src/app/seller/settings/page.tsx` (`responsive`/`mobile`); storefront shell `apps/web/src/app/s/[store]/layout.tsx`; `e2e/content.spec.ts` |
 | SC-12 | Seller / orders | /seller/orders | Order | PR-2 / T-3 | M2 — `apps/web/src/app/seller/orders/page.tsx`; `listOrders` (`packages/db/src/orders.ts`); `test/orders.test.ts`, `e2e/orders.spec.ts` |
 | SC-13 | Seller / order detail | /seller/orders/:orderId | Order, Payment Attempt, Shipment | PR-2 / T-3 | M2 — `apps/web/src/app/seller/orders/[id]/page.tsx`, `seller/orders/actions.ts`; `getOrder`, `transitionOrder`; `test/orders.test.ts`, `e2e/orders.spec.ts` |
 | SC-14 | Seller / Landing Page Builder list | /seller/landing-pages | Landing Page | PR-9 / T-11 | Pending |
@@ -251,12 +251,12 @@ links identify planning ownership, not completion. No runtime page is claimed.
 | SC-17 | Seller / product creation | /seller/products/new | Product, Variant, automatic identity/slug | PR-12 / T-14 | M1 — see [locators](#m1-implementation-locators) |
 | SC-18 | Seller / domains | /seller/settings/domains | Store domain lifecycle | PR-13 / T-15 | Pending |
 | SC-19 | Seller / members | /seller/settings/members | Membership and capabilities | PR-15 / T-17 | M1 — see [locators](#m1-implementation-locators) |
-| SC-20 | Seller / member detail | /seller/settings/members/:memberId | Membership, invitation, audit | PR-15 / T-17 | In progress — M2 `m2/accounts` |
+| SC-20 | Seller / member detail | /seller/settings/members/:memberId | Membership, invitation, audit | PR-15 / T-17 | M2 — Members + invitations in `apps/web/src/app/seller/members/page.tsx` (no separate detail page); `packages/db/src/{accounts,membership}.ts`; `test/accounts.test.ts`, `e2e/accounts.spec.ts` |
 | SF-01 | Storefront / home | / | Store, published catalog/content | PR-3 / T-2 | M1 — see [locators](#m1-implementation-locators) |
-| SF-02 | Storefront / collection | /collections/:slug | Collection, Product | PR-3 / T-2 | In progress — M2 `m2/content` |
-| SF-03 | Storefront / search | /search | Published Product index/query | PR-3 / T-2 | In progress — M2 `m2/content` |
+| SF-02 | Storefront / collection | /collections/:slug | Collection, Product | PR-3 / T-2 | M2 — `apps/web/src/app/s/[store]/collections/[slug]/page.tsx`; `packages/db/src/content.ts`; `e2e/content.spec.ts` |
+| SF-03 | Storefront / search | /search | Published Product index/query | PR-3 / T-2 | M2 — `apps/web/src/app/s/[store]/search/page.tsx`; `packages/db/src/content.ts`; `test/content.test.ts`, `e2e/content.spec.ts` |
 | SF-04 | Storefront / product | /products/:slug | Product, Variant | PR-3 / T-2 | M1 — see [locators](#m1-implementation-locators) |
-| SF-05 | Storefront / CMS page | /pages/:slug | Published CMS Page | PR-3 / T-2 | In progress — M2 `m2/content` |
+| SF-05 | Storefront / CMS page | /pages/:slug | Published CMS Page | PR-3 / T-2 | M2 — `apps/web/src/app/s/[store]/pages/[slug]/page.tsx`; `packages/db/src/content.ts`; `e2e/content.spec.ts` |
 | SF-06 | Storefront / cart | /cart | Cart, Variant | PR-4 / T-4 | M1 — see [locators](#m1-implementation-locators) |
 | SF-07 | Hosted Checkout / checkout (stable ID retained) | /checkout | Checkout Session, quotes | PR-16 / T-19 | M1 — see [locators](#m1-implementation-locators) |
 | SF-08 | Hosted Checkout / confirmation | /checkout/confirmation | Authorized order outcome | PR-16 / T-19 | M1 — see [locators](#m1-implementation-locators) |
@@ -301,6 +301,19 @@ named branch; they receive real locators here only after merge and executed
 checks. Not implemented in M1: AU-02, AU-03 (store switch exists as a
 header selector in `seller/layout.tsx`, no dedicated page), SA-01, SA-03..06,
 SC-01, SC-04..16, SC-18, SC-20, SC-21, SF-02, SF-03, SF-05, SF-09, BA-*, AF-01.
+
+### M2 additional locators (2026-10-07, merged to `main`)
+
+Pages and handlers without a planned Page ID: `/admin/shipping`
+(`apps/web/src/app/admin/shipping/page.tsx`, platform margin, `packages/db/src/shipping.ts`),
+`/seller/shipping` (`apps/web/src/app/seller/shipping/page.tsx`, store pickup area),
+`/dev/outbox` (`apps/web/src/app/dev/outbox/page.tsx`, dev-only mail viewer),
+`/api/ready` (DB readiness), `/checkout/h/invalid` (handoff failure page),
+media routes `apps/web/src/app/s/[store]/media/[id]/route.ts` and
+`apps/web/src/app/seller/products/[id]/media/[mediaId]/route.ts`, outbox worker
+`packages/db/src/worker.ts` (no browser page), Mengantar client
+`packages/db/src/mengantar/**`. Integration evidence on `main`: Vitest 88
+passed, Playwright 41 passed + 1 skipped (`BUILD-LOG.md`, 2026-10-07).
 
 ### Implementation locator and change rule
 
@@ -415,7 +428,7 @@ Additional page map entry:
 
 | Page ID | Surface / page | Proposed route | Module/data | Requirement/task | Code |
 |---|---|---|---|---|---|
-| SC-21 | Seller / headless channels | /seller/settings/storefront-channels | Scoped grants, channel origins | PR-16 / T-19 | In progress — M2 `m2/channels` |
+| SC-21 | Seller / headless channels | /seller/settings/storefront-channels | Scoped grants, channel origins | PR-16 / T-19 | M2 — `apps/web/src/app/seller/channels/page.tsx` (route differs from proposed `/seller/settings/storefront-channels`); API `apps/web/src/app/api/storefront/v1/**`; handoff `apps/web/src/app/checkout/h/[code]/route.ts`; `packages/db/src/channels.ts`; `test/channels.test.ts`, `e2e/channels.spec.ts` |
 
 Storefront native custom domains and external channel origins must be distinct
 in UI and data. Neither mode changes product/variant advertising identity.

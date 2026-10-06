@@ -132,7 +132,7 @@ not create a second primary.
   implementation; do not treat a UI mockup as emitted-log evidence.
 
 ### T-14 — Specify concise product and advertising identity
-- Status: In progress — M1 implements database identity, optional slug, canonical 308. Next (M2 wave 2): external catalog ID per product and variant — digit-only, at least five digits, unique platform-wide, string at every API/feed/event/order-snapshot boundary, never derived from slug/SKU or reused; slug aliases and creation idempotency. Meta item/group contract still awaits provider verification.
+- Status: In progress — track `catalog` (wave 2a, 2026-10-07). M1 implements database identity, optional slug, canonical 308. Scope: external catalog ID per product and variant — digit-only, at least five digits, unique platform-wide, string at every API/feed/event/order-snapshot boundary, never derived from slug/SKU or reused; slug aliases and creation idempotency. Meta item/group contract still awaits provider verification.
 - Primary requirement: PR-12
 - Constraints: DATA-5, API-4, UX-10, ARCH-5, TEN-1
 - Dependencies: T-1, T-3
@@ -171,7 +171,7 @@ LP form type/protected fields. Existing architecture recommendations remain
 proposals until reconciled with those decisions and implementation evidence.
 
 ### T-16 — Complete headless HTTP contract and consumer checks
-- Status: In progress — proposed openapi.yaml authored. M2 track `channels` implements the first conforming Storefront API subset (catalog, cart, checkout handoff) with private channel tokens.
+- Status: Partial — Storefront API v1 subset implemented and annotated `x-implemented` in openapi.yaml (products, carts, items, checkout handoff; bearer channel tokens). Pagination, idempotent replay and rate limiting pending. Report `docs/tracks/channels.md`. Integration evidence on `main` (2026-10-07): Vitest 88 passed, Playwright 41 passed + 1 skipped after merging all wave-1 branches.
 - Primary requirement: PR-14
 - Constraints: API-7, ARCH-6, TEN-1, SEC-9
 - Dependencies: T-1, T-4
@@ -190,7 +190,7 @@ proposals until reconciled with those decisions and implementation evidence.
   and checks proving last-owner protection, revocation, expiry and denied access.
 
 ### T-18 — Establish release, data migration and recovery proof
-- Status: In progress — M1 has Docker web + slim migrate images. M2 track `release`: one `pnpm verify` gate, CI workflow file, media volume, Postgres backup + restore rehearsal script (local). No deployment by this task.
+- Status: Done for local scope (2026-10-07) — `pnpm verify`, `pnpm verify:docker`, CI workflow file (never executed; actions pinned to major tags, SHA pinning pending), backup + restore rehearsal scripts, media volume, `docs/RUNBOOK.md`. Staging/telemetry/restore-on-target evidence remains for deployment. Report `docs/tracks/release.md`.
 - Primary requirement: PR-14
 - Constraints: DEL-1, DEL-2, DEL-3, DR-1, DR-2, SEC-12, NFR-1 through NFR-5
 - Dependencies: T-1, T-9, T-12, T-16, T-17, T-19
@@ -200,7 +200,7 @@ proposals until reconciled with those decisions and implementation evidence.
   and are resolved before the affected paths go live. No release occurs by implication.
 
 ### T-19 — Deliver external storefront channel and hosted checkout contract
-- Status: In progress — M1 hosted /checkout with server-derived totals. M2 track `channels`: channel registration (SC-21), hashed one-time-shown tokens, one-use checkout handoff into the existing per-store cart cookie and /checkout, revoked/expired/replayed handoff denial.
+- Status: Partial — channel registration (SC-21), hashed one-time tokens, one-use 10-minute checkout handoff into the per-store cart cookie, allowlisted return link; revoked/expired/replayed handoff denied (`test/channels.test.ts`, `e2e/channels.spec.ts`). Open: open-session policy on revocation (IAM-11), API rate limits. Integration evidence on `main` (2026-10-07): Vitest 88 passed, Playwright 41 passed + 1 skipped after merging all wave-1 branches.
 - Primary requirement: PR-16
 - Constraints: ARCH-7, API-8, IAM-11, DOM-4, SEC-13, UX-12, UI-10
 - Dependencies: T-1, T-2, T-4, T-5
@@ -295,7 +295,7 @@ the orchestrator merges, consolidates migrations and records evidence here.
   write and Playwright covers the order lifecycle at 320px and desktop.
 
 ### T-22 — Account recovery, member invitations and operator MFA
-- Status: In progress — track `accounts` (wave 1).
+- Status: Done (merged 2026-10-07) — dev mail outbox, recovery without enumeration, hashed single-use invitations with atomic account creation, session revocation on orphaned removal, operator TOTP enforced before /admin. Open: real email provider, MFA disable/regenerate UI, QR code. Report `docs/tracks/accounts.md`. Integration evidence on `main` (2026-10-07): Vitest 88 passed, Playwright 41 passed + 1 skipped after merging all wave-1 branches.
 - Primary requirement: PR-15
 - Constraints: IAM-5, IAM-8, IAM-9, NFR-4, SEC-1
 - Dependencies: T-17
@@ -305,7 +305,7 @@ the orchestrator merges, consolidates migrations and records evidence here.
   request; tests and e2e prove each denial case.
 
 ### T-23 — Correlation, structured logs, Log System and error pages
-- Status: In progress — track `ops` (wave 1).
+- Status: Done (merged 2026-10-07) — correlation id, allowlisted JSON logs, `system_log` sink, Log System list/detail behind `logs.read` grant with access audit, error pages with request id, `/api/ready`; DB-outage proof in `e2e/ops.spec.ts`. Open: external sink/alerting, retention job, inbound request-id trust (T-29). Report `docs/tracks/ops.md`. Integration evidence on `main` (2026-10-07): Vitest 88 passed, Playwright 41 passed + 1 skipped after merging all wave-1 branches.
 - Primary requirement: PR-11
 - Constraints: OBS-5, UX-9, IAM-1, NFR-4, NFR-5
 - Dependencies: T-13
@@ -315,7 +315,7 @@ the orchestrator merges, consolidates migrations and records evidence here.
   `/api/ready` reports DB readiness.
 
 ### T-24 — Store settings and the two storefront themes
-- Status: In progress — track `content` (wave 1).
+- Status: Done (merged 2026-10-07) — store settings and `responsive`/`mobile` (480px) themes via container queries; no overflow at 320px asserted. Report `docs/tracks/content.md`. Integration evidence on `main` (2026-10-07): Vitest 88 passed, Playwright 41 passed + 1 skipped after merging all wave-1 branches.
 - Primary requirement: PR-8
 - Constraints: UI-1, UI-3, UX-3, NFR-3, TEN-1
 - Dependencies: T-10
@@ -325,7 +325,7 @@ the orchestrator merges, consolidates migrations and records evidence here.
   by the theme.
 
 ### T-25 — Collections, CMS pages, search and product media
-- Status: In progress — track `content` (wave 1).
+- Status: Done (merged 2026-10-07) — collections, CMS pages (safe markdown-lite), search, product media with content sniffing and path-confined storage. Open: object storage, resizing. Integration evidence on `main` (2026-10-07): Vitest 88 passed, Playwright 41 passed + 1 skipped after merging all wave-1 branches.
 - Primary requirement: PR-2
 - Constraints: DATA-6, TEN-5, SEC-2, NFR-3
 - Dependencies: T-24
@@ -334,7 +334,7 @@ the orchestrator merges, consolidates migrations and records evidence here.
   storefront search returns only the store's published products.
 
 ### T-26 — Super Admin store detail and creation
-- Status: In progress — track `content` (wave 1).
+- Status: Done (merged 2026-10-07) — `/admin/stores/new` (existing owner email) and `/admin/stores/[id]`. Integration evidence on `main` (2026-10-07): Vitest 88 passed, Playwright 41 passed + 1 skipped after merging all wave-1 branches.
 - Primary requirement: PR-1
 - Constraints: IAM-5, UX-1
 - Dependencies: T-3
@@ -368,7 +368,7 @@ owner accepts them) and 12-SECURITY-ARCHITECTURE.md SEC-14..SEC-19 (observed
 findings, tasks below).
 
 ### T-29 — Security headers and production dependency hygiene
-- Status: Planned — wave 2 (touches `next.config.ts` and `apps/web/package.json`, shared by running tracks).
+- Status: In progress — track `hardening` (wave 2a): headers, dependency hygiene, request-id trust flag.
 - Primary requirement: PR-16
 - Constraints: SEC-9, SEC-13, SEC-14, SEC-15
 - Dependencies: T-23, T-25
@@ -380,7 +380,7 @@ findings, tasks below).
   high or critical advisory, or each remaining one is recorded with reachability.
 
 ### T-30 — Checkout and cart abuse controls
-- Status: Planned — wave 2.
+- Status: In progress — track `checkout2` (wave 2a).
 - Primary requirement: PR-4
 - Constraints: SEC-16, NFR-1, NFR-5, Q-10
 - Dependencies: T-21
@@ -391,7 +391,7 @@ findings, tasks below).
   limits, caps and cleanup boundaries.
 
 ### T-31 — Audit catalog and price changes
-- Status: Planned — wave 2.
+- Status: In progress — track `catalog` (wave 2a) together with T-14.
 - Primary requirement: PR-2
 - Constraints: SEC-17, IAM-5
 - Dependencies: T-1
@@ -401,7 +401,7 @@ findings, tasks below).
   rows exist and are store-scoped.
 
 ### T-32 — Durable outbox and worker for post-commit side effects
-- Status: Planned — wave 2.
+- Status: Done (merged 2026-10-07) — `job` outbox, `FOR UPDATE SKIP LOCKED` claims with leases, backoff, worker process with LISTEN wake-up and graceful stop; payment instruction moved onto it. Deployment of the worker (same image, `node packages/db/src/worker.ts`) is pending in the deploy plan. Report `docs/tracks/jobs.md`. Integration evidence on `main` (2026-10-07): Vitest 88 passed, Playwright 41 passed + 1 skipped after merging all wave-1 branches.
 - Primary requirement: PR-5
 - Constraints: SEC-18, TD-3, NFR-2, NFR-5, ARCH-6
 - Dependencies: T-21, T-23
@@ -433,7 +433,7 @@ without a separate explicit owner approval. Endpoint contracts are unverified
 until an observed, sanitized call is recorded (skill `mengantar-api`).
 
 ### T-34 — Mengantar shipping quotes with platform margin
-- Status: In progress — track `shipping` (wave 1c): adapter, area search, margin config, seller pickup area, observed read-only contract evidence. Checkout wiring follows after `content` and `jobs` merge.
+- Status: In progress — phase 1 merged (2026-10-07): server-only Mengantar read client with redaction and write lock, platform margin rule (`/admin/shipping`), store pickup area (`/seller/shipping`), observed read-only contract (11 real calls, 5 of them accidental repeats; receiver score 403 for this account; `MENGANTAR_ORIGIN_AREA_ID` differs from the pickup address area — owner to confirm). Phase 2 (checkout wiring + order snapshot) in track `checkout2`. Report `docs/tracks/shipping.md`.
 - Primary requirement: PR-5
 - Constraints: Q-12, Q-13, NFR-4, NFR-5, TEN-1, SEC-9, DATA-2
 - Dependencies: T-21, T-32

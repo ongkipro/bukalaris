@@ -259,3 +259,39 @@ catalog-identity rule), design pack, code on `main`, `pnpm audit --prod`.
   declarations=212 tasks=38 findings=0.
 - Memory: three verified lessons captured as candidates via `ai-learn capture`
   (Better Auth rate-limit bypass, Coolify pre-deploy hook, Next build prerender/env order).
+
+## 2026-10-07 — Wave 1 integration (channels, jobs, ops, accounts, content, shipping)
+
+Each branch: diff + ownership reviewed, security-critical code read by the
+orchestrator, then merged `--no-ff` with the post-M1 migrations regenerated
+into one `packages/db/drizzle/0001_m2_schema.sql` (16 new tables). Reviews:
+- channels: SHA-256 token hash + prefix lookup + `timingSafeEqual`; handoff
+  consumed by one atomic UPDATE; origin https-only (http for localhost) without
+  path, return path rejects `//` and backslashes → no open redirect. Branch
+  re-run: lint/typecheck/build 0, Vitest 28, Playwright 12, check-spec PASS.
+- jobs: `FOR UPDATE SKIP LOCKED` with leases; its finding that an orders test
+  assumed the wrong invariant was confirmed and the test fixed (one successful
+  cancel, single restock; 5/5 green).
+- ops: inbound `x-request-id` strictly formatted but client-controllable →
+  trust flag moved to T-29.
+- accounts: invitation row locked `FOR UPDATE`, email-bound, single use;
+  password 8–128 hashed with Better Auth's `hashPassword`.
+- content: media keys server-derived with a strict regex plus a
+  path-confinement check; bytes sniffed; `nosniff` on responses.
+- shipping: staged diff scanned for API keys, key-bearing URLs and phone
+  numbers — only the shared dummy `081234567890` appears.
+
+Integration bugs found by the full e2e run on `main` and fixed:
+- Super Admin header overflowed 30px at 320px after the "Ongkir" nav link
+  (my M2-prep change); a failing suspend test left `toko-b` suspended and
+  cascaded into four more failures. Header now wraps.
+- The accounts recovery spec reset `staff-a@`'s password and broke later specs;
+  it now uses a dedicated seed user `recovery-a@`.
+- An orders assertion matched Next's route announcer (`role=alert`); scoped to `<main>`.
+
+Results on `main` after all merges: typecheck 0, lint 0, Vitest 88 passed,
+`pnpm build` 0, Playwright 41 passed + 1 skipped (DB-outage check runs on
+desktop only). Docs: 17 system-map rows got real locators, M2 additional
+locators section, task statuses T-16/18/19/22–26/32/34 updated.
+Wave 2a launched from `d7a32f5`: `checkout2` (T-34 phase 2, T-35, T-30),
+`catalog` (T-14, T-31), `hardening` (T-29).

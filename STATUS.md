@@ -5,44 +5,36 @@ This file owns current status. Evidence: `BUILD-LOG.md`, `docs/TASKS.md`
 ("M1 implementation evidence"). Nothing is committed yet — the owner approves
 the first commit.
 
-## In progress — M2 (started 2026-10-06)
+## In progress — M2 wave 2a (started 2026-10-07)
 
-Parallel tracks on local branches (see `docs/TASKS.md` M2 queue, AGENTS.md
-"Parallel tracks"): `orders` (T-21), `accounts` (T-22), `ops` (T-23),
-`content` (T-24..T-26), `channels` (T-16/T-19), `jobs` (T-32), `shipping`
-(T-34). Merged into `main` after independent re-verification: `orders` (T-21),
-`release` (T-18). Next after merges: T-27 RLS, T-28 UI pass, T-14 catalog IDs,
-T-29..T-31, T-35, T-36, T-38.
+`checkout2` (T-34 phase 2 checkout shipping wiring, T-35 COD confirmation,
+T-30 abuse controls), `catalog` (T-14 five-digit string catalog ids + slug
+aliases, T-31 catalog audit), `hardening` (T-29 security headers, dependency
+hygiene, request-id trust). Next (wave 2b): T-36 email notifications, T-38 ad
+conversion signals, T-27 RLS + DB roles, T-28 seller/admin UI pass.
 
 Business direction (owner, 2026-10-06): revenue = shipping margin through a
 platform-owned Mengantar account; first segment = COD sellers nationwide; ad
 signals follow the TokoΦ/AdsBookCMS concept; email notifications first.
-Blocking decision before any real COD shipment: Q-17 COD remittance (finance + legal).
+Blocking before any real COD shipment: Q-17 COD remittance (finance + legal);
+Mengantar writes stay disabled until the owner approves a write test.
 
-## What works on `main` (verified locally)
+## What works on `main` (verified locally, 2026-10-07)
 
-- Repository and stack: pnpm workspace, `apps/web` (Next.js 16.3.8, React
-  19.2.8, TS 6.0.3, Tailwind 4.3.3, shadcn 4.21.1), `packages/db` (Drizzle
-  0.45.3 + SQL migration, postgres.js). Postgres 17 via `docker-compose.yml`
-  on `127.0.0.1:5442`. Versions: `docs/DECISIONS.md` D-1.
-- Tenancy: store-scoped data access (`packages/db/src/scoped.ts`) with
-  compound store foreign keys; storefront resolves an active store by
-  `<slug>.<STORE_ROOT_DOMAIN>` host or `/s/<slug>` path.
-- Operator auth (Better Auth, ADR-0004): email/password, sign-up disabled,
-  sign-in rate limit active; owner/staff membership with last-owner protection.
-- Seller Admin: product + variant CRUD (integer IDR, stock), list/detail,
-  members.
-- Storefront: product list/detail, server cart (one cart cookie per store).
-- Hosted `/checkout`: server-derived price/stock/fee/total, idempotency key,
-  atomic stock decrement; COD and simulated transfer; fake Mengantar/AutoLaris
-  adapters (no network calls).
-- Super Admin: store list, suspend/reactivate with audited reason; suspended
-  store storefront returns 404 and checkout/seller admin are blocked.
-- Gates (final round, 2026-10-06): `pnpm lint`, `typecheck`, `test` (22
-  integration tests), `build`, `e2e` (10 Playwright tests, 320px + desktop),
-  both `docker build` targets all pass. REVIEW R-1..R-11 resolved.
-- Images: web 301 MB, migrate 273 MB; both run as non-root and were proven
-  against a fresh database on the compose network.
+- M1 slice (auth, store-scoped catalog, storefront, cart, hosted checkout,
+  Super Admin suspend) plus merged M2 wave 1:
+  - Seller orders lifecycle + inventory with audited stock adjustments (T-21).
+  - Password recovery, member invitations, session lifecycle, operator TOTP MFA (T-22).
+  - Correlation ids, JSON logs, Log System (`/admin/logs`), error pages, `/api/ready` (T-23).
+  - Store settings, two themes, product images, collections, CMS pages,
+    search, Super Admin store create/detail, UI/UX pass (T-24..T-26).
+  - Storefront API v1 with channel tokens and one-use checkout handoff (T-16/T-19 subset).
+  - Transactional outbox + worker; payment instruction via outbox (T-32).
+  - Mengantar read client, platform margin, seller pickup area (T-34 phase 1).
+  - `pnpm verify`, `pnpm verify:docker`, backup/restore rehearsal, runbook (T-18).
+- Gates on `main`: lint 0, typecheck 0, Vitest 88 passed, build 0, Playwright
+  41 passed + 1 skipped, `verify:docker` exit 0 (30 tables, health 200,
+  HEALTHCHECK healthy, non-root, media volume writable).
 
 ## Not done / known gaps
 
