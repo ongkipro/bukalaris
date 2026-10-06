@@ -2,6 +2,7 @@ import { and, asc, count, desc, eq, ilike, inArray, max, or, sql } from "drizzle
 import { z } from "zod";
 import { auditLog, collection, collectionProduct, media, membership, order, page, product, store, user, variant } from "./schema.ts";
 import { DomainError, requireCap, type OperatorScope, type SellerScope, type StorefrontScope } from "./scoped.ts";
+import { inStore } from "./tenant.ts";
 
 // M2 content track: store settings/theme (SC-10/11), collections (SC-05/06, SF-02),
 // CMS pages (SC-07/08, SF-05), product media (DATA-6) and storefront search (SF-03).
@@ -46,17 +47,19 @@ function requireOwner(scope: SellerScope): void {
 }
 
 export async function getStoreSettings(scope: SellerScope) {
-  const [row] = await scope.exec
-    .select({ name: store.name, slug: store.slug, description: store.description, whatsapp: store.whatsapp, theme: store.theme })
-    .from(store)
-    .where(eq(store.id, scope.storeId));
-  return row!;
+  return inStore(scope, async (scope) => {
+    const [row] = await scope.exec
+      .select({ name: store.name, slug: store.slug, description: store.description, whatsapp: store.whatsapp, theme: store.theme })
+      .from(store)
+      .where(eq(store.id, scope.storeId));
+    return row!;
+  });
 }
 
 export async function updateStoreSettings(scope: SellerScope, raw: unknown): Promise<void> {
   requireOwner(scope);
   const input = storeSettingsInput.parse(raw);
-  await scope.exec.transaction(async (tx) => {
+  await inStore(scope, async ({ exec: tx }) => {
     await tx.update(store).set(input).where(eq(store.id, scope.storeId));
     await tx.insert(auditLog).values({ actorUserId: scope.userId, storeId: scope.storeId, action: `store.settings:${input.theme}` });
   });
@@ -81,34 +84,38 @@ export type CollectionInput = z.input<typeof collectionInput>;
 
 export async function listCollections(scope: SellerScope) {
   requireCap(scope, "catalog.read");
-  return scope.exec
-    .select({
-      id: collection.id,
-      title: collection.title,
-      slug: collection.slug,
-      status: collection.status,
-      products: count(collectionProduct.productId),
-    })
-    .from(collection)
-    .leftJoin(collectionProduct, eq(collectionProduct.collectionId, collection.id))
-    .where(eq(collection.storeId, scope.storeId))
-    .groupBy(collection.id)
-    .orderBy(desc(collection.id));
+  return inStore(scope, async (scope) => {
+    return scope.exec
+      .select({
+        id: collection.id,
+        title: collection.title,
+        slug: collection.slug,
+        status: collection.status,
+        products: count(collectionProduct.productId),
+      })
+      .from(collection)
+      .leftJoin(collectionProduct, eq(collectionProduct.collectionId, collection.id))
+      .where(eq(collection.storeId, scope.storeId))
+      .groupBy(collection.id)
+      .orderBy(desc(collection.id));
+  });
 }
 
 export async function getCollection(scope: SellerScope, collectionId: number) {
   requireCap(scope, "catalog.read");
-  const [row] = await scope.exec
-    .select()
-    .from(collection)
-    .where(and(eq(collection.storeId, scope.storeId), eq(collection.id, collectionId)));
-  if (!row) return null;
-  const members = await scope.exec
-    .select({ productId: collectionProduct.productId })
-    .from(collectionProduct)
-    .where(and(eq(collectionProduct.storeId, scope.storeId), eq(collectionProduct.collectionId, collectionId)))
-    .orderBy(asc(collectionProduct.position));
-  return { ...row, productIds: members.map((m) => m.productId) };
+  return inStore(scope, async (scope) => {
+    const [row] = await scope.exec
+      .select()
+      .from(collection)
+      .where(and(eq(collection.storeId, scope.storeId), eq(collection.id, collectionId)));
+    if (!row) return null;
+    const members = await scope.exec
+      .select({ productId: collectionProduct.productId })
+      .from(collectionProduct)
+      .where(and(eq(collectionProduct.storeId, scope.storeId), eq(collectionProduct.collectionId, collectionId)))
+      .orderBy(asc(collectionProduct.position));
+    return { ...row, productIds: members.map((m) => m.productId) };
+  });
 }
 
 /** Replace the ordered membership; every product must belong to this store (checked, and FK-enforced). */
@@ -136,7 +143,7 @@ export async function createCollection(scope: SellerScope, raw: unknown): Promis
   requireCap(scope, "catalog.write");
   const { productIds: ids, ...input } = collectionInput.parse(raw);
   try {
-    return await scope.exec.transaction(async (tx) => {
+    return await inStore(scope, async ({ exec: tx }) => {
       const [c] = await tx.insert(collection).values({ ...input, storeId: scope.storeId }).returning({ id: collection.id });
       await setMembers(tx, scope, c!.id, ids);
       return c!.id;
@@ -150,7 +157,7 @@ export async function updateCollection(scope: SellerScope, collectionId: number,
   requireCap(scope, "catalog.write");
   const { productIds: ids, ...input } = collectionInput.parse(raw);
   try {
-    await scope.exec.transaction(async (tx) => {
+    await inStore(scope, async ({ exec: tx }) => {
       const updated = await tx
         .update(collection)
         .set({ ...input, updatedAt: new Date() })
@@ -188,43 +195,51 @@ function pageError(err: unknown): never {
 
 export async function listPages(scope: SellerScope) {
   requireCap(scope, "catalog.read");
-  return scope.exec
-    .select({ id: page.id, title: page.title, slug: page.slug, status: page.status, updatedAt: page.updatedAt })
-    .from(page)
-    .where(eq(page.storeId, scope.storeId))
-    .orderBy(desc(page.id));
+  return inStore(scope, async (scope) => {
+    return scope.exec
+      .select({ id: page.id, title: page.title, slug: page.slug, status: page.status, updatedAt: page.updatedAt })
+      .from(page)
+      .where(eq(page.storeId, scope.storeId))
+      .orderBy(desc(page.id));
+  });
 }
 
 export async function getPage(scope: SellerScope, pageId: number) {
   requireCap(scope, "catalog.read");
-  const [row] = await scope.exec.select().from(page).where(and(eq(page.storeId, scope.storeId), eq(page.id, pageId)));
-  return row ?? null;
+  return inStore(scope, async (scope) => {
+    const [row] = await scope.exec.select().from(page).where(and(eq(page.storeId, scope.storeId), eq(page.id, pageId)));
+    return row ?? null;
+  });
 }
 
 export async function createPage(scope: SellerScope, raw: unknown): Promise<number> {
   requireCap(scope, "catalog.write");
-  const input = pageInput.parse(raw);
-  try {
-    const [p] = await scope.exec.insert(page).values({ ...input, storeId: scope.storeId }).returning({ id: page.id });
-    return p!.id;
-  } catch (err) {
-    pageError(err);
-  }
+  return inStore(scope, async (scope) => {
+    const input = pageInput.parse(raw);
+    try {
+      const [p] = await scope.exec.insert(page).values({ ...input, storeId: scope.storeId }).returning({ id: page.id });
+      return p!.id;
+    } catch (err) {
+      pageError(err);
+    }
+  });
 }
 
 export async function updatePage(scope: SellerScope, pageId: number, raw: unknown): Promise<void> {
   requireCap(scope, "catalog.write");
-  const input = pageInput.parse(raw);
-  try {
-    const updated = await scope.exec
-      .update(page)
-      .set({ ...input, updatedAt: new Date() })
-      .where(and(eq(page.storeId, scope.storeId), eq(page.id, pageId)))
-      .returning({ id: page.id });
-    if (updated.length === 0) throw notFound("Halaman");
-  } catch (err) {
-    pageError(err);
-  }
+  return inStore(scope, async (scope) => {
+    const input = pageInput.parse(raw);
+    try {
+      const updated = await scope.exec
+        .update(page)
+        .set({ ...input, updatedAt: new Date() })
+        .where(and(eq(page.storeId, scope.storeId), eq(page.id, pageId)))
+        .returning({ id: page.id });
+      if (updated.length === 0) throw notFound("Halaman");
+    } catch (err) {
+      pageError(err);
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -288,11 +303,13 @@ const alt = z.string().trim().max(300);
 
 export async function listProductMedia(scope: SellerScope, productId: number) {
   requireCap(scope, "catalog.read");
-  return scope.exec
-    .select({ id: media.id, storeId: media.storeId, alt: media.alt, mime: media.mime, width: media.width, height: media.height, position: media.position })
-    .from(media)
-    .where(and(eq(media.storeId, scope.storeId), eq(media.productId, productId)))
-    .orderBy(asc(media.position), asc(media.id));
+  return inStore(scope, async (scope) => {
+    return scope.exec
+      .select({ id: media.id, storeId: media.storeId, alt: media.alt, mime: media.mime, width: media.width, height: media.height, position: media.position })
+      .from(media)
+      .where(and(eq(media.storeId, scope.storeId), eq(media.productId, productId)))
+      .orderBy(asc(media.position), asc(media.id));
+  });
 }
 
 /**
@@ -309,7 +326,7 @@ export async function addProductMedia(
   requireCap(scope, "catalog.write");
   const img = validateImage(bytes);
   const altText = alt.parse(rawAlt ?? "");
-  return scope.exec.transaction(async (tx) => {
+  return inStore(scope, async ({ exec: tx }) => {
     const [owned] = await tx.select({ id: product.id }).from(product).where(and(eq(product.storeId, scope.storeId), eq(product.id, productId)));
     if (!owned) throw notFound("Produk");
     const [{ n, last }] = (await tx
@@ -329,18 +346,20 @@ export async function addProductMedia(
 
 export async function updateMediaAlt(scope: SellerScope, mediaId: number, rawAlt: unknown): Promise<void> {
   requireCap(scope, "catalog.write");
-  const updated = await scope.exec
-    .update(media)
-    .set({ alt: alt.parse(rawAlt ?? "") })
-    .where(and(eq(media.storeId, scope.storeId), eq(media.id, mediaId)))
-    .returning({ id: media.id });
-  if (updated.length === 0) throw notFound("Gambar");
+  return inStore(scope, async (scope) => {
+    const updated = await scope.exec
+      .update(media)
+      .set({ alt: alt.parse(rawAlt ?? "") })
+      .where(and(eq(media.storeId, scope.storeId), eq(media.id, mediaId)))
+      .returning({ id: media.id });
+    if (updated.length === 0) throw notFound("Gambar");
+  });
 }
 
 /** Swap positions with the previous image (make it the cover sooner). */
 export async function moveMediaUp(scope: SellerScope, mediaId: number): Promise<void> {
   requireCap(scope, "catalog.write");
-  await scope.exec.transaction(async (tx) => {
+  await inStore(scope, async ({ exec: tx }) => {
     const [m] = await tx.select().from(media).where(and(eq(media.storeId, scope.storeId), eq(media.id, mediaId)));
     if (!m) throw notFound("Gambar");
     const siblings = await tx
@@ -361,12 +380,14 @@ export async function moveMediaUp(scope: SellerScope, mediaId: number): Promise<
 /** Delete the row; returns the storage key so the caller can unlink the file. */
 export async function removeProductMedia(scope: SellerScope, mediaId: number): Promise<string> {
   requireCap(scope, "catalog.write");
-  const [m] = await scope.exec
-    .delete(media)
-    .where(and(eq(media.storeId, scope.storeId), eq(media.id, mediaId)))
-    .returning({ id: media.id, storeId: media.storeId, mime: media.mime });
-  if (!m) throw notFound("Gambar");
-  return mediaKey(m);
+  return inStore(scope, async (scope) => {
+    const [m] = await scope.exec
+      .delete(media)
+      .where(and(eq(media.storeId, scope.storeId), eq(media.id, mediaId)))
+      .returning({ id: media.id, storeId: media.storeId, mime: media.mime });
+    if (!m) throw notFound("Gambar");
+    return mediaKey(m);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -379,53 +400,63 @@ const coverOf = (m: { id: number; storeId: number; alt: string; mime: ImageMime;
 
 /** Store profile for the storefront shell (theme, description, WhatsApp). */
 export async function getStorefrontStore(scope: StorefrontScope) {
-  const [row] = await scope.exec
-    .select({ description: store.description, whatsapp: store.whatsapp, theme: store.theme })
-    .from(store)
-    .where(eq(store.id, scope.storeId));
-  return row!;
+  return inStore(scope, async (scope) => {
+    const [row] = await scope.exec
+      .select({ description: store.description, whatsapp: store.whatsapp, theme: store.theme })
+      .from(store)
+      .where(eq(store.id, scope.storeId));
+    return row!;
+  });
 }
 
 /** Published metadata for the media route handler; null when the file is not this store's. */
 export async function getPublicMedia(scope: StorefrontScope, mediaId: number) {
-  const [m] = await scope.exec
-    .select({ id: media.id, storeId: media.storeId, mime: media.mime, bytes: media.bytes, productStatus: product.status })
-    .from(media)
-    .innerJoin(product, and(eq(product.storeId, media.storeId), eq(product.id, media.productId)))
-    .where(and(eq(media.storeId, scope.storeId), eq(media.id, mediaId)));
-  return m ? { ...m, key: mediaKey(m) } : null;
+  return inStore(scope, async (scope) => {
+    const [m] = await scope.exec
+      .select({ id: media.id, storeId: media.storeId, mime: media.mime, bytes: media.bytes, productStatus: product.status })
+      .from(media)
+      .innerJoin(product, and(eq(product.storeId, media.storeId), eq(product.id, media.productId)))
+      .where(and(eq(media.storeId, scope.storeId), eq(media.id, mediaId)));
+    return m ? { ...m, key: mediaKey(m) } : null;
+  });
 }
 
 /** Cover image (position 0) per product for listings. */
 export async function coverImages(scope: StorefrontScope | SellerScope, ids: number[]): Promise<Map<number, Cover>> {
-  const out = new Map<number, Cover>();
-  if (ids.length === 0) return out;
-  const rows = await scope.exec
-    .select({ id: media.id, storeId: media.storeId, productId: media.productId, alt: media.alt, mime: media.mime, width: media.width, height: media.height })
-    .from(media)
-    .where(and(eq(media.storeId, scope.storeId), inArray(media.productId, ids)))
-    .orderBy(asc(media.position), asc(media.id));
-  for (const r of rows) if (!out.has(r.productId)) out.set(r.productId, coverOf(r));
-  return out;
+  return inStore(scope, async (scope) => {
+    const out = new Map<number, Cover>();
+    if (ids.length === 0) return out;
+    const rows = await scope.exec
+      .select({ id: media.id, storeId: media.storeId, productId: media.productId, alt: media.alt, mime: media.mime, width: media.width, height: media.height })
+      .from(media)
+      .where(and(eq(media.storeId, scope.storeId), inArray(media.productId, ids)))
+      .orderBy(asc(media.position), asc(media.id));
+    for (const r of rows) if (!out.has(r.productId)) out.set(r.productId, coverOf(r));
+    return out;
+  });
 }
 
 /** All images of one published product, in order. */
 export async function publishedProductImages(scope: StorefrontScope, productId: number): Promise<Cover[]> {
-  const rows = await scope.exec
-    .select({ id: media.id, storeId: media.storeId, alt: media.alt, mime: media.mime, width: media.width, height: media.height })
-    .from(media)
-    .innerJoin(product, and(eq(product.storeId, media.storeId), eq(product.id, media.productId)))
-    .where(and(eq(media.storeId, scope.storeId), eq(media.productId, productId), eq(product.status, "active")))
-    .orderBy(asc(media.position), asc(media.id));
-  return rows.map(coverOf);
+  return inStore(scope, async (scope) => {
+    const rows = await scope.exec
+      .select({ id: media.id, storeId: media.storeId, alt: media.alt, mime: media.mime, width: media.width, height: media.height })
+      .from(media)
+      .innerJoin(product, and(eq(product.storeId, media.storeId), eq(product.id, media.productId)))
+      .where(and(eq(media.storeId, scope.storeId), eq(media.productId, productId), eq(product.status, "active")))
+      .orderBy(asc(media.position), asc(media.id));
+    return rows.map(coverOf);
+  });
 }
 
 export async function listPublishedCollections(scope: StorefrontScope) {
-  return scope.exec
-    .select({ id: collection.id, title: collection.title, slug: collection.slug, description: collection.description })
-    .from(collection)
-    .where(and(eq(collection.storeId, scope.storeId), eq(collection.status, "published")))
-    .orderBy(asc(collection.id));
+  return inStore(scope, async (scope) => {
+    return scope.exec
+      .select({ id: collection.id, title: collection.title, slug: collection.slug, description: collection.description })
+      .from(collection)
+      .where(and(eq(collection.storeId, scope.storeId), eq(collection.status, "published")))
+      .orderBy(asc(collection.id));
+  });
 }
 
 const sellable = (scope: StorefrontScope) => and(eq(product.storeId, scope.storeId), eq(product.status, "active"));
@@ -433,36 +464,42 @@ const card = { id: product.id, catalogId: product.catalogId, title: product.titl
 
 /** Published collection with its active products in collection order. */
 export async function getPublishedCollection(scope: StorefrontScope, slugValue: string) {
-  const [c] = await scope.exec
-    .select({ id: collection.id, title: collection.title, slug: collection.slug, description: collection.description })
-    .from(collection)
-    .where(and(eq(collection.storeId, scope.storeId), eq(collection.status, "published"), eq(collection.slug, slugValue)));
-  if (!c) return null;
-  const products = await scope.exec
-    .select({ ...card, position: collectionProduct.position })
-    .from(collectionProduct)
-    .innerJoin(product, and(eq(product.storeId, collectionProduct.storeId), eq(product.id, collectionProduct.productId)))
-    .innerJoin(variant, and(eq(variant.storeId, product.storeId), eq(variant.productId, product.id)))
-    .where(and(sellable(scope), eq(collectionProduct.collectionId, c.id)))
-    .groupBy(product.id, collectionProduct.position)
-    .orderBy(asc(collectionProduct.position));
-  return { ...c, products };
+  return inStore(scope, async (scope) => {
+    const [c] = await scope.exec
+      .select({ id: collection.id, title: collection.title, slug: collection.slug, description: collection.description })
+      .from(collection)
+      .where(and(eq(collection.storeId, scope.storeId), eq(collection.status, "published"), eq(collection.slug, slugValue)));
+    if (!c) return null;
+    const products = await scope.exec
+      .select({ ...card, position: collectionProduct.position })
+      .from(collectionProduct)
+      .innerJoin(product, and(eq(product.storeId, collectionProduct.storeId), eq(product.id, collectionProduct.productId)))
+      .innerJoin(variant, and(eq(variant.storeId, product.storeId), eq(variant.productId, product.id)))
+      .where(and(sellable(scope), eq(collectionProduct.collectionId, c.id)))
+      .groupBy(product.id, collectionProduct.position)
+      .orderBy(asc(collectionProduct.position));
+    return { ...c, products };
+  });
 }
 
 export async function listPublishedPages(scope: StorefrontScope) {
-  return scope.exec
-    .select({ id: page.id, title: page.title, slug: page.slug })
-    .from(page)
-    .where(and(eq(page.storeId, scope.storeId), eq(page.status, "published")))
-    .orderBy(asc(page.id));
+  return inStore(scope, async (scope) => {
+    return scope.exec
+      .select({ id: page.id, title: page.title, slug: page.slug })
+      .from(page)
+      .where(and(eq(page.storeId, scope.storeId), eq(page.status, "published")))
+      .orderBy(asc(page.id));
+  });
 }
 
 export async function getPublishedPage(scope: StorefrontScope, slugValue: string) {
-  const [p] = await scope.exec
-    .select({ id: page.id, title: page.title, slug: page.slug, body: page.body, updatedAt: page.updatedAt })
-    .from(page)
-    .where(and(eq(page.storeId, scope.storeId), eq(page.status, "published"), eq(page.slug, slugValue)));
-  return p ?? null;
+  return inStore(scope, async (scope) => {
+    const [p] = await scope.exec
+      .select({ id: page.id, title: page.title, slug: page.slug, body: page.body, updatedAt: page.updatedAt })
+      .from(page)
+      .where(and(eq(page.storeId, scope.storeId), eq(page.status, "published"), eq(page.slug, slugValue)));
+    return p ?? null;
+  });
 }
 
 export const SEARCH_LIMIT = 24;
@@ -470,19 +507,21 @@ const searchQuery = z.string().trim().max(100);
 
 /** Case-insensitive substring search over title/description of this store's active products; bounded. */
 export async function searchPublishedProducts(scope: StorefrontScope, rawQ: unknown) {
-  const q = searchQuery.parse(typeof rawQ === "string" ? rawQ : "");
-  if (q.length === 0) return { q, products: [] };
-  // lazy: ILIKE is enough for catalogs of hundreds of products; upgrade to tsvector + GIN when sellers exceed that.
-  const pattern = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-  const products = await scope.exec
-    .select(card)
-    .from(product)
-    .innerJoin(variant, and(eq(variant.storeId, product.storeId), eq(variant.productId, product.id)))
-    .where(and(sellable(scope), or(ilike(product.title, pattern), ilike(product.description, pattern))))
-    .groupBy(product.id)
-    .orderBy(asc(product.title))
-    .limit(SEARCH_LIMIT);
-  return { q, products };
+  return inStore(scope, async (scope) => {
+    const q = searchQuery.parse(typeof rawQ === "string" ? rawQ : "");
+    if (q.length === 0) return { q, products: [] };
+    // lazy: ILIKE is enough for catalogs of hundreds of products; upgrade to tsvector + GIN when sellers exceed that.
+    const pattern = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    const products = await scope.exec
+      .select(card)
+      .from(product)
+      .innerJoin(variant, and(eq(variant.storeId, product.storeId), eq(variant.productId, product.id)))
+      .where(and(sellable(scope), or(ilike(product.title, pattern), ilike(product.description, pattern))))
+      .groupBy(product.id)
+      .orderBy(asc(product.title))
+      .limit(SEARCH_LIMIT);
+    return { q, products };
+  });
 }
 
 // ---------------------------------------------------------------------------

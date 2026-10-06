@@ -19,7 +19,7 @@ trap cleanup EXIT
 log "restoring ${file#"$ROOT"/} into $scratch (source: $src)"
 psql_in postgres -c "create database \"$scratch\"" >/dev/null
 t0=$(now_ms)
-docker exec -i "$DB_CONTAINER" pg_restore -U "$PG_USER" -d "$scratch" --no-owner --no-acl --exit-on-error < "$file"
+docker exec -i "$DB_CONTAINER" pg_restore -U "$PG_USER" -d "$scratch" --exit-on-error < "$file" # keeps owners + grants (RLS)
 t1=$(now_ms)
 log "pg_restore done in $((t1 - t0)) ms"
 
@@ -44,7 +44,18 @@ orphans=$(psql_in "$scratch" -c "
     select store_id from product union all select store_id from variant union all
     select store_id from membership union all select store_id from \"order\"
   ) o left join store s on s.id = o.store_id where s.id is null")
-echo "rehearsal: dump=${file#"$ROOT"/} scratch=$scratch restore_ms=$((t1 - t0)) migrations=$mig orphan_store_rows=$orphans counts_match=$([ $status = 0 ] && echo yes || echo NO)"
+# Tenant isolation survived the restore (T-27): same policy count as the source, and the app
+# role sees nothing without a store context but can read with one (grants restored).
+pol=$(psql_in "$scratch" -c "select count(*) from pg_policies where policyname = 'tenant_isolation'")
+src_pol=$([ -n "$have_src" ] && psql_in "$src" -c "select count(*) from pg_policies where policyname = 'tenant_isolation'" || echo "$pol")
+app_psql() { docker exec -i "$DB_CONTAINER" psql -v ON_ERROR_STOP=1 -U bukalaris_app -d "$scratch" -Atq "$@"; }
+app_none=$(app_psql -c "select count(*) from product")
+first_store=$(psql_in "$scratch" -c "select coalesce(min(id), 0) from store")
+app_ctx=$(app_psql -c "begin" -c "select set_config('app.store_id', '$first_store', true)" -c "select count(*) from product" -c "commit" | grep -E '^[0-9]+$' | tail -1)
+src_ctx=$(psql_in "$scratch" -c "select count(*) from product where store_id = $first_store")
+rls_ok=$([ "$pol" = "$src_pol" ] && [ "$pol" -gt 0 ] && [ "$app_none" = 0 ] && [ "$app_ctx" = "$src_ctx" ] && echo yes || echo NO)
+[ "$rls_ok" = yes ] || status=1
+echo "rehearsal: dump=${file#"$ROOT"/} scratch=$scratch restore_ms=$((t1 - t0)) migrations=$mig orphan_store_rows=$orphans counts_match=$([ $status = 0 ] && echo yes || echo NO) policies=$pol/$src_pol app_without_context=$app_none app_with_context=$app_ctx/$src_ctx rls_ok=$rls_ok"
 [ "$orphans" = 0 ] || status=1
 [ "$mig" -ge 1 ] || status=1
 exit $status

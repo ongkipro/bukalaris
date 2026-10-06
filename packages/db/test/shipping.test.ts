@@ -19,7 +19,7 @@ import {
   shippingOptions,
 } from "../src/shipping.ts";
 import { membership } from "../src/schema.ts";
-import { db, makeStore, makeUser, seller } from "./helpers.ts";
+import { db, makeStore, makeUser, platform, seller } from "./helpers.ts";
 
 const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/mengantar/${name}.json`, import.meta.url), "utf8"));
 const KEY = "testkey-0123456789abcdef";
@@ -194,7 +194,7 @@ describe("recorded fixtures (observed 2026-10-06, sanitized)", () => {
 
 describe("margin rule and pickup origin (store-scoped)", () => {
   it("operator edits the rule with an audit row; the default applies until then", async () => {
-    await db.delete(shippingMarginRule);
+    await platform.delete(shippingMarginRule);
     const s = await makeStore("toko-a");
     expect(await getMarginRule(db)).toEqual(DEFAULT_MARGIN_RULE);
     await setMarginRule(s.op, { fixedIdr: "1500", percentBps: 250, roundTo: "1000" });
@@ -205,7 +205,7 @@ describe("margin rule and pickup origin (store-scoped)", () => {
     expect(audit[0]).toMatchObject({ actorUserId: s.op.userId, storeId: null });
     await expect(setMarginRule(s.op, { fixedIdr: -1, percentBps: 0, roundTo: 500 })).rejects.toMatchObject({ name: "ZodError" });
     await expect(setMarginRule(s.op, { fixedIdr: 0, percentBps: 0, roundTo: 7 })).rejects.toMatchObject({ name: "ZodError" });
-    expect(await db.select().from(auditLog)).toHaveLength(2 + 1); // + store.create
+    expect(await platform.select().from(auditLog)).toHaveLength(2 + 1); // + store.create
   });
 
   it("pickup area is per store, owner-only, searched server-side through the adapter", async () => {
@@ -233,7 +233,7 @@ describe("margin rule and pickup origin (store-scoped)", () => {
 
     // Staff can read but not manage.
     const staffId = await makeUser("staff");
-    await db.insert(membership).values({ storeId: a.storeId, userId: staffId, role: "staff" });
+    await platform.insert(membership).values({ storeId: a.storeId, userId: staffId, role: "staff" });
     const staff = await seller(staffId);
     expect((await getPickupArea(staff))!.areaId).toBe("a2a2a2a2a2a2a2a2a2a2a2a2");
     await expect(setPickupArea(staff, { areaId: "c1c1c1c1c1c1c1c1c1c1c1c1", areaLabel: "Gubeng" })).rejects.toMatchObject({ code: "forbidden" });
@@ -243,7 +243,7 @@ describe("margin rule and pickup origin (store-scoped)", () => {
   });
 
   it("shippingOptions: needs the store's pickup area, applies the rule and gating, is ready for the order snapshot", async () => {
-    await db.delete(shippingMarginRule);
+    await platform.delete(shippingMarginRule);
     const a = await makeStore("toko-a", { pickupArea: false });
     const b = await makeStore("toko-b", { pickupArea: false });
     await expect(shippingOptions(a.sf, "b1b1b1b1b1b1b1b1b1b1b1b1", { items: 2, subtotal: 200_000 }, fakeMengantar)).rejects.toMatchObject({ code: "no_pickup_area" });

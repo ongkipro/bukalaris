@@ -1,6 +1,5 @@
 import { Badge } from "@/components/ui/badge";
-import { currentUser } from "@/lib/context";
-import { db, operatorScope } from "@bukalaris/db";
+import { currentUser, isOperator as checkOperator } from "@/lib/context";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SecurityEnrol } from "./security-enrol";
@@ -12,7 +11,7 @@ export default async function SecurityPage({ searchParams }: PageProps<"/account
   if (!user) redirect("/login?next=/account/security");
   const { next } = await searchParams;
   const target = next === "/admin" ? "/admin" : "/seller";
-  const isOperator = !!(await operatorScope(db(), user.id));
+  const isOperator = await checkOperator(user.id);
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-2">

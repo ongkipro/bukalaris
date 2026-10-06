@@ -16,10 +16,10 @@ import {
 import { changeMember } from "../src/membership.ts";
 import { auditLog, mailOutbox, membership, platformOperator, session, storeInvitation } from "../src/schema.ts";
 import { sellerContext } from "../src/scoped.ts";
-import { db, makeStore, makeUser, seller } from "./helpers.ts";
+import { admin, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
 
 // mail_outbox has no FK to the truncated tables, so the shared helper's cascade does not reach it.
-beforeEach(() => db.execute("truncate mail_outbox restart identity"));
+beforeEach(() => admin.execute("truncate mail_outbox restart identity"));
 
 const mailer = dbMailer(db);
 const acceptUrl = (token: string) => `http://localhost:3000/invite/${token}`;
@@ -36,7 +36,7 @@ async function invite(scope: Parameters<typeof createInvitation>[0], email: stri
 
 async function makeSession(userId: string) {
   const token = randomUUID();
-  await db.insert(session).values({ id: randomUUID(), token, userId, expiresAt: new Date(Date.now() + 3_600_000) });
+  await platform.insert(session).values({ id: randomUUID(), token, userId, expiresAt: new Date(Date.now() + 3_600_000) });
   return token;
 }
 
@@ -57,10 +57,10 @@ describe("invitations (SC-19/SC-20, IAM-9)", () => {
     expect(await previewInvitation(db, token)).toMatchObject({ status: "accepted" });
     expect(await listInvitations(s.owner)).toEqual([]);
 
-    const actions = (await db.select({ action: auditLog.action }).from(auditLog).where(eq(auditLog.storeId, s.storeId))).map((a) => a.action);
+    const actions = (await platform.select({ action: auditLog.action }).from(auditLog).where(eq(auditLog.storeId, s.storeId))).map((a) => a.action);
     expect(actions).toEqual(expect.arrayContaining([`invite.create:${id}:staff`, `invite.accept:${id}:staff`]));
     // Only a hash is persisted.
-    expect((await db.select().from(storeInvitation))[0]!.tokenHash).not.toContain(token);
+    expect((await platform.select().from(storeInvitation))[0]!.tokenHash).not.toContain(token);
   });
 
   it("a bogus token and an expired invitation are both rejected", async () => {
@@ -69,7 +69,7 @@ describe("invitations (SC-19/SC-20, IAM-9)", () => {
     await expect(acceptInvitation(db, "nope", { kind: "new", name: "X Y", passwordHash })).rejects.toMatchObject({ code: "invite_invalid" });
 
     const { id, token } = await invite(s.owner, "late@example.com", "staff");
-    await db.update(storeInvitation).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(storeInvitation.id, id));
+    await platform.update(storeInvitation).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(storeInvitation.id, id));
     expect(await previewInvitation(db, token)).toMatchObject({ status: "expired" });
     await expect(acceptInvitation(db, token, { kind: "new", name: "Late", passwordHash })).rejects.toMatchObject({ code: "invite_expired" });
     expect(INVITATION_TTL_MS).toBe(7 * 24 * 3_600_000);
@@ -92,14 +92,14 @@ describe("invitations (SC-19/SC-20, IAM-9)", () => {
   it("role authority: staff cannot invite, owners cannot assign unknown roles, existing members are not re-invited", async () => {
     const s = await makeStore("toko-a");
     const staffId = await makeUser("staff");
-    await db.insert(membership).values({ storeId: s.storeId, userId: staffId, role: "staff" });
+    await platform.insert(membership).values({ storeId: s.storeId, userId: staffId, role: "staff" });
     const staff = await seller(staffId);
     await expect(createInvitation(staff, mailer, { email: "a@example.com", role: "staff" }, acceptUrl)).rejects.toMatchObject({ code: "forbidden" });
     await expect(listInvitations(staff)).rejects.toMatchObject({ code: "forbidden" });
     await expect(createInvitation(s.owner, mailer, { email: "a@example.com", role: "admin" }, acceptUrl)).rejects.toMatchObject({ name: "ZodError" });
     await expect(createInvitation(s.owner, mailer, { email: "not-an-email", role: "staff" }, acceptUrl)).rejects.toMatchObject({ name: "ZodError" });
-    const [staffRow] = await db.select().from(membership).where(eq(membership.userId, staffId));
-    const staffEmail = (await db.query.user.findFirst({ where: (u, { eq }) => eq(u.id, staffRow!.userId) }))!.email;
+    const [staffRow] = await platform.select().from(membership).where(eq(membership.userId, staffId));
+    const staffEmail = (await platform.query.user.findFirst({ where: (u, { eq }) => eq(u.id, staffRow!.userId) }))!.email;
     await expect(createInvitation(s.owner, mailer, { email: staffEmail.toUpperCase(), role: "owner" }, acceptUrl)).rejects.toMatchObject({ code: "already_member" });
     expect(await listOutbox(db)).toEqual([]);
   });
@@ -112,14 +112,14 @@ describe("invitations (SC-19/SC-20, IAM-9)", () => {
     await expect(revokeInvitation(b.owner, id)).rejects.toMatchObject({ code: "not_found" });
 
     const { userId } = await acceptInvitation(db, token, { kind: "new", name: "Pindah", passwordHash });
-    const rows = await db.select().from(membership).where(eq(membership.userId, userId));
+    const rows = await platform.select().from(membership).where(eq(membership.userId, userId));
     expect(rows.map((r) => [r.storeId, r.role])).toEqual([[a.storeId, "owner"]]);
   });
 
   it("an existing account must match the invited e-mail; a taken e-mail cannot create a second account", async () => {
     const s = await makeStore("toko-a");
     const other = await makeUser("other");
-    const otherEmail = (await db.query.user.findFirst({ where: (u, { eq }) => eq(u.id, other) }))!.email;
+    const otherEmail = (await platform.query.user.findFirst({ where: (u, { eq }) => eq(u.id, other) }))!.email;
     const { token } = await invite(s.owner, otherEmail, "staff");
     expect(await previewInvitation(db, token)).toMatchObject({ status: "pending", hasAccount: true });
     const stranger = await makeUser("stranger");
@@ -138,16 +138,16 @@ describe("invitations (SC-19/SC-20, IAM-9)", () => {
     ]);
     expect(settled.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     expect(settled.find((r) => r.status === "rejected")).toMatchObject({ reason: { code: "invite_used" } });
-    const users = await db.query.user.findMany({ where: (u, { eq }) => eq(u.email, "race@example.com") });
+    const users = await platform.query.user.findMany({ where: (u, { eq }) => eq(u.email, "race@example.com") });
     expect(users).toHaveLength(1);
-    expect(await db.select().from(membership).where(eq(membership.userId, users[0]!.id))).toHaveLength(1);
+    expect(await platform.select().from(membership).where(eq(membership.userId, users[0]!.id))).toHaveLength(1);
   });
 
   it("a validation failure while creating the account leaves no user behind", async () => {
     const s = await makeStore("toko-a");
     const { token } = await invite(s.owner, "short@example.com", "staff");
     await expect(acceptInvitation(db, token, { kind: "new", name: "A", passwordHash })).rejects.toMatchObject({ name: "ZodError" });
-    expect(await db.query.user.findMany({ where: (u, { eq }) => eq(u.email, "short@example.com") })).toEqual([]);
+    expect(await platform.query.user.findMany({ where: (u, { eq }) => eq(u.email, "short@example.com") })).toEqual([]);
     expect(await previewInvitation(db, token)).toMatchObject({ status: "pending" });
   });
 });
@@ -156,7 +156,7 @@ describe("membership lifecycle (PR-15, IAM-9)", () => {
   it("a role change or removal applies to the next membership check; removal revokes an orphaned user's sessions", async () => {
     const s = await makeStore("toko-a");
     const staffId = await makeUser("staff");
-    await db.insert(membership).values({ storeId: s.storeId, userId: staffId, role: "staff" });
+    await platform.insert(membership).values({ storeId: s.storeId, userId: staffId, role: "staff" });
     await makeSession(staffId);
     await makeSession(staffId);
     expect(await countLiveSessions(db, staffId)).toBe(2);
@@ -168,7 +168,7 @@ describe("membership lifecycle (PR-15, IAM-9)", () => {
     await changeMember(s.owner, staffId, null);
     expect(await sellerContext(db, staffId)).toEqual({ ok: false, reason: "no_membership" });
     expect(await countLiveSessions(db, staffId)).toBe(0);
-    const actions = (await db.select({ action: auditLog.action }).from(auditLog).where(eq(auditLog.storeId, s.storeId))).map((a) => a.action);
+    const actions = (await platform.select({ action: auditLog.action }).from(auditLog).where(eq(auditLog.storeId, s.storeId))).map((a) => a.action);
     expect(actions).toEqual(expect.arrayContaining([`member.remove:${staffId}`, `session.revoke:${staffId}`]));
   });
 
@@ -176,14 +176,14 @@ describe("membership lifecycle (PR-15, IAM-9)", () => {
     const a = await makeStore("toko-a");
     const b = await makeStore("toko-b");
     const multi = await makeUser("multi");
-    await db.insert(membership).values([{ storeId: a.storeId, userId: multi, role: "staff" }, { storeId: b.storeId, userId: multi, role: "staff" }]);
+    await platform.insert(membership).values([{ storeId: a.storeId, userId: multi, role: "staff" }, { storeId: b.storeId, userId: multi, role: "staff" }]);
     await makeSession(multi);
     await changeMember(a.owner, multi, null);
     expect(await countLiveSessions(db, multi)).toBe(1);
 
     const opUser = await makeUser("op-member");
-    await db.insert(platformOperator).values({ userId: opUser });
-    await db.insert(membership).values({ storeId: b.storeId, userId: opUser, role: "staff" });
+    await platform.insert(platformOperator).values({ userId: opUser });
+    await platform.insert(membership).values({ storeId: b.storeId, userId: opUser, role: "staff" });
     await makeSession(opUser);
     await changeMember(b.owner, opUser, null);
     expect(await countLiveSessions(db, opUser)).toBe(1);
@@ -191,6 +191,6 @@ describe("membership lifecycle (PR-15, IAM-9)", () => {
 
   it("the dev mailer stores mail instead of sending it", async () => {
     await dbMailer(db).send({ to: "a@example.com", subject: "Halo", text: "Isi" });
-    expect(await db.select().from(mailOutbox)).toMatchObject([{ toEmail: "a@example.com", subject: "Halo", textBody: "Isi" }]);
+    expect(await platform.select().from(mailOutbox)).toMatchObject([{ toEmail: "a@example.com", subject: "Halo", textBody: "Isi" }]);
   });
 });

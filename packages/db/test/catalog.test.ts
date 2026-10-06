@@ -4,7 +4,7 @@ import { addVariant, canonicalSlug, createProduct, getProduct, listCatalogHistor
 import { getBuyerOrder, placeOrder } from "../src/checkout.ts";
 import { catalogAudit, product, productSlugAlias, variant } from "../src/schema.ts";
 import { getPublishedProduct, listPublishedProducts, setCartLine } from "../src/storefront.ts";
-import { buyer, db, makeStore } from "./helpers.ts";
+import { buyer, db, makeStore, platform } from "./helpers.ts";
 
 const CATALOG_ID = /^[1-9][0-9]{4,}$/;
 const resolve = async (sf: Parameters<typeof getPublishedProduct>[0], segment: string) => {
@@ -19,8 +19,8 @@ describe("catalog ids (T-14, PR-12, DATA-5, D-8)", () => {
       Array.from({ length: 8 }, (_, i) => createProduct(s.owner, { title: `P${i}`, variant: { title: "D", price: 1000 * (i + 1), stock: 1 } })),
     );
     await addVariant(s.owner, ids[0]!, { title: "L", price: 5000, stock: 1 });
-    const products = await db.select({ catalogId: product.catalogId }).from(product);
-    const variants = await db.select({ catalogId: variant.catalogId }).from(variant);
+    const products = await platform.select({ catalogId: product.catalogId }).from(product);
+    const variants = await platform.select({ catalogId: variant.catalogId }).from(variant);
     const all = [...products, ...variants].map((r) => r.catalogId);
     expect(all).toHaveLength(9 + 10); // makeStore's product + 8, their 9 variants + 1
     for (const id of all) {
@@ -31,10 +31,10 @@ describe("catalog ids (T-14, PR-12, DATA-5, D-8)", () => {
     expect(new Set(all).size).toBe(all.length); // one sequence: a variant id never equals a product id
 
     // Immutable after insert, even for a direct SQL update (trigger, migration 0003).
-    await expect(db.update(product).set({ catalogId: "99999999" }).where(eq(product.id, ids[0]!))).rejects.toMatchObject({
+    await expect(platform.update(product).set({ catalogId: "99999999" }).where(eq(product.id, ids[0]!))).rejects.toMatchObject({
       cause: { constraint_name: "catalog_id_immutable" },
     });
-    await expect(db.update(variant).set({ catalogId: "99999998" }).where(eq(variant.id, s.variantId))).rejects.toMatchObject({
+    await expect(platform.update(variant).set({ catalogId: "99999998" }).where(eq(variant.id, s.variantId))).rejects.toMatchObject({
       cause: { constraint_name: "catalog_id_immutable" },
     });
     // Other columns still update; the id survives title and slug changes.
@@ -74,7 +74,7 @@ describe("catalog ids (T-14, PR-12, DATA-5, D-8)", () => {
     expect(await resolve(s.sf, "kaos-lama")).toBe("kaos-final");
     expect(await resolve(s.sf, "kaos-baru")).toBe("kaos-final");
     expect(await resolve(s.sf, "kaos-final")).toBe("kaos-final");
-    expect((await db.select().from(productSlugAlias)).map((a) => a.slug).sort()).toEqual(["kaos-baru", "kaos-lama"]);
+    expect((await platform.select().from(productSlugAlias)).map((a) => a.slug).sort()).toEqual(["kaos-baru", "kaos-lama"]);
 
     // Aliases are never handed to another product of the store — on create or on update.
     await expect(createProduct(s.owner, { title: "X", slug: "kaos-lama", variant: { title: "D", price: 1, stock: 1 } })).rejects.toMatchObject({ code: "slug_taken" });
@@ -82,7 +82,7 @@ describe("catalog ids (T-14, PR-12, DATA-5, D-8)", () => {
     // The owning product can take an old slug back; it becomes current again (no self-redirect).
     await updateProduct(s.owner, id, { title: "Kaos", slug: "kaos-lama", status: "active" });
     expect(await resolve(s.sf, "kaos-lama")).toBe("kaos-lama");
-    expect((await db.select().from(productSlugAlias)).map((a) => a.slug).sort()).toEqual(["kaos-baru", "kaos-final"]);
+    expect((await platform.select().from(productSlugAlias)).map((a) => a.slug).sort()).toEqual(["kaos-baru", "kaos-final"]);
 
     // Clearing the slug falls back to the catalog id; the readable slug becomes an alias.
     await updateProduct(s.owner, id, { title: "Kaos", slug: "", status: "active" });
@@ -115,7 +115,7 @@ describe("catalog audit (T-31, SEC-17)", () => {
     expect(rows[2]).toMatchObject({ variantId: a.variantId, variantTitle: "M", before: { price: 89_000, stock: 20 }, after: { price: 95_000, stock: 18 } });
     expect(rows[1]).toMatchObject({ variantId: null, before: { status: "active" }, after: { status: "archived" } });
     expect(rows[0]).toMatchObject({ variantId: vId, after: { price: 99_000, stock: 3 } });
-    for (const r of await db.select().from(catalogAudit).where(eq(catalogAudit.productId, a.productId))) {
+    for (const r of await platform.select().from(catalogAudit).where(eq(catalogAudit.productId, a.productId))) {
       expect(r).toMatchObject({ storeId: a.storeId, actorUserId: a.ownerId });
     }
 
@@ -125,7 +125,7 @@ describe("catalog audit (T-31, SEC-17)", () => {
     expect(await listCatalogHistory(a.owner, a.productId)).toHaveLength(5);
     // The database rejects an audit row whose product belongs to another store.
     await expect(
-      db.insert(catalogAudit).values({ storeId: b.storeId, actorUserId: b.ownerId, productId: a.productId, action: "product.update" }),
+      platform.insert(catalogAudit).values({ storeId: b.storeId, actorUserId: b.ownerId, productId: a.productId, action: "product.update" }),
     ).rejects.toMatchObject({ cause: { constraint_name: "catalog_audit_product_fk" } });
   });
 });

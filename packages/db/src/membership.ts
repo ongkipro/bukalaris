@@ -1,18 +1,22 @@
 import { and, asc, eq } from "drizzle-orm";
+import { platformDb } from "./client.ts";
 import { z } from "zod";
 import { auditLog, membership, user } from "./schema.ts";
 import { revokeSessionsIfOrphaned } from "./accounts.ts";
 import { DomainError, requireCap, type Role, type SellerScope } from "./scoped.ts";
+import { inStore } from "./tenant.ts";
 
 // Store membership (SC-19/SC-20, PR-15). Invitations live in accounts.ts.
 
 export async function listMembers(scope: SellerScope) {
-  return scope.exec
-    .select({ userId: user.id, name: user.name, email: user.email, role: membership.role })
-    .from(membership)
-    .innerJoin(user, eq(user.id, membership.userId))
-    .where(eq(membership.storeId, scope.storeId))
-    .orderBy(asc(user.email));
+  return inStore(scope, async (scope) => {
+    return scope.exec
+      .select({ userId: user.id, name: user.name, email: user.email, role: membership.role })
+      .from(membership)
+      .innerJoin(user, eq(user.id, membership.userId))
+      .where(eq(membership.storeId, scope.storeId))
+      .orderBy(asc(user.email));
+  });
 }
 
 /**
@@ -23,7 +27,7 @@ export async function listMembers(scope: SellerScope) {
 export async function changeMember(scope: SellerScope, targetUserId: string, role: Role | null): Promise<void> {
   requireCap(scope, "members.manage");
   const next = z.enum(["owner", "staff"]).nullable().parse(role);
-  await scope.exec.transaction(async (tx) => {
+  await inStore(scope, async ({ exec: tx }) => {
     const rows = await tx
       .select({ userId: membership.userId, role: membership.role })
       .from(membership)
@@ -42,9 +46,12 @@ export async function changeMember(scope: SellerScope, targetUserId: string, rol
       storeId: scope.storeId,
       action: next ? `member.role:${targetUserId}:${next}` : `member.remove:${targetUserId}`,
     });
-    // Membership checks run per request, so the change already applies to the next request;
-    // a user left with no membership (and not an operator) also loses every session (IAM-9).
-    if (!next && (await revokeSessionsIfOrphaned(tx, targetUserId)) > 0)
-      await tx.insert(auditLog).values({ actorUserId: scope.userId, storeId: scope.storeId, action: `session.revoke:${targetUserId}` });
   });
+  // Membership checks run per request, so the change already applies to the next request;
+  // a user left with no membership (and not an operator) also loses every session (IAM-9).
+  // Cross-store by nature (other stores' memberships are invisible in this store's RLS
+  // context), so it runs after the commit on the platform pool. lazy: not atomic with the
+  // removal; a crash in between leaves sessions that every request denies anyway.
+  if (!next && (await revokeSessionsIfOrphaned(platformDb(), targetUserId)) > 0)
+    await platformDb().insert(auditLog).values({ actorUserId: scope.userId, storeId: scope.storeId, action: `session.revoke:${targetUserId}` });
 }

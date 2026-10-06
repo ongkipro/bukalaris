@@ -12,16 +12,16 @@ import {
 } from "../src/ops.ts";
 import { auditLog, operatorGrant, systemLog } from "../src/schema.ts";
 import { operatorScope } from "../src/scoped.ts";
-import { db, makeOperator, makeStore } from "./helpers.ts";
+import { admin, db, makeOperator, makeStore, platform } from "./helpers.ts";
 
 // helpers.ts truncates the M1 tables; this track owns its own.
 beforeEach(async () => {
-  await db.execute("truncate system_log, operator_grant restart identity cascade");
+  await admin.execute("truncate system_log, operator_grant restart identity cascade");
 });
 
 async function reader() {
   const op = await makeOperator();
-  await db.insert(operatorGrant).values({ userId: op.userId, capability: "logs.read" });
+  await platform.insert(operatorGrant).values({ userId: op.userId, capability: "logs.read" });
   return op;
 }
 const event = (over: Record<string, unknown> = {}, fields: Record<string, unknown> = {}) =>
@@ -51,7 +51,7 @@ describe("Log System sink (PR-11, OBS-5)", () => {
         status: 500,
       },
     );
-    const [row] = await db.select().from(systemLog).where(eq(systemLog.id, id));
+    const [row] = await platform.select().from(systemLog).where(eq(systemLog.id, id));
     expect(row!.fields).toEqual({ request_id: "req-aaaaaaaa", route: "/checkout", code: "ECONNREFUSED", store_id: 7, status: 500 });
     expect(row!.storeId).toBe(7);
     expect(row!.code).toBe("ECONNREFUSED");
@@ -92,11 +92,11 @@ describe("Log System sink (PR-11, OBS-5)", () => {
     await expect(getSystemLog(plain, 1)).rejects.toMatchObject({ code: "forbidden" });
     // A seller (even a store owner) never gets an OperatorScope, so no grant can exist for them.
     const s = await makeStore("toko-a");
-    expect(await operatorScope(db, s.ownerId)).toBeNull();
-    await expect(db.insert(operatorGrant).values({ userId: s.ownerId, capability: "logs.read" })).rejects.toThrow();
+    expect(await operatorScope(platform, s.ownerId)).toBeNull();
+    await expect(platform.insert(operatorGrant).values({ userId: s.ownerId, capability: "logs.read" })).rejects.toThrow();
     // Denied reads leave no access-audit row and no diagnostic row.
-    expect((await db.select().from(auditLog)).filter((a) => a.action.startsWith("logs."))).toHaveLength(0);
-    expect(await db.select().from(systemLog)).toHaveLength(0);
+    expect((await platform.select().from(auditLog)).filter((a) => a.action.startsWith("logs."))).toHaveLength(0);
+    expect(await platform.select().from(systemLog)).toHaveLength(0);
   });
 
   it("lists with filters, pages by cursor, and audits every read", async () => {
@@ -133,7 +133,7 @@ describe("Log System sink (PR-11, OBS-5)", () => {
     await expect(listSystemLogs(op, { from: "2026-10-01T00:00:00Z", to: "2026-10-03T00:00:00Z" })).rejects.toMatchObject({ code: "range_too_wide" });
     await expect(listSystemLogs(op, { requestId: "x; drop table" })).rejects.toMatchObject({ name: "ZodError" });
 
-    const audits = await db.select().from(auditLog).where(eq(auditLog.action, "logs.list")).orderBy(desc(auditLog.id));
+    const audits = await platform.select().from(auditLog).where(eq(auditLog.action, "logs.list")).orderBy(desc(auditLog.id));
     expect(audits).toHaveLength(9);
     expect(audits.every((a) => a.actorUserId === op.userId)).toBe(true);
     expect(JSON.parse(audits.at(-1)!.reason!)).toMatchObject({ from: base.from, to: base.to });
@@ -159,7 +159,7 @@ describe("Log System sink (PR-11, OBS-5)", () => {
 
     expect(await getSystemLog(op, 999_999)).toBeNull();
     expect(await getSystemLog(op, -1)).toBeNull();
-    const reads = await db.select().from(auditLog).where(eq(auditLog.action, "logs.read"));
+    const reads = await platform.select().from(auditLog).where(eq(auditLog.action, "logs.read"));
     expect(reads.map((r) => r.reason)).toEqual([`event:${a}`, `event:${unmapped}`, "event:999999"]);
   });
 });

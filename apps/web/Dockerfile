@@ -23,7 +23,7 @@ RUN pnpm --filter @bukalaris/db deploy --prod --legacy /out && rm -rf /out/docke
 
 # One-off migration job (Coolify pre-deployment step / manual run):
 #   docker build -f apps/web/Dockerfile --target migrate -t bukalaris-migrate .
-#   docker run --rm -e DATABASE_URL=... bukalaris-migrate
+#   docker run --rm -e MIGRATION_DATABASE_URL=... bukalaris-migrate   # owner role (ADR-0005)
 FROM node:24-alpine AS migrate
 WORKDIR /app
 RUN addgroup -S -g 10001 app && adduser -S -u 10001 -G app app

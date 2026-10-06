@@ -15,17 +15,17 @@ import {
 } from "../src/orders.ts";
 import { membership, order, ORDER_STATUSES, orderStatusHistory, stockAdjustment, variant, type OrderStatus } from "../src/schema.ts";
 import { setCartLine } from "../src/storefront.ts";
-import { buyer, db, makeStore, makeUser, seller } from "./helpers.ts";
+import { buyer, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
 
-const stockOf = async (id: number) => (await db.select().from(variant).where(eq(variant.id, id)))[0]!.stock;
-const statusOf = async (id: number) => (await db.select().from(order).where(eq(order.id, id)))[0]!.status;
+const stockOf = async (id: number) => (await platform.select().from(variant).where(eq(variant.id, id)))[0]!.stock;
+const statusOf = async (id: number) => (await platform.select().from(order).where(eq(order.id, id)))[0]!.status;
 
 type Store = Awaited<ReturnType<typeof makeStore>>;
 /** An order in `placed` (COD orders skip the T-35 confirmation step here, without a history row; checkout2.test.ts covers it). */
 async function placed(s: Store, qty = 1, over: Record<string, unknown> = {}) {
   const cartId = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: qty }, "add");
   const { orderId } = await placeOrder(db, cartId, buyer(over));
-  await runOnce(db, { workerId: "test" }); // T-32: the payment instruction comes from the outbox worker
+  await runOnce(platform, { workerId: "test" }); // T-32: the payment instruction comes from the outbox worker
   if (over.paymentMethod !== "manual_transfer") await force(orderId, "placed");
   return orderId;
 }
@@ -34,7 +34,7 @@ const inputFor = (action: OrderAction) =>
   action === "ship" ? { trackingNumber: "RESI-1" } : action === "cancel" || action === "reject" || action === "hold" ? { reason: "uji transisi pesanan" } : {};
 /** Force an order into a given status directly (the matrix test needs every start state). */
 const force = (id: number, status: OrderStatus) =>
-  db.update(order).set({ status, trackingNumber: status === "shipped" || status === "completed" ? "X" : null }).where(eq(order.id, id));
+  platform.update(order).set({ status, trackingNumber: status === "shipped" || status === "completed" ? "X" : null }).where(eq(order.id, id));
 
 describe("seller orders (SC-12/SC-13)", () => {
   it("lists newest first with a status filter and a stable cursor", async () => {
@@ -87,7 +87,7 @@ describe("seller orders (SC-12/SC-13)", () => {
     }
     expect(await statusOf(id)).toBe("placed");
     expect(await stockOf(a.variantId)).toBe(9);
-    expect(await db.select().from(orderStatusHistory)).toHaveLength(0);
+    expect(await platform.select().from(orderStatusHistory)).toHaveLength(0);
   });
 
   it("happy path: paid → processing → shipped → completed, each step audited with the actor", async () => {
@@ -131,7 +131,7 @@ describe("seller orders (SC-12/SC-13)", () => {
         }
       }
     }
-    const transitions = await db.select().from(orderStatusHistory);
+    const transitions = await platform.select().from(orderStatusHistory);
     const allowedCount = Object.values(TRANSITIONS).reduce((n, t) => n + t.from.length, 0);
     expect(transitions).toHaveLength(allowedCount);
   });
@@ -145,7 +145,7 @@ describe("seller orders (SC-12/SC-13)", () => {
     expect(await stockOf(s.variantId)).toBe(10);
     await expect(transitionOrder(s.owner, id, "cancel", { reason: "Pembeli berubah pikiran" })).rejects.toMatchObject({ code: "invalid_transition" });
     expect(await stockOf(s.variantId)).toBe(10);
-    const moves = await db.select().from(stockAdjustment);
+    const moves = await platform.select().from(stockAdjustment);
     expect(moves).toEqual([expect.objectContaining({ variantId: s.variantId, delta: 3, orderId: id, actorUserId: s.ownerId })]);
 
     const shipped = await placed(s, 2);
@@ -160,7 +160,7 @@ describe("seller orders (SC-12/SC-13)", () => {
       const s = await makeStore(`toko-${round}`, { stock: 10 });
       const id = await placed(s, 4);
       const staff = await makeUser("staff");
-      await db.insert(membership).values({ storeId: s.storeId, userId: staff, role: "staff" });
+      await platform.insert(membership).values({ storeId: s.storeId, userId: staff, role: "staff" });
       const staffScope = await seller(staff);
       const settled = await Promise.allSettled([
         transitionOrder(s.owner, id, "cancel", { reason: "cancel oleh pemilik" }),
@@ -177,8 +177,8 @@ describe("seller orders (SC-12/SC-13)", () => {
       expect(ok.filter((r) => (r as PromiseFulfilledResult<string>).value === "cancelled")).toHaveLength(1);
       expect(await statusOf(id)).toBe("cancelled");
       expect(await stockOf(s.variantId)).toBe(10);
-      expect(await db.select().from(stockAdjustment).where(eq(stockAdjustment.orderId, id))).toHaveLength(1);
-      expect(await db.select().from(orderStatusHistory).where(eq(orderStatusHistory.orderId, id))).toHaveLength(ok.length);
+      expect(await platform.select().from(stockAdjustment).where(eq(stockAdjustment.orderId, id))).toHaveLength(1);
+      expect(await platform.select().from(orderStatusHistory).where(eq(orderStatusHistory.orderId, id))).toHaveLength(ok.length);
     }
   });
 
@@ -186,7 +186,7 @@ describe("seller orders (SC-12/SC-13)", () => {
     const s = await makeStore("toko-a");
     const id = await placed(s);
     const staff = await makeUser("staff");
-    await db.insert(membership).values({ storeId: s.storeId, userId: staff, role: "staff" });
+    await platform.insert(membership).values({ storeId: s.storeId, userId: staff, role: "staff" });
     const staffScope = await seller(staff);
     expect((await listOrders(staffScope)).orders.map((o) => o.id)).toEqual([id]);
     expect(await transitionOrder(staffScope, id, "process")).toBe("processing");
@@ -223,7 +223,7 @@ describe("inventory (SC-04)", () => {
     await expect(adjustStock(a.owner, b.variantId, { delta: 100, reason: "bajak stok" })).rejects.toMatchObject({ code: "not_found" });
     await expect(adjustStock(a.owner, b.variantId, { delta: -1, reason: "bajak stok" })).rejects.toMatchObject({ code: "not_found" });
     expect(await stockOf(b.variantId)).toBe(3);
-    expect(await db.select().from(stockAdjustment)).toHaveLength(0);
+    expect(await platform.select().from(stockAdjustment)).toHaveLength(0);
   });
 
   it("concurrent decrements never go negative and every success is recorded", async () => {
@@ -235,13 +235,13 @@ describe("inventory (SC-04)", () => {
     expect(ok).toHaveLength(5);
     expect(settled.filter((r): r is PromiseRejectedResult => r.status === "rejected").every((r) => r.reason.code === "insufficient_stock")).toBe(true);
     expect(await stockOf(s.variantId)).toBe(0);
-    expect(await db.select().from(stockAdjustment)).toHaveLength(5);
+    expect(await platform.select().from(stockAdjustment)).toHaveLength(5);
   });
 
   it("staff can adjust stock", async () => {
     const s = await makeStore("toko-a", { stock: 1 });
     const staff = await makeUser("staff");
-    await db.insert(membership).values({ storeId: s.storeId, userId: staff, role: "staff" });
+    await platform.insert(membership).values({ storeId: s.storeId, userId: staff, role: "staff" });
     expect(await adjustStock(await seller(staff), s.variantId, { delta: 4, reason: "Hitung ulang gudang" })).toBe(5);
     expect((await listStockAdjustments(s.owner))[0]).toMatchObject({ actorName: "staff", delta: 4 });
   });

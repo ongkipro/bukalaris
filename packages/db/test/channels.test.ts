@@ -15,7 +15,7 @@ import {
 import { placeOrder } from "../src/checkout.ts";
 import { checkoutHandoff, membership, storefrontChannel } from "../src/schema.ts";
 import { getCart, listPublishedProducts, setCartLine } from "../src/storefront.ts";
-import { buyer, db, makeStore, makeUser, seller } from "./helpers.ts";
+import { buyer, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
 
 const channelFor = (s: Awaited<ReturnType<typeof makeStore>>, over: Record<string, unknown> = {}) =>
   createChannel(s.owner, { name: `Channel ${s.storeId}`, origin: "https://shop.example", returnPath: "/thanks", ...over });
@@ -31,7 +31,7 @@ describe("headless channels (SC-21, IAM-11)", () => {
     const s = await makeStore("toko-a");
     const { id, token, prefix } = await channelFor(s);
     expect(token).toMatch(/^blsk_[A-Za-z0-9_-]{8}_[A-Za-z0-9_-]{43}$/);
-    const [row] = await db.select().from(storefrontChannel).where(eq(storefrontChannel.id, id));
+    const [row] = await platform.select().from(storefrontChannel).where(eq(storefrontChannel.id, id));
     expect(row).toMatchObject({ tokenPrefix: prefix, tokenHash: createHash("sha256").update(token).digest("hex"), status: "active" });
     expect(JSON.stringify(row)).not.toContain(token.slice(-20));
     expect((await listChannels(s.owner)).map((c) => ({ id: c.id, state: c.state, tokenPrefix: c.tokenPrefix }))).toEqual([
@@ -58,19 +58,19 @@ describe("headless channels (SC-21, IAM-11)", () => {
 
     const b = await channelFor(s, { expiresAt: new Date(Date.now() + 60_000).toISOString() });
     expect((await authenticateChannel(db, bearer(b.token))).ok).toBe(true);
-    await db.update(storefrontChannel).set({ expiresAt: sql`now() - interval '1 second'` }).where(eq(storefrontChannel.id, b.id));
+    await platform.update(storefrontChannel).set({ expiresAt: sql`now() - interval '1 second'` }).where(eq(storefrontChannel.id, b.id));
     expect(await authenticateChannel(db, bearer(b.token))).toEqual({ ok: false, reason: "unauthorized" });
     expect((await listChannels(s.owner)).find((c) => c.id === b.id)!.state).toBe("expired");
 
     const c = await channelFor(s);
-    await db.execute(sql`update store set status = 'suspended' where id = ${s.storeId}`);
+    await platform.execute(sql`update store set status = 'suspended' where id = ${s.storeId}`);
     expect(await authenticateChannel(db, bearer(c.token))).toEqual({ ok: false, reason: "store_unavailable" });
   });
 
   it("only owners manage channels; origin and return path are validated", async () => {
     const s = await makeStore("toko-a");
     const staffId = await makeUser("staff");
-    await db.insert(membership).values({ storeId: s.storeId, userId: staffId, role: "staff" });
+    await platform.insert(membership).values({ storeId: s.storeId, userId: staffId, role: "staff" });
     const staff = await seller(staffId);
     await expect(channelFor({ ...s, owner: staff })).rejects.toMatchObject({ code: "forbidden" });
     await expect(listChannels(staff)).rejects.toMatchObject({ code: "forbidden" });
@@ -97,7 +97,7 @@ describe("headless channels (SC-21, IAM-11)", () => {
     expect((await getCart(scopeA, cartB)).id).toBeNull();
     await expect(createHandoff(scopeA, channel.id, cartB)).rejects.toMatchObject({ code: "not_found" });
     await expect(setCartLine(scopeA, cartB, { variantId: b.variantId, quantity: 1 }, "add")).rejects.toMatchObject({ code: "not_found" });
-    expect(await db.select().from(checkoutHandoff)).toHaveLength(0);
+    expect(await platform.select().from(checkoutHandoff)).toHaveLength(0);
 
     const cartA = await createEmptyCart(scopeA);
     expect(await ownsOpenCart(scopeA, cartA)).toBe(true);
@@ -111,7 +111,7 @@ describe("headless channels (SC-21, IAM-11)", () => {
     const h = await createHandoff(scope, channel.id, cartId);
     expect(h.code).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(h.expiresAt.getTime()).toBeGreaterThan(Date.now());
-    const [row] = await db.select().from(checkoutHandoff);
+    const [row] = await platform.select().from(checkoutHandoff);
     expect(row!.codeHash).toBe(createHash("sha256").update(h.code).digest("hex"));
 
     const results = await Promise.all([exchangeHandoff(db, h.code), exchangeHandoff(db, h.code)]);
@@ -134,7 +134,7 @@ describe("headless channels (SC-21, IAM-11)", () => {
     const cartId = await setCartLine(scope, undefined, { variantId: s.variantId, quantity: 1 }, "add");
 
     const expired = await createHandoff(scope, channel.id, cartId);
-    await db.update(checkoutHandoff).set({ expiresAt: sql`now() - interval '1 second'` }).where(eq(checkoutHandoff.id, expired.id));
+    await platform.update(checkoutHandoff).set({ expiresAt: sql`now() - interval '1 second'` }).where(eq(checkoutHandoff.id, expired.id));
     expect(await exchangeHandoff(db, expired.code)).toBeNull();
 
     const checkedOut = await createHandoff(scope, channel.id, cartId);

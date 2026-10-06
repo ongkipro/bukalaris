@@ -1,7 +1,8 @@
 import { and, asc, eq } from "drizzle-orm";
-import type { Executor } from "./client.ts";
+import { platformDb, type Executor } from "./client.ts";
 import { membership, platformOperator, store } from "./schema.ts";
 export { slugFromHost } from "./host.ts";
+export { inStore, withStore } from "./tenant.ts";
 
 /**
  * Store-scoped data access (TEN-1/TEN-2). Every store-owned query in this
@@ -9,6 +10,13 @@ export { slugFromHost } from "./host.ts";
  * only produced here: from verified membership (seller), from host/slug
  * resolution of an active store (storefront), or from a verified platform
  * operator. Callers never pass a raw store id from the browser into a query.
+ *
+ * T-27 (ADR-0005): the database enforces the same boundary with row-level security.
+ * Services run store-owned statements through `inStore(scope, …)`, which opens a
+ * transaction on `scope.exec` with the store context set. Resolving a scope is itself a
+ * cross-store lookup (which stores is this user a member of? which store has this slug?),
+ * so the two store resolvers below read through the privileged platform pool and return
+ * only the resolved store; everything after that runs on the caller's executor.
  */
 declare const scopeBrand: unique symbol;
 type Branded = { readonly [scopeBrand]: true };
@@ -76,7 +84,7 @@ export async function sellerContext(
   userId: string,
   requestedStoreId?: number,
 ): Promise<SellerContext> {
-  const rows = await exec
+  const rows = await platformDb()
     .select({ storeId: store.id, name: store.name, slug: store.slug, status: store.status, role: membership.role })
     .from(membership)
     .innerJoin(store, eq(store.id, membership.storeId))
@@ -104,7 +112,7 @@ export async function sellerContext(
 
 /** Resolve an active store by slug. Unknown and suspended stores both yield null. */
 export async function storefrontScope(exec: Executor, slug: string): Promise<StorefrontScope | null> {
-  const [row] = await exec
+  const [row] = await platformDb()
     .select({ id: store.id, name: store.name, slug: store.slug })
     .from(store)
     .where(and(eq(store.slug, slug), eq(store.status, "active")));
@@ -112,6 +120,7 @@ export async function storefrontScope(exec: Executor, slug: string): Promise<Sto
   return { kind: "storefront", exec, storeId: row.id, storeName: row.name, storeSlug: row.slug } as StorefrontScope;
 }
 
+/** `exec` must be the platform pool (`platformDb()`): Super Admin reads across stores and the app role has no access to `platform_operator`. */
 export async function operatorScope(exec: Executor, userId: string): Promise<OperatorScope | null> {
   const [row] = await exec.select().from(platformOperator).where(eq(platformOperator.userId, userId));
   return row ? ({ kind: "operator", exec, userId } as OperatorScope) : null;

@@ -28,7 +28,7 @@ import {
   validateImage,
 } from "../src/content.ts";
 import { collectionProduct, media, membership, user } from "../src/schema.ts";
-import { db, makeStore, makeUser, seller } from "./helpers.ts";
+import { makeStore, makeUser, platform, seller } from "./helpers.ts";
 
 // Header-only fixtures: sniffing reads dimensions from the first bytes, never the extension.
 const png = (w: number, h: number) => {
@@ -70,7 +70,7 @@ describe("content: store settings and theme (SC-10/11, PR-8)", () => {
   it("owner updates settings; staff is denied; storefront sees the theme", async () => {
     const a = await makeStore("toko-a");
     const staffId = await makeUser("staff");
-    await db.insert(membership).values({ storeId: a.storeId, userId: staffId, role: "staff" });
+    await platform.insert(membership).values({ storeId: a.storeId, userId: staffId, role: "staff" });
     const staff = await seller(staffId);
     await expect(updateStoreSettings(staff, { name: "X", theme: "mobile" })).rejects.toMatchObject({ code: "forbidden" });
 
@@ -97,10 +97,10 @@ describe("content: collections (SC-05/06, SF-02)", () => {
     ).rejects.toMatchObject({ code: "foreign_product" });
     const id = await createCollection(a.owner, { title: "Best", slug: "best", status: "published", productIds: [a.productId] });
     await expect(
-      db.insert(collectionProduct).values({ collectionId: id, storeId: a.storeId, productId: b.productId, position: 9 }),
+      platform.insert(collectionProduct).values({ collectionId: id, storeId: a.storeId, productId: b.productId, position: 9 }),
     ).rejects.toMatchObject({ cause: { constraint_name: "collection_product_product_fk" } });
     await expect(
-      db.insert(collectionProduct).values({ collectionId: id, storeId: b.storeId, productId: b.productId, position: 9 }),
+      platform.insert(collectionProduct).values({ collectionId: id, storeId: b.storeId, productId: b.productId, position: 9 }),
     ).rejects.toMatchObject({ cause: { constraint_name: "collection_product_collection_fk" } });
   });
 
@@ -154,7 +154,7 @@ describe("content: product media", () => {
     await expect(addProductMedia(a.owner, a.productId, new TextEncoder().encode("nope"), "")).rejects.toMatchObject({ code: "bad_type" });
     await expect(addProductMedia(a.owner, b.productId, png(10, 10), "")).rejects.toMatchObject({ code: "not_found" });
     await expect(
-      db.insert(media).values({ storeId: a.storeId, productId: b.productId, position: 0, mime: "image/png", width: 1, height: 1, bytes: 1 }),
+      platform.insert(media).values({ storeId: a.storeId, productId: b.productId, position: 0, mime: "image/png", width: 1, height: 1, bytes: 1 }),
     ).rejects.toMatchObject({ cause: { constraint_name: "media_product_fk" } });
 
     const first = await addProductMedia(a.owner, a.productId, png(800, 600), "Tampak depan");
@@ -193,7 +193,7 @@ describe("content: Super Admin store detail and creation (SA-03)", () => {
   it("creates a store for an existing owner email and reports counts", async () => {
     const a = await makeStore("toko-a");
     const ownerId = await makeUser("new-owner");
-    const [{ email }] = await db.select({ email: user.email }).from(user).where(eq(user.id, ownerId));
+    const [{ email }] = await platform.select({ email: user.email }).from(user).where(eq(user.id, ownerId));
     await expect(createStoreForOwnerEmail(a.op, { slug: "toko-c", name: "Toko C", ownerEmail: "nobody@test.local" })).rejects.toMatchObject({ code: "owner_not_found" });
     await expect(createStoreForOwnerEmail(a.op, { slug: "toko-a", name: "Dup", ownerEmail: email })).rejects.toMatchObject({ code: "slug_taken" });
     const id = await createStoreForOwnerEmail(a.op, { slug: "toko-c", name: "Toko C", ownerEmail: email.toUpperCase() });

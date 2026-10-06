@@ -20,12 +20,13 @@ Values live only in Coolify secrets; never in the repository or image.
 
 | Variable | Web | Migrate | Notes |
 |---|---|---|---|
-| `DATABASE_URL` | required | required | Postgres URL on the private network. M1 uses one role for both (DECISIONS D-4 plans separate runtime/migration roles) |
+| `DATABASE_URL` | required | — | Postgres URL on the private network **as role `bukalaris_app`** (NOBYPASSRLS; row-level security applies to every request, ADR-0005). Never the owner or a superuser |
+| `PLATFORM_DATABASE_URL` | required (web + worker) | — | Same database **as role `bukalaris_platform`** (BYPASSRLS): Super Admin, the outbox worker/cleanup and the cross-store resolvers. The worker uses only this one |
 | `BETTER_AUTH_SECRET` | required | — | Generate per environment (`openssl rand -base64 32`); never reuse the `.env.example` placeholder |
 | `BETTER_AUTH_URL` | required | — | Exact public origin of the admin/checkout host, e.g. `https://app.bukalaris.com`; a mismatch makes sign-in return 403 (origin check) |
 | `ORDER_LINK_SECRET` | required | — | HMAC-SHA256 key for buyer order-status links in e-mails (`/o/<id>.<expiry>.<hmac>`, 30-day expiry). Generate per environment (`openssl rand -base64 32`); rotating it invalidates every link already sent. Also needed by the worker process (it renders the mails). Falls back to `BETTER_AUTH_SECRET` when unset (dev convenience) |
 | `STORE_ROOT_DOMAIN` | required | — | e.g. `bukalaris.com`; `toko-a.bukalaris.com` serves store `toko-a` |
-| `MIGRATION_DATABASE_URL` | — | optional | Overrides `DATABASE_URL` for the migrator when roles are split |
+| `MIGRATION_DATABASE_URL` | — | required | Same database **as role `bukalaris_owner`** (schema owner). The migrator has no fallback to `DATABASE_URL`: the app role may not alter the schema |
 | `DATABASE_POOL_MAX` | optional | — | Default 10 |
 | `MEDIA_DIR` | preset | — | Image default `/data/media`; mount a persistent volume there (see "Media volume") |
 | `ENABLE_HSTS` | optional | — | `1` once TLS terminates at the reverse proxy and it forwards `x-forwarded-proto: https`. Adds `Strict-Transport-Security: max-age=31536000; includeSubDomains` (no `preload`) and `upgrade-insecure-requests`; both are sent only on requests that arrived as HTTPS, so a plain-http hit can never pin a host. Unset by default |
@@ -34,12 +35,30 @@ Values live only in Coolify secrets; never in the repository or image.
 | `SIGNALS_LIVE` | optional (worker) | — | `1` lets the outbox worker call Meta Conversions API / TikTok Events API for real. Unset = simulation (events recorded as `simulated`, nothing leaves the host). Enable only after the owner approves a test-event call and the provider contract is verified (docs/tracks/signals.md) |
 | `PORT`, `HOSTNAME` | preset | — | Image defaults `3000`, `0.0.0.0` |
 
+## Database roles (once per database, before the first migration)
+
+Three roles (ADR-0005, `docs/tracks/rls.md`). `BYPASSRLS` can only be granted by a
+superuser, so this is a DBA step on the Coolify Postgres (as the `postgres` user),
+not a migration. Generate three passwords (`openssl rand -base64 32`), store them
+in Coolify secrets only, and make the application database owned by the owner role:
+
+```sql
+CREATE ROLE bukalaris_owner LOGIN BYPASSRLS PASSWORD '<owner secret>';
+CREATE ROLE bukalaris_app LOGIN NOBYPASSRLS PASSWORD '<app secret>';
+CREATE ROLE bukalaris_platform LOGIN BYPASSRLS PASSWORD '<platform secret>';
+ALTER DATABASE bukalaris OWNER TO bukalaris_owner;   -- or CREATE DATABASE … OWNER bukalaris_owner
+```
+
+The role names are fixed (migration `0007_rls.sql` grants to them by name and
+refuses to run when they are missing). Local development uses the same statements
+with placeholder passwords equal to the role names (`packages/db/docker/05-roles.sql`).
+
 ## Migration step (before the new web version)
 
-Command (runs `node src/migrate.ts`, idempotent):
+Command (runs `node src/migrate.ts` as the schema owner, idempotent):
 
 ```bash
-docker run --rm --network <coolify-private-network> -e DATABASE_URL=… bukalaris-migrate
+docker run --rm --network <coolify-private-network> -e MIGRATION_DATABASE_URL=… bukalaris-migrate
 ```
 
 Why not Coolify's "Pre-deployment command" field: per the Coolify docs it runs
@@ -51,7 +70,7 @@ failure does not fail the deploy. Plan instead:
 
 1. A second Coolify application from this repository, Dockerfile build pack,
    target stage `migrate` (Coolify supports a Dockerfile target build stage),
-   no domain, same `DATABASE_URL`. Run/deploy it first; it exits after
+   no domain, `MIGRATION_DATABASE_URL` only. Run/deploy it first; it exits after
    "migrations applied".
 2. Then deploy the web application. Gate (2) on (1) succeeding.
 3. Migrations follow expand/contract (15-DELIVERY-MIGRATIONS DEL-2) so the old
@@ -112,7 +131,8 @@ The web image stores uploads on local disk under `MEDIA_DIR` (default
 - Auth: recovery, invitations, MFA for operators, separate admin origin/cookie
   namespace (ADR-0004); rate-limit storage shared across instances; confirm the
   client-IP header the reverse proxy sets so the per-IP limit cannot be forged.
-- RLS and separate DB roles (DECISIONS D-4).
+- RLS and separate DB roles: implemented locally (ADR-0005, T-27); the production
+  roles still have to be created by hand (see "Database roles").
 - Log System, audit views, observability sink (T-9, T-13).
 
 ## Rollback

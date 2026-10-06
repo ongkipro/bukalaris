@@ -12,6 +12,24 @@ const PORT = Number(process.env.E2E_PORT ?? 3100);
 // reuses, a developer's local secret. The disposable e2e database is wiped every run anyway.
 // Set on process.env so the web server, the worker and any server a spec spawns share it.
 process.env.INTEGRATION_TOKEN_KEY = randomBytes(32).toString("base64");
+// Three database roles as in production (ADR-0005): the web app runs as bukalaris_app with
+// RLS applied, operators and the worker as bukalaris_platform, the global setup migrates as
+// bukalaris_owner; the superuser URL only creates roles/database. Same local placeholder
+// convention as packages/db/src/local-roles.ts (password = role name, docker/05-roles.sql);
+// duplicated here because Playwright's config loader cannot import that ESM file.
+const asRole = (url: string, role: string) => {
+  const u = new URL(url);
+  u.username = role;
+  u.password = role;
+  return u.toString();
+};
+const E2E_DB = process.env.E2E_DATABASE_URL ?? "";
+const APP_DB = E2E_DB && asRole(E2E_DB, "bukalaris_app");
+const PLATFORM_DB = E2E_DB && asRole(E2E_DB, "bukalaris_platform");
+// Shared with e2e/global-setup.ts through the environment (like INTEGRATION_TOKEN_KEY).
+process.env.E2E_OWNER_DATABASE_URL = E2E_DB && asRole(E2E_DB, "bukalaris_owner");
+process.env.E2E_APP_DATABASE_URL = APP_DB;
+process.env.E2E_PLATFORM_DATABASE_URL = PLATFORM_DB;
 export default defineConfig({
   testDir: "e2e",
   globalSetup: "./e2e/global-setup.ts",
@@ -30,7 +48,7 @@ export default defineConfig({
       command: `PORT=${PORT} NEXT_TELEMETRY_DISABLED=1 pnpm start:standalone`,
       // Better Auth's origin check compares against BETTER_AUTH_URL, so it must match this port.
       // Disposable upload directory next to the disposable database (wiped by global-setup).
-      env: { DATABASE_URL: process.env.E2E_DATABASE_URL ?? "", BETTER_AUTH_URL: `http://localhost:${PORT}`, MEDIA_DIR: resolve("var/e2e-media") },
+      env: { DATABASE_URL: APP_DB, PLATFORM_DATABASE_URL: PLATFORM_DB, BETTER_AUTH_URL: `http://localhost:${PORT}`, MEDIA_DIR: resolve("var/e2e-media") },
       url: `http://localhost:${PORT}/api/health`,
       // Never reuse a server that may point at the dev database.
       reuseExistingServer: false,
@@ -40,7 +58,7 @@ export default defineConfig({
       // Outbox worker (T-32): transfer orders get their payment reference from it, as in production.
       command: "node ../../packages/db/src/worker.ts",
       // BETTER_AUTH_URL: the worker renders e-mail links against the public origin (T-36), i.e. this port.
-      env: { DATABASE_URL: process.env.E2E_DATABASE_URL ?? "", WORKER_POLL_MS: "1000", BETTER_AUTH_URL: `http://localhost:${PORT}` },
+      env: { PLATFORM_DATABASE_URL: PLATFORM_DB, WORKER_POLL_MS: "1000", BETTER_AUTH_URL: `http://localhost:${PORT}` },
       wait: { stdout: /"event":"started"/ },
       reuseExistingServer: false,
       timeout: 30_000,

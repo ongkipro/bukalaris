@@ -1,10 +1,11 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { and, count, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { openCartStore } from "./checkout.ts";
-import type { Executor } from "./client.ts";
+import { cartStore, openCartStore } from "./checkout.ts";
+import { platformDb, type Executor } from "./client.ts";
 import { auditLog, cart, cartLine, checkoutHandoff, store, storefrontChannel } from "./schema.ts";
 import { DomainError, requireCap, storefrontScope, type SellerScope, type StorefrontScope } from "./scoped.ts";
+import { inStore, withStore } from "./tenant.ts";
 
 // Headless storefront channels (SC-21, PR-16, IAM-11) and the one-use checkout
 // handoff (ARCH-7, API-8). The private token is shown once at creation; only its
@@ -74,12 +75,14 @@ const isLive = (c: { status: string; expiresAt: Date | null }) =>
 
 export async function listChannels(scope: SellerScope) {
   requireCap(scope, "integrations.manage");
-  const rows = await scope.exec
-    .select(channelColumns)
-    .from(storefrontChannel)
-    .where(eq(storefrontChannel.storeId, scope.storeId))
-    .orderBy(desc(storefrontChannel.id));
-  return rows.map((c) => ({ ...c, state: c.status === "revoked" ? "revoked" : isLive(c) ? "active" : "expired" }) as const);
+  return inStore(scope, async (scope) => {
+    const rows = await scope.exec
+      .select(channelColumns)
+      .from(storefrontChannel)
+      .where(eq(storefrontChannel.storeId, scope.storeId))
+      .orderBy(desc(storefrontChannel.id));
+    return rows.map((c) => ({ ...c, state: c.status === "revoked" ? "revoked" : isLive(c) ? "active" : "expired" }) as const);
+  });
 }
 
 /** Create a channel and return its private token exactly once (never stored, never logged). */
@@ -87,7 +90,7 @@ export async function createChannel(scope: SellerScope, raw: unknown) {
   requireCap(scope, "integrations.manage");
   const input = channelInput.parse(raw);
   const { token, prefix, hash } = issueToken();
-  return scope.exec.transaction(async (tx) => {
+  return inStore(scope, async ({ exec: tx }) => {
     const [c] = await tx
       .insert(storefrontChannel)
       .values({ ...input, storeId: scope.storeId, tokenPrefix: prefix, tokenHash: hash, createdBy: scope.userId })
@@ -100,7 +103,7 @@ export async function createChannel(scope: SellerScope, raw: unknown) {
 /** Revoke a channel: new API calls and unused handoffs are denied immediately. */
 export async function revokeChannel(scope: SellerScope, channelId: number): Promise<void> {
   requireCap(scope, "integrations.manage");
-  await scope.exec.transaction(async (tx) => {
+  await inStore(scope, async ({ exec: tx }) => {
     const [c] = await tx
       .update(storefrontChannel)
       .set({ status: "revoked", revokedAt: sql`now()` })
@@ -125,12 +128,21 @@ export async function authenticateChannel(exec: Executor, authorization: string 
   const prefix = token?.match(TOKEN_RE)?.[1];
   if (!token || !prefix) return deny;
   const given = Buffer.from(sha256(token));
-  const candidates = await exec
-    .select({ ...channelColumns, tokenHash: storefrontChannel.tokenHash, storeSlug: store.slug })
+  // Cross-store resolver (ADR-0005 §4): token prefix → candidate hashes and their store, through the
+  // platform pool; the channel row itself is then read in that store's context.
+  const candidates = await platformDb()
+    .select({ storeId: storefrontChannel.storeId, tokenHash: storefrontChannel.tokenHash })
     .from(storefrontChannel)
-    .innerJoin(store, eq(store.id, storefrontChannel.storeId))
     .where(eq(storefrontChannel.tokenPrefix, prefix));
-  const c = candidates.find((row) => timingSafeEqual(given, Buffer.from(row.tokenHash)));
+  const hit = candidates.find((row) => timingSafeEqual(given, Buffer.from(row.tokenHash)));
+  if (!hit) return deny;
+  const [c] = await withStore(exec, hit.storeId, (tx) =>
+    tx
+      .select({ ...channelColumns, storeSlug: store.slug })
+      .from(storefrontChannel)
+      .innerJoin(store, eq(store.id, storefrontChannel.storeId))
+      .where(and(eq(storefrontChannel.storeId, hit.storeId), eq(storefrontChannel.tokenHash, hit.tokenHash))),
+  );
   if (!c || !isLive(c)) return deny;
   const scope = await storefrontScope(exec, c.storeSlug);
   if (!scope) return { ok: false, reason: "store_unavailable" };
@@ -139,30 +151,36 @@ export async function authenticateChannel(exec: Executor, authorization: string 
 
 /** An empty cart for this store (an external backend usually creates the cart before the first item). */
 export async function createEmptyCart(scope: StorefrontScope): Promise<string> {
-  const [c] = await scope.exec.insert(cart).values({ storeId: scope.storeId }).returning({ id: cart.id });
-  return c!.id;
+  return inStore(scope, async (scope) => {
+    const [c] = await scope.exec.insert(cart).values({ storeId: scope.storeId }).returning({ id: cart.id });
+    return c!.id;
+  });
 }
 
 /** True only for an open (not checked out) cart that belongs to this store. */
 export async function ownsOpenCart(scope: StorefrontScope, cartId: string | undefined): Promise<boolean> {
-  return (await openCartStore(scope.exec, cartId)) === scope.storeId;
+  return inStore(scope, async (scope) => {
+    return (await openCartStore(scope.exec, cartId)) === scope.storeId;
+  });
 }
 
 /** Issue a one-use handoff code for a non-empty open cart of the channel's store. */
 export async function createHandoff(scope: StorefrontScope, channelId: number, cartId: string) {
-  if (!(await ownsOpenCart(scope, cartId))) throw new DomainError("not_found", "Keranjang tidak ditemukan.");
-  const [{ n }] = (await scope.exec
-    .select({ n: count() })
-    .from(cartLine)
-    .where(and(eq(cartLine.storeId, scope.storeId), eq(cartLine.cartId, cartId)))) as [{ n: number }];
-  if (n === 0) throw new DomainError("empty", "Keranjang kosong.");
-  const code = randomBytes(32).toString("base64url");
-  const expiresAt = new Date(Date.now() + HANDOFF_TTL_MS);
-  const [h] = await scope.exec
-    .insert(checkoutHandoff)
-    .values({ storeId: scope.storeId, cartId, channelId, codeHash: sha256(code), expiresAt })
-    .returning({ id: checkoutHandoff.id });
-  return { id: h!.id, code, expiresAt };
+  return inStore(scope, async (scope) => {
+    if (!(await ownsOpenCart(scope, cartId))) throw new DomainError("not_found", "Keranjang tidak ditemukan.");
+    const [{ n }] = (await scope.exec
+      .select({ n: count() })
+      .from(cartLine)
+      .where(and(eq(cartLine.storeId, scope.storeId), eq(cartLine.cartId, cartId)))) as [{ n: number }];
+    if (n === 0) throw new DomainError("empty", "Keranjang kosong.");
+    const code = randomBytes(32).toString("base64url");
+    const expiresAt = new Date(Date.now() + HANDOFF_TTL_MS);
+    const [h] = await scope.exec
+      .insert(checkoutHandoff)
+      .values({ storeId: scope.storeId, cartId, channelId, codeHash: sha256(code), expiresAt })
+      .returning({ id: checkoutHandoff.id });
+    return { id: h!.id, code, expiresAt };
+  });
 }
 
 /**
@@ -173,21 +191,28 @@ export async function createHandoff(scope: StorefrontScope, channelId: number, c
  */
 export async function exchangeHandoff(exec: Executor, code: string) {
   if (!/^[A-Za-z0-9_-]{43}$/.test(code)) return null;
-  const [h] = await exec
-    .update(checkoutHandoff)
-    .set({ consumedAt: sql`now()` })
-    .where(and(eq(checkoutHandoff.codeHash, sha256(code)), isNull(checkoutHandoff.consumedAt), sql`${checkoutHandoff.expiresAt} > now()`))
-    .returning({ storeId: checkoutHandoff.storeId, cartId: checkoutHandoff.cartId, channelId: checkoutHandoff.channelId });
-  if (!h) return null;
-  const [c] = await exec
-    .select({ status: storefrontChannel.status, expiresAt: storefrontChannel.expiresAt, storeSlug: store.slug })
-    .from(storefrontChannel)
-    .innerJoin(store, eq(store.id, storefrontChannel.storeId))
-    .where(and(eq(storefrontChannel.storeId, h.storeId), eq(storefrontChannel.id, h.channelId)));
-  if (!c || !isLive(c)) return null;
-  const scope = await storefrontScope(exec, c.storeSlug);
-  if (!scope || !(await ownsOpenCart(scope, h.cartId))) return null;
-  return { storeId: scope.storeId, storeSlug: scope.storeSlug, cartId: h.cartId };
+  const codeHash = sha256(code);
+  // Cross-store resolver (ADR-0005 §4): code → store id through the platform pool; the one-use
+  // consume and every check then run atomically in that store's context.
+  const [owner] = await platformDb().select({ storeId: checkoutHandoff.storeId }).from(checkoutHandoff).where(eq(checkoutHandoff.codeHash, codeHash));
+  if (!owner) return null;
+  return withStore(exec, owner.storeId, async (tx) => {
+    const [h] = await tx
+      .update(checkoutHandoff)
+      .set({ consumedAt: sql`now()` })
+      .where(and(eq(checkoutHandoff.codeHash, codeHash), isNull(checkoutHandoff.consumedAt), sql`${checkoutHandoff.expiresAt} > now()`))
+      .returning({ storeId: checkoutHandoff.storeId, cartId: checkoutHandoff.cartId, channelId: checkoutHandoff.channelId });
+    if (!h) return null;
+    const [c] = await tx
+      .select({ status: storefrontChannel.status, expiresAt: storefrontChannel.expiresAt, storeSlug: store.slug })
+      .from(storefrontChannel)
+      .innerJoin(store, eq(store.id, storefrontChannel.storeId))
+      .where(and(eq(storefrontChannel.storeId, h.storeId), eq(storefrontChannel.id, h.channelId)));
+    if (!c || !isLive(c)) return null;
+    const scope = await storefrontScope(exec, c.storeSlug);
+    if (!scope || !(await ownsOpenCart({ ...scope, exec: tx }, h.cartId))) return null;
+    return { storeId: scope.storeId, storeSlug: scope.storeSlug, cartId: h.cartId };
+  });
 }
 
 /**
@@ -195,16 +220,19 @@ export async function exchangeHandoff(exec: Executor, code: string) {
  * channel's stored origin + return path (allowlist), only while the channel is live.
  */
 export async function channelReturnTarget(exec: Executor, cartId: string | undefined): Promise<string | null> {
-  if (!cartId || !z.uuid().safeParse(cartId).success) return null;
-  const [row] = await exec
-    .select({ origin: storefrontChannel.origin, returnPath: storefrontChannel.returnPath, status: storefrontChannel.status, expiresAt: storefrontChannel.expiresAt })
-    .from(checkoutHandoff)
-    .innerJoin(
-      storefrontChannel,
-      and(eq(storefrontChannel.storeId, checkoutHandoff.storeId), eq(storefrontChannel.id, checkoutHandoff.channelId)),
-    )
-    .where(and(eq(checkoutHandoff.cartId, cartId), isNotNull(checkoutHandoff.consumedAt)))
-    .orderBy(desc(checkoutHandoff.consumedAt))
-    .limit(1);
+  const storeId = await cartStore(cartId);
+  if (!storeId) return null;
+  const [row] = await withStore(exec, storeId, (tx) =>
+    tx
+      .select({ origin: storefrontChannel.origin, returnPath: storefrontChannel.returnPath, status: storefrontChannel.status, expiresAt: storefrontChannel.expiresAt })
+      .from(checkoutHandoff)
+      .innerJoin(
+        storefrontChannel,
+        and(eq(storefrontChannel.storeId, checkoutHandoff.storeId), eq(storefrontChannel.id, checkoutHandoff.channelId)),
+      )
+      .where(and(eq(checkoutHandoff.cartId, cartId!), isNotNull(checkoutHandoff.consumedAt)))
+      .orderBy(desc(checkoutHandoff.consumedAt))
+      .limit(1),
+  );
   return row && isLive(row) ? `${row.origin}${row.returnPath}` : null;
 }

@@ -4,6 +4,7 @@ import { enqueueOrderNotifications } from "./notify.ts";
 import { order, orderLine, ORDER_STATUS_LABEL, ORDER_STATUSES, orderStatusHistory, product, stockAdjustment, user, variant, type OrderStatus } from "./schema.ts";
 import { DomainError, requireCap, type SellerScope } from "./scoped.ts";
 import { enqueuePurchase } from "./signals.ts";
+import { inStore } from "./tenant.ts";
 export { ORDER_STATUS_LABEL, ORDER_STATUSES, type OrderStatus } from "./schema.ts";
 
 // Seller orders (SC-12/SC-13) and inventory (SC-04). Q-10 is still open; the
@@ -43,59 +44,63 @@ export async function listOrders(scope: SellerScope, opts: { status?: string; cu
   requireCap(scope, "orders.read");
   const status = opts.status ? orderStatusInput.parse(opts.status) : undefined;
   const limit = Math.min(Math.max(opts.limit ?? PAGE, 1), 100);
-  const rows = await scope.exec
-    .select({
-      id: order.id,
-      status: order.status,
-      paymentMethod: order.paymentMethod,
-      buyerName: order.buyerName,
-      total: order.total,
-      createdAt: order.createdAt,
-    })
-    .from(order)
-    .where(
-      and(
-        eq(order.storeId, scope.storeId),
-        status ? eq(order.status, status) : undefined,
-        opts.cursor ? lt(order.id, opts.cursor) : undefined,
-      ),
-    )
-    .orderBy(desc(order.id))
-    .limit(limit + 1);
+  const rows = await inStore(scope, (scope) =>
+    scope.exec
+      .select({
+        id: order.id,
+        status: order.status,
+        paymentMethod: order.paymentMethod,
+        buyerName: order.buyerName,
+        total: order.total,
+        createdAt: order.createdAt,
+      })
+      .from(order)
+      .where(
+        and(
+          eq(order.storeId, scope.storeId),
+          status ? eq(order.status, status) : undefined,
+          opts.cursor ? lt(order.id, opts.cursor) : undefined,
+        ),
+      )
+      .orderBy(desc(order.id))
+      .limit(limit + 1),
+  );
   const page = rows.slice(0, limit);
   return { orders: page, nextCursor: rows.length > limit ? page[page.length - 1]!.id : null };
 }
 
 export async function getOrder(scope: SellerScope, orderId: number) {
   requireCap(scope, "orders.read");
-  const [o] = await scope.exec
-    .select()
-    .from(order)
-    .where(and(eq(order.storeId, scope.storeId), eq(order.id, orderId)));
-  if (!o) return null;
-  const lines = await scope.exec
-    .select()
-    .from(orderLine)
-    .where(and(eq(orderLine.storeId, scope.storeId), eq(orderLine.orderId, orderId)))
-    .orderBy(asc(orderLine.variantId));
-  const history = await scope.exec
-    .select({
-      id: orderStatusHistory.id,
-      fromStatus: orderStatusHistory.fromStatus,
-      toStatus: orderStatusHistory.toStatus,
-      note: orderStatusHistory.note,
-      actorName: user.name,
-      createdAt: orderStatusHistory.createdAt,
-    })
-    .from(orderStatusHistory)
-    .leftJoin(user, eq(user.id, orderStatusHistory.actorUserId))
-    .where(and(eq(orderStatusHistory.storeId, scope.storeId), eq(orderStatusHistory.orderId, orderId)))
-    .orderBy(asc(orderStatusHistory.id));
-  // The checkout row carries no actor, so the history shows transitions only; the
-  // order's own created_at is the "placed by buyer" moment.
-  const { requestHash: _hash, idempotencyKey: _key, ...safe } = o;
-  const risk = o.paymentMethod === "cod" && (o.status === "awaiting_confirmation" || o.status === "on_hold") ? await codRiskReasons(scope, o) : [];
-  return { ...safe, lines, history, actions: allowedActions(o.status), risk };
+  return inStore(scope, async (scope) => {
+    const [o] = await scope.exec
+      .select()
+      .from(order)
+      .where(and(eq(order.storeId, scope.storeId), eq(order.id, orderId)));
+    if (!o) return null;
+    const lines = await scope.exec
+      .select()
+      .from(orderLine)
+      .where(and(eq(orderLine.storeId, scope.storeId), eq(orderLine.orderId, orderId)))
+      .orderBy(asc(orderLine.variantId));
+    const history = await scope.exec
+      .select({
+        id: orderStatusHistory.id,
+        fromStatus: orderStatusHistory.fromStatus,
+        toStatus: orderStatusHistory.toStatus,
+        note: orderStatusHistory.note,
+        actorName: user.name,
+        createdAt: orderStatusHistory.createdAt,
+      })
+      .from(orderStatusHistory)
+      .leftJoin(user, eq(user.id, orderStatusHistory.actorUserId))
+      .where(and(eq(orderStatusHistory.storeId, scope.storeId), eq(orderStatusHistory.orderId, orderId)))
+      .orderBy(asc(orderStatusHistory.id));
+    // The checkout row carries no actor, so the history shows transitions only; the
+    // order's own created_at is the "placed by buyer" moment.
+    const { requestHash: _hash, idempotencyKey: _key, ...safe } = o;
+    const risk = o.paymentMethod === "cod" && (o.status === "awaiting_confirmation" || o.status === "on_hold") ? await codRiskReasons(scope, o) : [];
+    return { ...safe, lines, history, actions: allowedActions(o.status), risk };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -123,7 +128,7 @@ export async function codRiskReasons(
   o: { id: number; buyerPhone: string; shippingAddress: string; total: number },
 ): Promise<RiskReason[]> {
   const samePhone = and(eq(order.storeId, scope.storeId), sql`${order.id} <> ${o.id}`, sql`${phoneSql(order.buyerPhone)} = ${normalizePhone(o.buyerPhone)}`);
-  const [[phone], [amount]] = await Promise.all([
+  const [[phone], [amount]] = await inStore(scope, (scope) => Promise.all([
     scope.exec
       .select({
         cancelled: sql<number>`count(*) filter (where ${order.status} = 'cancelled')`.mapWith(Number),
@@ -138,7 +143,7 @@ export async function codRiskReasons(
       })
       .from(order)
       .where(and(eq(order.storeId, scope.storeId), eq(order.paymentMethod, "cod"), sql`${order.id} <> ${o.id}`)),
-  ]);
+  ]));
   const reasons: RiskReason[] = [];
   if (phone!.cancelled > 0)
     reasons.push({ code: "repeat_cancelled", message: `${phone!.cancelled} pesanan sebelumnya dengan nomor HP ini dibatalkan atau ditolak di toko ini.` });
@@ -171,7 +176,7 @@ export async function transitionOrder(scope: SellerScope, orderId: number, actio
   const t = TRANSITIONS[action];
   const note = action === "ship" ? shipInput.parse(raw).trackingNumber : REASONED.includes(action) ? reasonInput.parse(raw).reason : null;
 
-  return scope.exec.transaction(async (tx) => {
+  return inStore(scope, async ({ exec: tx }) => {
     const [o] = await tx
       .select({ id: order.id, status: order.status, paymentMethod: order.paymentMethod })
       .from(order)
@@ -242,43 +247,47 @@ export async function transitionOrder(scope: SellerScope, orderId: number, actio
 
 export async function listInventory(scope: SellerScope) {
   requireCap(scope, "catalog.read");
-  return scope.exec
-    .select({
-      variantId: variant.id,
-      productId: product.id,
-      productTitle: product.title,
-      productStatus: product.status,
-      variantTitle: variant.title,
-      sku: variant.sku,
-      stock: variant.stock,
-    })
-    .from(variant)
-    .innerJoin(product, and(eq(product.storeId, variant.storeId), eq(product.id, variant.productId)))
-    .where(eq(variant.storeId, scope.storeId))
-    .orderBy(asc(product.title), asc(product.id), asc(variant.id));
+  return inStore(scope, (scope) =>
+    scope.exec
+      .select({
+        variantId: variant.id,
+        productId: product.id,
+        productTitle: product.title,
+        productStatus: product.status,
+        variantTitle: variant.title,
+        sku: variant.sku,
+        stock: variant.stock,
+      })
+      .from(variant)
+      .innerJoin(product, and(eq(product.storeId, variant.storeId), eq(product.id, variant.productId)))
+      .where(eq(variant.storeId, scope.storeId))
+      .orderBy(asc(product.title), asc(product.id), asc(variant.id)),
+  );
 }
 
 export async function listStockAdjustments(scope: SellerScope, limit = 20) {
   requireCap(scope, "catalog.read");
-  return scope.exec
-    .select({
-      id: stockAdjustment.id,
-      variantId: stockAdjustment.variantId,
-      productTitle: product.title,
-      variantTitle: variant.title,
-      delta: stockAdjustment.delta,
-      reason: stockAdjustment.reason,
-      orderId: stockAdjustment.orderId,
-      actorName: user.name,
-      createdAt: stockAdjustment.createdAt,
-    })
-    .from(stockAdjustment)
-    .innerJoin(variant, and(eq(variant.storeId, stockAdjustment.storeId), eq(variant.id, stockAdjustment.variantId)))
-    .innerJoin(product, and(eq(product.storeId, variant.storeId), eq(product.id, variant.productId)))
-    .leftJoin(user, eq(user.id, stockAdjustment.actorUserId))
-    .where(eq(stockAdjustment.storeId, scope.storeId))
-    .orderBy(desc(stockAdjustment.id))
-    .limit(limit);
+  return inStore(scope, (scope) =>
+    scope.exec
+      .select({
+        id: stockAdjustment.id,
+        variantId: stockAdjustment.variantId,
+        productTitle: product.title,
+        variantTitle: variant.title,
+        delta: stockAdjustment.delta,
+        reason: stockAdjustment.reason,
+        orderId: stockAdjustment.orderId,
+        actorName: user.name,
+        createdAt: stockAdjustment.createdAt,
+      })
+      .from(stockAdjustment)
+      .innerJoin(variant, and(eq(variant.storeId, stockAdjustment.storeId), eq(variant.id, stockAdjustment.variantId)))
+      .innerJoin(product, and(eq(product.storeId, variant.storeId), eq(product.id, variant.productId)))
+      .leftJoin(user, eq(user.id, stockAdjustment.actorUserId))
+      .where(eq(stockAdjustment.storeId, scope.storeId))
+      .orderBy(desc(stockAdjustment.id))
+      .limit(limit),
+  );
 }
 
 const adjustInput = z.strictObject({
@@ -290,7 +299,7 @@ const adjustInput = z.strictObject({
 export async function adjustStock(scope: SellerScope, variantId: number, raw: unknown): Promise<number> {
   requireCap(scope, "inventory.write");
   const { delta, reason } = adjustInput.parse(raw);
-  return scope.exec.transaction(async (tx) => {
+  return inStore(scope, async ({ exec: tx }) => {
     const [row] = await tx
       .update(variant)
       .set({ stock: sql`${variant.stock} + ${delta}` })

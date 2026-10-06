@@ -3,7 +3,7 @@
 // `pg_notify` sent by `enqueue`, and on SIGTERM/SIGINT finishes the batch in
 // flight, stops claiming and exits. Logs JSON lines; never secrets or buyer data.
 import { hostname } from "node:os";
-import { createDb } from "./client.ts";
+import { platformDb } from "./client.ts";
 import { JOB_CHANNEL, runOnce, sanitizeError } from "./jobs.ts";
 import "./notify.ts"; // registers the order e-mail handler (T-36)
 import "./signals.ts"; // registers the signal.* handlers (T-38)
@@ -15,7 +15,7 @@ const batch = Math.min(Math.max(Number(process.env.WORKER_BATCH) || 10, 1), 100)
 const log = (event: string, fields: Record<string, unknown> = {}) =>
   console.log(JSON.stringify({ ts: new Date().toISOString(), level: "info", event, workerId, ...fields }));
 
-const db = createDb();
+const db = platformDb(); // worker role: bukalaris_platform (BYPASSRLS), PLATFORM_DATABASE_URL only
 let stopping = false;
 let wake: () => void = () => {};
 const stop = (signal: string) => {

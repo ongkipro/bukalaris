@@ -2,13 +2,13 @@
 // rate-limit windows, then exits. Run it from cron or a scheduler (same image as the
 // worker, different command). Checked-out carts are never touched (see cleanupIdleCarts).
 import { cleanupIdleCarts } from "./checkout.ts";
-import { createDb } from "./client.ts";
+import { platformDb } from "./client.ts";
 import { sanitizeError } from "./jobs.ts";
 import { purgeSignalContext } from "./signals.ts";
 
 /** Default: a week. Override with CART_IDLE_HOURS (integer hours >= 1). */
 const idleHours = Number(process.env.CART_IDLE_HOURS ?? 168);
-const db = createDb();
+const db = platformDb(); // maintenance spans every store: bukalaris_platform (BYPASSRLS)
 try {
   const result = await cleanupIdleCarts(db, { idleHours });
   const signals = await purgeSignalContext(db); // T-38: click context / match data older than 30 days

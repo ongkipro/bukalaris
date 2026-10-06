@@ -1,9 +1,10 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import type { Executor } from "./client.ts";
+import { platformDb, type Executor } from "./client.ts";
 import { account, auditLog, mailOutbox, membership, platformOperator, session, store, storeInvitation, user } from "./schema.ts";
 import { DomainError, requireCap, type Role, type SellerScope } from "./scoped.ts";
+import { inStore, withStore } from "./tenant.ts";
 
 // M2 `accounts` track: dev mailer, store invitations, session lifecycle helpers (PR-15, IAM-9).
 
@@ -60,7 +61,7 @@ export async function createInvitation(
 
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + INVITATION_TTL_MS);
-  const id = await scope.exec.transaction(async (tx) => {
+  const id = await inStore(scope, async ({ exec: tx }) => {
     const [existing] = await tx
       .select({ userId: membership.userId })
       .from(membership)
@@ -93,17 +94,19 @@ export async function createInvitation(
 
 export async function listInvitations(scope: SellerScope) {
   requireCap(scope, "members.manage");
-  const rows = await scope.exec
-    .select({ id: storeInvitation.id, email: storeInvitation.email, role: storeInvitation.role, expiresAt: storeInvitation.expiresAt, acceptedAt: storeInvitation.acceptedAt, revokedAt: storeInvitation.revokedAt, createdAt: storeInvitation.createdAt })
-    .from(storeInvitation)
-    .where(and(eq(storeInvitation.storeId, scope.storeId), isNull(storeInvitation.acceptedAt), isNull(storeInvitation.revokedAt)))
-    .orderBy(desc(storeInvitation.id));
-  return rows.map((r) => ({ ...r, status: statusOf(r) }));
+  return inStore(scope, async (scope) => {
+    const rows = await scope.exec
+      .select({ id: storeInvitation.id, email: storeInvitation.email, role: storeInvitation.role, expiresAt: storeInvitation.expiresAt, acceptedAt: storeInvitation.acceptedAt, revokedAt: storeInvitation.revokedAt, createdAt: storeInvitation.createdAt })
+      .from(storeInvitation)
+      .where(and(eq(storeInvitation.storeId, scope.storeId), isNull(storeInvitation.acceptedAt), isNull(storeInvitation.revokedAt)))
+      .orderBy(desc(storeInvitation.id));
+    return rows.map((r) => ({ ...r, status: statusOf(r) }));
+  });
 }
 
 export async function revokeInvitation(scope: SellerScope, invitationId: number): Promise<void> {
   requireCap(scope, "members.manage");
-  await scope.exec.transaction(async (tx) => {
+  await inStore(scope, async ({ exec: tx }) => {
     const [row] = await tx
       .update(storeInvitation)
       .set({ revokedAt: new Date() })
@@ -119,18 +122,28 @@ export type InvitationPreview =
   | { status: Exclude<InvitationStatus, "pending">; storeName: string }
   | { status: "pending"; email: string; role: Role; storeName: string; hasAccount: boolean };
 
+/** Cross-store resolver (ADR-0005 §4): invitation token → the inviting store, through the platform pool; only the id leaves it. */
+async function invitationStore(token: string): Promise<number | null> {
+  const [row] = await platformDb().select({ storeId: storeInvitation.storeId }).from(storeInvitation).where(eq(storeInvitation.tokenHash, hashToken(token)));
+  return row?.storeId ?? null;
+}
+
 /** Public lookup for the accept page (token holder only; nothing else is revealed). */
 export async function previewInvitation(exec: Executor, token: string): Promise<InvitationPreview> {
-  const [row] = await exec
-    .select({ email: storeInvitation.email, role: storeInvitation.role, expiresAt: storeInvitation.expiresAt, acceptedAt: storeInvitation.acceptedAt, revokedAt: storeInvitation.revokedAt, storeName: store.name, storeStatus: store.status })
-    .from(storeInvitation)
-    .innerJoin(store, eq(store.id, storeInvitation.storeId))
-    .where(eq(storeInvitation.tokenHash, hashToken(token)));
-  if (!row) return { status: "invalid" };
-  const status = statusOf(row);
-  if (status !== "pending") return { status, storeName: row.storeName };
-  const [u] = await exec.select({ id: user.id }).from(user).where(sql`lower(${user.email}) = ${row.email}`);
-  return { status, email: row.email, role: row.role, storeName: row.storeName, hasAccount: !!u };
+  const storeId = await invitationStore(token);
+  if (!storeId) return { status: "invalid" };
+  return withStore(exec, storeId, async (tx) => {
+    const [row] = await tx
+      .select({ email: storeInvitation.email, role: storeInvitation.role, expiresAt: storeInvitation.expiresAt, acceptedAt: storeInvitation.acceptedAt, revokedAt: storeInvitation.revokedAt, storeName: store.name, storeStatus: store.status })
+      .from(storeInvitation)
+      .innerJoin(store, eq(store.id, storeInvitation.storeId))
+      .where(eq(storeInvitation.tokenHash, hashToken(token)));
+    if (!row) return { status: "invalid" } as const;
+    const status = statusOf(row);
+    if (status !== "pending") return { status, storeName: row.storeName };
+    const [u] = await tx.select({ id: user.id }).from(user).where(sql`lower(${user.email}) = ${row.email}`);
+    return { status, email: row.email, role: row.role, storeName: row.storeName, hasAccount: !!u };
+  });
 }
 
 export type Acceptor =
@@ -144,7 +157,9 @@ const newAccount = z.object({ name: z.string().trim().min(2, "Nama minimal 2 kar
  * concurrent second accept (row lock) or a failure leaves neither behind.
  */
 export async function acceptInvitation(exec: Executor, token: string, acceptor: Acceptor) {
-  return exec.transaction(async (tx) => {
+  const storeId = await invitationStore(token);
+  if (!storeId) throw new DomainError("invite_invalid", "Undangan tidak ditemukan.");
+  return withStore(exec, storeId, async (tx) => {
     const [inv] = await tx.select().from(storeInvitation).where(eq(storeInvitation.tokenHash, hashToken(token))).for("update");
     if (!inv) throw new DomainError("invite_invalid", "Undangan tidak ditemukan.");
     const status = statusOf(inv);
@@ -180,7 +195,10 @@ export async function acceptInvitation(exec: Executor, token: string, acceptor: 
 // ---------------------------------------------------------------------------
 // Session lifecycle.
 // ---------------------------------------------------------------------------
-/** Revoke every session of a user who no longer has any membership and is not an operator. Returns the number revoked. */
+/**
+ * Revoke every session of a user who no longer has any membership and is not an operator.
+ * Returns the number revoked. `exec` must be the platform pool: the check spans every store.
+ */
 export async function revokeSessionsIfOrphaned(exec: Executor, userId: string): Promise<number> {
   const [m] = await exec.select({ storeId: membership.storeId }).from(membership).where(eq(membership.userId, userId)).limit(1);
   const [op] = await exec.select({ userId: platformOperator.userId }).from(platformOperator).where(eq(platformOperator.userId, userId));

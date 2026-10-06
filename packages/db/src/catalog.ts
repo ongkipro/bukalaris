@@ -3,8 +3,10 @@ import { z } from "zod";
 import type { Executor } from "./client.ts";
 import { catalogAudit, product, productSlugAlias, user, variant, type CatalogAuditAction, type CatalogSnapshot } from "./schema.ts";
 import { DomainError, requireCap, type SellerScope } from "./scoped.ts";
+import { inStore } from "./tenant.ts";
 
-// Seller catalog operations (SC-02, SC-03, SC-17). All queries are filtered by scope.storeId.
+// Seller catalog operations (SC-02, SC-03, SC-17). All queries are filtered by scope.storeId
+// and run inside `inStore(scope, …)`, the store-context transaction row-level security needs (T-27).
 // Every write records a catalog_audit row in the same transaction (T-31, SEC-17).
 
 const slug = z
@@ -59,37 +61,41 @@ function audit(
 
 export async function listProducts(scope: SellerScope) {
   requireCap(scope, "catalog.read");
-  return scope.exec
-    .select({
-      id: product.id,
-      catalogId: product.catalogId,
-      title: product.title,
-      slug: product.slug,
-      status: product.status,
-      variants: count(variant.id),
-      stock: sum(variant.stock).mapWith(Number),
-      minPrice: min(variant.price),
-    })
-    .from(product)
-    .leftJoin(variant, and(eq(variant.storeId, product.storeId), eq(variant.productId, product.id)))
-    .where(eq(product.storeId, scope.storeId))
-    .groupBy(product.id)
-    .orderBy(desc(product.id));
+  return inStore(scope, (scope) =>
+    scope.exec
+      .select({
+        id: product.id,
+        catalogId: product.catalogId,
+        title: product.title,
+        slug: product.slug,
+        status: product.status,
+        variants: count(variant.id),
+        stock: sum(variant.stock).mapWith(Number),
+        minPrice: min(variant.price),
+      })
+      .from(product)
+      .leftJoin(variant, and(eq(variant.storeId, product.storeId), eq(variant.productId, product.id)))
+      .where(eq(product.storeId, scope.storeId))
+      .groupBy(product.id)
+      .orderBy(desc(product.id)),
+  );
 }
 
 export async function getProduct(scope: SellerScope, productId: number) {
   requireCap(scope, "catalog.read");
-  const [row] = await scope.exec
-    .select()
-    .from(product)
-    .where(and(eq(product.storeId, scope.storeId), eq(product.id, productId)));
-  if (!row) return null;
-  const variants = await scope.exec
-    .select()
-    .from(variant)
-    .where(and(eq(variant.storeId, scope.storeId), eq(variant.productId, productId)))
-    .orderBy(asc(variant.id));
-  return { ...row, variants };
+  return inStore(scope, async (scope) => {
+    const [row] = await scope.exec
+      .select()
+      .from(product)
+      .where(and(eq(product.storeId, scope.storeId), eq(product.id, productId)));
+    if (!row) return null;
+    const variants = await scope.exec
+      .select()
+      .from(variant)
+      .where(and(eq(variant.storeId, scope.storeId), eq(variant.productId, productId)))
+      .orderBy(asc(variant.id));
+    return { ...row, variants };
+  });
 }
 
 /** Create a product with its first variant in one transaction; returns the numeric (database) id. */
@@ -97,7 +103,7 @@ export async function createProduct(scope: SellerScope, raw: unknown): Promise<n
   requireCap(scope, "catalog.write");
   const input = createProductInput.parse(raw);
   try {
-    return await scope.exec.transaction(async (tx) => {
+    return await inStore(scope, async ({ exec: tx }) => {
       if (input.slug) await assertSlugFree(tx, scope, input.slug, null);
       const [p] = await tx
         .insert(product)
@@ -135,7 +141,7 @@ export async function updateProduct(scope: SellerScope, productId: number, raw: 
   requireCap(scope, "catalog.write");
   const input = productInput.parse(raw);
   try {
-    await scope.exec.transaction(async (tx) => {
+    await inStore(scope, async ({ exec: tx }) => {
       const [before] = await tx
         .select({ title: product.title, slug: product.slug, status: product.status })
         .from(product)
@@ -172,7 +178,7 @@ export async function updateProduct(scope: SellerScope, productId: number, raw: 
 export async function addVariant(scope: SellerScope, productId: number, raw: unknown): Promise<number> {
   requireCap(scope, "catalog.write");
   const input = variantInput.parse(raw);
-  return scope.exec.transaction(async (tx) => {
+  return inStore(scope, async ({ exec: tx }) => {
     const [owned] = await tx
       .select({ id: product.id })
       .from(product)
@@ -188,7 +194,7 @@ export async function addVariant(scope: SellerScope, productId: number, raw: unk
 export async function updateVariant(scope: SellerScope, variantId: number, raw: unknown): Promise<void> {
   requireCap(scope, "catalog.write");
   const input = variantInput.parse(raw);
-  await scope.exec.transaction(async (tx) => {
+  await inStore(scope, async ({ exec: tx }) => {
     const [before] = await tx
       .select()
       .from(variant)
@@ -209,21 +215,23 @@ export async function updateVariant(scope: SellerScope, variantId: number, raw: 
 /** Store-scoped change history of one product and its variants, newest first (T-31). */
 export async function listCatalogHistory(scope: SellerScope, productId: number, limit = 50) {
   requireCap(scope, "catalog.read");
-  return scope.exec
-    .select({
-      id: catalogAudit.id,
-      action: catalogAudit.action,
-      variantId: catalogAudit.variantId,
-      variantTitle: variant.title,
-      actorName: user.name,
-      before: catalogAudit.before,
-      after: catalogAudit.after,
-      createdAt: catalogAudit.createdAt,
-    })
-    .from(catalogAudit)
-    .leftJoin(user, eq(user.id, catalogAudit.actorUserId))
-    .leftJoin(variant, and(eq(variant.storeId, catalogAudit.storeId), eq(variant.id, catalogAudit.variantId)))
-    .where(and(eq(catalogAudit.storeId, scope.storeId), eq(catalogAudit.productId, productId)))
-    .orderBy(desc(catalogAudit.id))
-    .limit(limit);
+  return inStore(scope, (scope) =>
+    scope.exec
+      .select({
+        id: catalogAudit.id,
+        action: catalogAudit.action,
+        variantId: catalogAudit.variantId,
+        variantTitle: variant.title,
+        actorName: user.name,
+        before: catalogAudit.before,
+        after: catalogAudit.after,
+        createdAt: catalogAudit.createdAt,
+      })
+      .from(catalogAudit)
+      .leftJoin(user, eq(user.id, catalogAudit.actorUserId))
+      .leftJoin(variant, and(eq(variant.storeId, catalogAudit.storeId), eq(variant.id, catalogAudit.variantId)))
+      .where(and(eq(catalogAudit.storeId, scope.storeId), eq(catalogAudit.productId, productId)))
+      .orderBy(desc(catalogAudit.id))
+      .limit(limit),
+  );
 }

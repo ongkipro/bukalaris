@@ -19,7 +19,10 @@ file="$out_dir/${db}-${stamp}.dump"
 
 log "pg_dump -Fc $db -> ${file#"$ROOT"/}"
 t0=$(now_ms)
-docker exec "$DB_CONTAINER" pg_dump -U "$PG_USER" -Fc --no-owner --no-acl "$db" > "$file"
+# Owners and ACLs are kept on purpose: after T-27 the grants to bukalaris_app/platform and the
+# bukalaris_owner ownership are part of tenant isolation (RLS); a dump without them restores a
+# database the app role cannot read. The roles themselves are cluster-level (05-roles.sql).
+docker exec "$DB_CONTAINER" pg_dump -U "$PG_USER" -Fc "$db" > "$file"
 t1=$(now_ms)
 
 entries=$(docker exec -i "$DB_CONTAINER" pg_restore --list < "$file" | grep -c '^[0-9]')

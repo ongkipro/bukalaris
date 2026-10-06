@@ -1,6 +1,6 @@
 ## ADR-0005: Database-enforced tenant isolation with PostgreSQL RLS
 
-- **Status:** Proposed (design for T-27; implement after wave 2b merges)
+- **Status:** Accepted (implemented) — 2026-10-07, branch `m2/rls`, evidence in `docs/tracks/rls.md` (all gates green: Vitest 137, Playwright 72 + 2 skipped, verify:docker 26 policies). Implementation notes that refine §2/§4: `job` and `audit_log` carry the policy too; roles are created by a superuser bootstrap (`packages/db/docker/05-roles.sql`, DBA step in production), not by a migration, because BYPASSRLS requires a superuser; `bukalaris_owner` has BYPASSRLS so backfills in migrations see every row; no default table privileges for `bukalaris_app` (fail closed, test-enforced).
 - **Date:** 2026-10-07
 - **Author:** M2 orchestrator
 - **Deciders:** Bukalaris architecture + security owners

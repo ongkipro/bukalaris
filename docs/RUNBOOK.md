@@ -13,7 +13,8 @@ listens on `127.0.0.1:5442` only.
 docker compose up -d db --wait      # Postgres 17 (project name is fixed to "bukalaris" in docker-compose.yml)
 pnpm install --frozen-lockfile
 cp .env.example .env                # first time only; dev placeholders, never real secrets
-pnpm db:migrate && pnpm db:seed     # seed is idempotent (two demo stores, local-only users)
+scripts/db-roles.sh                 # only for a compose volume created before T-27 (roles + ownership; idempotent)
+pnpm db:migrate && pnpm db:seed     # migrate as bukalaris_owner, seed through the platform role; seed is idempotent
 pnpm dev                            # http://localhost:3000 (PORT in .env for worktrees)
 docker compose stop db              # keeps the volume; `down -v` wipes every local database
 ```
@@ -22,12 +23,30 @@ Parallel git worktrees: each has its own `.env` with `bukalaris_<track>`
 databases and its own dev/e2e ports (AGENTS.md "Parallel tracks"). All of them
 share the one compose container.
 
+## Database roles (T-27, ADR-0005)
+
+The app connects as `bukalaris_app` (`DATABASE_URL`, row-level security applies),
+Super Admin/worker/cleanup as `bukalaris_platform` (`PLATFORM_DATABASE_URL`,
+BYPASSRLS) and the migrator as the schema owner `bukalaris_owner`
+(`MIGRATION_DATABASE_URL`). Locally the passwords equal the role names
+(`packages/db/docker/05-roles.sql`); a fresh compose volume creates the roles and
+owner-owned databases itself, the Vitest/Playwright setups do it for their
+disposable databases, and `scripts/db-roles.sh [db]` upgrades an existing dev
+database (creates roles, transfers ownership of every table/sequence/function to
+`bukalaris_owner`; then run `pnpm db:migrate`). A worker started without
+`PLATFORM_DATABASE_URL`, or a migration without `MIGRATION_DATABASE_URL`, fails
+at start with the variable's name. Symptom of a wrong role: a seller/storefront
+page that renders empty lists everywhere means the request did not run in a store
+context (see `packages/db/src/tenant.ts`); `permission denied for table …` means
+a code path reached a table the app role has no grant on (`docs/tracks/rls.md`
+has the grant table).
+
 ## Verify (release gate)
 
 | Command | What it proves | Typical duration (2026-10-06, this machine) |
 |---|---|---|
 | `pnpm verify` | `lint` → `typecheck` → `test` (Vitest, `*_test` DB) → `build` → `e2e` (Playwright against the standalone build and the `*_e2e` DB); stops at the first failure | ~110 s |
-| `pnpm verify:docker` | builds `bukalaris-web:local` and `bukalaris-migrate:local`, migrates a throwaway `bukalaris_verify_<id>` DB on the compose network, starts the web image against it, checks `/api/health` 200, `/s/nope` 404 (DB-backed route), `/login` 200, Docker `HEALTHCHECK` healthy, process user `app`, writable `MEDIA_DIR` volume; drops the DB, container and volume afterwards | ~175 s (≈160 s of it image builds; cached layers make reruns faster) |
+| `pnpm verify:docker` | builds `bukalaris-web:local` and `bukalaris-migrate:local`, creates a throwaway `bukalaris_verify_<id>` DB owned by `bukalaris_owner`, migrates it as the owner (`MIGRATION_DATABASE_URL`), counts the `tenant_isolation` policies (≥ 26), starts the web image as `bukalaris_app` + `bukalaris_platform`, checks `/api/health` 200, `/s/nope` 404 (DB-backed route), `/login` 200, Docker `HEALTHCHECK` healthy, process user `app`, writable `MEDIA_DIR` volume; drops the DB, container and volume afterwards | ~175 s (≈160 s of it image builds; cached layers make reruns faster) |
 
 `.github/workflows/ci.yml` runs the same two gates on GitHub (file only until a
 remote exists). `VERIFY_PORT=3170 pnpm verify:docker` also publishes the
@@ -40,10 +59,11 @@ the image tag.
 docker build -f apps/web/Dockerfile -t bukalaris-web .
 docker build -f apps/web/Dockerfile --target migrate -t bukalaris-migrate .
 docker run --rm --network bukalaris_default \
-  -e DATABASE_URL=postgres://bukalaris:bukalaris@db:5432/bukalaris bukalaris-migrate
+  -e MIGRATION_DATABASE_URL=postgres://bukalaris_owner:bukalaris_owner@db:5432/bukalaris bukalaris-migrate
 docker run -d --name web-smoke --network bukalaris_default -p 127.0.0.1:3170:3000 \
   -v bukalaris-media:/data/media \
-  -e DATABASE_URL=postgres://bukalaris:bukalaris@db:5432/bukalaris \
+  -e DATABASE_URL=postgres://bukalaris_app:bukalaris_app@db:5432/bukalaris \
+  -e PLATFORM_DATABASE_URL=postgres://bukalaris_platform:bukalaris_platform@db:5432/bukalaris \
   -e BETTER_AUTH_SECRET="$(openssl rand -base64 32)" -e BETTER_AUTH_URL=http://localhost:3170 \
   -e STORE_ROOT_DOMAIN=localhost bukalaris-web
 curl -i http://localhost:3170/api/health          # 200 {"ok":true}
@@ -141,5 +161,9 @@ with a recorded command and result before the first live deploy.
       Postgres container (`DB_CONTAINER=…`) with the result recorded.
 - [ ] Secrets set in Coolify only (`BETTER_AUTH_SECRET` fresh per environment,
       `BETTER_AUTH_URL` equal to the public origin, `STORE_ROOT_DOMAIN`).
+- [ ] Database roles created by hand with generated passwords and the database
+      owned by `bukalaris_owner` (`docs/DEPLOY-COOLIFY.md` "Database roles");
+      `DATABASE_URL` = app role, `PLATFORM_DATABASE_URL` = platform role,
+      `MIGRATION_DATABASE_URL` = owner.
 - [ ] Open product gates from `docs/DEPLOY-COOLIFY.md` "Pre-go-live gates"
       (providers, Q-10, Q-11, auth hardening, RLS, logging) have owners.
