@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { addVariant, createProduct } from "./catalog.ts";
 import { createDb } from "./client.ts";
 import { createStore } from "./platform.ts";
-import { account, membership, platformOperator, store, user } from "./schema.ts";
+import { account, membership, operatorGrant, platformOperator, store, user } from "./schema.ts";
 import { operatorScope, sellerContext } from "./scoped.ts";
 
 if (process.env.NODE_ENV === "production") throw new Error("seed is for local development only");
@@ -29,6 +29,8 @@ async function makeUser(email: string, name: string) {
 
 const adminId = await makeUser("admin@bukalaris.local", "Operator Bukalaris");
 await db.insert(platformOperator).values({ userId: adminId });
+// ops track: Log System access is an explicit platform grant (PR-11).
+await db.insert(operatorGrant).values({ userId: adminId, capability: "logs.read" });
 const op = (await operatorScope(db, adminId))!;
 
 const ownerA = await makeUser("owner-a@bukalaris.local", "Ayu (Toko A)");
