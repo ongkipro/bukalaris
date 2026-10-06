@@ -1,6 +1,6 @@
 import { and, asc, eq, min, sql } from "drizzle-orm";
 import { z } from "zod";
-import { openCartStore } from "./checkout.ts";
+import { assertCartHasRoom, openCartStore } from "./checkout.ts";
 import { isCatalogId } from "./catalog.ts";
 import { cart, cartLine, product, productSlugAlias, variant } from "./schema.ts";
 import { DomainError, type StorefrontScope } from "./scoped.ts";
@@ -82,6 +82,7 @@ export async function setCartLine(scope: StorefrontScope, cartId: string | undef
       .delete(cartLine)
       .where(and(eq(cartLine.storeId, scope.storeId), eq(cartLine.cartId, id), eq(cartLine.variantId, variantId)));
   } else {
+    await assertCartHasRoom(scope.exec, scope.storeId, id, variantId); // T-30 line cap
     await scope.exec
       .insert(cartLine)
       .values({ cartId: id, storeId: scope.storeId, variantId, quantity })

@@ -52,11 +52,6 @@ export function toProviderQuote(key: string, rate: CourierRate, weightKg: number
 
 export function mengantarAdapter(client: MengantarClient): ShippingAdapter {
   return {
-    // Legacy address-string quote (M1 fake checkout path). The real account needs area ids:
-    // no option is offered rather than guessing a route. Checkout moves to estimate() in the next phase.
-    async quote() {
-      return [];
-    },
     async searchArea(keyword) {
       const rows = await client.searchArea(keyword);
       return rows.map((a) => ({

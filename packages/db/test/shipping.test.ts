@@ -189,7 +189,6 @@ describe("recorded fixtures (observed 2026-10-06, sanitized)", () => {
     expect(quotes.find((q) => q.courier === "anteraja")).toMatchObject({ providerCost: 8_500, providerCostCod: 13_494 });
     const areas = await adapter.searchArea("Bandung");
     expect(areas[0]).toEqual({ id: "5fc64922f8f44b34aa4ce896", label: "SUMUR BANDUNG, JAYANTI, TANGERANG, BANTEN 15610" });
-    expect(await adapter.quote({ storeId: 1, address: "x", items: 1 })).toEqual([]);
   });
 });
 
@@ -210,8 +209,8 @@ describe("margin rule and pickup origin (store-scoped)", () => {
   });
 
   it("pickup area is per store, owner-only, searched server-side through the adapter", async () => {
-    const a = await makeStore("toko-a");
-    const b = await makeStore("toko-b");
+    const a = await makeStore("toko-a", { pickupArea: false });
+    const b = await makeStore("toko-b", { pickupArea: false });
     expect(await getPickupArea(a.owner)).toBeNull();
 
     const found = await searchPickupAreas(a.owner, "braga", fakeMengantar);
@@ -245,8 +244,8 @@ describe("margin rule and pickup origin (store-scoped)", () => {
 
   it("shippingOptions: needs the store's pickup area, applies the rule and gating, is ready for the order snapshot", async () => {
     await db.delete(shippingMarginRule);
-    const a = await makeStore("toko-a");
-    const b = await makeStore("toko-b");
+    const a = await makeStore("toko-a", { pickupArea: false });
+    const b = await makeStore("toko-b", { pickupArea: false });
     await expect(shippingOptions(a.sf, "b1b1b1b1b1b1b1b1b1b1b1b1", { items: 2, subtotal: 200_000 }, fakeMengantar)).rejects.toMatchObject({ code: "no_pickup_area" });
     await setPickupArea(a.owner, { areaId: "a1a1a1a1a1a1a1a1a1a1a1a1", areaLabel: "Braga, Bandung" });
     await setMarginRule(a.op, { fixedIdr: 2000, percentBps: 0, roundTo: 500 });

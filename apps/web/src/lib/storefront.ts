@@ -17,6 +17,20 @@ export const storeOr404 = cache(async (slug: string) => {
   return { scope, base: viaHost ? "" : `/s/${slug}` };
 });
 
+const IP_RE = /^[0-9a-fA-F.:]{3,45}$/;
+/**
+ * Client IP for abuse counters (T-30): the entry the nearest proxy appended to
+ * `x-forwarded-for` (last hop; the deployment runs behind exactly one trusted proxy),
+ * else `x-real-ip`; undefined when neither is present or malformed, in which case the
+ * services skip the IP dimension (per-cart/per-phone limits still apply). Never
+ * identity or authorization.
+ */
+export async function clientIp(): Promise<string | undefined> {
+  const h = await headers();
+  const hop = h.get("x-forwarded-for")?.split(",").map((s) => s.trim()).filter(Boolean).at(-1) ?? h.get("x-real-ip")?.trim();
+  return hop && IP_RE.test(hop) ? hop : undefined;
+}
+
 export const cookieOpts = {
   httpOnly: true,
   sameSite: "lax" as const,

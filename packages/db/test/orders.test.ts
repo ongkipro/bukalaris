@@ -21,16 +21,18 @@ const stockOf = async (id: number) => (await db.select().from(variant).where(eq(
 const statusOf = async (id: number) => (await db.select().from(order).where(eq(order.id, id)))[0]!.status;
 
 type Store = Awaited<ReturnType<typeof makeStore>>;
+/** An order in `placed` (COD orders skip the T-35 confirmation step here, without a history row; checkout2.test.ts covers it). */
 async function placed(s: Store, qty = 1, over: Record<string, unknown> = {}) {
   const cartId = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: qty }, "add");
   const { orderId } = await placeOrder(db, cartId, buyer(over));
   await runOnce(db, { workerId: "test" }); // T-32: the payment instruction comes from the outbox worker
+  if (over.paymentMethod !== "manual_transfer") await force(orderId, "placed");
   return orderId;
 }
-/** Force an order into a given status directly (the matrix test needs every start state). */
 /** The strict input each action accepts (extra keys are rejected by the schema). */
 const inputFor = (action: OrderAction) =>
-  action === "ship" ? { trackingNumber: "RESI-1" } : action === "cancel" ? { reason: "uji transisi pesanan" } : {};
+  action === "ship" ? { trackingNumber: "RESI-1" } : action === "cancel" || action === "reject" || action === "hold" ? { reason: "uji transisi pesanan" } : {};
+/** Force an order into a given status directly (the matrix test needs every start state). */
 const force = (id: number, status: OrderStatus) =>
   db.update(order).set({ status, trackingNumber: status === "shipped" || status === "completed" ? "X" : null }).where(eq(order.id, id));
 
@@ -65,7 +67,7 @@ describe("seller orders (SC-12/SC-13)", () => {
       paymentMethod: "manual_transfer",
       paymentReference: `FAKE-AL-${id}`,
       subtotal: 250_000,
-      total: 265_000,
+      total: 262_500, // 250_000 + prepaid JNE 10_500 + margin 2_000
       actions: ["pay", "cancel"],
     });
     expect(o.lines).toEqual([expect.objectContaining({ productTitle: "Kaos toko-a", variantTitle: "M", unitPrice: 125_000, quantity: 2 })]);
@@ -112,9 +114,10 @@ describe("seller orders (SC-12/SC-13)", () => {
 
   it("transition matrix: every (status, action) pair is allowed or rejected exactly as declared", async () => {
     const s = await makeStore("toko-a", { stock: 100 });
+    let n = 0;
     for (const from of ORDER_STATUSES) {
       for (const action of Object.keys(TRANSITIONS) as OrderAction[]) {
-        const id = await placed(s);
+        const id = await placed(s, 1, { buyerPhone: `0812${String(n++).padStart(8, "0")}` }); // distinct buyers: the per-phone limit (T-30) is not under test here
         await force(id, from);
         const allowed = (TRANSITIONS[action].from as readonly OrderStatus[]).includes(from);
         expect(allowedActions(from).includes(action)).toBe(allowed);

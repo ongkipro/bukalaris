@@ -9,6 +9,14 @@ mkdirSync(dir, { recursive: true });
 
 export const DEV_PASSWORD = "bukalaris-dev-123";
 
+/** Hosted checkout step 1 (T-34): search the destination area through the fake adapter and pick it (no JS needed). */
+export async function chooseDestination(page: Page, keyword = "menteng", pick: RegExp = /^Pilih Menteng/) {
+  await page.getByLabel(/Cari kelurahan/).fill(keyword);
+  await page.getByRole("button", { name: "Cari area" }).click();
+  await page.getByRole("link", { name: pick }).click();
+  await expect(page.getByTestId("destination-area")).toBeVisible();
+}
+
 /** Full-page screenshot into docs/evidence/m1 plus a no-horizontal-scroll check (NFR-3 reflow). */
 // CSP guard (T-29): every evidence step also asserts that the page raised no CSP
 // violation, so a component that needs a blocked inline style/script fails loudly on

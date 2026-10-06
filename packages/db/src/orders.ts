@@ -5,16 +5,23 @@ import { DomainError, requireCap, type SellerScope } from "./scoped.ts";
 export { ORDER_STATUSES, type OrderStatus } from "./schema.ts";
 
 // Seller orders (SC-12/SC-13) and inventory (SC-04). Q-10 is still open; the
-// defaults taken here are recorded in docs/tracks/orders.md.
+// defaults taken here are recorded in docs/tracks/orders.md and checkout2.md.
 //
-// Lifecycle: awaiting_payment --(mark paid)--> placed --> processing --> shipped --> completed
-//            awaiting_payment | placed | processing --> cancelled (restocks every line exactly once)
-// Every transition locks the order row (`FOR UPDATE`), re-checks the current
-// status and writes a history row in the same transaction, so a double cancel
-// or a cancel racing another transition is rejected instead of restocking twice.
+// Lifecycle: COD       awaiting_confirmation --(hold)--> on_hold; awaiting_confirmation | on_hold --(confirm)--> placed
+//                      awaiting_confirmation | on_hold --(reject)--> cancelled           (T-35, PR-19)
+//            transfer  awaiting_payment --(mark paid)--> placed
+//            placed --> processing --> shipped --> completed
+//            awaiting_payment | placed | processing --> cancelled
+// Every cancellation (cancel or reject) restocks every line exactly once. Every
+// transition locks the order row (`FOR UPDATE`), re-checks the current status and
+// writes a history row in the same transaction, so a double cancel or a cancel
+// racing another transition is rejected instead of restocking twice.
 
 /** Seller actions and the statuses they are allowed from. */
 export const TRANSITIONS = {
+  confirm: { from: ["awaiting_confirmation", "on_hold"], to: "placed" },
+  hold: { from: ["awaiting_confirmation"], to: "on_hold" },
+  reject: { from: ["awaiting_confirmation", "on_hold"], to: "cancelled" },
   pay: { from: ["awaiting_payment"], to: "placed" },
   process: { from: ["placed"], to: "processing" },
   ship: { from: ["processing"], to: "shipped" },
@@ -22,6 +29,9 @@ export const TRANSITIONS = {
   cancel: { from: ["awaiting_payment", "placed", "processing"], to: "cancelled" },
 } as const satisfies Record<string, { from: readonly OrderStatus[]; to: OrderStatus }>;
 export type OrderAction = keyof typeof TRANSITIONS;
+/** Actions that need a seller-written reason (recorded in the history and, for restocks, the adjustment). */
+const REASONED: readonly OrderAction[] = ["hold", "reject", "cancel"];
+const RESTOCKING: readonly OrderAction[] = ["reject", "cancel"];
 
 export const orderStatusInput = z.enum(ORDER_STATUSES);
 const PAGE = 20;
@@ -82,25 +92,82 @@ export async function getOrder(scope: SellerScope, orderId: number) {
   // The checkout row carries no actor, so the history shows transitions only; the
   // order's own created_at is the "placed by buyer" moment.
   const { requestHash: _hash, idempotencyKey: _key, ...safe } = o;
-  return { ...safe, lines, history, actions: allowedActions(o.status) };
+  const risk = o.paymentMethod === "cod" && (o.status === "awaiting_confirmation" || o.status === "on_hold") ? await codRiskReasons(scope, o) : [];
+  return { ...safe, lines, history, actions: allowedActions(o.status), risk };
+}
+
+// ---------------------------------------------------------------------------
+// COD risk signals (T-35, PR-19). Store-scoped only (Q-14 open): nothing here reads
+// another store's orders. The provider receiver score is not used (403 for this account).
+// ---------------------------------------------------------------------------
+
+export type RiskReason = { code: "repeat_cancelled" | "repeat_unconfirmed" | "address_incomplete" | "high_amount"; message: string };
+
+/** `+62…`/`62…` → `0…` so the same buyer phone written two ways matches. Mirrors `phoneSql`. */
+export const normalizePhone = (p: string) => p.trim().replace(/^\+/, "").replace(/^62/, "0");
+const phoneSql = (col: typeof order.buyerPhone) => sql`regexp_replace(regexp_replace(${col}, '^\\+', ''), '^62', '0')`;
+
+/** Address needs a house/street number and some length to be deliverable by a courier. */
+export const addressIncomplete = (address: string) => {
+  const a = address.trim();
+  return a.length < 25 || !/[0-9]/.test(a);
+};
+const HIGH_AMOUNT_MIN_ORDERS = 3;
+const HIGH_AMOUNT_FACTOR = 2;
+const idr = new Intl.NumberFormat("id-ID");
+
+export async function codRiskReasons(
+  scope: SellerScope,
+  o: { id: number; buyerPhone: string; shippingAddress: string; total: number },
+): Promise<RiskReason[]> {
+  const samePhone = and(eq(order.storeId, scope.storeId), sql`${order.id} <> ${o.id}`, sql`${phoneSql(order.buyerPhone)} = ${normalizePhone(o.buyerPhone)}`);
+  const [[phone], [amount]] = await Promise.all([
+    scope.exec
+      .select({
+        cancelled: sql<number>`count(*) filter (where ${order.status} = 'cancelled')`.mapWith(Number),
+        unconfirmed: sql<number>`count(*) filter (where ${order.status} in ('awaiting_confirmation', 'on_hold'))`.mapWith(Number),
+      })
+      .from(order)
+      .where(samePhone),
+    scope.exec
+      .select({
+        n: sql<number>`count(*)`.mapWith(Number),
+        median: sql<number>`coalesce(percentile_cont(0.5) within group (order by ${order.total}), 0)`.mapWith(Number),
+      })
+      .from(order)
+      .where(and(eq(order.storeId, scope.storeId), eq(order.paymentMethod, "cod"), sql`${order.id} <> ${o.id}`)),
+  ]);
+  const reasons: RiskReason[] = [];
+  if (phone!.cancelled > 0)
+    reasons.push({ code: "repeat_cancelled", message: `${phone!.cancelled} pesanan sebelumnya dengan nomor HP ini dibatalkan atau ditolak di toko ini.` });
+  if (phone!.unconfirmed > 0)
+    reasons.push({ code: "repeat_unconfirmed", message: `${phone!.unconfirmed} pesanan lain dengan nomor HP ini masih menunggu konfirmasi.` });
+  if (addressIncomplete(o.shippingAddress))
+    reasons.push({ code: "address_incomplete", message: "Alamat terlalu pendek atau tanpa nomor rumah/jalan; pastikan lewat telepon sebelum dikirim." });
+  if (amount!.n >= HIGH_AMOUNT_MIN_ORDERS && o.total > HIGH_AMOUNT_FACTOR * amount!.median)
+    reasons.push({
+      code: "high_amount",
+      message: `Nilai COD Rp ${idr.format(o.total)} lebih dari ${HIGH_AMOUNT_FACTOR}× median pesanan COD toko ini (Rp ${idr.format(Math.round(amount!.median))}).`,
+    });
+  return reasons;
 }
 
 export const allowedActions = (status: OrderStatus): OrderAction[] =>
   (Object.keys(TRANSITIONS) as OrderAction[]).filter((a) => (TRANSITIONS[a].from as readonly OrderStatus[]).includes(status));
 
 const shipInput = z.strictObject({ trackingNumber: z.string().trim().min(3, "Nomor resi minimal 3 karakter.").max(80) });
-const cancelInput = z.strictObject({ reason: z.string().trim().min(5, "Alasan pembatalan minimal 5 karakter.").max(500) });
+const reasonInput = z.strictObject({ reason: z.string().trim().min(5, "Alasan minimal 5 karakter.").max(500) });
 
 /**
  * Apply one seller action. `raw` carries the action's input (tracking number for
- * `ship`, reason for `cancel`; ignored otherwise). Invalid transitions throw
- * `invalid_transition`; a foreign or unknown order throws `not_found`.
+ * `ship`, reason for `hold`/`reject`/`cancel`; ignored otherwise). Invalid transitions
+ * throw `invalid_transition`; a foreign or unknown order throws `not_found`.
  */
 export async function transitionOrder(scope: SellerScope, orderId: number, action: OrderAction, raw: unknown = {}): Promise<OrderStatus> {
   requireCap(scope, "orders.fulfill");
   if (!Object.hasOwn(TRANSITIONS, action)) throw new DomainError("invalid_action", "Aksi tidak dikenal.");
   const t = TRANSITIONS[action];
-  const note = action === "ship" ? shipInput.parse(raw).trackingNumber : action === "cancel" ? cancelInput.parse(raw).reason : null;
+  const note = action === "ship" ? shipInput.parse(raw).trackingNumber : REASONED.includes(action) ? reasonInput.parse(raw).reason : null;
 
   return scope.exec.transaction(async (tx) => {
     const [o] = await tx
@@ -119,11 +186,12 @@ export async function transitionOrder(scope: SellerScope, orderId: number, actio
         status: t.to,
         updatedAt: new Date(),
         ...(action === "pay" ? { paidAt: new Date() } : {}),
+        ...(action === "confirm" ? { confirmedAt: new Date() } : {}),
         ...(action === "ship" ? { trackingNumber: note } : {}),
       })
       .where(and(eq(order.storeId, scope.storeId), eq(order.id, orderId)));
 
-    if (action === "cancel") {
+    if (RESTOCKING.includes(action)) {
       // The row lock above guarantees this block runs at most once per order.
       const lines = await tx
         .select({ variantId: orderLine.variantId, quantity: orderLine.quantity })
@@ -142,7 +210,7 @@ export async function transitionOrder(scope: SellerScope, orderId: number, actio
             storeId: scope.storeId,
             variantId: l.variantId,
             delta: l.quantity,
-            reason: `Pembatalan pesanan #${orderId}: ${note}`,
+            reason: `${action === "reject" ? "Penolakan pesanan COD" : "Pembatalan pesanan"} #${orderId}: ${note}`,
             actorUserId: scope.userId,
             orderId,
           })),
@@ -156,7 +224,7 @@ export async function transitionOrder(scope: SellerScope, orderId: number, actio
       fromStatus: o.status,
       toStatus: t.to,
       actorUserId: scope.userId,
-      note: action === "pay" ? "Pembayaran transfer dikonfirmasi manual oleh penjual" : note,
+      note: action === "pay" ? "Pembayaran transfer dikonfirmasi manual oleh penjual" : action === "confirm" ? "Pesanan COD dikonfirmasi oleh penjual" : note,
     });
     return t.to;
   });

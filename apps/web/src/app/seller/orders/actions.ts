@@ -10,6 +10,6 @@ export async function orderAction(orderId: number, action: OrderAction, f: FormD
   const scope = await sellerScope();
   const back = `/seller/orders/${orderId}`;
   await run(back, () => `${back}?saved=1`, () =>
-    transitionOrder(scope, orderId, action, action === "ship" ? { trackingNumber: text(f, "trackingNumber") } : action === "cancel" ? { reason: text(f, "reason") } : {}),
+    transitionOrder(scope, orderId, action, action === "ship" ? { trackingNumber: text(f, "trackingNumber") } : f.has("reason") ? { reason: text(f, "reason") } : {}),
   );
 }

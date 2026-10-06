@@ -21,7 +21,7 @@ export default async function ConfirmationPage({ searchParams }: PageProps<"/che
       </p>
       <p role="status" className="rounded-lg bg-muted/60 p-3">
         {o.paymentMethod === "cod"
-          ? "Bayar di tempat (COD) saat barang tiba."
+          ? "Bayar di tempat (COD) saat barang tiba. Penjual akan menghubungi nomor HP Anda untuk konfirmasi sebelum pesanan dikirim."
           : o.paymentReference
             ? `Menunggu pembayaran. Kode referensi simulasi: ${o.paymentReference}.`
             : "Menunggu pembayaran. Instruksi pembayaran sedang disiapkan — muat ulang halaman ini nanti."}
@@ -34,9 +34,12 @@ export default async function ConfirmationPage({ searchParams }: PageProps<"/che
           </li>
         ))}
       </ul>
+      <p className="text-sm text-muted-foreground" data-testid="shipping-route">
+        Dikirim dengan <strong className="font-medium text-foreground">{o.courier}</strong> ke {o.destinationAreaLabel}.
+      </p>
       <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 border-t pt-2 text-sm tabular-nums">
         <dt>Subtotal</dt><dd className="text-right">{rupiah(o.subtotal)}</dd>
-        <dt>Ongkir ({o.courier})</dt><dd className="text-right">{rupiah(o.shippingFee)}</dd>
+        <dt>Ongkir</dt><dd className="text-right" data-testid="order-shipping">{rupiah(o.shippingFee)}</dd>
         <dt className="font-semibold">Total</dt><dd className="text-right font-semibold" data-testid="order-total">{rupiah(o.total)}</dd>
       </dl>
       <a href={back} className="text-sm underline underline-offset-4" data-testid="return-link">Kembali ke toko</a>

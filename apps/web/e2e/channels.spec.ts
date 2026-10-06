@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { evidence, login } from "./helpers";
+import { chooseDestination, evidence, login } from "./helpers";
 
 const API = "/api/storefront/v1";
 
@@ -63,12 +63,13 @@ test("headless channel: one-time token, external backend via API, one-use handof
   await expect(page.getByRole("heading", { name: /Checkout · Toko Ayu/ })).toBeVisible();
   await expect(page.getByTestId("subtotal")).toHaveText("Rp 178.000");
   await evidence(page, info, "32-handoff-checkout");
+  await chooseDestination(page);
   await page.getByLabel("Nama").fill("Budi Santoso");
   await page.getByLabel("Nomor HP").fill("081234567890");
   await page.getByLabel("Alamat lengkap").fill("Jl. Merdeka No. 1, Bandung 40111");
   await page.getByRole("button", { name: "Buat pesanan" }).click();
   await expect(page.getByRole("heading", { name: "Pesanan diterima" })).toBeVisible();
-  await expect(page.getByTestId("order-total")).toHaveText("Rp 193.000");
+  await expect(page.getByTestId("order-total")).toHaveText("Rp 195.500"); // 178.000 + COD ongkir 17.500
   // Return goes only to the channel's registered origin + path.
   await expect(page.getByTestId("return-link")).toHaveAttribute("href", "https://toko-ayu.example/thanks");
   await evidence(page, info, "33-handoff-confirmation");

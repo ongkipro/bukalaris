@@ -8,6 +8,7 @@ import { createDb } from "./client.ts";
 import { createStore } from "./platform.ts";
 import { account, membership, operatorGrant, platformOperator, store, user } from "./schema.ts";
 import { operatorScope, sellerContext } from "./scoped.ts";
+import { setPickupAddress, setPickupArea } from "./shipping.ts";
 
 if (process.env.NODE_ENV === "production") throw new Error("seed is for local development only");
 export const DEV_PASSWORD = "bukalaris-dev-123";
@@ -57,6 +58,9 @@ const kaos = await createProduct(a, {
   variant: { title: "M", price: 89_000, stock: 20 },
 });
 await addVariant(a, kaos, { title: "L", price: 95_000, stock: 5 });
+// Toko A can quote shipping (fake area "Braga"); Toko B deliberately has no pickup area yet.
+await setPickupArea(a, { areaId: "a1a1a1a1a1a1a1a1a1a1a1a1", areaLabel: "Braga, Sumur Bandung, Bandung, Jawa Barat 40111" });
+await setPickupAddress(a, { addressText: "Jl. Braga No. 1, Bandung" });
 await createProduct(a, { title: "Totebag Kanvas", status: "active", variant: { title: "Natural", price: 55_000, stock: 1 } });
 await createProduct(a, { title: "Topi (draf)", status: "draft", variant: { title: "All size", price: 45_000, stock: 10 } });
 await createProduct(await scopeOf(ownerB), {

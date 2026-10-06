@@ -236,7 +236,7 @@ export const cartLine = pgTable(
 // ---------------------------------------------------------------------------
 // Orders: immutable commercial snapshot (DATA-2).
 // ---------------------------------------------------------------------------
-export const ORDER_STATUSES = ["awaiting_payment", "placed", "processing", "shipped", "completed", "cancelled"] as const;
+export const ORDER_STATUSES = ["awaiting_confirmation", "on_hold", "awaiting_payment", "placed", "processing", "shipped", "completed", "cancelled"] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
 export const order = pgTable(
@@ -248,17 +248,29 @@ export const order = pgTable(
     cartId: uuid("cart_id").notNull().unique(),
     idempotencyKey: text("idempotency_key").notNull(),
     requestHash: text("request_hash").notNull(),
-    // Lifecycle (M2 orders track, docs/tracks/orders.md): awaiting_payment → placed → processing → shipped → completed;
-    // placed/awaiting_payment/processing → cancelled (restocks once). Transitions only via orders.ts.
+    // Lifecycle (docs/tracks/orders.md, T-35): COD starts in awaiting_confirmation → (hold → on_hold) → confirm → placed,
+    // or reject → cancelled; transfer starts in awaiting_payment → pay → placed → processing → shipped → completed;
+    // awaiting_payment/placed/processing → cancelled. Every cancellation restocks once. Transitions only via orders.ts.
     status: text("status", { enum: ORDER_STATUSES }).notNull(),
     paymentMethod: text("payment_method", { enum: ["cod", "manual_transfer"] }).notNull(),
     paymentReference: text("payment_reference"),
     paidAt: timestamp("paid_at", { withTimezone: true }),
+    /** Seller confirmed the COD order (T-35); null for transfer orders and unconfirmed ones. */
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
     trackingNumber: text("tracking_number"),
     buyerName: text("buyer_name").notNull(),
     buyerPhone: text("buyer_phone").notNull(),
     shippingAddress: text("shipping_address").notNull(),
+    // Shipping snapshot (T-34, Q-12): provider courier key + label, route area ids, and the
+    // fee split. `shipping_fee` is what the buyer pays = provider cost + platform margin.
+    courierCode: text("courier_code").notNull(),
     courier: text("courier").notNull(),
+    originAreaId: text("origin_area_id").notNull(),
+    destinationAreaId: text("destination_area_id").notNull(),
+    destinationAreaLabel: text("destination_area_label").notNull(),
+    weightKg: integer("weight_kg").notNull(),
+    shippingProviderCost: idr("shipping_provider_cost").notNull(),
+    shippingMargin: idr("shipping_margin").notNull(),
     subtotal: idr("subtotal").notNull(),
     shippingFee: idr("shipping_fee").notNull(),
     total: idr("total").notNull(),
@@ -270,7 +282,17 @@ export const order = pgTable(
     index("order_store_status_idx").on(t.storeId, t.status, t.id),
     unique("order_idempotency_uq").on(t.storeId, t.idempotencyKey),
     check("order_total_chk", sql`${t.total} = ${t.subtotal} + ${t.shippingFee} and ${t.subtotal} >= 0 and ${t.shippingFee} >= 0`),
-    check("order_status_chk", sql`${t.status} in ('awaiting_payment', 'placed', 'processing', 'shipped', 'completed', 'cancelled')`),
+    check(
+      "order_shipping_fee_chk",
+      sql`${t.shippingFee} = ${t.shippingProviderCost} + ${t.shippingMargin} and ${t.shippingProviderCost} >= 0 and ${t.shippingMargin} >= 0 and ${t.weightKg} >= 1`,
+    ),
+    check("order_area_chk", sql`${t.originAreaId} ~ '^[a-f0-9]{24}$' and ${t.destinationAreaId} ~ '^[a-f0-9]{24}$'`),
+    check(
+      "order_status_chk",
+      sql`${t.status} in ('awaiting_confirmation', 'on_hold', 'awaiting_payment', 'placed', 'processing', 'shipped', 'completed', 'cancelled')`,
+    ),
+    // Confirmation states belong to COD only.
+    check("order_cod_state_chk", sql`${t.paymentMethod} = 'cod' or ${t.status} not in ('awaiting_confirmation', 'on_hold')`),
     check("order_shipped_chk", sql`${t.status} not in ('shipped', 'completed') or ${t.trackingNumber} is not null`),
     check("order_payment_chk", sql`${t.paymentMethod} in ('cod', 'manual_transfer')`),
   ],
@@ -323,3 +345,4 @@ export * from "./schema-channels.ts";
 export * from "./schema-jobs.ts";
 export * from "./schema-shipping.ts";
 export * from "./schema-catalog.ts";
+export * from "./schema-abuse.ts";

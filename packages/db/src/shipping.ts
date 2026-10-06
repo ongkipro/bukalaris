@@ -2,7 +2,7 @@ import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import type { Executor } from "./client.ts";
 import { mengantarFromEnv } from "./mengantar/adapter.ts";
-import { fakeMengantar, type ProviderQuote, type ShippingAdapter } from "./providers.ts";
+import { fakeAutoLaris, fakeMengantar, type ProviderQuote, type Providers, type ShippingAdapter } from "./providers.ts";
 import { auditLog, shippingMarginRule, storePickupArea } from "./schema.ts";
 import { DomainError, requireCap, type OperatorScope, type SellerScope, type StorefrontScope } from "./scoped.ts";
 
@@ -168,4 +168,9 @@ let adapterInstance: ShippingAdapter | undefined;
 /** Real Mengantar when the platform key is in the process env, else the fake (tests, e2e, local dev). */
 export function defaultShippingAdapter(): ShippingAdapter {
   return (adapterInstance ??= mengantarFromEnv() ?? fakeMengantar);
+}
+
+/** Runtime providers for checkout: shipping per `defaultShippingAdapter()`, payment still fake (T-6 gate). */
+export function defaultProviders(): Providers {
+  return { shipping: defaultShippingAdapter(), payment: fakeAutoLaris };
 }

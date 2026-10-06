@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-import { evidence, login } from "./helpers";
+import { chooseDestination, evidence, login } from "./helpers";
 
 /** Buyer places a COD/transfer order for the seeded "Kaos Katun Basic" variant; returns the order id. */
 async function buyKaos(page: Page, variant: "M" | "L", qty: number, payment: "cod" | "manual_transfer") {
@@ -8,6 +8,7 @@ async function buyKaos(page: Page, variant: "M" | "L", qty: number, payment: "co
   await page.getByLabel("Jumlah").fill(String(qty));
   await page.getByRole("button", { name: "Tambah ke keranjang" }).click();
   await page.getByRole("link", { name: "Checkout" }).click();
+  await chooseDestination(page);
   await page.getByLabel("Nama").fill("Budi Santoso");
   await page.getByLabel("Nomor HP").fill("081234567890");
   await page.getByLabel("Alamat lengkap").fill("Jl. Merdeka No. 1, Bandung 40111");
@@ -34,7 +35,7 @@ test("buyer places an order → seller sees it, processes, ships and completes i
   await page.goto("/seller/orders");
   await expect(page.getByRole("heading", { name: "Pesanan" })).toBeVisible();
   const row = page.getByRole("row").filter({ hasText: `#${id}` });
-  await expect(row.getByText("Baru")).toBeVisible();
+  await expect(row.getByText("Menunggu konfirmasi")).toBeVisible(); // T-35: COD waits for the seller
   await evidence(page, info, "30-seller-orders");
 
   // Status filter keeps only matching orders.
@@ -44,11 +45,13 @@ test("buyer places an order → seller sees it, processes, ships and completes i
   await row.getByRole("link", { name: `#${id}` }).click();
 
   await expect(page.getByRole("heading", { name: `Pesanan #${id}` })).toBeVisible();
+  await expect(page.getByTestId("order-status")).toHaveText("Menunggu konfirmasi");
+  await page.getByRole("button", { name: "Konfirmasi pesanan" }).click();
   await expect(page.getByTestId("order-status")).toHaveText("Baru");
   await expect(page.getByText("Budi Santoso")).toBeVisible();
   await expect(page.getByText("081234567890")).toBeVisible();
   await expect(page.getByText(/Kaos Katun Basic · M/)).toBeVisible();
-  await expect(page.getByTestId("order-total")).toHaveText("Rp 104.000");
+  await expect(page.getByTestId("order-total")).toHaveText("Rp 106.500"); // 89.000 + COD ongkir 17.500
   await evidence(page, info, "31-seller-order-new");
 
   await page.getByRole("button", { name: "Proses pesanan" }).click();
@@ -66,7 +69,7 @@ test("buyer places an order → seller sees it, processes, ships and completes i
   await page.getByRole("button", { name: "Tandai selesai" }).click();
   await expect(page.getByTestId("order-status")).toHaveText("Selesai");
   const history = page.getByRole("region", { name: "Riwayat status" }).getByRole("listitem");
-  await expect(history).toHaveCount(4); // created + 3 transitions
+  await expect(history).toHaveCount(5); // created + confirm + 3 transitions
   await expect(history.last()).toContainText("Dikirim → Selesai oleh Ayu (Toko A)");
   await expect(page.getByRole("button")).toHaveCount(1); // only "Keluar" remains: nothing left to do
 
