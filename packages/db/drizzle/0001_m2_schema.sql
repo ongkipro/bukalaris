@@ -1,3 +1,13 @@
+CREATE TABLE "two_factor" (
+	"id" text PRIMARY KEY NOT NULL,
+	"secret" text NOT NULL,
+	"backup_codes" text NOT NULL,
+	"user_id" text NOT NULL,
+	"verified" boolean DEFAULT true NOT NULL,
+	"failed_verification_count" integer DEFAULT 0 NOT NULL,
+	"locked_until" timestamp with time zone
+);
+--> statement-breakpoint
 CREATE TABLE "order_status_history" (
 	"id" bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "order_status_history_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 9223372036854775807 START WITH 1 CACHE 1),
 	"store_id" bigint NOT NULL,
@@ -19,6 +29,31 @@ CREATE TABLE "stock_adjustment" (
 	"order_id" bigint,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "stock_adjustment_delta_chk" CHECK ("stock_adjustment"."delta" <> 0)
+);
+--> statement-breakpoint
+CREATE TABLE "mail_outbox" (
+	"id" bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "mail_outbox_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 9223372036854775807 START WITH 1 CACHE 1),
+	"to_email" text NOT NULL,
+	"subject" text NOT NULL,
+	"text_body" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "store_invitation" (
+	"id" bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "store_invitation_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 9223372036854775807 START WITH 1 CACHE 1),
+	"store_id" bigint NOT NULL,
+	"email" text NOT NULL,
+	"role" text NOT NULL,
+	"token_hash" text NOT NULL,
+	"invited_by" text NOT NULL,
+	"expires_at" timestamp with time zone NOT NULL,
+	"accepted_at" timestamp with time zone,
+	"accepted_user_id" text,
+	"revoked_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "store_invitation_token_hash_unique" UNIQUE("token_hash"),
+	CONSTRAINT "store_invitation_role_chk" CHECK ("store_invitation"."role" in ('owner', 'staff')),
+	CONSTRAINT "store_invitation_email_chk" CHECK ("store_invitation"."email" = lower("store_invitation"."email"))
 );
 --> statement-breakpoint
 CREATE TABLE "operator_grant" (
@@ -102,16 +137,24 @@ ALTER TABLE "order" DROP CONSTRAINT "order_status_chk";--> statement-breakpoint
 ALTER TABLE "order" ADD COLUMN "paid_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "order" ADD COLUMN "tracking_number" text;--> statement-breakpoint
 ALTER TABLE "order" ADD COLUMN "updated_at" timestamp with time zone DEFAULT now() NOT NULL;--> statement-breakpoint
+ALTER TABLE "user" ADD COLUMN "two_factor_enabled" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "two_factor" ADD CONSTRAINT "two_factor_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "order_status_history" ADD CONSTRAINT "order_status_history_order_fk" FOREIGN KEY ("store_id","order_id") REFERENCES "public"."order"("store_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "stock_adjustment" ADD CONSTRAINT "stock_adjustment_variant_fk" FOREIGN KEY ("store_id","variant_id") REFERENCES "public"."variant"("store_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "stock_adjustment" ADD CONSTRAINT "stock_adjustment_order_fk" FOREIGN KEY ("store_id","order_id") REFERENCES "public"."order"("store_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "store_invitation" ADD CONSTRAINT "store_invitation_store_id_store_id_fk" FOREIGN KEY ("store_id") REFERENCES "public"."store"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "store_invitation" ADD CONSTRAINT "store_invitation_invited_by_user_id_fk" FOREIGN KEY ("invited_by") REFERENCES "public"."user"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "store_invitation" ADD CONSTRAINT "store_invitation_accepted_user_id_user_id_fk" FOREIGN KEY ("accepted_user_id") REFERENCES "public"."user"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "operator_grant" ADD CONSTRAINT "operator_grant_user_id_platform_operator_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."platform_operator"("user_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "checkout_handoff" ADD CONSTRAINT "checkout_handoff_cart_fk" FOREIGN KEY ("store_id","cart_id") REFERENCES "public"."cart"("store_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "checkout_handoff" ADD CONSTRAINT "checkout_handoff_channel_fk" FOREIGN KEY ("store_id","channel_id") REFERENCES "public"."storefront_channel"("store_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "storefront_channel" ADD CONSTRAINT "storefront_channel_store_id_store_id_fk" FOREIGN KEY ("store_id") REFERENCES "public"."store"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "job" ADD CONSTRAINT "job_store_id_store_id_fk" FOREIGN KEY ("store_id") REFERENCES "public"."store"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "two_factor_user_idx" ON "two_factor" USING btree ("user_id");--> statement-breakpoint
+CREATE INDEX "two_factor_secret_idx" ON "two_factor" USING btree ("secret");--> statement-breakpoint
 CREATE INDEX "order_status_history_order_idx" ON "order_status_history" USING btree ("store_id","order_id");--> statement-breakpoint
 CREATE INDEX "stock_adjustment_variant_idx" ON "stock_adjustment" USING btree ("store_id","variant_id");--> statement-breakpoint
+CREATE INDEX "store_invitation_store_idx" ON "store_invitation" USING btree ("store_id","created_at");--> statement-breakpoint
 CREATE INDEX "system_log_time_idx" ON "system_log" USING btree ("time" DESC NULLS LAST,"id" DESC NULLS LAST);--> statement-breakpoint
 CREATE INDEX "system_log_request_idx" ON "system_log" USING btree ("request_id");--> statement-breakpoint
 CREATE INDEX "system_log_module_time_idx" ON "system_log" USING btree ("module","time" DESC NULLS LAST);--> statement-breakpoint

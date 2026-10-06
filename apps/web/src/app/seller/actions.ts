@@ -3,7 +3,11 @@
 import {
   addVariant,
   changeMember,
+  createInvitation,
   createProduct,
+  db,
+  dbMailer,
+  revokeInvitation,
   updateProduct,
   updateVariant,
 } from "@bukalaris/db";
@@ -80,4 +84,17 @@ export async function changeMemberAction(userId: string, f: FormData) {
   await run("/seller/members", () => "/seller/members?saved=1", () =>
     changeMember(scope, userId, role === "remove" ? null : (role as "owner" | "staff")),
   );
+}
+
+export async function inviteMemberAction(f: FormData) {
+  const scope = await sellerScope();
+  const base = process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
+  await run("/seller/members", () => "/seller/members?saved=1", () =>
+    createInvitation(scope, dbMailer(db()), { email: text(f, "email"), role: text(f, "role") }, (token) => `${base}/invite/${token}`),
+  );
+}
+
+export async function revokeInvitationAction(invitationId: number) {
+  const scope = await sellerScope();
+  await run("/seller/members", () => "/seller/members?saved=1", () => revokeInvitation(scope, invitationId));
 }

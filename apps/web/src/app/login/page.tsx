@@ -5,8 +5,9 @@ export const metadata = { title: "Masuk — Bukalaris" };
 
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const { next } = await searchParams;
-  // Only internal admin destinations (no open redirect).
-  const target = typeof next === "string" && /^\/(seller|admin)(\/[a-z0-9/-]*)?$/.test(next) ? next : "/seller";
+  // Only internal destinations (no open redirect).
+  const target =
+    typeof next === "string" && /^\/(seller|admin|account\/security|invite\/[A-Za-z0-9_-]+)(\/[a-z0-9/-]*)?$/.test(next) ? next : "/seller";
   return (
     <main className="flex flex-1 items-center justify-center p-4">
       <Card className="w-full max-w-sm">

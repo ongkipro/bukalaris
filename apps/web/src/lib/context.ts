@@ -32,7 +32,10 @@ export async function sellerScope() {
 export const operator = cache(async () => {
   const u = await currentUser();
   if (!u) redirect("/login?next=/admin");
-  return { user: u, op: await operatorScope(db(), u.id) };
+  const op = await operatorScope(db(), u.id);
+  // IAM-9: platform access requires MFA. `twoFactorEnabled` is only set after a verified TOTP enrolment (accounts track).
+  if (op && !u.twoFactorEnabled) redirect("/account/security?next=/admin");
+  return { user: u, op };
 });
 
 export async function operatorOrDeny() {
