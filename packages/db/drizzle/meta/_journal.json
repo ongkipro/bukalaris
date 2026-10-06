@@ -15,6 +15,13 @@
       "when": 1791304620500,
       "tag": "0001_m2_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791305918709,
+      "tag": "0002_crazy_ricochet",
+      "breakpoints": true
     }
   ]
 }

@@ -10,7 +10,7 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
   return (
     <div className="flex flex-1 flex-col">
       <header className="border-b bg-foreground text-background">
-        <div className="mx-auto flex w-full max-w-5xl items-center gap-4 px-4 py-3">
+        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
           <span className="font-semibold">Bukalaris · Bos</span>
           {op && (
             <nav aria-label="Super Admin" className="flex gap-3 text-sm">
