@@ -10,7 +10,27 @@ mkdirSync(dir, { recursive: true });
 export const DEV_PASSWORD = "bukalaris-dev-123";
 
 /** Full-page screenshot into docs/evidence/m1 plus a no-horizontal-scroll check (NFR-3 reflow). */
+// CSP guard (T-29): every evidence step also asserts that the page raised no CSP
+// violation, so a component that needs a blocked inline style/script fails loudly on
+// whichever page uses it, not only on the pages the security-headers spec visits.
+const cspWatched = new WeakSet<Page>();
+const recordCsp = () => {
+  const w = window as unknown as { __blCsp?: string[] };
+  if (w.__blCsp) return;
+  w.__blCsp = [];
+  document.addEventListener("securitypolicyviolation", (e) => w.__blCsp!.push(`${e.violatedDirective} ${e.blockedURI}`));
+};
+async function watchCsp(page: Page) {
+  if (cspWatched.has(page)) return;
+  cspWatched.add(page);
+  await page.addInitScript(recordCsp); // every later document
+  await page.evaluate(recordCsp); // the current one
+}
+
 export async function evidence(page: Page, info: TestInfo, step: string) {
+  await watchCsp(page);
+  const violations = await page.evaluate(() => (window as unknown as { __blCsp?: string[] }).__blCsp ?? []);
+  expect(violations, `${step}: CSP violations`).toEqual([]);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow, `${step}: horizontal overflow`).toBeLessThanOrEqual(0);
   await page.screenshot({ path: `${dir}${info.project.name}-${step}.png`, fullPage: true });
