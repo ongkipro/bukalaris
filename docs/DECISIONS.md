@@ -108,3 +108,38 @@ Integration tests use `bukalaris_test` (truncated per test). Playwright uses
 seeds on every run, and runs against the standalone server build. Neither
 touches the dev database `bukalaris`. Guards refuse URLs without `_test` /
 `_e2e` before truncating or wiping.
+
+## D-8 — External catalog identity, URL segment and slug aliases (2026-10-07, T-14)
+
+Decision: `product.catalog_id` and `variant.catalog_id` are `bigint NOT NULL UNIQUE`
+columns defaulted from one dedicated sequence `catalog_id_seq` (START 10000) shared by
+both tables, separate from the identity primary keys, backfilled for existing rows by
+the `ADD COLUMN … DEFAULT nextval()` rewrite (distinct per row), and frozen by a
+`BEFORE UPDATE OF catalog_id` trigger (`catalog_id_immutable`, migration 0003).
+TypeScript reads the column through a `customType` as a **string**; the Storefront API,
+order-line snapshot (`order_line.variant_catalog_id text`) and future feeds/events carry
+it as a string too (PR-12, PR-20 content ids: variant id = item, product id = group).
+
+Why bigint + sequence over text/random: the sequence is collision-free under concurrency
+without MAX+1 or retries, is cheap to index, and the shared sequence guarantees an item id
+never equals a group id. Why ≥ 10000: the memory rule asks for at least five digits with
+no zero padding; starting the sequence there gives that for free and makes a numeric URL
+segment unambiguous — ≥ 5 digits is a catalog id, fewer digits is a legacy database id.
+
+URL: the canonical product path is `/products/<slug ?? catalog_id>`. The database id no
+longer appears in storefront URLs; a legacy `/products/<db id>` (only ever generated
+locally — nothing is deployed) still resolves and 308s to the canonical path. The seller
+editor keeps `/seller/products/<db id>` (short, routine navigation) and displays the
+catalog id as "ID produk" with a copy button.
+
+Slug aliases: renaming a product's readable slug inserts the old slug into
+`product_slug_alias (store_id, slug) → product_id`. An alias resolves straight to its
+product, so one 308 reaches the canonical URL (no chains); a slug that is an alias of
+another product cannot be taken (`slug_taken`), and a product reclaiming its own old slug
+deletes the alias. Slug changes within a store are serialised with
+`pg_advisory_xact_lock(store_id)` so the alias check and the unique index cannot race.
+
+Ceilings: no alias for the numeric canonical (ids never change, so none is needed); no
+feed export yet (granularity frozen as variant item / product group per Q-7); the
+hand-written trigger and backfill live in `0003_catalog_guards.sql` and must be kept
+verbatim when migrations are consolidated.

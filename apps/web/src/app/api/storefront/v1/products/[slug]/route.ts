@@ -9,11 +9,12 @@ export function GET(req: Request, ctx: RouteContext<"/api/storefront/v1/products
     if (!p) return apiError(req, 404, "not_found", "Produk tidak ditemukan.");
     return json({
       id: String(p.id),
-      slug: p.slug ?? String(p.id),
+      catalog_id: p.catalogId,
+      slug: p.slug ?? p.catalogId,
       canonical_path: canonicalPath(scope.storeSlug, p),
       title: p.title,
       description: p.description,
-      variants: p.variants.map((v) => ({ id: String(v.id), title: v.title, price: money(v.price), available: v.stock > 0 })),
+      variants: p.variants.map((v) => ({ id: String(v.id), catalog_id: v.catalogId, title: v.title, price: money(v.price), available: v.stock > 0 })),
     });
   });
 }

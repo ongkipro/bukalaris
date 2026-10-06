@@ -429,7 +429,7 @@ export async function listPublishedCollections(scope: StorefrontScope) {
 }
 
 const sellable = (scope: StorefrontScope) => and(eq(product.storeId, scope.storeId), eq(product.status, "active"));
-const card = { id: product.id, title: product.title, slug: product.slug, minPrice: sql<number | null>`min(${variant.price})`.mapWith(Number) };
+const card = { id: product.id, catalogId: product.catalogId, title: product.title, slug: product.slug, minPrice: sql<number | null>`min(${variant.price})`.mapWith(Number) };
 
 /** Published collection with its active products in collection order. */
 export async function getPublishedCollection(scope: StorefrontScope, slugValue: string) {

@@ -22,7 +22,7 @@ export default async function ProductsPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>ID</TableHead>
+              <TableHead>ID produk</TableHead>
               <TableHead>Produk</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Varian</TableHead>
@@ -33,7 +33,7 @@ export default async function ProductsPage() {
           <TableBody>
             {products.map((p) => (
               <TableRow key={p.id}>
-                <TableCell className="font-mono text-xs">{p.id}</TableCell>
+                <TableCell className="font-mono text-xs tabular-nums">{p.catalogId}</TableCell>
                 <TableCell>
                   <Link href={`/seller/products/${p.id}`} className="font-medium hover:underline">{p.title}</Link>
                 </TableCell>

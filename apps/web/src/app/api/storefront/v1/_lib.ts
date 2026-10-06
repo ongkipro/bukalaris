@@ -41,8 +41,9 @@ export async function withChannel(req: Request, handler: (auth: Live) => Promise
 }
 
 export const money = (amount: number) => ({ amount, currency: "IDR" as const });
-export const canonicalPath = (storeSlug: string, p: { id: number; slug: string | null }) =>
-  `/s/${storeSlug}/products/${p.slug ?? String(p.id)}`;
+/** Canonical storefront path: readable slug, else the external catalog id (never the database id). */
+export const canonicalPath = (storeSlug: string, p: { catalogId: string; slug: string | null }) =>
+  `/s/${storeSlug}/products/${p.slug ?? p.catalogId}`;
 
 export function cartJson(c: Awaited<ReturnType<typeof getCart>>) {
   return {

@@ -3,7 +3,7 @@ import { canonicalSlug, type Cover } from "@bukalaris/db";
 import Link from "next/link";
 import { StoreImage } from "./store-image";
 
-export type CardProduct = { id: number; title: string; slug: string | null; minPrice: number | null };
+export type CardProduct = { id: number; catalogId: string; title: string; slug: string | null; minPrice: number | null };
 
 /** Container-query grid: 2 columns in the 480px mobile theme, up to 4 in the responsive theme. */
 export function ProductGrid({ base, products, covers, priorityCount = 4 }: { base: string; products: CardProduct[]; covers: Map<number, Cover>; priorityCount?: number }) {
