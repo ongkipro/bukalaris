@@ -284,7 +284,7 @@ Execution: branch `m2/<track>` per worktree (AGENTS.md "Parallel tracks");
 the orchestrator merges, consolidates migrations and records evidence here.
 
 ### T-21 — Seller order operations and inventory
-- Status: In progress — track `orders` (wave 1).
+- Status: Done (merged to main 2026-10-06) — `packages/db/src/orders.ts`, `schema-orders.ts`; `apps/web/src/app/seller/{orders,inventory}/**`. Evidence: orchestrator re-run on the branch — lint/typecheck/build exit 0, Vitest 34 passed (12 new in `test/orders.test.ts`: cross-store denial, 6×5 transition matrix, concurrent cancels restock once, 12 concurrent decrements on stock 5 → 5 succeed), Playwright 14 passed (`e2e/orders.spec.ts`, 320px + desktop). Q-10 defaults: manual "mark paid" for transfer only; cancel only before shipping (no returns/refunds); shipping requires a tracking number. Report: `docs/tracks/orders.md`.
 - Primary requirement: PR-2
 - Constraints: PR-4, NFR-2, TEN-1, IAM-8, DATA-2, Q-10
 - Dependencies: T-1, T-19

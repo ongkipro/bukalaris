@@ -206,3 +206,16 @@ Open issues:
 - PR-1/2/4/15 remain `Proposed`; acceptance is an owner decision after evidence.
 - Wave 2 (after merge): T-27 RLS + DB roles, T-28 seller/admin UI pass, T-14
   catalog IDs, consolidated migration.
+
+## 2026-10-06 — Merge m2/orders (T-21)
+
+Reviewed diff (ownership respected; shared edit: 4-line capability addition in
+`scoped.ts`). Logic check: order row `FOR UPDATE` before status check makes
+cancel-restock exactly-once; variant lock order matches checkout. Orchestrator
+re-ran on the branch: lint 0, typecheck 0, Vitest 34 passed, build 0,
+Playwright 14 passed. Merged `--no-ff`; branch migration replaced by
+consolidated `packages/db/drizzle/0001_m2_schema.sql` (regenerated per merge
+until wave 2 ends); Vitest on main after merge: 34 passed.
+Follow-ups: status names shown raw in an error message (T-28 copy pass); e2e
+`evidence()` writes to `docs/evidence/m1/` for every milestone and rewrites
+existing PNGs on each run (evidence churn) — make the folder configurable.

@@ -235,7 +235,7 @@ links identify planning ownership, not completion. No runtime page is claimed.
 | SC-01 | Seller / overview | /seller | Store commerce summaries | PR-2 / T-3 | Pending |
 | SC-02 | Seller / products | /seller/products | Product | PR-2 / T-3 | M1 — see [locators](#m1-implementation-locators) |
 | SC-03 | Seller / product editor | /seller/products/:productId | Product, Variant | PR-2 / T-3 | M1 — see [locators](#m1-implementation-locators) |
-| SC-04 | Seller / inventory | /seller/inventory | Variant, Inventory | PR-2 / T-3 | In progress — M2 `m2/orders` |
+| SC-04 | Seller / inventory | /seller/inventory | Variant, Inventory | PR-2 / T-3 | M2 — `apps/web/src/app/seller/inventory/page.tsx`; `listInventory`, `adjustStock` (`packages/db/src/orders.ts`); `test/orders.test.ts`, `e2e/orders.spec.ts` |
 | SC-05 | Seller / collections | /seller/collections | Collection | PR-2 / T-3 | In progress — M2 `m2/content` |
 | SC-06 | Seller / collection editor | /seller/collections/:collectionId | Collection, Product | PR-2 / T-3 | In progress — M2 `m2/content` |
 | SC-07 | Seller / CMS pages | /seller/pages | CMS Page | PR-2 / T-3 | In progress — M2 `m2/content` |
@@ -243,8 +243,8 @@ links identify planning ownership, not completion. No runtime page is claimed.
 | SC-09 | Seller / menus | /seller/menus | Menu | PR-2 / T-3 | Pending |
 | SC-10 | Seller / store settings | /seller/settings | Store, domain, enabled methods | PR-2 / T-3 | In progress — M2 `m2/content` |
 | SC-11 | Seller / theme selection | /seller/themes | Store theme configuration | PR-8 / T-10 | In progress — M2 `m2/content` |
-| SC-12 | Seller / orders | /seller/orders | Order | PR-2 / T-3 | In progress — M2 `m2/orders` |
-| SC-13 | Seller / order detail | /seller/orders/:orderId | Order, Payment Attempt, Shipment | PR-2 / T-3 | In progress — M2 `m2/orders` |
+| SC-12 | Seller / orders | /seller/orders | Order | PR-2 / T-3 | M2 — `apps/web/src/app/seller/orders/page.tsx`; `listOrders` (`packages/db/src/orders.ts`); `test/orders.test.ts`, `e2e/orders.spec.ts` |
+| SC-13 | Seller / order detail | /seller/orders/:orderId | Order, Payment Attempt, Shipment | PR-2 / T-3 | M2 — `apps/web/src/app/seller/orders/[id]/page.tsx`, `seller/orders/actions.ts`; `getOrder`, `transitionOrder`; `test/orders.test.ts`, `e2e/orders.spec.ts` |
 | SC-14 | Seller / Landing Page Builder list | /seller/landing-pages | Landing Page | PR-9 / T-11 | Pending |
 | SC-15 | Seller / landing-page editor | /seller/landing-pages/:pageId | Landing Page, Page Revision | PR-9 / T-11 | Pending |
 | SC-16 | Seller / private LP preview | /seller/landing-pages/:pageId/preview | Authorized Page Revision | PR-9 / T-11 | Pending |
