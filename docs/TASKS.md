@@ -359,3 +359,64 @@ the orchestrator merges, consolidates migrations and records evidence here.
 - Done when: every seller/admin page passes an impeccable critique-and-polish
   pass and browser evidence at 320px and desktop with keyboard paths, focus
   states and empty/error states recorded in docs/evidence.
+
+## M2 gap-analysis tasks — 2026-10-06
+
+Source: business/security/system review recorded in 02-PRD.md "Business model
+and growth loop" (PR-18..PR-22, Q-12..Q-16, all Proposed — no tasks until the
+owner accepts them) and 12-SECURITY-ARCHITECTURE.md SEC-14..SEC-19 (observed
+findings, tasks below).
+
+### T-29 — Security headers and production dependency hygiene
+- Status: Planned — wave 2 (touches `next.config.ts` and `apps/web/package.json`, shared by running tracks).
+- Primary requirement: PR-16
+- Constraints: SEC-9, SEC-13, SEC-14, SEC-15
+- Dependencies: T-23, T-25
+- Done when: responses carry CSP (with nonces or a documented allowance),
+  `frame-ancestors 'none'` on admin and checkout, HSTS in production,
+  nosniff, Referrer-Policy and Permissions-Policy, and no `X-Powered-By`; a
+  test asserts the headers on admin, storefront and checkout; build-only
+  tooling (shadcn CLI) is a devDependency and `pnpm audit --prod` reports no
+  high or critical advisory, or each remaining one is recorded with reachability.
+
+### T-30 — Checkout and cart abuse controls
+- Status: Planned — wave 2.
+- Primary requirement: PR-4
+- Constraints: SEC-16, NFR-1, NFR-5, Q-10
+- Dependencies: T-21
+- Done when: order submission and cart mutation are rate limited per client
+  network signal and per cart/phone with a retryable, user-readable response;
+  a cart is capped (lines and quantity); carts idle beyond a configured age are
+  deleted by a scheduled job without touching checked-out carts; tests prove
+  limits, caps and cleanup boundaries.
+
+### T-31 — Audit catalog and price changes
+- Status: Planned — wave 2.
+- Primary requirement: PR-2
+- Constraints: SEC-17, IAM-5
+- Dependencies: T-1
+- Done when: product and variant create/update/price/stock-field changes write
+  an audit row (actor, store, object, before/after of price and status) in the
+  same transaction; a seller-visible history on the product page; tests prove
+  rows exist and are store-scoped.
+
+### T-32 — Durable outbox and worker for post-commit side effects
+- Status: Planned — wave 2.
+- Primary requirement: PR-5
+- Constraints: SEC-18, TD-3, NFR-2, NFR-5, ARCH-6
+- Dependencies: T-21, T-23
+- Done when: business writes enqueue side effects in the same transaction;
+  a separate worker process (same image, different command) claims jobs with
+  `FOR UPDATE SKIP LOCKED`, retries with backoff and idempotency keys, and
+  records terminal failures; the payment-instruction call moves onto it;
+  crash-in-the-middle and duplicate-claim tests pass.
+
+### T-33 — Buyer personal-data lifecycle
+- Status: Planned — needs privacy-owner retention periods (Q-11) before enforcement.
+- Primary requirement: PR-4
+- Constraints: SEC-19, PRIV-1, PRIV-4, PRIV-2
+- Dependencies: T-21
+- Done when: a data inventory of buyer fields exists in 13-COMPLIANCE-PRIVACY;
+  a seller can export and redact one buyer's contact data from an order while
+  financial snapshot amounts stay intact; redaction is audited; retention job
+  thresholds are configuration with owner-approved values.

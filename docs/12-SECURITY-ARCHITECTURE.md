@@ -141,3 +141,17 @@ rule, requiring the controls above; long-lived credentials remain prohibited.
 Code issuance is not a payment/stock reservation. Final submission revalidates
 prices, stock and cart revision; external mutations cannot alter a committed
 checkout snapshot. Provider return URLs do not prove payment success.
+
+## M2 security review findings — 2026-10-06
+
+Scope: `main` after the T-21 merge plus the M1 code; reviewer: implementing
+orchestrator. Observed facts only; each finding has a remediation task.
+
+| ID | Owner | Finding (observed) | Risk | Task |
+|---|---|---|---|---|
+| SEC-14 | Bukalaris security owner | `apps/web/next.config.ts` sets no response security headers (no CSP, `frame-ancestors`/X-Frame-Options, HSTS, `X-Content-Type-Options`, Referrer-Policy, Permissions-Policy); `X-Powered-By` is on by default | Clickjacking of hosted checkout and admin; weaker XSS containment | T-29 |
+| SEC-15 | Bukalaris security owner | `pnpm audit --prod` (2026-10-06): 1 high (`braces` ≤3.0.3 via the `shadcn` CLI, which is listed as a runtime dependency of `apps/web`) and 1 moderate (`esbuild` ≤0.24.2 via `better-auth` → `drizzle-kit` → `@esbuild-kit/*`, dev-server only). Build-time tooling sits in the production dependency tree | Supply-chain surface in production installs; audit noise hides real issues | T-29 |
+| SEC-16 | Bukalaris security owner | Hosted checkout and cart mutations have no rate limit or bot friction; a cart may hold unlimited lines; abandoned carts are never deleted | Order-spam/COD fraud that locks stock (stock is decremented at submit, D-5), database growth | T-30 |
+| SEC-17 | Bukalaris security owner | Catalog and price changes (`updateProduct`, `updateVariant`, `addVariant`) write no audit record; only membership, store status and order/stock changes are audited | No accountability for price manipulation by a compromised staff account | T-31 |
+| SEC-18 | Bukalaris architecture owner | Post-commit side effects (payment instruction, future notifications/signals) run inline after the transaction with no retry or outbox | Lost side effects on crash; duplicate effects if naively retried | T-32 |
+| SEC-19 | Bukalaris privacy owner | Buyer name, phone and address are stored indefinitely with no retention, export or deletion path | PRIV-4 / UU PDP obligations unmet before pilot | T-33 |

@@ -219,3 +219,16 @@ until wave 2 ends); Vitest on main after merge: 34 passed.
 Follow-ups: status names shown raw in an error message (T-28 copy pass); e2e
 `evidence()` writes to `docs/evidence/m1/` for every milestone and rewrites
 existing PNGs on each run (evidence churn) — make the folder configurable.
+
+## 2026-10-06 — Gap analysis (business, security, system)
+
+Sources: shared memory (business direction "Indonesia Commerce Portal OS",
+catalog-identity rule), design pack, code on `main`, `pnpm audit --prod`.
+- PRD: new "Business model and growth loop" proposal; PR-18 plans/entitlements,
+  PR-19 COD risk control, PR-20 server-side ad conversion signals, PR-21 order
+  notifications, PR-22 seller dashboard (all Proposed); decisions Q-12..Q-16.
+- 12-SECURITY: observed findings SEC-14..SEC-19 (headers, prod dependency
+  advisories, checkout/cart abuse, catalog audit gap, no outbox, buyer PII lifecycle).
+- TASKS: T-29..T-33 for those findings (wave 2); no tasks for unaccepted PR-18..22.
+- `check-traceability.py docs` → PASS files=26 declarations=207 tasks=33 findings=0;
+  `check-spec.py` → PASS.

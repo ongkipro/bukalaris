@@ -386,3 +386,125 @@ headless and phased MCP boundaries. Architecture owns runtime/package choices;
 Domain Routing owns the host map. This records the design baseline, not an
 installed version, DNS change, or implementation approval.
 
+
+## Business model and growth loop — proposal (2026-10-06)
+
+Status: Proposal by the implementing team for owner decision. Source: owner
+business direction "Indonesia Commerce Portal OS" (Shopify-like store
+infrastructure plus tracking/form/data infrastructure: COD control, area
+detection, pixel/tracking, dashboards) and the strategic filters
+distribution, monetization, margin, compliance, data/tracking ownership.
+No price, fee, provider margin or market size below is a verified fact.
+
+Gap observed: the PRD defines what sellers can do but not how Bukalaris earns
+money, which seller it wins first, or what makes it "laris" (sales-producing)
+rather than another store builder. BILL-3/11-BILLING explicitly assumes no
+subscriptions or commissions yet.
+
+Proposed positioning: the store-and-funnel OS for Indonesian sellers who sell
+through paid ads and social traffic with COD — a store, ad landing pages and
+hosted checkout whose orders, COD risk and conversion signals are first-party
+and server-authoritative. "Laris" is delivered through conversion quality
+(fast LP → checkout, fewer failed COD deliveries, accurate ad signals), never
+promised as a revenue guarantee.
+
+Proposed growth loop: seller runs ads → LP/storefront → hosted checkout →
+order + server-side conversion signal back to the ad platform (better bidding)
+→ COD confirmation lowers return-to-sender → seller margin improves → seller
+upgrades plan / adds stores → "Ditenagai Bukalaris" footer and the later
+marketplace bring new sellers.
+
+Candidate revenue streams (owner chooses; each needs Q-12):
+| Stream | Mechanism | Dependency |
+|---|---|---|
+| Plans | Free / paid tiers by stores, staff seats, products, LPs, custom domains, signal destinations | PR-18 |
+| Payment margin | Platform-owned AutoLaris account with disclosed fee | Q-1, BILL-1 |
+| Shipping margin | Platform Mengantar balance with disclosed fee | Q-2 |
+| Add-ons | WhatsApp notification quota, AI/MCP LP credits, premium themes | PR-9, PR-21 |
+| Marketplace | Commission on curated marketplace sales (later) | Q-3, PR-6 |
+
+### PR-18 — Plans, entitlements and platform billing
+- Status: Proposed
+- Owner: Bukalaris product owner
+- Source: Business model proposal 2026-10-06.
+- Statement: The platform shall assign every store a plan whose entitlements
+  (limits and feature flags) are enforced server-side, and shall record plan
+  changes and platform invoices separately from buyer orders.
+- Acceptance: Exceeding an entitlement is denied with a clear upgrade path and
+  never corrupts existing data; downgrades keep data read-only rather than
+  deleting it; plan changes are audited; buyer checkout never depends on the
+  seller's billing state except through an explicit suspension policy.
+- Constraints: PR-1, BILL-1, IAM-5, Q-12.
+- Evidence: Proposal only.
+- Change history: 2026-10-06 — proposed from the business gap analysis.
+
+### PR-19 — COD risk control
+- Status: Proposed
+- Owner: Bukalaris product owner
+- Source: Owner direction "COD control"; Q-10.
+- Statement: For COD orders the platform shall support an order-confirmation
+  step and risk signals (repeat unconfirmed/returned orders per phone within a
+  store, address completeness, area eligibility) so sellers can confirm, hold or
+  reject before shipment booking.
+- Acceptance: A seller sees a confirmation state and risk reasons per COD
+  order; unconfirmed COD orders are never auto-booked; risk data is store-scoped
+  unless a privacy-reviewed cross-store policy is accepted (PRIV-2, Q-14).
+- Constraints: PR-4, PR-5, NFR-2, PRIV-2, Q-10, Q-14.
+- Evidence: Proposal only.
+- Change history: 2026-10-06 — proposed.
+
+### PR-20 — Server-side advertising conversion signals
+- Status: Proposed
+- Owner: Bukalaris product owner
+- Source: Owner direction "pixel/tracking"; PR-12 identity; Q-7.
+- Statement: The platform shall send browser and server conversion events
+  (view content, add to cart, initiate checkout, purchase) to the seller's
+  configured Meta, TikTok and Google destinations with a shared event id for
+  deduplication, the immutable catalog id (PR-12, T-14), and consent-aware
+  matching data, using explicit COD and prepaid purchase definitions.
+- Acceptance: Each order emits at most one purchase per destination under its
+  accepted definition; retries are idempotent through an outbox; destination
+  tokens are server-only; failures are visible to the seller; no buyer PII is
+  sent beyond the accepted, hashed matching fields.
+- Constraints: PR-12, NFR-4, PRIV-3, PRIV-5, Q-7, Q-15.
+- Evidence: Proposal only; provider contracts must be verified against current
+  official documentation before implementation.
+- Change history: 2026-10-06 — proposed.
+
+### PR-21 — Order notifications
+- Status: Proposed
+- Owner: Bukalaris product owner
+- Source: Business gap analysis 2026-10-06.
+- Statement: Buyers and sellers shall receive order notifications (created,
+  awaiting payment, confirmed, shipped with tracking, cancelled) through email
+  and, when a provider is accepted, WhatsApp, with a buyer order-status page
+  reachable through a signed link.
+- Acceptance: Notifications are sent after commit through an outbox, at most
+  once per event and channel; the status page reveals only that order and
+  expires or can be revoked; no provider credential reaches the browser.
+- Constraints: PR-4, PR-7, NFR-4, NFR-5, PRIV-4, Q-16.
+- Evidence: Proposal only.
+- Change history: 2026-10-06 — proposed.
+
+### PR-22 — Seller performance dashboard
+- Status: Proposed
+- Owner: Bukalaris product owner
+- Source: Business gap analysis 2026-10-06.
+- Statement: The Seller Admin overview (SC-01) shall show store-scoped orders,
+  revenue (integer IDR), conversion funnel, COD confirmation/return rates and
+  top products for a selected period in Asia/Jakarta time.
+- Acceptance: Numbers reconcile with order records for the same period;
+  another store's data never appears; empty periods show an explicit empty state.
+- Constraints: PR-2, TEN-1, NFR-1.
+- Evidence: Proposal only.
+- Change history: 2026-10-06 — proposed.
+
+### Business decisions required (2026-10-06)
+
+| ID | Decision | Owner | Gate |
+|---|---|---|---|
+| Q-12 | Revenue model: which streams, plan tiers and limits, free tier, billing method | Product + finance owner | Before PR-18 implementation |
+| Q-13 | First seller segment and launch market (e.g. ad-driven COD sellers in specific categories/cities) | Product owner | Before pilot |
+| Q-14 | Whether COD risk signals may be shared across stores, and on which legal basis | Privacy + product owner | Before cross-store PR-19 features |
+| Q-15 | Ad-signal scope: destinations, consent model, purchase definitions for COD vs prepaid | Integration + privacy owner | Before PR-20 implementation |
+| Q-16 | Notification channels and provider (email sender domain, WhatsApp provider) | Product owner | Before PR-21 implementation |
