@@ -1,0 +1,17 @@
+{
+  "name": "bukalaris",
+  "private": true,
+  "packageManager": "pnpm@11.22.0",
+  "engines": { "node": ">=20.9.0" },
+  "scripts": {
+    "dev": "pnpm --filter @bukalaris/web dev",
+    "build": "pnpm --filter @bukalaris/web build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter @bukalaris/db test",
+    "e2e": "pnpm --filter @bukalaris/web e2e",
+    "db:generate": "pnpm --filter @bukalaris/db generate",
+    "db:migrate": "pnpm --filter @bukalaris/db migrate",
+    "db:seed": "pnpm --filter @bukalaris/db seed"
+  }
+}

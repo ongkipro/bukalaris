@@ -1,0 +1,209 @@
+{
+  "owner": "Bukalaris product owner",
+  "facts": [
+    {
+      "id": "CTX-1",
+      "dimension": "Product surface",
+      "statement": "Bukalaris initially delivers Seller Admin, Storefront and Super Admin, with independent platform-hosted checkout and external token-authenticated storefronts. LP/MCP, marketplace, buyer account and affiliate are phased future scope.",
+      "status": "Decision",
+      "confidence": "High",
+      "evidence": "Product direction and headless/checkout clarification by Paduka Ongki on 2026-09-18.",
+      "owner": "Bukalaris product owner",
+      "recheck_trigger": "Product scope, channel, or actor changes"
+    },
+    {
+      "id": "CTX-2",
+      "dimension": "Market and locale",
+      "statement": "The initial target market is Indonesia; product UI and customer-facing operational content need id-ID support and IDR money handling.",
+      "status": "Decision",
+      "confidence": "High",
+      "evidence": "Product direction provided by Paduka Ongki on 2026-09-17.",
+      "owner": "Bukalaris product owner",
+      "recheck_trigger": "New country, currency, or locale launch"
+    },
+    {
+      "id": "CTX-3",
+      "dimension": "External integrations",
+      "statement": "The intended Indonesian provider integrations are Mengantar for shipping and AutoLaris H2H for payment instructions and reconciliation.",
+      "status": "Decision",
+      "confidence": "High",
+      "evidence": "Product direction provided by Paduka Ongki on 2026-09-17.",
+      "owner": "Bukalaris product owner",
+      "recheck_trigger": "Provider contract, account model, or integration strategy changes"
+    },
+    {
+      "id": "CTX-4",
+      "dimension": "Data and tenancy",
+      "statement": "Seller commerce data must be centrally modeled by Bukalaris with tenant isolation; arbitrary direct access to seller-owned databases is not an accepted integration model.",
+      "status": "Proposal",
+      "confidence": "High",
+      "evidence": "Architecture recommendation derived from CTX-1 and the need for a future managed marketplace.",
+      "owner": "Bukalaris architecture owner",
+      "recheck_trigger": "Accepted tenancy or external seller-data decision"
+    },
+    {
+      "id": "CTX-5",
+      "dimension": "Repository evidence",
+      "statement": "No local Bukalaris application repository has been established. This is an independent staged specification, not Bukalaris runtime evidence.",
+      "status": "Observed",
+      "confidence": "High",
+      "evidence": "Local repository inventory inspected during planning; independent product direction confirmed on 2026-09-25.",
+      "owner": "Bukalaris architecture owner",
+      "recheck_trigger": "Bukalaris repository path or remote is supplied"
+    },
+    {
+      "id": "CTX-16",
+      "dimension": "Stack and platform domains",
+      "statement": "Bukalaris uses bukalaris.com with tagline Buka toko langsung laris; Bos at bos.bukalaris.com and Tenant Admin at app.bukalaris.com use Next.js, TypeScript, shadcn/ui and Tailwind CSS.",
+      "status": "Decision",
+      "confidence": "High",
+      "evidence": "Explicit user direction on 2026-09-25.",
+      "owner": "Bukalaris architecture owner",
+      "recheck_trigger": "Product or stack direction changes"
+    },
+    {
+      "id": "CTX-17",
+      "dimension": "Public rendering and persistence",
+      "statement": "Recommend Astro for marketing and on-demand tenant storefronts, Next.js checkout, and PostgreSQL/Drizzle with a shared commerce core. No implementation or performance benchmark exists.",
+      "status": "Proposal",
+      "confidence": "Medium",
+      "evidence": "Architecture fit assessment and official Next.js/Astro documentation reviewed on 2026-09-25.",
+      "owner": "Bukalaris architecture owner",
+      "recheck_trigger": "Prototype evidence or interaction complexity changes"
+    }
+  ],
+  "capabilities": {
+    "identity": {
+      "status": "active",
+      "trigger_facts": [
+        "CTX-1"
+      ],
+      "owner": "Bukalaris security owner",
+      "reason": "Super admins, sellers, buyers, affiliates, and service identities require separate authorization boundaries.",
+      "review_gate": "IAM approval"
+    },
+    "persistence": true,
+    "multi-tenant": {
+      "status": "active",
+      "trigger_facts": [
+        "CTX-1",
+        "CTX-4"
+      ],
+      "owner": "Bukalaris architecture owner",
+      "reason": "One platform operates multiple seller stores and a future marketplace.",
+      "review_gate": "Tenant-isolation approval"
+    },
+    "public-api": {
+      "status": "active",
+      "trigger_facts": [
+        "CTX-1",
+        "CTX-3"
+      ],
+      "owner": "Bukalaris API owner",
+      "reason": "Storefront, seller CMS, integration callbacks, and future seller connectors require stable HTTP boundaries.",
+      "review_gate": "OpenAPI acceptance"
+    },
+    "custom-domain": {
+      "status": "active",
+      "trigger_facts": [
+        "CTX-1"
+      ],
+      "owner": "Bukalaris platform owner",
+      "reason": "Per-seller native custom domains are accepted; independent headless origins and platform checkout are separate bindings.",
+      "review_gate": "Domain-routing acceptance"
+    },
+    "shared-ui": {
+      "status": "active",
+      "trigger_facts": [
+        "CTX-1",
+        "CTX-2"
+      ],
+      "owner": "Bukalaris design owner",
+      "reason": "The console, Seller CMS, buyer account, and storefront need reusable accessible UI behavior.",
+      "review_gate": "UX and design-system acceptance"
+    },
+    "product-ui": {
+      "status": "active",
+      "trigger_facts": [
+        "CTX-1"
+      ],
+      "owner": "Bukalaris product owner",
+      "reason": "The product has maintained browser-visible admin, seller, buyer, and storefront workflows.",
+      "review_gate": "UX acceptance"
+    },
+    "commerce": {
+      "status": "active",
+      "trigger_facts": [
+        "CTX-1",
+        "CTX-3"
+      ],
+      "owner": "Bukalaris finance owner",
+      "reason": "Checkout, payment, shipping, COD, discounts, future marketplace settlement, and affiliate commissions are in scope.",
+      "review_gate": "Billing and finance-policy approval"
+    },
+    "personal-data": {
+      "status": "active",
+      "trigger_facts": [
+        "CTX-1",
+        "CTX-2"
+      ],
+      "owner": "Bukalaris privacy owner",
+      "reason": "Buyer accounts, seller accounts, delivery addresses, orders, and support operations process personal data.",
+      "review_gate": "Privacy applicability review"
+    },
+    "production-service": {
+      "status": "active",
+      "trigger_facts": [
+        "CTX-1"
+      ],
+      "owner": "Bukalaris operations owner",
+      "reason": "The platform must be observable and operable as a public commerce service.",
+      "review_gate": "Operations acceptance"
+    },
+    "delivery": {
+      "status": "active",
+      "trigger_facts": [
+        "CTX-1"
+      ],
+      "owner": "Bukalaris delivery owner",
+      "reason": "User requested complete development documentation for maintained initial surfaces and hosted checkout.",
+      "review_gate": "Repository and deployment baseline"
+    }
+  },
+  "jurisdictions": [
+    {
+      "code": "ID",
+      "trigger_facts": [
+        "CTX-2"
+      ],
+      "source_status": "in-force",
+      "publication_date": "2022-10-17",
+      "effective_date": "2022-10-17",
+      "decision": "Unknown",
+      "owner": "Bukalaris privacy owner"
+    }
+  ],
+  "sectors": [
+    {
+      "code": "ecommerce",
+      "trigger_facts": [
+        "CTX-1",
+        "CTX-3"
+      ],
+      "decision": "Unknown"
+    }
+  ],
+  "transfers": [],
+  "locales": [
+    {
+      "id": "LOC-1",
+      "locale": "id-ID",
+      "fallback": "en",
+      "regional_rules": "IDR uses integer rupiah; date, number, and address formatting must use locale-aware platform APIs.",
+      "accessibility": "WCAG scope is Unknown pending owner decision.",
+      "test_evidence": "TEST-LOC-1",
+      "owner": "Bukalaris design owner",
+      "status": "Proposal"
+    }
+  ]
+}

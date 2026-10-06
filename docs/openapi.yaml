@@ -1,0 +1,5913 @@
+openapi: 3.1.1
+info:
+  title: Bukalaris proposed Phase 1 API
+  version: 0.1.0-draft
+  description: 'DRAFT contract, not deployed. Initial surfaces: Seller Admin, Super
+    Admin,
+
+    first-party and independently hosted storefronts, plus a standalone Bukalaris
+
+    hosted checkout. Relative /api/v1 routes are proposed. API host is configured
+    by
+
+    Bukalaris; external storefront origins do not select tenant scope.
+
+
+    On verified native store hosts, public storefront reads resolve the host-bound
+
+    store. On the central API host, storefrontToken is mandatory and resolves its
+
+    single store/channel; conflicting verified host and token store is rejected.
+
+    storefrontToken is a server-only credential (for example in Cloudflare secrets),
+
+    never a seller/admin credential. It grants published reads, cart creation and
+
+    checkout handoff only. Per-cart capability is additionally required for existing
+
+    carts. Scope and revocation are checked on every request. Browser-public channel
+
+    tokens are deferred; CORS is not authorization.
+
+
+    Operator session cookies are Secure HttpOnly host-only with trusted Origin/CSRF
+
+    checks. Seller service credentials are separately scoped. Auth provider login,
+
+    recovery and invite transport remain adapter-dependent. Cookies/header names
+
+    are proposals. No JWT format or framework is selected.
+
+
+    Cart and order capabilities are opaque scoped secrets, never resource IDs.
+
+    Private responses are no-store. Do not put these capabilities in URLs or logs.
+
+    A distinct short-lived one-use checkout handoff URL exchanges its code for a
+
+    checkout-origin host-only session and redirects to a clean /checkout route.
+
+    Redact the handoff query at every edge/access/application log, serve no third
+
+    party assets before exchange, and set Referrer-Policy: no-referrer. The handoff
+
+    code contains no PII, cart capability or API credential. Expired/replayed codes
+
+    fail safely. Only the hosted checkout session can quote and submit payment.
+
+
+    Mutation retries use Idempotency-Key. Replay is authenticated before lookup;
+
+    identical retries return the previous result before stale revision rejection.
+
+    Proposed replay retention: 24 hours; permanent checkout/order/provider uniqueness
+
+    prevents financial duplication afterwards. Expected revision mismatches are 409.
+
+    Integer IDR and decimal-string product/variant IDs are mandatory.
+
+
+    Provider webhook signatures/payloads, auth-adapter endpoints, media binary upload,
+
+    address search, refund/tax policy, LP/MCP, marketplace and affiliate contracts
+
+    remain explicit gaps. This document is a reviewable initial HTTP boundary, not
+
+    a claim of a complete or implemented provider integration.'
+servers:
+- url: /api/v1
+  description: Proposed relative prefix on the authorized console or verified storefront
+    origin; no live environment.
+tags:
+- name: Identity
+  description: Read current authenticated principal.
+- name: Storefront
+  description: Published store-scoped headless content and guest cart creation.
+- name: Checkout
+  description: Capability-protected single-store cart and checkout.
+- name: Seller
+  description: Membership-scoped commerce administration.
+- name: Super Admin
+  description: Explicit platform authority and safe operational diagnostics.
+security: []
+paths:
+  /session:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: getSession
+      summary: Read active identity and memberships
+      description: 'Returns the current authenticated identity without credential/session
+        material. '
+      tags:
+      - Identity
+      security:
+      - sessionCookie: []
+      x-status: proposed
+      x-tenant-source: platform-session
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /storefront/config:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: getStorefrontConfig
+      summary: Read store presentation and purchase availability
+      description: 'Native verified store host or channel-token-derived store; central
+        API host requires storefrontToken. Reject mismatched host/token/cart stores.  Published
+        projections only. '
+      tags:
+      - Storefront
+      security:
+      - {}
+      - storefrontToken: []
+      x-status: proposed
+      x-tenant-source: verified-native-host-or-scoped-channel-token
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorefrontConfig'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /storefront/products:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: listStorefrontProducts
+      summary: List published products
+      description: 'Native verified store host or channel-token-derived store; central
+        API host requires storefrontToken. Reject mismatched host/token/cart stores.  Published
+        projections only. '
+      tags:
+      - Storefront
+      security:
+      - {}
+      - storefrontToken: []
+      x-status: proposed
+      x-tenant-source: verified-native-host-or-scoped-channel-token
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicProductList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+      parameters:
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 200
+      - name: collection_id
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+  /storefront/products/{slug}:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: getStorefrontProduct
+      summary: Resolve product slug or historical alias
+      description: Native verified store host or channel-token-derived store; central
+        API host requires storefrontToken. Reject mismatched host/token/cart stores.  Published
+        projections only. Historical aliases return the same product with its current
+        canonical_path; storefront HTML route redirects to that canonical path without
+        chains.
+      tags:
+      - Storefront
+      security:
+      - {}
+      - storefrontToken: []
+      x-status: proposed
+      x-tenant-source: verified-native-host-or-scoped-channel-token
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicProduct'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+      parameters:
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+          maxLength: 120
+  /storefront/collections:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: listStorefrontCollections
+      summary: List published collections
+      description: 'Native verified store host or channel-token-derived store; central
+        API host requires storefrontToken. Reject mismatched host/token/cart stores.  Published
+        projections only. '
+      tags:
+      - Storefront
+      security:
+      - {}
+      - storefrontToken: []
+      x-status: proposed
+      x-tenant-source: verified-native-host-or-scoped-channel-token
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicCollectionList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+      parameters:
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
+  /storefront/pages/{slug}:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: getStorefrontPage
+      summary: Read published ordinary CMS page
+      description: 'Native verified store host or channel-token-derived store; central
+        API host requires storefrontToken. Reject mismatched host/token/cart stores.  Published
+        projections only. '
+      tags:
+      - Storefront
+      security:
+      - {}
+      - storefrontToken: []
+      x-status: proposed
+      x-tenant-source: verified-native-host-or-scoped-channel-token
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+      parameters:
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+          maxLength: 120
+  /storefront/carts:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    post:
+      operationId: createCart
+      summary: Create a host-bound guest cart
+      description: Native verified store host or channel-token-derived store; central
+        API host requires storefrontToken. Reject mismatched host/token/cart stores.  Published
+        projections only. Response is private/no-store. Capability is high-entropy,
+        server-generated and expires with the cart. Configure trusted browser origins
+        and rate limits. An identical creation retry returns the same capability/result
+        within the replay window.
+      tags:
+      - Storefront
+      security:
+      - {}
+      - storefrontToken: []
+      x-status: proposed
+      x-tenant-source: verified-native-host-or-scoped-channel-token
+      responses:
+        '201':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CartCreated'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartCreate'
+  /storefront/carts/{cart_id}:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: getCart
+      summary: Read server-priced cart
+      description: 'Native verified store host or channel-token-derived store; central
+        API host requires storefrontToken. Reject mismatched host/token/cart stores.
+        Host store, cart ownership and unexpired cart capability must all match. '
+      tags:
+      - Checkout
+      security:
+      - cartCapability: &id001 []
+      - cartCapability: *id001
+        storefrontToken: []
+      x-status: proposed
+      x-tenant-source: verified-native-host-or-scoped-channel-token
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      parameters:
+      - name: cart_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+  /storefront/carts/{cart_id}/items:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    post:
+      operationId: addCartItem
+      summary: Add a store-owned variant
+      description: 'Native verified store host or channel-token-derived store; central
+        API host requires storefrontToken. Reject mismatched host/token/cart stores.
+        Host store, cart ownership and unexpired cart capability must all match. '
+      tags:
+      - Checkout
+      security:
+      - cartCapability: &id002 []
+      - cartCapability: *id002
+        storefrontToken: []
+      x-status: proposed
+      x-tenant-source: verified-native-host-or-scoped-channel-token
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      parameters:
+      - name: cart_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartItemAdd'
+  /storefront/carts/{cart_id}/items/{item_id}:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    patch:
+      operationId: updateCartItem
+      summary: Change quantity or remove with zero
+      description: 'Native verified store host or channel-token-derived store; central
+        API host requires storefrontToken. Reject mismatched host/token/cart stores.
+        Host store, cart ownership and unexpired cart capability must all match. '
+      tags:
+      - Checkout
+      security:
+      - cartCapability: &id003 []
+      - cartCapability: *id003
+        storefrontToken: []
+      x-status: proposed
+      x-tenant-source: verified-native-host-or-scoped-channel-token
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cart'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      parameters:
+      - name: cart_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: item_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CartItemEdit'
+  /storefront/orders/{order_id}/outcome:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: getOrderOutcome
+      summary: Read safe checkout and payment outcome
+      description: Native verified store host or channel-token-derived store; central
+        API host requires storefrontToken. Reject mismatched host/token/cart stores.
+        Host store and unexpired order-outcome capability must match. Response excludes
+        buyer contact/address. Polling does not trigger a new payment. Capability
+        issuance/expiry/recovery must be fixed before launch. Never authorize with
+        order ID alone.
+      tags:
+      - Checkout
+      security:
+      - outcomeCapability: &id004 []
+      - outcomeCapability: *id004
+        storefrontToken: []
+      x-status: proposed
+      x-tenant-source: verified-native-host-or-scoped-channel-token
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderOutcome'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      parameters:
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+  /seller/stores/{store_id}/products:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: listSellerProducts
+      summary: List seller products including drafts
+      description: 'Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. '
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: catalog.read
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
+    post:
+      operationId: createProduct
+      summary: Create draft with numeric identity and slug
+      description: Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. Generate
+        a globally unique positive integer ID and serialize it as a decimal string.
+        Default slug equals this ID. Persist ID, route claim and replay record atomically.
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '201':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: catalog.write
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductCreate'
+  /seller/stores/{store_id}/products/{product_id}:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: getSellerProduct
+      summary: Read seller product
+      description: 'Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. '
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: catalog.read
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: product_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[1-9][0-9]*$
+          examples:
+          - '1042'
+    patch:
+      operationId: editProduct
+      summary: Edit product with revision check
+      description: 'Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. '
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: catalog.write
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: product_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[1-9][0-9]*$
+          examples:
+          - '1042'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductEdit'
+  /seller/stores/{store_id}/products/{product_id}/slug:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    post:
+      operationId: changeProductSlug
+      summary: change product Slug
+      description: Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. Reserve
+        numeric-only slugs for this product ID; retain historical aliases atomically.
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: catalog.write
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: product_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[1-9][0-9]*$
+          examples:
+          - '1042'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductSlugInput'
+  /seller/stores/{store_id}/products/{product_id}/publish:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    post:
+      operationId: publishProduct
+      summary: publish product
+      description: Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. Validate
+        required content, price and stock policy.
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: catalog.write
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: product_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[1-9][0-9]*$
+          examples:
+          - '1042'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevisionInput'
+  /seller/stores/{store_id}/products/{product_id}/archive:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    post:
+      operationId: archiveProduct
+      summary: archive product
+      description: Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. Preserve
+        order snapshots, IDs and historical routes.
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: catalog.write
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: product_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[1-9][0-9]*$
+          examples:
+          - '1042'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevisionInput'
+  /seller/stores/{store_id}/products/{product_id}/duplicate:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    post:
+      operationId: duplicateProduct
+      summary: duplicate product
+      description: Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. Allocate
+        fresh product and variant IDs; always create a draft.
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: catalog.write
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: product_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[1-9][0-9]*$
+          examples:
+          - '1042'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevisionInput'
+  /seller/stores/{store_id}/products/{product_id}/variants:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    post:
+      operationId: createVariant
+      summary: Create product variant
+      description: 'Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. '
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '201':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Variant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: catalog.write
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: product_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[1-9][0-9]*$
+          examples:
+          - '1042'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VariantInput'
+  /seller/stores/{store_id}/products/{product_id}/variants/{variant_id}:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    patch:
+      operationId: editVariant
+      summary: Edit variant
+      description: 'Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. '
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Variant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: catalog.write
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: product_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[1-9][0-9]*$
+          examples:
+          - '1042'
+      - name: variant_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[1-9][0-9]*$
+          examples:
+          - '1042'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VariantEdit'
+  /seller/stores/{store_id}/inventory/{variant_id}:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: getInventory
+      summary: Read variant stock and reservations
+      description: 'Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. '
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Inventory'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: inventory.read
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: variant_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[1-9][0-9]*$
+          examples:
+          - '1042'
+  /seller/stores/{store_id}/inventory/{variant_id}/adjustments:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    post:
+      operationId: adjustInventory
+      summary: Apply audited inventory delta
+      description: Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. Check revision
+        and on-hand/reservation invariants atomically; never overwrite reserved stock.
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Inventory'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: inventory.write
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: variant_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[1-9][0-9]*$
+          examples:
+          - '1042'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InventoryAdjustment'
+  /seller/stores/{store_id}/collections:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: listSellerCollections
+      summary: List seller collections
+      description: 'Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. '
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CollectionList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: content.read
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
+    post:
+      operationId: createCollection
+      summary: Create collection
+      description: 'Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. '
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '201':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Collection'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: content.write
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CollectionInput'
+  /seller/stores/{store_id}/collections/{resource_id}:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: getSellerCollection
+      summary: Read collection
+      description: 'Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. '
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Collection'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: content.read
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: resource_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+    put:
+      operationId: replaceCollection
+      summary: Replace collection with revision check
+      description: Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. All product/media
+        references must belong to this store. Published content becomes public only
+        after validation. Ordinary CMS content only; independent LP documents are
+        deferred.
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Collection'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: content.write
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: resource_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CollectionEdit'
+  /seller/stores/{store_id}/pages:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: listSellerPages
+      summary: List seller pages
+      description: 'Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. '
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PageList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: content.read
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
+    post:
+      operationId: createPage
+      summary: Create page
+      description: 'Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. '
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '201':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Page'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: content.write
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PageInput'
+  /seller/stores/{store_id}/pages/{resource_id}:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: getSellerPage
+      summary: Read page
+      description: 'Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. '
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Page'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: content.read
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: resource_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+    put:
+      operationId: replacePage
+      summary: Replace page with revision check
+      description: Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. All product/media
+        references must belong to this store. Published content becomes public only
+        after validation. Ordinary CMS content only; independent LP documents are
+        deferred.
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Page'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: content.write
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: resource_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PageEdit'
+  /seller/stores/{store_id}/menus:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: listSellerMenus
+      summary: List seller menus
+      description: 'Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. '
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MenuList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: content.read
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
+    post:
+      operationId: createMenu
+      summary: Create menu
+      description: 'Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. '
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '201':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Menu'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: content.write
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MenuInput'
+  /seller/stores/{store_id}/menus/{resource_id}:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: getSellerMenu
+      summary: Read menu
+      description: 'Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. '
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Menu'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: content.read
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: resource_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+    put:
+      operationId: replaceMenu
+      summary: Replace menu with revision check
+      description: Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. All product/media
+        references must belong to this store. Published content becomes public only
+        after validation. Ordinary CMS content only; independent LP documents are
+        deferred.
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Menu'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: content.write
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: resource_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MenuEdit'
+  /seller/stores/{store_id}/settings:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: getStoreSettings
+      summary: Read store settings
+      description: 'Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. '
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoreSettings'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: settings.read
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+    put:
+      operationId: updateStoreSettings
+      summary: Update store settings
+      description: Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. Only allow
+        configured delivery/payment methods; no provider credentials in request or
+        response. Theme changes never rewrite independent landing-page documents.
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoreSettings'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: settings.write
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StoreSettingsEdit'
+  /seller/stores/{store_id}/theme:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: getTheme
+      summary: Read store theme
+      description: 'Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. '
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Theme'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: theme.read
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+    put:
+      operationId: updateTheme
+      summary: Update store theme
+      description: Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. Only allow
+        configured delivery/payment methods; no provider credentials in request or
+        response. Theme changes never rewrite independent landing-page documents.
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Theme'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: theme.write
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ThemeEdit'
+  /seller/stores/{store_id}/domains:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: listDomains
+      summary: List domain claims and DNS instructions
+      description: 'Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. '
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DomainList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: domains.read
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
+    post:
+      operationId: createDomain
+      summary: Reserve hostname and enqueue provisioning
+      description: Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. Normalize
+        IDNA/lowercase hostname; claim uniqueness globally. Persist intent before
+        provider call. Do not accept IPs, ports or paths.
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '202':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Domain'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: domains.write
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DomainInput'
+  /seller/stores/{store_id}/domains/{domain_id}:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: getDomain
+      summary: Read separate ownership TLS and routing states
+      description: 'Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. '
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Domain'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: domains.read
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: domain_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+  /seller/stores/{store_id}/domains/{domain_id}/refresh:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    post:
+      operationId: refreshDomain
+      summary: Request bounded domain reconciliation
+      description: 'Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. '
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '202':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Domain'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: domains.write
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: domain_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevisionInput'
+  /seller/stores/{store_id}/domains/{domain_id}/remove:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    post:
+      operationId: removeDomain
+      summary: Disable binding and enqueue safe cleanup
+      description: Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. If primary,
+        revert to platform subdomain atomically. Advance routing revision, reject
+        old routing immediately, and invalidate cache. Retain hostname claim until
+        cleanup completes; stale job generations cannot restore it.
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '202':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Domain'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: domains.write
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: domain_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevisionInput'
+  /seller/stores/{store_id}/routing:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: getRoutingSettings
+      summary: Read primary domain and routing revision
+      description: 'Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. '
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoutingSettings'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: domains.read
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+  /seller/stores/{store_id}/routing/primary:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    put:
+      operationId: setPrimaryDomain
+      summary: Choose a verified ready primary domain
+      description: Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. expected_revision
+        is the store routing revision, not the domain revision; require active ownership,
+        TLS and routing, then enqueue cache invalidation atomically.
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoutingSettings'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: domains.write
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrimaryDomainInput'
+  /seller/stores/{store_id}/orders:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: listSellerOrders
+      summary: List store orders
+      description: 'Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. '
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: orders.read
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
+  /seller/stores/{store_id}/orders/{order_id}:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: getSellerOrder
+      summary: Read scoped commercial snapshot
+      description: Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. Authorized
+        operational PII only; no-store and never diagnostic logs.
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: orders.read
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+  /seller/stores/{store_id}/orders/{order_id}/actions:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    post:
+      operationId: applyOrderAction
+      summary: Apply allowed order transition
+      description: Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. Reject
+        invalid transitions and cancellation requiring unresolved refund policy. Never
+        set payment paid from this endpoint.
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: orders.write
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderAction'
+  /seller/stores/{store_id}/orders/{order_id}/shipments:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    post:
+      operationId: requestShipment
+      summary: Persist fulfillment intent for an eligible order
+      description: Explicit store path is a selector, never authority. Enforce current
+        membership or single-store service scope and operation capability. Use stored
+        quote-derived route and service. One logical booking intent; provider timeout
+        remains pending. No caller-supplied shipping status or courier code.
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      - serviceToken: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '202':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: fulfillment.write
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: order_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShipmentRequest'
+  /admin/stores:
+    servers:
+    - url: https://bos.bukalaris.com/api/v1
+    get:
+      operationId: listAdminStores
+      summary: List platform stores
+      description: 'Requires explicit platform capability; never inferred from seller
+        membership. '
+      tags:
+      - Super Admin
+      security:
+      - sessionCookie: []
+      x-status: proposed
+      x-tenant-source: platform-session
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoreList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: stores.read
+      parameters:
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
+    post:
+      operationId: createStore
+      summary: Create pending store
+      description: Requires explicit platform capability; never inferred from seller
+        membership. Owner invitation/membership setup depends on selected identity
+        adapter and is a separate gate.
+      tags:
+      - Super Admin
+      security:
+      - sessionCookie: []
+      x-status: proposed
+      x-tenant-source: platform-session
+      responses:
+        '201':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Store'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: stores.create
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StoreCreate'
+  /admin/stores/{store_id}:
+    servers:
+    - url: https://bos.bukalaris.com/api/v1
+    get:
+      operationId: getAdminStore
+      summary: Read store lifecycle
+      description: 'Requires explicit platform capability; never inferred from seller
+        membership. '
+      tags:
+      - Super Admin
+      security:
+      - sessionCookie: []
+      x-status: proposed
+      x-tenant-source: platform-session
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Store'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: stores.read
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+  /admin/stores/{store_id}/transitions:
+    servers:
+    - url: https://bos.bukalaris.com/api/v1
+    post:
+      operationId: transitionStore
+      summary: Approve suspend or reactivate store
+      description: Requires explicit platform capability; never inferred from seller
+        membership. Append durable actor/target/reason audit in same local transaction;
+        suspension disables new checkout and queues routing/cache invalidation.
+      tags:
+      - Super Admin
+      security:
+      - sessionCookie: []
+      x-status: proposed
+      x-tenant-source: platform-session
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Store'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: stores.lifecycle
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StoreTransition'
+  /admin/logs:
+    servers:
+    - url: https://bos.bukalaris.com/api/v1
+    get:
+      operationId: listSystemLogs
+      summary: Filter sanitized diagnostic logs
+      description: Requires explicit platform capability; never inferred from seller membership. Require
+        bounded range, maximum 24 hours per request. Store filter never widens authorization. Empty results
+        return a 200 LogEventList envelope with items=[] and next_cursor=null; unavailable source returns
+        503. Audit log access separately. Require from < to and stable timestamp/ID ordering. Bind cursor
+        to filters and authorization scope. Responses are private, no-store.
+      tags:
+      - Super Admin
+      security:
+      - sessionCookie: []
+      x-status: proposed
+      x-tenant-source: platform-session
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogEventList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: logs.read
+      parameters:
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
+      - name: from
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+      - name: to
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+      - name: severity
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - debug
+          - info
+          - warn
+          - error
+          - fatal
+      - name: module
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: page_id
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: store_id
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: correlation_id
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: environment
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - development
+          - staging
+          - production
+        description: Omitted means the current deployment environment; never silently combine environments.
+  /admin/logs/{log_id}:
+    servers:
+    - url: https://bos.bukalaris.com/api/v1
+    get:
+      operationId: getSystemLog
+      summary: Read sanitized diagnostic event
+      description: Requires explicit platform capability; never inferred from seller
+        membership. Link module/page_id to the system map; source paths are registry
+        metadata, not unrestricted filesystem reads. Audit log access separately.
+      tags:
+      - Super Admin
+      security:
+      - sessionCookie: []
+      x-status: proposed
+      x-tenant-source: platform-session
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogEvent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: logs.read
+      parameters:
+      - name: log_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+  /checkout/sessions/{checkout_id}/delivery-quotes:
+    servers:
+    - url: https://checkout.bukalaris.com/api/v1
+    post:
+      operationId: quoteCheckout
+      summary: Quote eligible shipping and payment methods
+      description: Bukalaris hosted-checkout operation only. Resolve store/cart from
+        the authorized checkout session; URL ID alone grants no access. Verify session
+        expiry, Origin, CSRF and revision. Revalidate server prices, stock and provider
+        eligibility. Unknown payment outcomes remain pending; never create a second
+        order for the same checkout.
+      tags:
+      - Checkout
+      security:
+      - checkoutSession: []
+      x-status: proposed
+      x-tenant-source: server-checkout-session
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutQuote'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      parameters:
+      - name: checkout_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutQuoteInput'
+  /checkout/sessions/{checkout_id}/submit:
+    servers:
+    - url: https://checkout.bukalaris.com/api/v1
+    post:
+      operationId: submitCheckout
+      summary: Persist order and start payment orchestration
+      description: Bukalaris hosted-checkout operation only. Resolve store/cart from
+        the authorized checkout session; URL ID alone grants no access. Verify session
+        expiry, Origin, CSRF and revision. Revalidate server prices, stock and provider
+        eligibility. Unknown payment outcomes remain pending; never create a second
+        order for the same checkout.
+      tags:
+      - Checkout
+      security:
+      - checkoutSession: []
+      x-status: proposed
+      x-tenant-source: server-checkout-session
+      responses:
+        '202':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutAccepted'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      parameters:
+      - name: checkout_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutInput'
+  /storefront/carts/{cart_id}/checkout-handoffs:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    post:
+      operationId: createCheckoutHandoff
+      summary: Create a handoff to Bukalaris hosted checkout
+      description: Validate native host or private storefront channel and cart capability.
+        Bind checkout to store/cart/channel/revision. Choose checkout origin and registered
+        return destination server-side; client cannot supply arbitrary redirect URLs.
+        Return an HTTPS checkout_url with a one-use short-lived code. Does not create
+        an order or payment. Identical retry returns same intent; expired handoff
+        requires a fresh intent against the same cart.
+      tags:
+      - Checkout
+      security:
+      - cartCapability: &id005 []
+      - cartCapability: *id005
+        storefrontToken: []
+      x-status: proposed
+      x-tenant-source: verified-native-host-or-scoped-channel-token
+      responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '201':
+          description: One-use handoff; no-store and redacted at every hop.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutHandoff'
+      parameters:
+      - name: cart_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutHandoffInput'
+  /checkout/sessions/{checkout_id}:
+    servers:
+    - url: https://checkout.bukalaris.com/api/v1
+    get:
+      operationId: getHostedCheckout
+      summary: Read the current hosted checkout
+      description: Only the checkout-origin session can read this checkout; no-store.
+        External channel tokens alone cannot access buyer checkout data.
+      tags:
+      - Checkout
+      security:
+      - checkoutSession: []
+      x-status: proposed
+      x-tenant-source: server-checkout-session
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HostedCheckout'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      parameters:
+      - name: checkout_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+  /seller/stores/{store_id}/storefront-channels:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    get:
+      operationId: listStorefrontChannels
+      summary: List headless storefront channels
+      description: Store owner capability required. List metadata only, never secret
+        token values.
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '200':
+          description: Successful result.
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+                minLength: 1
+                maxLength: 128
+              description: Safe support reference.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorefrontChannelList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+      x-required-capability: storefront_channels.manage
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
+    post:
+      operationId: createStorefrontChannel
+      summary: Create a scoped private headless storefront channel
+      description: Store owner capability required. Validate registered HTTPS origin
+        and local return paths against normalization/open-redirect rules; localhost
+        development is isolated policy only. Issue fixed published-read/cart/handoff
+        scopes, never seller/admin scope. Store a token hash and metadata. Repeat
+        creation must not create another channel. Rotation/revocation are explicit
+        operations.
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '201':
+          description: Channel and one-time secret. No-store; a lost secret requires
+            rotation, never plaintext retrieval. Idempotent replays return metadata
+            without recovering the secret.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorefrontChannelCreated'
+      x-required-capability: storefront_channels.manage
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StorefrontChannelInput'
+  /seller/stores/{store_id}/storefront-channels/{channel_id}/revoke:
+    servers:
+    - url: https://app.bukalaris.com/api/v1
+    post:
+      operationId: revokeStorefrontChannel
+      summary: Revoke a private storefront channel
+      description: Owner capability and current revision required. Revoke token and
+        unused handoffs immediately. Existing orders remain valid. Existing hosted
+        checkout sessions follow a separately accepted revocation policy.
+      tags:
+      - Seller
+      security:
+      - sessionCookie: []
+      x-status: proposed
+      x-tenant-source: authorized-store-path
+      responses:
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+        '200':
+          description: Revoked metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorefrontChannel'
+      x-required-capability: storefront_channels.manage
+      parameters:
+      - name: store_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      - name: channel_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevisionInput'
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-bukalaris_session
+      description: Proposed server-side browser session; actual adapter pending. Mutations
+        require CSRF and Origin checks.
+    serviceToken:
+      type: http
+      scheme: bearer
+      description: Proposed revocable opaque service credential, bound to one store
+        and explicit operations. Seller API only.
+    cartCapability:
+      type: apiKey
+      in: header
+      name: X-Cart-Capability
+      description: Opaque secret scoped to one cart, store, expiry and cart/checkout
+        operations.
+    outcomeCapability:
+      type: apiKey
+      in: header
+      name: X-Order-Capability
+      description: Separate opaque read-only capability scoped to one store/order
+        outcome.
+    storefrontToken:
+      type: http
+      scheme: bearer
+      description: Proposed revocable private storefront channel token; one store,
+        published reads/cart/handoff scopes only. Server-side storage required; cannot
+        call Seller or Admin APIs.
+    checkoutSession:
+      type: apiKey
+      in: cookie
+      name: __Host-bukalaris_checkout
+      description: Proposed host-only HttpOnly checkout session established by one-use
+        handoff. Bound to store, cart, channel and checkout; submit requires trusted
+        Origin and CSRF.
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+      description: 'Scoped by actor/capability, store and operation. Same key/input
+        replays original result; changed input returns 409. Minimum replay retention
+        proposal: 24 hours. Financial references remain unique beyond expiry; reconcile
+        an uncertain checkout before any new key.'
+    CsrfToken:
+      name: X-CSRF-Token
+      in: header
+      required: false
+      schema:
+        type: string
+        minLength: 1
+      description: Required for session-cookie mutations, alongside trusted Origin
+        validation; not required for bearer service identities. Acquisition depends
+        on the selected auth adapter.
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+        maxLength: 512
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+  responses:
+    BadRequest:
+      description: Malformed request or invalid host.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Authentication or resource capability missing/expired.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Insufficient capability, invalid CSRF/origin, or suspended store.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource absent or outside caller store; do not reveal cross-store
+        existence.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Conflict:
+      description: Stale revision, state conflict, duplicate slug/domain, or idempotency
+        key with different input.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unprocessable:
+      description: Field or business rule validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    RateLimited:
+      description: Rate limit exceeded. Retry only after Retry-After.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+      headers:
+        Retry-After:
+          description: Seconds before retry.
+          schema:
+            type: integer
+            minimum: 1
+    InternalError:
+      description: Unexpected failure; use correlation ID.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unavailable:
+      description: Dependency unavailable; existing operation may be pending, never
+        assume failure.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - message
+      - correlation_id
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        correlation_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        field_errors:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - field
+            - message
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+    Money:
+      type: object
+      additionalProperties: false
+      required:
+      - amount
+      - currency
+      properties:
+        amount:
+          type: integer
+          minimum: 0
+        currency:
+          type: string
+          enum:
+          - IDR
+    RevisionInput:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_revision
+      properties:
+        expected_revision:
+          type: integer
+          minimum: 1
+    ProductCreate:
+      type: object
+      additionalProperties: false
+      required:
+      - title
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+    ProductEdit:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_revision
+      properties:
+        expected_revision:
+          type: integer
+          minimum: 1
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 20000
+    ProductSlugInput:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_revision
+      - slug
+      properties:
+        expected_revision:
+          type: integer
+          minimum: 1
+        slug:
+          type: string
+          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+          maxLength: 120
+    VariantInput:
+      type: object
+      additionalProperties: false
+      required:
+      - title
+      - price
+      - weight_grams
+      - inventory_policy
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        sku:
+          type: string
+          maxLength: 100
+        price:
+          $ref: '#/components/schemas/Money'
+        weight_grams:
+          type: integer
+          minimum: 1
+        inventory_policy:
+          type: string
+          enum:
+          - deny_when_empty
+          - allow_backorder
+    VariantEdit:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_revision
+      properties:
+        expected_revision:
+          type: integer
+          minimum: 1
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        sku:
+          type: string
+          maxLength: 100
+        price:
+          $ref: '#/components/schemas/Money'
+        weight_grams:
+          type: integer
+          minimum: 1
+        inventory_policy:
+          type: string
+          enum:
+          - deny_when_empty
+          - allow_backorder
+    Variant:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - product_id
+      - revision
+      - title
+      - price
+      - weight_grams
+      - inventory_policy
+      - available_quantity
+      properties:
+        id:
+          type: string
+          pattern: ^[1-9][0-9]*$
+          examples:
+          - '1042'
+        product_id:
+          type: string
+          pattern: ^[1-9][0-9]*$
+          examples:
+          - '1042'
+        revision:
+          type: integer
+          minimum: 1
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        sku:
+          type: string
+          maxLength: 100
+        price:
+          $ref: '#/components/schemas/Money'
+        weight_grams:
+          type: integer
+          minimum: 1
+        inventory_policy:
+          type: string
+          enum:
+          - deny_when_empty
+          - allow_backorder
+        available_quantity:
+          type: integer
+          minimum: 0
+    Product:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - slug
+      - title
+      - description
+      - status
+      - revision
+      - variants
+      properties:
+        id:
+          type: string
+          pattern: ^[1-9][0-9]*$
+          examples:
+          - '1042'
+        slug:
+          type: string
+          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+          maxLength: 120
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum:
+          - draft
+          - active
+          - archived
+        revision:
+          type: integer
+          minimum: 1
+        variants:
+          type: array
+          items:
+            $ref: '#/components/schemas/Variant'
+    PublicVariant:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - title
+      - price
+      - available
+      properties:
+        id:
+          type: string
+          pattern: ^[1-9][0-9]*$
+          examples:
+          - '1042'
+        title:
+          type: string
+        price:
+          $ref: '#/components/schemas/Money'
+        available:
+          type: boolean
+    PublicProduct:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - slug
+      - canonical_path
+      - title
+      - description
+      - variants
+      properties:
+        id:
+          type: string
+          pattern: ^[1-9][0-9]*$
+          examples:
+          - '1042'
+        slug:
+          type: string
+          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+          maxLength: 120
+        canonical_path:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        variants:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicVariant'
+    Inventory:
+      type: object
+      additionalProperties: false
+      required:
+      - variant_id
+      - revision
+      - on_hand
+      - reserved
+      - available
+      properties:
+        variant_id:
+          type: string
+          pattern: ^[1-9][0-9]*$
+          examples:
+          - '1042'
+        revision:
+          type: integer
+          minimum: 1
+        on_hand:
+          type: integer
+          minimum: 0
+        reserved:
+          type: integer
+          minimum: 0
+        available:
+          type: integer
+          minimum: 0
+    InventoryAdjustment:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_revision
+      - delta
+      - reason
+      properties:
+        expected_revision:
+          type: integer
+          minimum: 1
+        delta:
+          type: integer
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+    CollectionInput:
+      type: object
+      additionalProperties: false
+      required:
+      - title
+      - slug
+      - product_ids
+      - status
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        slug:
+          type: string
+          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+          maxLength: 120
+        product_ids:
+          type: array
+          items:
+            type: string
+            pattern: ^[1-9][0-9]*$
+            examples:
+            - '1042'
+        status:
+          type: string
+          enum:
+          - draft
+          - published
+          - archived
+    Collection:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - revision
+      - title
+      - slug
+      - product_ids
+      - status
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        revision:
+          type: integer
+          minimum: 1
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        slug:
+          type: string
+          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+          maxLength: 120
+        product_ids:
+          type: array
+          items:
+            type: string
+            pattern: ^[1-9][0-9]*$
+            examples:
+            - '1042'
+        status:
+          type: string
+          enum:
+          - draft
+          - published
+          - archived
+    PublicCollection:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - title
+      - slug
+      - product_ids
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        title:
+          type: string
+        slug:
+          type: string
+          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+          maxLength: 120
+        product_ids:
+          type: array
+          items:
+            type: string
+            pattern: ^[1-9][0-9]*$
+            examples:
+            - '1042'
+    PageInput:
+      type: object
+      additionalProperties: false
+      required:
+      - title
+      - slug
+      - body_markdown
+      - status
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        slug:
+          type: string
+          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+          maxLength: 120
+        body_markdown:
+          type: string
+          maxLength: 100000
+        status:
+          type: string
+          enum:
+          - draft
+          - published
+          - archived
+    Page:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - revision
+      - title
+      - slug
+      - body_markdown
+      - status
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        revision:
+          type: integer
+          minimum: 1
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        slug:
+          type: string
+          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+          maxLength: 120
+        body_markdown:
+          type: string
+          maxLength: 100000
+        status:
+          type: string
+          enum:
+          - draft
+          - published
+          - archived
+    PublicPage:
+      type: object
+      additionalProperties: false
+      required:
+      - title
+      - slug
+      - body_markdown
+      properties:
+        title:
+          type: string
+        slug:
+          type: string
+          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+          maxLength: 120
+        body_markdown:
+          type: string
+          description: Render through a sanitizer; raw embedded HTML is disallowed.
+    MenuItem:
+      type: object
+      additionalProperties: false
+      required:
+      - label
+      - href
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 100
+        href:
+          type: string
+          pattern: ^/(?!/)[^\s]*$
+          description: Store-relative path; javascript/data/external schemes are rejected.
+    MenuInput:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - items
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MenuItem'
+    Menu:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - revision
+      - name
+      - items
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        revision:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MenuItem'
+    StoreSettings:
+      type: object
+      additionalProperties: false
+      required:
+      - revision
+      - name
+      - description
+      - support_email
+      - enabled_payment_method_ids
+      - enabled_delivery_method_ids
+      properties:
+        revision:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2000
+        support_email:
+          type: string
+          format: email
+        enabled_payment_method_ids:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+        enabled_delivery_method_ids:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+    Theme:
+      type: object
+      additionalProperties: false
+      required:
+      - revision
+      - theme
+      - accent_color
+      - logo_media_id
+      properties:
+        revision:
+          type: integer
+          minimum: 1
+        theme:
+          type: string
+          enum:
+          - responsive
+          - mobile-480
+        accent_color:
+          type: string
+          pattern: ^#[0-9a-fA-F]{6}$
+        logo_media_id:
+          type:
+          - string
+          - 'null'
+    StorefrontConfig:
+      type: object
+      additionalProperties: false
+      required:
+      - store_id
+      - name
+      - description
+      - theme
+      - menus
+      - can_checkout
+      properties:
+        store_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        name:
+          type: string
+        description:
+          type: string
+        theme:
+          $ref: '#/components/schemas/Theme'
+        menus:
+          type: array
+          items:
+            $ref: '#/components/schemas/Menu'
+        can_checkout:
+          type: boolean
+    DomainInput:
+      type: object
+      additionalProperties: false
+      required:
+      - hostname
+      properties:
+        hostname:
+          type: string
+          format: hostname
+          maxLength: 253
+    DnsInstruction:
+      type: object
+      additionalProperties: false
+      required:
+      - type
+      - name
+      - value
+      - purpose
+      properties:
+        type:
+          type: string
+          enum:
+          - TXT
+          - CNAME
+          - A
+          - AAAA
+        name:
+          type: string
+        value:
+          type: string
+        purpose:
+          type: string
+          enum:
+          - ownership
+          - routing
+          - tls
+    Domain:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - hostname
+      - revision
+      - ownership_state
+      - tls_state
+      - routing_state
+      - cleanup_state
+      - eligible_primary
+      - dns_instructions
+      - last_checked_at
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        hostname:
+          type: string
+          format: hostname
+        revision:
+          type: integer
+          minimum: 1
+        ownership_state:
+          type: string
+          enum:
+          - pending
+          - verified
+          - failed
+        tls_state:
+          type: string
+          enum:
+          - pending
+          - active
+          - failed
+        routing_state:
+          type: string
+          enum:
+          - pending
+          - active
+          - disabled
+          - failed
+        cleanup_state:
+          type: string
+          enum:
+          - none
+          - pending
+          - complete
+          - failed
+        eligible_primary:
+          type: boolean
+        dns_instructions:
+          type: array
+          items:
+            $ref: '#/components/schemas/DnsInstruction'
+        last_checked_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+    RoutingSettings:
+      type: object
+      additionalProperties: false
+      required:
+      - revision
+      - primary_domain_id
+      properties:
+        revision:
+          type: integer
+          minimum: 1
+        primary_domain_id:
+          type:
+          - string
+          - 'null'
+    PrimaryDomainInput:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_revision
+      - domain_id
+      properties:
+        expected_revision:
+          type: integer
+          minimum: 1
+        domain_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+    CartItemInput:
+      type: object
+      additionalProperties: false
+      required:
+      - variant_id
+      - quantity
+      properties:
+        variant_id:
+          type: string
+          pattern: ^[1-9][0-9]*$
+          examples:
+          - '1042'
+        quantity:
+          type: integer
+          minimum: 1
+    CartLine:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - variant_id
+      - product_id
+      - title
+      - quantity
+      - unit_price
+      - line_total
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        variant_id:
+          type: string
+          pattern: ^[1-9][0-9]*$
+          examples:
+          - '1042'
+        product_id:
+          type: string
+          pattern: ^[1-9][0-9]*$
+          examples:
+          - '1042'
+        title:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+        unit_price:
+          $ref: '#/components/schemas/Money'
+        line_total:
+          $ref: '#/components/schemas/Money'
+    Cart:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - revision
+      - expires_at
+      - lines
+      - subtotal
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        revision:
+          type: integer
+          minimum: 1
+        expires_at:
+          type: string
+          format: date-time
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartLine'
+        subtotal:
+          $ref: '#/components/schemas/Money'
+    CartCreate:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartItemInput'
+    CartCreated:
+      type: object
+      additionalProperties: false
+      required:
+      - cart
+      - cart_capability
+      properties:
+        cart:
+          $ref: '#/components/schemas/Cart'
+        cart_capability:
+          type: string
+          description: Opaque secret shown once. Store only in controlled memory/server
+            session; never URL or logs.
+    CartItemEdit:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_revision
+      - quantity
+      properties:
+        expected_revision:
+          type: integer
+          minimum: 1
+        quantity:
+          type: integer
+          minimum: 0
+    CartItemAdd:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_revision
+      - variant_id
+      - quantity
+      properties:
+        expected_revision:
+          type: integer
+          minimum: 1
+        variant_id:
+          type: string
+          pattern: ^[1-9][0-9]*$
+          examples:
+          - '1042'
+        quantity:
+          type: integer
+          minimum: 1
+    Address:
+      type: object
+      additionalProperties: false
+      required:
+      - recipient
+      - phone
+      - address_line
+      - postal_code
+      - destination_id
+      properties:
+        recipient:
+          type: string
+          minLength: 1
+          maxLength: 200
+        phone:
+          type: string
+          minLength: 6
+          maxLength: 30
+        address_line:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        postal_code:
+          type: string
+          maxLength: 20
+        destination_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+    CheckoutQuoteInput:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_revision
+      - address
+      properties:
+        expected_revision:
+          type: integer
+          minimum: 1
+        address:
+          $ref: '#/components/schemas/Address'
+    DeliveryOption:
+      type: object
+      additionalProperties: false
+      required:
+      - quote_id
+      - service_name
+      - amount
+      - cod_eligible
+      - expires_at
+      properties:
+        quote_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        service_name:
+          type: string
+        amount:
+          $ref: '#/components/schemas/Money'
+        cod_eligible:
+          type: boolean
+        expires_at:
+          type: string
+          format: date-time
+    CheckoutQuote:
+      type: object
+      additionalProperties: false
+      required:
+      - cart_revision
+      - delivery_options
+      - payment_method_ids
+      properties:
+        cart_revision:
+          type: integer
+          minimum: 1
+        delivery_options:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeliveryOption'
+        payment_method_ids:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+    CheckoutInput:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_revision
+      - address
+      - delivery_quote_id
+      - payment_method_id
+      properties:
+        expected_revision:
+          type: integer
+          minimum: 1
+        address:
+          $ref: '#/components/schemas/Address'
+        email:
+          type: string
+          format: email
+        delivery_quote_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        payment_method_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+    OrderOutcome:
+      type: object
+      additionalProperties: false
+      required:
+      - order_id
+      - order_number
+      - status
+      - payment_status
+      - total
+      - payment_action_url
+      - next_poll_after_seconds
+      properties:
+        order_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        order_number:
+          type: string
+        status:
+          type: string
+          enum:
+          - pending
+          - awaiting_payment
+          - confirmed
+          - cancelled
+          - failed
+        payment_status:
+          type: string
+          enum:
+          - pending
+          - awaiting_payment
+          - paid
+          - failed
+          - expired
+        total:
+          $ref: '#/components/schemas/Money'
+        payment_action_url:
+          type:
+          - string
+          - 'null'
+          format: uri
+        next_poll_after_seconds:
+          type: integer
+          minimum: 1
+    CheckoutAccepted:
+      type: object
+      additionalProperties: false
+      required:
+      - outcome
+      - outcome_capability
+      properties:
+        outcome:
+          $ref: '#/components/schemas/OrderOutcome'
+        outcome_capability:
+          type: string
+          description: Opaque read-only order-outcome secret. Never include in URL/log/referrer.
+    Order:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - order_number
+      - revision
+      - created_at
+      - status
+      - payment_status
+      - fulfillment_status
+      - lines
+      - address
+      - subtotal
+      - shipping_total
+      - total
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        order_number:
+          type: string
+        revision:
+          type: integer
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum:
+          - pending
+          - awaiting_payment
+          - confirmed
+          - processing
+          - shipped
+          - completed
+          - cancelled
+          - failed
+        payment_status:
+          type: string
+          enum:
+          - pending
+          - awaiting_payment
+          - paid
+          - failed
+          - expired
+        fulfillment_status:
+          type: string
+          enum:
+          - unfulfilled
+          - booking_pending
+          - booked
+          - shipped
+          - delivered
+          - failed
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/CartLine'
+        address:
+          $ref: '#/components/schemas/Address'
+        subtotal:
+          $ref: '#/components/schemas/Money'
+        shipping_total:
+          $ref: '#/components/schemas/Money'
+        total:
+          $ref: '#/components/schemas/Money'
+    OrderAction:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_revision
+      - action
+      - reason
+      properties:
+        expected_revision:
+          type: integer
+          minimum: 1
+        action:
+          type: string
+          enum:
+          - accept
+          - cancel
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+    ShipmentRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_revision
+      properties:
+        expected_revision:
+          type: integer
+          minimum: 1
+    StoreCreate:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - slug
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        slug:
+          type: string
+          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+          maxLength: 120
+    Store:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - slug
+      - status
+      - revision
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        name:
+          type: string
+        slug:
+          type: string
+          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+          maxLength: 120
+        status:
+          type: string
+          enum:
+          - pending
+          - active
+          - suspended
+        revision:
+          type: integer
+          minimum: 1
+    StoreTransition:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_revision
+      - action
+      - reason
+      properties:
+        expected_revision:
+          type: integer
+          minimum: 1
+        action:
+          type: string
+          enum:
+          - approve
+          - suspend
+          - reactivate
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+    Session:
+      type: object
+      additionalProperties: false
+      required:
+      - user_id
+      - platform_role
+      - memberships
+      properties:
+        user_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        platform_role:
+          type: string
+          enum:
+          - none
+          - super_admin
+          - support
+        memberships:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - store_id
+            - role
+            - capabilities
+            properties:
+              store_id:
+                type: string
+                minLength: 1
+                maxLength: 128
+              role:
+                type: string
+                enum:
+                - owner
+                - manager
+                - staff
+              capabilities:
+                type: array
+                items:
+                  type: string
+    LogEvent:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - timestamp
+      - severity
+      - module
+      - page_id
+      - store_id
+      - correlation_id
+      - event_code
+      - message
+      - service
+      - environment
+      - release_revision
+      - operation_id
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        timestamp:
+          type: string
+          format: date-time
+        severity:
+          type: string
+          enum:
+          - debug
+          - info
+          - warn
+          - error
+          - fatal
+        module:
+          type: string
+        page_id:
+          type:
+          - string
+          - 'null'
+        store_id:
+          type:
+          - string
+          - 'null'
+        correlation_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        event_code:
+          type: string
+        message:
+          type: string
+          description: Sanitized diagnostic message; no tokens, raw payloads, or customer/payment PII.
+        service:
+          type:
+          - string
+          - 'null'
+          maxLength: 128
+        environment:
+          type: string
+          enum:
+          - development
+          - staging
+          - production
+        release_revision:
+          type:
+          - string
+          - 'null'
+          maxLength: 128
+        operation_id:
+          type:
+          - string
+          - 'null'
+          maxLength: 128
+        outcome:
+          type:
+          - string
+          - 'null'
+          enum:
+          - success
+          - rejected
+          - pending
+          - failed
+          - null
+        duration_ms:
+          type:
+          - number
+          - 'null'
+          minimum: 0
+    ProductList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+    PublicProductList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicProduct'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+    CollectionList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Collection'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+    PublicCollectionList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicCollection'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+    PageList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Page'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+    MenuList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Menu'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+    DomainList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Domain'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+    OrderList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Order'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+    StoreList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Store'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+    LogEventList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - next_cursor
+      - source_status
+      - last_observed_at
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LogEvent'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+        source_status:
+          type: string
+          enum:
+          - complete
+          - partial
+          - stale
+        last_observed_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: Last observed ingestion timestamp, or null when freshness is unknown.
+    CollectionEdit:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_revision
+      - title
+      - slug
+      - product_ids
+      - status
+      properties:
+        expected_revision:
+          type: integer
+          minimum: 1
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        slug:
+          type: string
+          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+          maxLength: 120
+        product_ids:
+          type: array
+          items:
+            type: string
+            pattern: ^[1-9][0-9]*$
+            examples:
+            - '1042'
+        status:
+          type: string
+          enum:
+          - draft
+          - published
+          - archived
+    PageEdit:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_revision
+      - title
+      - slug
+      - body_markdown
+      - status
+      properties:
+        expected_revision:
+          type: integer
+          minimum: 1
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        slug:
+          type: string
+          pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+          maxLength: 120
+        body_markdown:
+          type: string
+          maxLength: 100000
+        status:
+          type: string
+          enum:
+          - draft
+          - published
+          - archived
+    MenuEdit:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_revision
+      - name
+      - items
+      properties:
+        expected_revision:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MenuItem'
+    StoreSettingsEdit:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_revision
+      - name
+      - description
+      - support_email
+      - enabled_payment_method_ids
+      - enabled_delivery_method_ids
+      properties:
+        expected_revision:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2000
+        support_email:
+          type: string
+          format: email
+        enabled_payment_method_ids:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+        enabled_delivery_method_ids:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+    ThemeEdit:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_revision
+      - theme
+      - accent_color
+      - logo_media_id
+      properties:
+        expected_revision:
+          type: integer
+          minimum: 1
+        theme:
+          type: string
+          enum:
+          - responsive
+          - mobile-480
+        accent_color:
+          type: string
+          pattern: ^#[0-9a-fA-F]{6}$
+        logo_media_id:
+          type:
+          - string
+          - 'null'
+    CheckoutHandoffInput:
+      type: object
+      additionalProperties: false
+      properties:
+        expected_revision:
+          type: integer
+          minimum: 1
+        return_target:
+          type: string
+          enum:
+          - store_home
+          - cart
+      required:
+      - expected_revision
+      - return_target
+    CheckoutHandoff:
+      type: object
+      additionalProperties: false
+      properties:
+        checkout_id:
+          type: string
+          minLength: 1
+        checkout_url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
+      required:
+      - checkout_id
+      - checkout_url
+      - expires_at
+    HostedCheckout:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          minLength: 1
+        cart:
+          $ref: '#/components/schemas/Cart'
+        status:
+          type: string
+          enum:
+          - open
+          - submitting
+          - pending
+          - completed
+          - expired
+        return_url:
+          type: string
+          format: uri
+      required:
+      - id
+      - cart
+      - status
+      - return_url
+    StorefrontChannelInput:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        storefront_origin:
+          type: string
+          format: uri
+        return_paths:
+          type: array
+          items:
+            type: string
+            pattern: ^/[^/]*.*$
+          minItems: 1
+        expires_at:
+          type: string
+          format: date-time
+      required:
+      - name
+      - storefront_origin
+      - return_paths
+      - expires_at
+    StorefrontChannel:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          minLength: 1
+        name:
+          type: string
+          minLength: 1
+        store_id:
+          type: string
+          minLength: 1
+        storefront_origin:
+          type: string
+          format: uri
+        status:
+          type: string
+          enum:
+          - active
+          - revoked
+          - expired
+        expires_at:
+          type: string
+          format: date-time
+        token_prefix:
+          type: string
+          minLength: 1
+        revision:
+          type: integer
+          minimum: 1
+      required:
+      - id
+      - name
+      - store_id
+      - storefront_origin
+      - status
+      - expires_at
+      - token_prefix
+      - revision
+    StorefrontChannelCreated:
+      type: object
+      additionalProperties: false
+      properties:
+        channel:
+          $ref: '#/components/schemas/StorefrontChannel'
+        token:
+          type: string
+          writeOnly: false
+          description: Server-side secret returned once. Never persisted in plaintext
+            logs or ordinary responses.
+      required:
+      - channel
+    StorefrontChannelList:
+      type: object
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorefrontChannel'
+      required:
+      - data

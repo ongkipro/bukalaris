@@ -1,0 +1,13 @@
+node_modules/
+.next/
+out/
+blob-report/
+playwright/.cache/
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+.DS_Store
+coverage/
+test-results/
+playwright-report/
