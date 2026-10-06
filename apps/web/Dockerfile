@@ -26,15 +26,18 @@ RUN pnpm --filter @bukalaris/db deploy --prod --legacy /out && rm -rf /out/docke
 #   docker run --rm -e DATABASE_URL=... bukalaris-migrate
 FROM node:24-alpine AS migrate
 WORKDIR /app
-RUN addgroup -S app && adduser -S app -G app
+RUN addgroup -S -g 10001 app && adduser -S -u 10001 -G app app
 COPY --from=migrate-build --chown=app:app /out ./
 USER app
 CMD ["node", "src/migrate.ts"]
 
 FROM node:24-alpine AS runner
-ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0 NEXT_TELEMETRY_DISABLED=1
+# MEDIA_DIR: product images (local-disk store). Mount a persistent volume at /data/media;
+# the directory is pre-created and owned by the fixed uid/gid 10001 so a fresh named volume
+# inherits it and a bind mount only needs `chown 10001:10001` on the host (docs/RUNBOOK.md).
+ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0 NEXT_TELEMETRY_DISABLED=1 MEDIA_DIR=/data/media
 WORKDIR /app
-RUN addgroup -S app && adduser -S app -G app
+RUN addgroup -S -g 10001 app && adduser -S -u 10001 -G app app && mkdir -p /data/media && chown app:app /data/media
 COPY --from=build --chown=app:app /repo/apps/web/.next/standalone ./
 COPY --from=build --chown=app:app /repo/apps/web/.next/static ./apps/web/.next/static
 USER app

@@ -1,4 +1,7 @@
 # Local development only. Host port 5442 (5432/5433 are used by other projects).
+# Fixed project name: the container is bukalaris-db-1 and the network bukalaris_default from any
+# git worktree, which scripts/*.sh and the images' smoke test rely on.
+name: bukalaris
 services:
   db:
     image: postgres:17-alpine

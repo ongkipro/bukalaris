@@ -26,6 +26,7 @@ Values live only in Coolify secrets; never in the repository or image.
 | `STORE_ROOT_DOMAIN` | required | — | e.g. `bukalaris.com`; `toko-a.bukalaris.com` serves store `toko-a` |
 | `MIGRATION_DATABASE_URL` | — | optional | Overrides `DATABASE_URL` for the migrator when roles are split |
 | `DATABASE_POOL_MAX` | optional | — | Default 10 |
+| `MEDIA_DIR` | preset | — | Image default `/data/media`; mount a persistent volume there (see "Media volume") |
 | `PORT`, `HOSTNAME` | preset | — | Image defaults `3000`, `0.0.0.0` |
 
 ## Migration step (before the new web version)
@@ -69,12 +70,35 @@ failure does not fail the deploy. Plan instead:
   in the reverse proxy — choose the DNS provider and verify the proxy setup
   before relying on it. Custom seller domains are out of M1 scope (T-15).
 
+## Media volume (product images)
+
+The web image stores uploads on local disk under `MEDIA_DIR` (default
+`/data/media`, pre-created in the image and owned by the fixed uid/gid
+`10001:10001`, user `app`). Without a volume, images vanish on every deploy.
+
+- Coolify: add a persistent storage entry on the web application with
+  destination `/data/media` (a Docker named volume). A fresh named volume copies
+  the directory's ownership from the image, so no chown is needed. For a host
+  directory (bind mount) run `chown 10001:10001 <host dir>` first.
+- One web replica only while media is on local disk (no shared storage);
+  the upgrade path is an object-store adapter behind the same media key.
+- Back up the volume together with the database (`docs/RUNBOOK.md` "Backup").
+- Local proof: `pnpm verify:docker` mounts a throwaway volume at `/data/media`
+  and writes to it as `app`.
+
 ## PostgreSQL and backups
 
 - Coolify-managed PostgreSQL 17, private network only, no public port.
 - Scheduled backups to S3-compatible storage (vendor open). RPO/RTO and
   retention are Q-11; a restore rehearsal into a scratch database is required
   before a pilot (14-SLA-DISASTER-RECOVERY DR-1).
+- Local tooling exists and was rehearsed on a dev database (`docs/RUNBOOK.md`
+  "Backup" / "Restore rehearsal"): `scripts/db-backup.sh` (pg_dump custom
+  format, `--no-owner --no-acl`) and `scripts/db-restore-rehearsal.sh` (restore
+  into a scratch DB, per-table row-count comparison, orphan check, drop). The
+  same two commands run against the Coolify Postgres container with
+  `DB_CONTAINER=<container name>`; production restores need explicit approval
+  and never go into a shared test environment (DR-1).
 
 ## Pre-go-live gates (not met in M1)
 
