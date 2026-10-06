@@ -12,6 +12,10 @@
     "e2e": "pnpm --filter @bukalaris/web e2e",
     "db:generate": "pnpm --filter @bukalaris/db generate",
     "db:migrate": "pnpm --filter @bukalaris/db migrate",
-    "db:seed": "pnpm --filter @bukalaris/db seed"
+    "db:seed": "pnpm --filter @bukalaris/db seed",
+    "db:backup": "scripts/db-backup.sh",
+    "db:restore-rehearsal": "scripts/db-restore-rehearsal.sh",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm e2e",
+    "verify:docker": "scripts/verify-docker.sh"
   }
 }

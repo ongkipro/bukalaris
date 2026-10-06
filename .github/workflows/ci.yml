@@ -1,0 +1,81 @@
+# Same gates as `pnpm verify` (lint, typecheck, test, build, e2e) plus the image smoke test
+# (`pnpm verify:docker`). Read-only token; no deploy, no secrets. Status: file only, never run
+# (no remote yet). Action pins: major tags; full-SHA pinning is pending until the tag->SHA mapping
+# is verified against the upstream releases (docs/RUNBOOK.md "Pre-production checklist").
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  # Dev placeholders for the throwaway CI database (docker-compose.yml uses the same ones).
+  DATABASE_URL: postgres://bukalaris:bukalaris@localhost:5432/bukalaris
+  TEST_DATABASE_URL: postgres://bukalaris:bukalaris@localhost:5432/bukalaris_test
+  E2E_DATABASE_URL: postgres://bukalaris:bukalaris@localhost:5432/bukalaris_e2e
+  BETTER_AUTH_SECRET: ci-only-placeholder-not-a-secret-0123456789abcdef
+  BETTER_AUTH_URL: http://localhost:3100
+  STORE_ROOT_DOMAIN: localhost
+  NEXT_TELEMETRY_DISABLED: "1"
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: bukalaris
+          POSTGRES_PASSWORD: bukalaris
+          POSTGRES_DB: bukalaris
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U bukalaris -d bukalaris"
+          --health-interval 2s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # pnpm version comes from package.json "packageManager" (no version input here).
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - name: pnpm store cache
+        id: pnpm-store
+        run: echo "path=$(pnpm store path)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-${{ runner.os }}-
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+        working-directory: apps/web
+      # Test and e2e databases are created by their global setups when missing.
+      - run: pnpm verify
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-traces
+          path: apps/web/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: verify
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # The script talks to the compose container (bukalaris-db-1) over bukalaris_default.
+      - run: docker compose up -d db --wait
+      - run: scripts/verify-docker.sh
+      - if: always()
+        run: docker compose down -v

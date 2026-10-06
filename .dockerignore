@@ -8,3 +8,6 @@ docs
 test-results
 playwright-report
 packages/db/test
+var
+.github
+*.md
