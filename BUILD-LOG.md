@@ -344,3 +344,5 @@ Wave 2a launched from `d7a32f5`: `checkout2` (T-34 phase 2, T-35, T-30),
 - Results on `main` (`3e53efe`): lint 0, typecheck 0, Vitest 129 passed,
   build 0, Playwright 72 passed + 2 skipped.
 - Wave 3: track `rls` (T-27, ADR-0005) launched from `ef809e0`.
+- `pnpm verify:docker` on `main` after wave 2b: health 200, `/s/nope` 404,
+  login 200, HEALTHCHECK healthy, user app, media writable; cleanup confirmed.
