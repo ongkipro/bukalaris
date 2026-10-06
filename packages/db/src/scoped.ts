@@ -48,6 +48,7 @@ const capabilities = {
   "orders.read": ["owner", "staff"],
   "orders.fulfill": ["owner", "staff"],
   "inventory.write": ["owner", "staff"],
+  "integrations.manage": ["owner"],
 } as const satisfies Record<string, readonly Role[]>;
 export type Capability = keyof typeof capabilities;
 
