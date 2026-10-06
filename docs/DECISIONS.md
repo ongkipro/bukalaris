@@ -143,3 +143,15 @@ Ceilings: no alias for the numeric canonical (ids never change, so none is neede
 feed export yet (granularity frozen as variant item / product group per Q-7); the
 hand-written trigger and backfill live in `0003_catalog_guards.sql` and must be kept
 verbatim when migrations are consolidated.
+
+## D-9 — Migrations are append-only from 2026-10-07
+
+Until wave 2a, post-M1 migrations were regenerated into one file at each merge
+because nothing was deployed. `0003_catalog_guards.sql` is hand-written
+(immutability trigger, backfill), so from now on migrations are append-only:
+a branch's generated migrations are dropped at merge only when they contain no
+hand-written SQL, and the merged schema is regenerated as the next number on
+top of `main`. From the first deployment on, adding a NOT NULL column to a
+populated table follows expand → backfill → contract (15-DELIVERY-MIGRATIONS
+DEL-2); `0004` adds NOT NULL order columns without defaults, which is only
+acceptable because no database with orders exists yet (dev DB checked: 0 orders).

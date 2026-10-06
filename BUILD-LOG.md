@@ -295,3 +295,21 @@ desktop only). Docs: 17 system-map rows got real locators, M2 additional
 locators section, task statuses T-16/18/19/22–26/32/34 updated.
 Wave 2a launched from `d7a32f5`: `checkout2` (T-34 phase 2, T-35, T-30),
 `catalog` (T-14, T-31), `hardening` (T-29).
+
+## 2026-10-07 — Wave 2a integration (hardening, catalog, checkout2)
+
+- hardening (T-29): branch e2e re-run 3/3 green (46 passed) — the agent's
+  one-off 30/48 failure did not reproduce (likely host load from parallel
+  suites). CSP read line by line; no inline `style=` in app code. Added a CSP
+  guard to the shared `evidence()` helper so every screenshot step fails on a
+  violation. Main: 88 unit, 46 e2e.
+- catalog (T-14, T-31): drift check clean; hand-written `0003` kept verbatim.
+  Accepted the removal of `s/[store]/loading.tsx` — its Suspense boundary made
+  storefront redirects and 404s return HTTP 200 (soft 404). Main: 92 unit, 48 e2e.
+- checkout2 (T-34 p2, T-35, T-30): conflicts resolved in `checkout.ts`
+  (`cartLines()` now carries `variantCatalogId`), `schema.ts`, `storefront.ts`;
+  branch migrations (generated only) replaced by `0004_checkout2_shipping_cod_abuse.sql`;
+  dev DB migrated (0 orders). Main: Vitest 104 passed, build 0, Playwright 56
+  passed + 2 skipped.
+- Decision D-9: migrations append-only; NOT NULL on populated tables must be
+  expand/backfill/contract after the first deployment.

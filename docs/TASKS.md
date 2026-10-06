@@ -132,7 +132,7 @@ not create a second primary.
   implementation; do not treat a UI mockup as emitted-log evidence.
 
 ### T-14 — Specify concise product and advertising identity
-- Status: In progress — track `catalog` (wave 2a, 2026-10-07). M1 implements database identity, optional slug, canonical 308. Scope: external catalog ID per product and variant — digit-only, at least five digits, unique platform-wide, string at every API/feed/event/order-snapshot boundary, never derived from slug/SKU or reused; slug aliases and creation idempotency. Meta item/group contract still awaits provider verification.
+- Status: Done for ids + aliases (merged 2026-10-07) — `catalog_id` from one sequence starting at 10000 on product and variant, immutable by trigger, string at every boundary (TS customType, Storefront API, `order_line.variant_catalog_id` snapshot); canonical storefront path by slug or catalog id with 308 from legacy db ids; slug aliases without chains. Open: feed export, OpenAPI field update, Meta item/group provider verification. Report `docs/tracks/catalog.md`. Main after wave-2a merges (2026-10-07): Vitest 104 passed, Playwright 56 passed + 2 skipped (every evidence step also asserts zero CSP violations).
 - Primary requirement: PR-12
 - Constraints: DATA-5, API-4, UX-10, ARCH-5, TEN-1
 - Dependencies: T-1, T-3
@@ -368,7 +368,7 @@ owner accepts them) and 12-SECURITY-ARCHITECTURE.md SEC-14..SEC-19 (observed
 findings, tasks below).
 
 ### T-29 — Security headers and production dependency hygiene
-- Status: In progress — track `hardening` (wave 2a): headers, dependency hygiene, request-id trust flag.
+- Status: Done (merged 2026-10-07) — nonce CSP with strict-dynamic, frame-ancestors none, nosniff/Referrer/Permissions, HSTS only on HTTPS with `ENABLE_HSTS=1`, no X-Powered-By; shadcn CLI moved to devDependencies (`pnpm audit --prod`: 1 moderate left, unreachable at runtime); inbound request id trusted only with `TRUST_PROXY_REQUEST_ID=1`. Report `docs/tracks/hardening.md`. Main after wave-2a merges (2026-10-07): Vitest 104 passed, Playwright 56 passed + 2 skipped (every evidence step also asserts zero CSP violations).
 - Primary requirement: PR-16
 - Constraints: SEC-9, SEC-13, SEC-14, SEC-15
 - Dependencies: T-23, T-25
@@ -380,7 +380,7 @@ findings, tasks below).
   high or critical advisory, or each remaining one is recorded with reachability.
 
 ### T-30 — Checkout and cart abuse controls
-- Status: In progress — track `checkout2` (wave 2a).
+- Status: Done (merged 2026-10-07) — Postgres fixed-window limits (order 60/10 min per IP, 5/min per cart, 10/10 min per phone; cart 300/10 min per IP, 60/10 min per cart), 30-line cart cap, `pnpm --filter @bukalaris/db cleanup` for carts idle > `CART_IDLE_HOURS` (168). Open: IP dimension skipped without a trusted proxy header; cap is check-then-insert. Report `docs/tracks/checkout2.md`. Main after wave-2a merges (2026-10-07): Vitest 104 passed, Playwright 56 passed + 2 skipped (every evidence step also asserts zero CSP violations).
 - Primary requirement: PR-4
 - Constraints: SEC-16, NFR-1, NFR-5, Q-10
 - Dependencies: T-21
@@ -391,7 +391,7 @@ findings, tasks below).
   limits, caps and cleanup boundaries.
 
 ### T-31 — Audit catalog and price changes
-- Status: In progress — track `catalog` (wave 2a) together with T-14.
+- Status: Done (merged 2026-10-07) — `catalog_audit` rows in the same transaction for product/variant create/update incl. price, stock, status; history panel on the product page. Main after wave-2a merges (2026-10-07): Vitest 104 passed, Playwright 56 passed + 2 skipped (every evidence step also asserts zero CSP violations).
 - Primary requirement: PR-2
 - Constraints: SEC-17, IAM-5
 - Dependencies: T-1
@@ -433,7 +433,7 @@ without a separate explicit owner approval. Endpoint contracts are unverified
 until an observed, sanitized call is recorded (skill `mengantar-api`).
 
 ### T-34 — Mengantar shipping quotes with platform margin
-- Status: In progress — phase 1 merged (2026-10-07): server-only Mengantar read client with redaction and write lock, platform margin rule (`/admin/shipping`), store pickup area (`/seller/shipping`), observed read-only contract (11 real calls, 5 of them accidental repeats; receiver score 403 for this account; `MENGANTAR_ORIGIN_AREA_ID` differs from the pickup address area — owner to confirm). Phase 2 (checkout wiring + order snapshot) in track `checkout2`. Report `docs/tracks/shipping.md`.
+- Status: Done for quotes (merged 2026-10-07) — phase 1 read client/margin/pickup area plus phase 2 checkout wiring: destination area search, gated courier options, server re-quote and order snapshot with CHECK fee = provider cost + margin. Real Mengantar used only when `MENGANTAR_API_KEY` is present at runtime; automated tests use the fake. Open: weight is 1 kg per line, shipment booking (write approval), Q-17. Main after wave-2a merges (2026-10-07): Vitest 104 passed, Playwright 56 passed + 2 skipped (every evidence step also asserts zero CSP violations).
 - Primary requirement: PR-5
 - Constraints: Q-12, Q-13, NFR-4, NFR-5, TEN-1, SEC-9, DATA-2
 - Dependencies: T-21, T-32
@@ -447,7 +447,7 @@ until an observed, sanitized call is recorded (skill `mengantar-api`).
   gating and that write methods refuse without the flag.
 
 ### T-35 — COD confirmation and risk signals
-- Status: In progress — track `checkout2` (wave 2a). Observed 2026-10-06: `getReceiverScoreByNumberUser` returns 403 "Not allowed" for this account, so v1 risk signals are store-local only (repeat unconfirmed/cancelled orders per phone, address completeness, COD amount); provider score stays optional behind a capability check.
+- Status: Done (merged 2026-10-07) — COD orders start `awaiting_confirmation`; confirm / hold / reject (reject restocks once); store-local risk signals (repeat phone, address completeness, amount > 2× store COD median). Provider receiver score not used (403). Main after wave-2a merges (2026-10-07): Vitest 104 passed, Playwright 56 passed + 2 skipped (every evidence step also asserts zero CSP violations).
 - Primary requirement: PR-19
 - Constraints: Q-10, Q-14, PRIV-2, PRIV-3, NFR-2, TEN-1
 - Dependencies: T-21, T-34
