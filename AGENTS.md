@@ -83,6 +83,8 @@ Tracks run in separate git worktrees (`~/Projects/bukalaris-wt/<track>`, branch
 | `orders` | `packages/db/src/orders.ts`, `schema-orders.ts`, `apps/web/src/app/seller/{orders,inventory}/**` | `order` table + its CHECKs in `schema.ts` |
 | `accounts` | `packages/db/src/accounts.ts`, `schema-accounts.ts`, `apps/web/src/app/{login,account,invite}/**`, `apps/web/src/app/seller/members/**`, `apps/web/src/lib/auth.ts` | Better Auth tables in `schema.ts`, `membership.ts`, member actions in `seller/actions.ts` |
 | `ops` | `packages/db/src/ops.ts`, `schema-ops.ts`, `apps/web/src/app/admin/logs/**`, `apps/web/src/lib/log.ts`, `apps/web/src/instrumentation.ts`, `app/{error,global-error,not-found}.tsx` | `apps/web/src/proxy.ts` (correlation id only) |
+| `channels` | `packages/db/src/channels.ts`, `schema-channels.ts`, `apps/web/src/app/api/storefront/**`, `apps/web/src/app/checkout/h/**`, `apps/web/src/app/seller/channels/**` | `docs/openapi.yaml` (only the operations it implements) |
+| `release` | `.github/workflows/**`, `scripts/**`, `apps/web/Dockerfile`, `.dockerignore`, `docs/RUNBOOK.md` | root `package.json` scripts, `docker-compose.yml`, `docs/DEPLOY-COOLIFY.md` |
 | `content` | `packages/db/src/content.ts`, `schema-content.ts`, `apps/web/src/app/seller/{collections,pages,settings}/**`, `apps/web/src/app/s/**`, `apps/web/src/app/checkout/**` (presentation), `apps/web/src/app/admin/stores/**`, `globals.css` | `store` table in `schema.ts`, `seller/products/**` (images) |
 
 Rules for every track:

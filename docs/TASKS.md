@@ -132,7 +132,7 @@ not create a second primary.
   implementation; do not treat a UI mockup as emitted-log evidence.
 
 ### T-14 — Specify concise product and advertising identity
-- Status: In progress — M1 implements database identity (no MAX+1), optional slug with canonical = slug ?? id and 308 to canonical; slug aliases, creation idempotency and Meta mapping pending. Meta item/group contract still awaits provider verification.
+- Status: In progress — M1 implements database identity, optional slug, canonical 308. Next (M2 wave 2): external catalog ID per product and variant — digit-only, at least five digits, unique platform-wide, string at every API/feed/event/order-snapshot boundary, never derived from slug/SKU or reused; slug aliases and creation idempotency. Meta item/group contract still awaits provider verification.
 - Primary requirement: PR-12
 - Constraints: DATA-5, API-4, UX-10, ARCH-5, TEN-1
 - Dependencies: T-1, T-3
@@ -171,6 +171,7 @@ LP form type/protected fields. Existing architecture recommendations remain
 proposals until reconciled with those decisions and implementation evidence.
 
 ### T-16 — Complete headless HTTP contract and consumer checks
+- Status: In progress — proposed openapi.yaml authored. M2 track `channels` implements the first conforming Storefront API subset (catalog, cart, checkout handoff) with private channel tokens.
 - Primary requirement: PR-14
 - Constraints: API-7, ARCH-6, TEN-1, SEC-9
 - Dependencies: T-1, T-4
@@ -189,6 +190,7 @@ proposals until reconciled with those decisions and implementation evidence.
   and checks proving last-owner protection, revocation, expiry and denied access.
 
 ### T-18 — Establish release, data migration and recovery proof
+- Status: In progress — M1 has Docker web + slim migrate images. M2 track `release`: one `pnpm verify` gate, CI workflow file, media volume, Postgres backup + restore rehearsal script (local). No deployment by this task.
 - Primary requirement: PR-14
 - Constraints: DEL-1, DEL-2, DEL-3, DR-1, DR-2, SEC-12, NFR-1 through NFR-5
 - Dependencies: T-1, T-9, T-12, T-16, T-17, T-19
@@ -198,7 +200,7 @@ proposals until reconciled with those decisions and implementation evidence.
   and are resolved before the affected paths go live. No release occurs by implication.
 
 ### T-19 — Deliver external storefront channel and hosted checkout contract
-- Status: Partial (M1) — platform-owned /checkout and confirmation with server-derived totals, idempotency and stock transaction; no external channel tokens/handoff (DECISIONS D-2, D-6).
+- Status: In progress — M1 hosted /checkout with server-derived totals. M2 track `channels`: channel registration (SC-21), hashed one-time-shown tokens, one-use checkout handoff into the existing per-store cart cookie and /checkout, revoked/expired/replayed handoff denial.
 - Primary requirement: PR-16
 - Constraints: ARCH-7, API-8, IAM-11, DOM-4, SEC-13, UX-12, UI-10
 - Dependencies: T-1, T-2, T-4, T-5
@@ -271,3 +273,89 @@ selected store's cart; no horizontal overflow at 320px.
 Not verified / not implemented: real providers (fakes only, no network),
 RLS, recovery/invitation/MFA, external storefront channel and handoff, custom
 domains, LP/MCP, Log System, deployment.
+
+## M2 task queue — 2026-10-06
+
+Authorization: Paduka Ongki authorized M2 implementation on 2026-10-06 (tracks
+orders, accounts, ops, content; parallel worktrees, local only, no deploy).
+PR-1, PR-2, PR-4 and PR-15 are still `Proposed` in 02-PRD.md: implementation is
+authorized, product acceptance stays an owner decision after evidence review.
+Execution: branch `m2/<track>` per worktree (AGENTS.md "Parallel tracks");
+the orchestrator merges, consolidates migrations and records evidence here.
+
+### T-21 — Seller order operations and inventory
+- Status: In progress — track `orders` (wave 1).
+- Primary requirement: PR-2
+- Constraints: PR-4, NFR-2, TEN-1, IAM-8, DATA-2, Q-10
+- Dependencies: T-1, T-19
+- Done when: `/seller/orders`, `/seller/orders/[id]` and `/seller/inventory`
+  exist; status transitions are validated server-side and audited; cancel
+  restocks exactly once under concurrent requests; stock adjustments are atomic
+  and never negative; Vitest proves cross-store denial for every new read and
+  write and Playwright covers the order lifecycle at 320px and desktop.
+
+### T-22 — Account recovery, member invitations and operator MFA
+- Status: In progress — track `accounts` (wave 1).
+- Primary requirement: PR-15
+- Constraints: IAM-5, IAM-8, IAM-9, NFR-4, SEC-1
+- Dependencies: T-17
+- Done when: recovery does not reveal account existence; invitations are
+  hashed, expiring, single-use, store-bound and role-bounded; operators cannot
+  open `/admin` without verified TOTP; removed members lose access on the next
+  request; tests and e2e prove each denial case.
+
+### T-23 — Correlation, structured logs, Log System and error pages
+- Status: In progress — track `ops` (wave 1).
+- Primary requirement: PR-11
+- Constraints: OBS-5, UX-9, IAM-1, NFR-4, NFR-5
+- Dependencies: T-13
+- Done when: requests carry a validated correlation id; sanitized events reach
+  the Log System list/detail behind `logs.read`; empty and unavailable sources
+  are distinct; a DB outage renders a friendly error page with the request id;
+  `/api/ready` reports DB readiness.
+
+### T-24 — Store settings and the two storefront themes
+- Status: In progress — track `content` (wave 1).
+- Primary requirement: PR-8
+- Constraints: UI-1, UI-3, UX-3, NFR-3, TEN-1
+- Dependencies: T-10
+- Done when: owners edit store profile and choose `responsive` (default) or
+  `mobile` (≤480px); both themes render home, collection, product, cart,
+  search and pages with no horizontal overflow at 320px; checkout is unchanged
+  by the theme.
+
+### T-25 — Collections, CMS pages, search and product media
+- Status: In progress — track `content` (wave 1).
+- Primary requirement: PR-2
+- Constraints: DATA-6, TEN-5, SEC-2, NFR-3
+- Dependencies: T-24
+- Done when: collections, pages and media are store-scoped with same-store
+  constraints; uploads are validated by content; unpublished content is hidden;
+  storefront search returns only the store's published products.
+
+### T-26 — Super Admin store detail and creation
+- Status: In progress — track `content` (wave 1).
+- Primary requirement: PR-1
+- Constraints: IAM-5, UX-1
+- Dependencies: T-3
+- Done when: an operator creates a store with an existing owner account and
+  sees status, counts and recent audit on `/admin/stores/[id]`; sellers are denied.
+
+### T-27 — Database-enforced tenant isolation
+- Status: Planned — wave 2, after wave-1 merge (touches every service).
+- Primary requirement: PR-2
+- Constraints: NFR-1, TEN-3, DATA-1, DECISIONS D-4
+- Dependencies: T-21, T-22, T-23, T-25
+- Done when: the app runs as a non-owner role with RLS on every store-owned
+  table, store context set per transaction inside the scope helpers, migrations
+  run as the owner role, and the whole integration suite passes under the
+  runtime role, including a test that a missing store context returns no rows.
+
+### T-28 — Seller and Super Admin UI consistency pass
+- Status: Planned — wave 2, after merge.
+- Primary requirement: PR-2
+- Constraints: NFR-3, UX-2, UI-1
+- Dependencies: T-21, T-22, T-23, T-25, T-26
+- Done when: every seller/admin page passes an impeccable critique-and-polish
+  pass and browser evidence at 320px and desktop with keyboard paths, focus
+  states and empty/error states recorded in docs/evidence.

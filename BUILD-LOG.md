@@ -180,3 +180,29 @@ Commands and results:
 - Code fingerprint (see docs/TASKS.md): `f64e666598bef5ac`.
 
 Open issues: unchanged from STATUS.md "Not done / known gaps". Nothing committed.
+
+## 2026-10-06 — M2 wave 1 started (parallel tracks)
+
+Owner direction (Paduka Ongki): continue development in parallel, local first,
+including UI/UX and system; commits allowed locally (no push).
+
+Changed (main):
+- `bea3d8f` M1 baseline commit; `d86a4d4` M2 prep (per-track module/schema
+  stubs, pre-populated seller/admin navigation incl. Log System button,
+  disposable test DBs created/wiped by Vitest setup, `E2E_PORT`).
+- Worktrees `~/Projects/bukalaris-wt/{orders,accounts,ops,content}` on
+  branches `m2/<track>`, each with own `.env` (DBs `bukalaris_<track>*`,
+  dev/e2e ports 3110/3111 … 3140/3141); one background agent per track.
+- `docs/TASKS.md`: M2 queue T-21..T-28 (one primary requirement each) and
+  status updates on T-14 (five-digit string catalog IDs, from shared memory
+  "Commerce catalog identity"), T-16, T-18, T-19. Suite checker:
+  `check-traceability.py docs` → PASS files=25 declarations=191 tasks=28 findings=0.
+- `docs/04-SYSTEM-ARCHITECTURE.md`: 18 page rows marked "In progress — M2
+  `m2/<track>`"; new rows AU-04 (/invite/:token), AU-05 (/account/security).
+- Wave 1b prepared: stubs + ownership rows for tracks `channels` (T-16/T-19)
+  and `release` (T-18); seller nav entry `/seller/channels`.
+
+Open issues:
+- PR-1/2/4/15 remain `Proposed`; acceptance is an owner decision after evidence.
+- Wave 2 (after merge): T-27 RLS + DB roles, T-28 seller/admin UI pass, T-14
+  catalog IDs, consolidated migration.

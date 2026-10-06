@@ -5,7 +5,15 @@ This file owns current status. Evidence: `BUILD-LOG.md`, `docs/TASKS.md`
 ("M1 implementation evidence"). Nothing is committed yet — the owner approves
 the first commit.
 
-## What works (verified locally)
+## In progress — M2 (started 2026-10-06)
+
+Parallel tracks on local branches (see `docs/TASKS.md` M2 queue, AGENTS.md
+"Parallel tracks"): `orders` (T-21), `accounts` (T-22), `ops` (T-23),
+`content` (T-24..T-26), `channels` (T-16/T-19), `release` (T-18). Nothing from
+these branches is merged or verified on `main` yet. Wave 2 after merge: T-27
+RLS, T-28 UI pass, T-14 catalog IDs.
+
+## What works on `main` (verified locally)
 
 - Repository and stack: pnpm workspace, `apps/web` (Next.js 16.3.8, React
   19.2.8, TS 6.0.3, Tailwind 4.3.3, shadcn 4.21.1), `packages/db` (Drizzle
