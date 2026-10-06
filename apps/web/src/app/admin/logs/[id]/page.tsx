@@ -1,10 +1,11 @@
+import { PageHeader } from "@/components/page-header";
 import { buttonVariants } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { operatorOrDeny } from "@/lib/context";
 import { log } from "@/lib/log";
 import { DomainError, getSystemLog } from "@bukalaris/db";
 import Link from "next/link";
-import { CopyButton } from "../copy-button";
+import { CopyButton } from "@/components/copy-button";
 import { fmtTime, LevelBadge, safeBack } from "../shared";
 
 export const metadata = { title: "Detail log — Bukalaris Bos" };
@@ -35,13 +36,13 @@ export default async function LogDetailPage({ params, searchParams }: PageProps<
   }
 
   return (
-    <section className="grid gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-semibold">Detail kejadian</h1>
-        <Link href={backHref} className={buttonVariants({ variant: "outline", size: "sm" })}>Kembali ke daftar</Link>
-      </div>
+    <section className="grid gap-6">
+      <PageHeader back={{ href: backHref, label: "Kembali ke daftar" }} title="Detail kejadian" description={detail ? `Modul ${detail.event.module} · ${fmtTime(detail.event.time)}` : undefined} />
       {state === "denied" && (
-        <p role="alert" className="rounded-lg border p-6">Akses ditolak. Melihat Log System butuh izin platform <code>logs.read</code>.</p>
+        <div role="alert" className="rounded-lg border p-6">
+          <p className="font-medium">Akses ditolak.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Melihat Log System butuh izin platform <code>logs.read</code>; minta operator lain memberikannya.</p>
+        </div>
       )}
       {state === "unavailable" && (
         <p role="alert" className="rounded-lg border border-destructive/40 p-6">
@@ -49,7 +50,10 @@ export default async function LogDetailPage({ params, searchParams }: PageProps<
         </p>
       )}
       {state === "ok" && !detail && (
-        <p role="alert" className="rounded-lg border p-6">Kejadian tidak ditemukan atau sudah melewati masa simpan.</p>
+        <div role="alert" className="rounded-lg border border-dashed p-6">
+          <p className="font-medium">Kejadian tidak ditemukan atau sudah melewati masa simpan.</p>
+          <Link href={backHref} className={`${buttonVariants({ variant: "outline", size: "sm" })} mt-3`}>Kembali ke daftar</Link>
+        </div>
       )}
       {state === "ok" && detail && (
         <>
@@ -59,7 +63,7 @@ export default async function LogDetailPage({ params, searchParams }: PageProps<
               {detail.event.id} <CopyButton value={String(detail.event.id)} label="ID kejadian" />
             </dd>
             <dt className="text-muted-foreground">Waktu</dt>
-            <dd>{fmtTime(detail.event.time)}</dd>
+            <dd><time dateTime={detail.event.time.toISOString()}>{fmtTime(detail.event.time)}</time></dd>
             <dt className="text-muted-foreground">Level</dt>
             <dd><LevelBadge level={detail.event.level} /></dd>
             <dt className="text-muted-foreground">Pesan</dt>
@@ -103,7 +107,7 @@ export default async function LogDetailPage({ params, searchParams }: PageProps<
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h2 id="related-heading" className="font-medium">Kejadian terkait (request ID sama)</h2>
               {detail.event.requestId && (
-                <Link href={`/admin/logs?requestId=${encodeURIComponent(detail.event.requestId)}&range=24h`} className="text-sm underline-offset-4 hover:underline">
+                <Link href={`/admin/logs?requestId=${encodeURIComponent(detail.event.requestId)}&range=24h`} className="text-sm underline underline-offset-4">
                   Lihat di daftar
                 </Link>
               )}
@@ -126,11 +130,13 @@ export default async function LogDetailPage({ params, searchParams }: PageProps<
                 <TableBody>
                   {detail.related.map((e) => (
                     <TableRow key={e.id}>
-                      <TableCell className="whitespace-normal text-xs">{fmtTime(e.time)}</TableCell>
+                      <TableCell className="whitespace-normal text-xs text-muted-foreground">
+                        <time dateTime={e.time.toISOString()}>{fmtTime(e.time)}</time>
+                      </TableCell>
                       <TableCell><LevelBadge level={e.level} /></TableCell>
                       <TableCell className="hidden md:table-cell font-mono text-xs">{e.module}</TableCell>
                       <TableCell className="max-w-[12rem] whitespace-normal sm:max-w-md">
-                        <Link href={`/admin/logs/${e.id}?back=${encodeURIComponent(backHref.slice("/admin/logs".length))}`} className="font-medium hover:underline">
+                        <Link href={`/admin/logs/${e.id}?back=${encodeURIComponent(backHref.slice("/admin/logs".length))}`} className="font-medium underline-offset-4 hover:underline">
                           {e.message.length > 90 ? `${e.message.slice(0, 90)}…` : e.message}
                         </Link>
                       </TableCell>

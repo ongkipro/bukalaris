@@ -5,6 +5,8 @@ test("operator suspends a store (storefront blocked) and reactivates it", async 
   await login(page, "admin@bukalaris.local", "/admin");
   const row = page.getByRole("listitem").filter({ hasText: "/toko-b" });
   await row.getByLabel(/Alasan/).fill(`E2E ${info.project.name}: verifikasi dokumen`);
+  // T-28: suspending is destructive for the storefront, so it asks for confirmation first.
+  page.once("dialog", (d) => d.accept());
   await row.getByRole("button", { name: "Tangguhkan" }).click();
   await expect(page.getByRole("status")).toHaveText("Tersimpan.");
   await expect(row.getByText("Ditangguhkan")).toBeVisible();

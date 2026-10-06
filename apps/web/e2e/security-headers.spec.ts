@@ -162,6 +162,7 @@ test("seller admin after login and a served product image", async ({ page }, inf
     expect(h["content-security-policy"], url).toBe("default-src 'none'; sandbox");
   }
   // Leave the product as found (other specs screenshot the storefront).
+  page.once("dialog", (d) => d.accept()); // T-28: deleting an image asks for confirmation first
   await page.getByRole("button", { name: /Hapus gambar/ }).first().click();
   await expect(page.getByTestId("product-images").getByRole("img")).toHaveCount(0);
   expect(await csp.all()).toEqual([]);

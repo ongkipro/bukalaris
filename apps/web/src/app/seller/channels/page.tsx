@@ -1,13 +1,17 @@
+import { ConfirmSubmit } from "@/components/confirm-submit";
+import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
-import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/page-header";
+import { StatusBadge } from "@/components/status-badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { sellerScope } from "@/lib/context";
+import { tanggal } from "@/lib/format";
+import { channelStateLabel, channelStateTone } from "@/lib/status";
 import { can, listChannels } from "@bukalaris/db";
 import { revokeChannelAction } from "./actions";
 import { CreateChannelForm } from "./create-channel-form";
 
-const when = new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" });
-const STATE = { active: "Aktif", expired: "Kedaluwarsa", revoked: "Dicabut" } as const;
+export const metadata = { title: "Channel — Bukalaris" };
 
 /** SC-21: headless channels and their private tokens (owner only, IAM-11). */
 export default async function ChannelsPage({ searchParams }: PageProps<"/seller/channels">) {
@@ -15,61 +19,60 @@ export default async function ChannelsPage({ searchParams }: PageProps<"/seller/
   const scope = await sellerScope();
   if (!can(scope, "integrations.manage")) {
     return (
-      <section>
-        <h1 className="mb-1 text-2xl font-semibold">Channel</h1>
-        <p role="alert" className="text-sm text-muted-foreground">Hanya pemilik toko yang dapat mengelola channel dan token API.</p>
+      <section className="grid gap-6">
+        <PageHeader title="Channel" />
+        <p role="alert" className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Hanya pemilik toko yang dapat mengelola channel dan token API.</p>
       </section>
     );
   }
   const channels = await listChannels(scope);
   return (
     <section className="grid gap-6">
-      <div>
-        <h1 className="mb-1 text-2xl font-semibold">Channel</h1>
-        <p className="text-sm text-muted-foreground">
-          Storefront eksternal memanggil Storefront API dengan token channel dari backend-nya (jangan di browser). Token hanya memberi akses
-          katalog terbit, keranjang dan handoff ke checkout Bukalaris untuk toko ini.
-        </p>
-      </div>
+      <PageHeader
+        title="Channel"
+        description="Storefront eksternal memanggil Storefront API dengan token channel dari backend-nya (jangan di browser). Token hanya memberi akses katalog terbit, keranjang dan handoff ke checkout Bukalaris untuk toko ini."
+      />
       <Notice error={error} saved={saved} />
       <CreateChannelForm />
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Nama</TableHead>
-            <TableHead>Origin + path kembali</TableHead>
-            <TableHead>Token</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead className="text-right">Aksi</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {channels.length === 0 && (
+      {channels.length === 0 ? (
+        <EmptyState title="Belum ada channel">Buat satu di atas untuk storefront eksternal pertama Anda; token muncul sekali setelah dibuat.</EmptyState>
+      ) : (
+        <Table>
+          <caption className="sr-only">Daftar channel</caption>
+          <TableHeader>
             <TableRow>
-              <TableCell colSpan={5} className="text-muted-foreground">Belum ada channel.</TableCell>
+              <TableHead>Nama</TableHead>
+              <TableHead>Origin + path kembali</TableHead>
+              <TableHead>Token</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead numeric><span className="sr-only">Aksi</span></TableHead>
             </TableRow>
-          )}
-          {channels.map((c) => (
-            <TableRow key={c.id} data-testid={`channel-${c.id}`}>
-              <TableCell>{c.name}</TableCell>
-              <TableCell className="font-mono text-xs break-all">{c.origin}{c.returnPath}</TableCell>
-              <TableCell className="font-mono text-xs">blsk_{c.tokenPrefix}_…</TableCell>
-              <TableCell>
-                {STATE[c.state]}
-                {c.state !== "revoked" && c.expiresAt && <span className="block text-xs text-muted-foreground">s/d {when.format(c.expiresAt)}</span>}
-                {c.revokedAt && <span className="block text-xs text-muted-foreground">{when.format(c.revokedAt)}</span>}
-              </TableCell>
-              <TableCell className="text-right">
-                {c.state !== "revoked" && (
-                  <form action={revokeChannelAction.bind(null, c.id)}>
-                    <Button type="submit" size="sm" variant="outline" aria-label={`Cabut ${c.name}`}>Cabut</Button>
-                  </form>
-                )}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {channels.map((c) => (
+              <TableRow key={c.id} data-testid={`channel-${c.id}`}>
+                <TableCell className="font-medium">{c.name}</TableCell>
+                <TableCell className="max-w-[12rem] font-mono text-xs break-all whitespace-normal sm:max-w-xs">{c.origin}{c.returnPath}</TableCell>
+                <TableCell className="font-mono text-xs">blsk_{c.tokenPrefix}_…</TableCell>
+                <TableCell>
+                  <StatusBadge label={channelStateLabel[c.state]} tone={channelStateTone[c.state]} />
+                  {c.state !== "revoked" && c.expiresAt && <span className="mt-1 block text-xs text-muted-foreground">s/d {tanggal(c.expiresAt)}</span>}
+                  {c.revokedAt && <span className="mt-1 block text-xs text-muted-foreground">{tanggal(c.revokedAt)}</span>}
+                </TableCell>
+                <TableCell numeric>
+                  {c.state !== "revoked" && (
+                    <form action={revokeChannelAction.bind(null, c.id)}>
+                      <ConfirmSubmit size="sm" variant="outline" aria-label={`Cabut ${c.name}`} message={`Cabut channel "${c.name}"? Storefront yang memakai token ini langsung berhenti bekerja dan token tidak bisa dipulihkan.`}>
+                        Cabut
+                      </ConfirmSubmit>
+                    </form>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
     </section>
   );
 }

@@ -1,8 +1,8 @@
 import { and, asc, desc, eq, lt, sql } from "drizzle-orm";
 import { z } from "zod";
-import { order, orderLine, ORDER_STATUSES, orderStatusHistory, product, stockAdjustment, user, variant, type OrderStatus } from "./schema.ts";
+import { order, orderLine, ORDER_STATUS_LABEL, ORDER_STATUSES, orderStatusHistory, product, stockAdjustment, user, variant, type OrderStatus } from "./schema.ts";
 import { DomainError, requireCap, type SellerScope } from "./scoped.ts";
-export { ORDER_STATUSES, type OrderStatus } from "./schema.ts";
+export { ORDER_STATUS_LABEL, ORDER_STATUSES, type OrderStatus } from "./schema.ts";
 
 // Seller orders (SC-12/SC-13) and inventory (SC-04). Q-10 is still open; the
 // defaults taken here are recorded in docs/tracks/orders.md and checkout2.md.
@@ -177,7 +177,7 @@ export async function transitionOrder(scope: SellerScope, orderId: number, actio
       .for("update");
     if (!o) throw new DomainError("not_found", "Pesanan tidak ditemukan.");
     if (!(t.from as readonly OrderStatus[]).includes(o.status)) {
-      throw new DomainError("invalid_transition", `Pesanan berstatus "${o.status}" tidak bisa diproses dengan aksi ini.`);
+      throw new DomainError("invalid_transition", `Pesanan berstatus "${ORDER_STATUS_LABEL[o.status]}" tidak bisa diproses dengan aksi ini.`);
     }
 
     await tx

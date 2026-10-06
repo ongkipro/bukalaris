@@ -1,6 +1,6 @@
-import { fieldClass } from "@/components/notice";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 
 type Defaults = { title?: string; slug?: string; body?: string; status?: string };
@@ -28,10 +28,10 @@ export function PageFields({ d = {} }: { d?: Defaults }) {
       </div>
       <div className="grid gap-2 sm:max-w-xs">
         <Label htmlFor="status">Status</Label>
-        <select id="status" name="status" defaultValue={d.status ?? "draft"} className={fieldClass}>
+        <NativeSelect id="status" name="status" defaultValue={d.status ?? "draft"}>
           <option value="draft">Draf (tersembunyi)</option>
           <option value="published">Dipublikasikan</option>
-        </select>
+        </NativeSelect>
       </div>
     </>
   );

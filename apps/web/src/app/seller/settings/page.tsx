@@ -1,17 +1,19 @@
 import { Notice } from "@/components/notice";
-import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/page-header";
+import { SubmitButton } from "@/components/submit-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { sellerScope } from "@/lib/context";
+import { themeLabel } from "@/lib/status";
 import { getStoreSettings } from "@bukalaris/db";
 import { updateSettingsAction } from "./actions";
 
 export const metadata = { title: "Pengaturan toko — Bukalaris" };
 
 const themes = [
-  { value: "responsive", label: "Responsif (bawaan)", hint: "Tata letak lebar di desktop, mengecil rapi di HP. Fokus pada produk." },
-  { value: "mobile", label: "Mobile", hint: "Satu kolom maksimal 480 px, ditengahkan di layar lebar. Cocok untuk toko yang pembelinya dari HP." },
+  { value: "responsive", label: `${themeLabel.responsive} (bawaan)`, hint: "Tata letak lebar di desktop, mengecil rapi di HP. Fokus pada produk." },
+  { value: "mobile", label: themeLabel.mobile, hint: "Satu kolom maksimal 480 px, ditengahkan di layar lebar. Cocok untuk toko yang pembelinya dari HP." },
 ] as const;
 
 export default async function SettingsPage({ searchParams }: PageProps<"/seller/settings">) {
@@ -21,12 +23,14 @@ export default async function SettingsPage({ searchParams }: PageProps<"/seller/
   const owner = scope.role === "owner";
   return (
     <section className="grid max-w-2xl gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Pengaturan toko</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Alamat toko: <span className="font-mono">/s/{s.slug}</span>. {owner ? "" : "Hanya pemilik toko yang dapat mengubah pengaturan."}
-        </p>
-      </div>
+      <PageHeader
+        title="Pengaturan toko"
+        description={
+          <>
+            Alamat toko: <a href={`/s/${s.slug}`} className="font-mono underline underline-offset-4">/s/{s.slug}</a>. {owner ? "Perubahan langsung tampil di toko." : "Hanya pemilik toko yang dapat mengubah pengaturan."}
+          </>
+        }
+      />
       <Notice error={error} saved={saved} />
       <form action={updateSettingsAction} className="grid gap-6">
         <fieldset disabled={!owner} className="grid gap-4">
@@ -61,7 +65,7 @@ export default async function SettingsPage({ searchParams }: PageProps<"/seller/
         </fieldset>
         {owner && (
           <div>
-            <Button type="submit">Simpan pengaturan</Button>
+            <SubmitButton>Simpan pengaturan</SubmitButton>
           </div>
         )}
       </form>

@@ -1,5 +1,6 @@
 import { Notice } from "@/components/notice";
-import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/page-header";
+import { SubmitButton } from "@/components/submit-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { operatorOrDeny } from "@/lib/context";
@@ -12,10 +13,7 @@ export default async function NewStorePage({ searchParams }: PageProps<"/admin/s
   await operatorOrDeny();
   return (
     <section className="grid max-w-xl gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Buat toko</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Pemilik pertama dipilih dari akun yang sudah ada (undangan menyusul).</p>
-      </div>
+      <PageHeader back={{ href: "/admin", label: "Semua toko" }} title="Buat toko" description="Pemilik pertama dipilih dari akun yang sudah ada (undangan menyusul). Toko langsung aktif setelah dibuat." />
       <Notice error={error} />
       <form action={createStoreAction} className="grid gap-4">
         <div className="grid gap-2">
@@ -29,10 +27,11 @@ export default async function NewStorePage({ searchParams }: PageProps<"/admin/s
         </div>
         <div className="grid gap-2">
           <Label htmlFor="ownerEmail">Email pemilik</Label>
-          <Input id="ownerEmail" name="ownerEmail" type="email" required autoComplete="off" />
+          <Input id="ownerEmail" name="ownerEmail" type="email" required autoComplete="off" aria-describedby="owner-help" />
+          <p id="owner-help" className="text-xs text-muted-foreground">Harus akun yang sudah terdaftar; akun ini menjadi pemilik pertama toko.</p>
         </div>
         <div>
-          <Button type="submit">Buat toko</Button>
+          <SubmitButton pendingText="Membuat…">Buat toko</SubmitButton>
         </div>
       </form>
     </section>

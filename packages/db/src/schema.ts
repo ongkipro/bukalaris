@@ -238,6 +238,17 @@ export const cartLine = pgTable(
 // ---------------------------------------------------------------------------
 export const ORDER_STATUSES = ["awaiting_confirmation", "on_hold", "awaiting_payment", "placed", "processing", "shipped", "completed", "cancelled"] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
+/** Indonesian label per status; the one place both the admin UI and user-facing messages read from. */
+export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
+  awaiting_confirmation: "Menunggu konfirmasi",
+  on_hold: "Ditahan",
+  awaiting_payment: "Menunggu pembayaran",
+  placed: "Baru",
+  processing: "Diproses",
+  shipped: "Dikirim",
+  completed: "Selesai",
+  cancelled: "Dibatalkan",
+};
 
 export const order = pgTable(
   "order",

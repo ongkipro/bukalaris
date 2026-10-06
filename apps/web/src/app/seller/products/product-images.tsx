@@ -1,3 +1,5 @@
+import { ConfirmSubmit } from "@/components/confirm-submit";
+import { SubmitButton } from "@/components/submit-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,7 +14,7 @@ export function ProductImages({ productId, images }: { productId: number; images
     <section id="gambar" aria-labelledby="gambar-h" className="grid gap-4">
       <div>
         <h2 id="gambar-h" className="text-lg font-semibold">Gambar</h2>
-        <p className="text-sm text-muted-foreground">
+        <p id="gambar-help" className="text-sm text-muted-foreground">
           Gambar pertama jadi sampul. JPG, PNG atau WebP, maksimal 5 MB, {MEDIA_MAX_PER_PRODUCT} gambar per produk. Isi teks alternatif untuk pembaca layar dan SEO.
         </p>
       </div>
@@ -47,9 +49,9 @@ export function ProductImages({ productId, images }: { productId: number; images
                     </form>
                   )}
                   <form action={removeMediaAction.bind(null, productId, img.id)}>
-                    <Button type="submit" variant="destructive" size="sm" aria-label={`Hapus gambar ${i + 1}`}>
+                    <ConfirmSubmit variant="destructive" size="sm" aria-label={`Hapus gambar ${i + 1}`} message={`Hapus gambar ${i + 1}${img.alt ? ` (${img.alt})` : ""}? Gambar hilang dari toko dan tidak bisa dikembalikan.`}>
                       <Trash2Icon data-icon="inline-start" aria-hidden /> Hapus
-                    </Button>
+                    </ConfirmSubmit>
                   </form>
                 </div>
               </div>
@@ -61,13 +63,13 @@ export function ProductImages({ productId, images }: { productId: number; images
         <form action={uploadMediaAction.bind(null, productId)} className="grid gap-3 rounded-lg border border-dashed p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
           <div className="grid gap-2">
             <Label htmlFor="file">Berkas gambar</Label>
-            <Input id="file" name="file" type="file" accept="image/jpeg,image/png,image/webp" required className="pt-1" />
+            <Input id="file" name="file" type="file" accept="image/jpeg,image/png,image/webp" required className="pt-1" aria-describedby="gambar-help" />
           </div>
           <div className="grid gap-2">
             <Label htmlFor="alt">Teks alternatif</Label>
-            <Input id="alt" name="alt" maxLength={300} placeholder="Apa yang terlihat di gambar" />
+            <Input id="alt" name="alt" maxLength={300} placeholder="Apa yang terlihat di gambar" aria-describedby="gambar-help" />
           </div>
-          <Button type="submit" variant="outline">Unggah gambar</Button>
+          <SubmitButton variant="outline" pendingText="Mengunggah…">Unggah gambar</SubmitButton>
         </form>
       )}
     </section>

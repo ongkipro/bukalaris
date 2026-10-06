@@ -1,6 +1,9 @@
 import { Notice } from "@/components/notice";
-import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/page-header";
+import { StatusBadge } from "@/components/status-badge";
+import { SubmitButton } from "@/components/submit-button";
 import { sellerScope } from "@/lib/context";
+import { publishStatusLabel, publishStatusTone } from "@/lib/status";
 import { getPage } from "@bukalaris/db";
 import { notFound } from "next/navigation";
 import { MarkdownLite } from "@/app/s/[store]/_components/markdown-lite";
@@ -17,24 +20,28 @@ export default async function PageEditor({ params, searchParams }: PageProps<"/s
   const url = `/s/${scope.storeSlug}/pages/${p.slug}`;
   return (
     <section className="grid max-w-3xl gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{p.title}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          ID halaman <span className="font-mono" data-testid="page-id">{p.id}</span> ·{" "}
-          {p.status === "published" ? <a href={url} className="underline">{url}</a> : <span>{url} (draf, belum tampil)</span>}
-        </p>
-      </div>
+      <PageHeader
+        back={{ href: "/seller/pages", label: "Semua halaman" }}
+        title={p.title}
+        badge={<StatusBadge label={publishStatusLabel[p.status]} tone={publishStatusTone[p.status]} />}
+        description={
+          <>
+            ID halaman <span className="font-mono" data-testid="page-id">{p.id}</span> ·{" "}
+            {p.status === "published" ? <a href={url} className="underline underline-offset-4">{url}</a> : <span>{url} (draf, belum tampil)</span>}
+          </>
+        }
+      />
       <Notice error={error} saved={saved} />
       <form action={updatePageAction.bind(null, p.id)} className="grid gap-6">
         <PageFields d={p} />
         <div>
-          <Button type="submit">Simpan halaman</Button>
+          <SubmitButton>Simpan halaman</SubmitButton>
         </div>
       </form>
       {p.body && (
         <section aria-labelledby="preview" className="grid gap-3 rounded-lg border bg-muted/30 p-4">
-          <h2 id="preview" className="text-sm font-medium tracking-wide text-muted-foreground uppercase">Pratinjau tersimpan</h2>
-          <MarkdownLite body={p.body} className="rounded-md bg-background p-4" />
+          <h2 id="preview" className="text-sm font-medium text-muted-foreground">Pratinjau tersimpan</h2>
+          <MarkdownLite body={p.body} className="min-w-0 rounded-md bg-background p-4 [overflow-wrap:anywhere]" />
         </section>
       )}
     </section>

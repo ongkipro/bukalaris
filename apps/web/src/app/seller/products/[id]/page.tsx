@@ -1,7 +1,10 @@
-import { CopyButton } from "../copy-button";
+import { CopyButton } from "@/components/copy-button";
 import { Notice } from "@/components/notice";
-import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/page-header";
+import { StatusBadge } from "@/components/status-badge";
+import { SubmitButton } from "@/components/submit-button";
 import { sellerScope } from "@/lib/context";
+import { productStatusLabel, productStatusTone } from "@/lib/status";
 import { canonicalSlug, getProduct, listCatalogHistory, listProductMedia } from "@bukalaris/db";
 import { notFound } from "next/navigation";
 import { addVariantAction, updateProductAction, updateVariantAction } from "../../actions";
@@ -22,10 +25,10 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
 
   return (
     <section className="grid max-w-3xl gap-8">
-      <div className="grid gap-2">
-        <h1 className="text-2xl font-semibold">{p.title}</h1>
+      <div className="grid gap-4">
+        <PageHeader back={{ href: "/seller/products", label: "Semua produk" }} title={p.title} badge={<StatusBadge label={productStatusLabel[p.status]} tone={productStatusTone[p.status]} />} />
         {/* PR-12: the stable product (catalog) id and URL are visible and copyable; neither changes with title, slug, theme or domain. */}
-        <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_minmax(0,1fr)]">
+        <dl className="grid gap-x-4 gap-y-2 rounded-lg border px-4 py-3 text-sm sm:grid-cols-[auto_minmax(0,1fr)]">
           <dt className="text-muted-foreground">ID produk</dt>
           <dd className="flex flex-wrap items-center gap-2">
             <span className="font-mono tabular-nums" data-testid="product-id">{p.catalogId}</span>
@@ -34,7 +37,7 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
           <dt className="text-muted-foreground">URL</dt>
           <dd className="flex min-w-0 flex-wrap items-center gap-2">
             {p.status === "active" ? (
-              <a href={path} className="break-all underline" data-testid="product-url">{path}</a>
+              <a href={path} className="break-all underline underline-offset-4" data-testid="product-url">{path}</a>
             ) : (
               <span className="break-all" data-testid="product-url">{path} <span className="text-muted-foreground">(belum aktif)</span></span>
             )}
@@ -46,14 +49,17 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
       <form action={updateProductAction.bind(null, p.id)} className="grid gap-4">
         <ProductFields d={p} idHint={p.catalogId} />
         <div>
-          <Button type="submit">Simpan produk</Button>
+          <SubmitButton>Simpan produk</SubmitButton>
         </div>
       </form>
 
       <ProductImages productId={p.id} images={images} />
 
       <section aria-labelledby="variants" className="grid gap-4">
-        <h2 id="variants" className="text-lg font-semibold">Varian</h2>
+        <div>
+          <h2 id="variants" className="text-lg font-semibold">Varian</h2>
+          <p className="text-sm text-muted-foreground">Harga dan stok hidup di varian. Stok harian diubah lewat Inventaris agar tercatat alasannya.</p>
+        </div>
         {p.variants.map((v) => (
           <form key={v.id} action={updateVariantAction.bind(null, p.id, v.id)} className="grid gap-3 rounded-lg border p-4">
             <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -62,7 +68,7 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
             </p>
             <VariantFields prefix={`v${v.id}_`} d={v} />
             <div>
-              <Button type="submit" variant="outline" size="sm">Simpan varian</Button>
+              <SubmitButton variant="outline" size="sm">Simpan varian</SubmitButton>
             </div>
           </form>
         ))}
@@ -70,7 +76,7 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
           <h3 className="text-sm font-medium">Tambah varian</h3>
           <VariantFields prefix="new_" />
           <div>
-            <Button type="submit" variant="outline" size="sm">Tambah varian</Button>
+            <SubmitButton variant="outline" size="sm" pendingText="Menambahkan…">Tambah varian</SubmitButton>
           </div>
         </form>
       </section>

@@ -1,18 +1,21 @@
 import { Notice } from "@/components/notice";
-import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/page-header";
+import { SubmitButton } from "@/components/submit-button";
 import { createPageAction } from "../actions";
 import { PageFields } from "../page-fields";
+
+export const metadata = { title: "Tambah halaman — Bukalaris" };
 
 export default async function NewPagePage({ searchParams }: PageProps<"/seller/pages/new">) {
   const { error } = await searchParams;
   return (
-    <section className="max-w-3xl">
-      <h1 className="mb-4 text-2xl font-semibold tracking-tight">Tambah halaman</h1>
+    <section className="grid max-w-3xl gap-6">
+      <PageHeader back={{ href: "/seller/pages", label: "Semua halaman" }} title="Tambah halaman" description="Teks biasa dengan format ringan; simpan sebagai draf sampai siap dipublikasikan." />
       <Notice error={error} />
       <form action={createPageAction} className="grid gap-6">
         <PageFields />
         <div>
-          <Button type="submit">Simpan halaman</Button>
+          <SubmitButton>Simpan halaman</SubmitButton>
         </div>
       </form>
     </section>
