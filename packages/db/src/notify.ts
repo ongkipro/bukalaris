@@ -2,9 +2,10 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { dbMailer, type Mail, type Mailer } from "./accounts.ts";
-import type { Executor } from "./client.ts";
+import { platformDb, type Executor } from "./client.ts";
 import { enqueue, registerHandler } from "./jobs.ts";
 import type { OrderAction } from "./orders.ts";
+import { withStore } from "./tenant.ts";
 import { membership, NOTIFY_EVENTS, NOTIFY_RECIPIENTS, order, orderLine, orderNotification, store, user, type NotifyEvent, type NotifyRecipient, type OrderStatus } from "./schema.ts";
 
 // Order e-mail notifications (T-36, PR-21, Q-16: e-mail only). The business write
@@ -81,33 +82,38 @@ export function verifyOrderLink(token: string, now = Date.now()): number | null 
 export async function getOrderForLink(exec: Executor, token: string, now = Date.now()) {
   const orderId = verifyOrderLink(token, now);
   if (!orderId) return null;
-  const [o] = await exec
-    .select({
-      id: order.id,
-      storeId: order.storeId,
-      storeName: store.name,
-      status: order.status,
-      paymentMethod: order.paymentMethod,
-      courier: order.courier,
-      trackingNumber: order.trackingNumber,
-      destinationAreaLabel: order.destinationAreaLabel,
-      subtotal: order.subtotal,
-      shippingFee: order.shippingFee,
-      total: order.total,
-      createdAt: order.createdAt,
-      updatedAt: order.updatedAt,
-    })
-    .from(order)
-    .innerJoin(store, eq(store.id, order.storeId))
-    .where(eq(order.id, orderId));
-  if (!o) return null;
-  const lines = await exec
-    .select({ variantId: orderLine.variantId, productTitle: orderLine.productTitle, variantTitle: orderLine.variantTitle, quantity: orderLine.quantity, lineTotal: orderLine.lineTotal })
-    .from(orderLine)
-    .where(and(eq(orderLine.storeId, o.storeId), eq(orderLine.orderId, o.id)))
-    .orderBy(asc(orderLine.variantId));
-  const { storeId: _storeId, ...safe } = o;
-  return { ...safe, lines };
+  // Cross-store resolver (ADR-0005 §4): the signed order id → its store, nothing else; then the store context.
+  const [owner] = await platformDb().select({ storeId: order.storeId }).from(order).where(eq(order.id, orderId));
+  if (!owner) return null;
+  return withStore(exec, owner.storeId, async (tx) => {
+    const [o] = await tx
+      .select({
+        id: order.id,
+        storeId: order.storeId,
+        storeName: store.name,
+        status: order.status,
+        paymentMethod: order.paymentMethod,
+        courier: order.courier,
+        trackingNumber: order.trackingNumber,
+        destinationAreaLabel: order.destinationAreaLabel,
+        subtotal: order.subtotal,
+        shippingFee: order.shippingFee,
+        total: order.total,
+        createdAt: order.createdAt,
+        updatedAt: order.updatedAt,
+      })
+      .from(order)
+      .innerJoin(store, eq(store.id, order.storeId))
+      .where(eq(order.id, orderId));
+    if (!o) return null;
+    const lines = await tx
+      .select({ variantId: orderLine.variantId, productTitle: orderLine.productTitle, variantTitle: orderLine.variantTitle, quantity: orderLine.quantity, lineTotal: orderLine.lineTotal })
+      .from(orderLine)
+      .where(and(eq(orderLine.storeId, o.storeId), eq(orderLine.orderId, o.id)))
+      .orderBy(asc(orderLine.variantId));
+    const { storeId: _storeId, ...safe } = o;
+    return { ...safe, lines };
+  });
 }
 
 /** Buyer-facing status wording (a held COD order is still "waiting for the seller" to the buyer). */

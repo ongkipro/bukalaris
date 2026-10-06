@@ -4,7 +4,7 @@ import { hashPassword } from "better-auth/crypto";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { addVariant, createProduct } from "./catalog.ts";
-import { createDb } from "./client.ts";
+import { platformDb } from "./client.ts";
 import { createStore } from "./platform.ts";
 import { account, membership, operatorGrant, platformOperator, store, user } from "./schema.ts";
 import { operatorScope, sellerContext } from "./scoped.ts";
@@ -13,7 +13,8 @@ import { setPickupAddress, setPickupArea } from "./shipping.ts";
 if (process.env.NODE_ENV === "production") throw new Error("seed is for local development only");
 export const DEV_PASSWORD = "bukalaris-dev-123";
 
-const db = createDb();
+// Seeding creates stores and operators: platform role (BYPASSRLS). Store-scoped writes below still run in context via the scopes.
+const db = platformDb();
 if ((await db.select().from(store).where(eq(store.slug, "toko-a"))).length) {
   console.log("seed: already applied, nothing to do");
   await db.$client.end();

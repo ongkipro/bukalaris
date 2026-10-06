@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { and, asc, count, eq, gte, lt, sql } from "drizzle-orm";
 import { z } from "zod";
-import type { Executor } from "./client.ts";
+import { platformDb, type Executor } from "./client.ts";
 import { enqueue, PAYMENT_INSTRUCTION } from "./jobs.ts";
 import { MengantarError } from "./mengantar/client.ts";
 import { enqueueOrderNotifications } from "./notify.ts";
@@ -11,12 +11,14 @@ import { recordOrderSignals, type RequestSignalContext } from "./signals.ts";
 import { cart, cartLine, order, orderLine, product, rateLimit, store, storePickupArea, variant } from "./schema.ts";
 import { DomainError, storefrontScope, type StorefrontScope } from "./scoped.ts";
 import { defaultProviders, defaultShippingAdapter, shippingOptions, type CartForShipping } from "./shipping.ts";
+import { withStore } from "./tenant.ts";
 
 // Hosted checkout (SF-07/SF-08). The client sends only contact, destination area,
 // courier choice, payment method and an idempotency key; price, stock, fee and
 // totals are derived from the database and the server-side shipping quote
 // (provider cost + platform margin, T-34/Q-12). The store is derived from the
-// cart (the buyer's capability), never from the request.
+// cart (the buyer's capability), never from the request: `cartStore` resolves it through
+// the platform pool (ADR-0005 §4) and everything else runs in that store's RLS context.
 
 const areaId = z.string().regex(/^[a-f0-9]{24}$/, "Pilih area tujuan dari hasil pencarian.");
 
@@ -126,7 +128,18 @@ async function providerGuard<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-/** Cart id → store id, only for a cart that has not been checked out yet. */
+/**
+ * Cross-store resolver (ADR-0005 §4): the store a cart belongs to, checked out or not, read
+ * through the platform pool. The only thing it returns is the store id; the caller then
+ * continues on its own executor inside that store's context.
+ */
+export async function cartStore(cartId: string | undefined): Promise<number | null> {
+  if (!cartId || !z.uuid().safeParse(cartId).success) return null;
+  const [row] = await platformDb().select({ storeId: cart.storeId }).from(cart).where(eq(cart.id, cartId));
+  return row?.storeId ?? null;
+}
+
+/** Cart id → store id, only for a cart that has not been checked out yet. In a store context it also answers "is this cart ours". */
 export async function openCartStore(exec: Executor, cartId: string | undefined): Promise<number | null> {
   if (!cartId || !z.uuid().safeParse(cartId).success) return null;
   const [row] = await exec
@@ -158,17 +171,20 @@ const sumOf = (lines: { price: number; quantity: number }[]) => lines.reduce((su
 
 /** What the hosted checkout page shows: store, current lines, subtotal and whether the store can ship at all. */
 export async function checkoutSummary(exec: Executor, cartId: string | undefined) {
-  const storeId = await openCartStore(exec, cartId);
+  const storeId = await cartStore(cartId);
   if (!storeId) return null;
-  const [s] = await exec
-    .select({ name: store.name, slug: store.slug, status: store.status, pickupAreaId: storePickupArea.areaId })
-    .from(store)
-    .leftJoin(storePickupArea, eq(storePickupArea.storeId, store.id))
-    .where(eq(store.id, storeId));
-  const lines = await cartLines(exec, storeId, cartId!);
-  if (lines.length === 0) return null;
-  const { pickupAreaId, ...info } = s!;
-  return { storeId, store: info, canShip: pickupAreaId !== null, lines, subtotal: sumOf(lines) };
+  return withStore(exec, storeId, async (tx) => {
+    if (!(await openCartStore(tx, cartId))) return null;
+    const [s] = await tx
+      .select({ name: store.name, slug: store.slug, status: store.status, pickupAreaId: storePickupArea.areaId })
+      .from(store)
+      .leftJoin(storePickupArea, eq(storePickupArea.storeId, store.id))
+      .where(eq(store.id, storeId));
+    const lines = await cartLines(tx, storeId, cartId!);
+    if (lines.length === 0) return null;
+    const { pickupAreaId, ...info } = s!;
+    return { storeId, store: info, canShip: pickupAreaId !== null, lines, subtotal: sumOf(lines) };
+  });
 }
 
 /** Server-side destination search for the checkout address step (never a provider write). */
@@ -191,15 +207,14 @@ export async function placeOrder(
   ctx: ClientContext = {},
 ): Promise<{ orderId: number; replayed: boolean }> {
   const input = checkoutInput.parse(raw);
-  if (!cartId || !z.uuid().safeParse(cartId).success) throw new DomainError("no_cart", "Keranjang tidak ditemukan.");
-  const [c] = await exec.select({ storeId: cart.storeId }).from(cart).where(eq(cart.id, cartId));
-  if (!c) throw new DomainError("no_cart", "Keranjang tidak ditemukan.");
-  const storeId = c.storeId;
+  const storeId = await cartStore(cartId);
+  if (!cartId || !storeId) throw new DomainError("no_cart", "Keranjang tidak ditemukan.");
   const { idempotencyKey, ...fields } = input;
   const requestHash = createHash("sha256").update(JSON.stringify({ cartId, ...fields })).digest("hex");
 
-  const existing = async () => {
-    const [o] = await exec
+  // Runs inside the store context (`tx`): the idempotency key is unique per store.
+  const existing = async (tx: Executor) => {
+    const [o] = await tx
       .select({ id: order.id, requestHash: order.requestHash })
       .from(order)
       .where(and(eq(order.storeId, storeId), eq(order.idempotencyKey, idempotencyKey)));
@@ -207,7 +222,7 @@ export async function placeOrder(
     if (o.requestHash !== requestHash) throw new DomainError("idempotency_conflict", "Permintaan checkout bentrok. Muat ulang halaman.");
     return { orderId: o.id, replayed: true };
   };
-  const replay = await existing();
+  const replay = await withStore(exec, storeId, existing);
   if (replay) return replay;
   // Abuse controls before any quote or lock (T-30): per client IP, per cart, per buyer phone.
   // An idempotent replay above costs nothing, so it is not counted.
@@ -217,16 +232,17 @@ export async function placeOrder(
     { key: `order:phone:${normalizePhone(input.buyerPhone)}`, rule: LIMITS.orderPhone },
   ]);
 
-  // External quote before the transaction (no remote I/O while holding locks).
-  const preview = await cartLines(exec, storeId, cartId);
-  if (preview.length === 0) {
+  // External quote before the write transaction (no remote I/O while holding locks).
+  const { preview, late, slug } = await withStore(exec, storeId, async (tx) => {
+    const preview = await cartLines(tx, storeId, cartId);
     // A concurrent duplicate may have committed (and emptied the cart) after our first check.
-    const late = await existing();
-    if (late) return late;
-    throw new DomainError("empty", "Keranjang kosong.");
-  }
-  const [s] = await exec.select({ slug: store.slug, status: store.status }).from(store).where(eq(store.id, storeId));
-  const scope = s?.status === "active" ? await storefrontScope(exec, s.slug) : null;
+    const late = preview.length === 0 ? await existing(tx) : null;
+    const [s] = await tx.select({ slug: store.slug, status: store.status }).from(store).where(eq(store.id, storeId));
+    return { preview, late, slug: s?.status === "active" ? s.slug : null };
+  });
+  if (late) return late;
+  if (preview.length === 0) throw new DomainError("empty", "Keranjang kosong.");
+  const scope = slug ? await storefrontScope(exec, slug) : null;
   if (!scope) throw new DomainError("store_unavailable", "Toko sedang tidak menerima pesanan.");
   const quote = await checkoutShippingOptions(scope, input.destinationAreaId, { items: preview.length, subtotal: sumOf(preview) }, providers.shipping);
   const option = quote.options.find((o) => o.courier === input.courier);
@@ -236,7 +252,7 @@ export async function placeOrder(
 
   let orderId: number;
   try {
-    orderId = await exec.transaction(async (tx) => {
+    orderId = await withStore(exec, storeId, async (tx) => {
       // Shared lock: a concurrent suspension waits for, or blocks, this checkout.
       const [st] = await tx.select({ status: store.status }).from(store).where(eq(store.id, storeId)).for("share");
       if (st?.status !== "active") throw new DomainError("store_unavailable", "Toko sedang tidak menerima pesanan.");
@@ -315,7 +331,7 @@ export async function placeOrder(
     if (!raced) throw err;
     // Lost a race on (store_id, idempotency_key) or cart_id, or the cart was emptied
     // by a committed duplicate: return that order if it is ours.
-    const r = await existing();
+    const r = await withStore(exec, storeId, existing);
     if (r) return r;
     if (err instanceof Replay) throw new DomainError("cart_checked_out", "Keranjang ini sudah di-checkout.");
     throw err;
@@ -326,33 +342,36 @@ export async function placeOrder(
 
 /** Order outcome for the buyer who owns the checked-out cart (an order id alone grants nothing). */
 export async function getBuyerOrder(exec: Executor, orderId: number, cartId: string | undefined) {
-  if (!cartId || !z.uuid().safeParse(cartId).success) return null;
-  const [o] = await exec
-    .select({
-      id: order.id,
-      storeId: order.storeId,
-      storeName: store.name,
-      storeSlug: store.slug,
-      status: order.status,
-      paymentMethod: order.paymentMethod,
-      paymentReference: order.paymentReference,
-      courier: order.courier,
-      destinationAreaLabel: order.destinationAreaLabel,
-      // Buyer fields feed the hashed advanced-matching block of the confirmation page (T-38); never rendered.
-      buyerName: order.buyerName,
-      buyerPhone: order.buyerPhone,
-      subtotal: order.subtotal,
-      shippingFee: order.shippingFee,
-      total: order.total,
-    })
-    .from(order)
-    .innerJoin(store, eq(store.id, order.storeId))
-    .where(and(eq(order.id, orderId), eq(order.cartId, cartId)));
-  if (!o) return null;
-  const lines = await exec
-    .select()
-    .from(orderLine)
-    .where(and(eq(orderLine.storeId, o.storeId), eq(orderLine.orderId, o.id)))
-    .orderBy(asc(orderLine.variantId));
-  return { ...o, lines };
+  const storeId = await cartStore(cartId);
+  if (!storeId) return null;
+  return withStore(exec, storeId, async (tx) => {
+    const [o] = await tx
+      .select({
+        id: order.id,
+        storeId: order.storeId,
+        storeName: store.name,
+        storeSlug: store.slug,
+        status: order.status,
+        paymentMethod: order.paymentMethod,
+        paymentReference: order.paymentReference,
+        courier: order.courier,
+        destinationAreaLabel: order.destinationAreaLabel,
+        // Buyer fields feed the hashed advanced-matching block of the confirmation page (T-38); never rendered.
+        buyerName: order.buyerName,
+        buyerPhone: order.buyerPhone,
+        subtotal: order.subtotal,
+        shippingFee: order.shippingFee,
+        total: order.total,
+      })
+      .from(order)
+      .innerJoin(store, eq(store.id, order.storeId))
+      .where(and(eq(order.id, orderId), eq(order.cartId, cartId!)));
+    if (!o) return null;
+    const lines = await tx
+      .select()
+      .from(orderLine)
+      .where(and(eq(orderLine.storeId, o.storeId), eq(orderLine.orderId, o.id)))
+      .orderBy(asc(orderLine.variantId));
+    return { ...o, lines };
+  });
 }

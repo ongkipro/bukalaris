@@ -5,6 +5,7 @@ import { mengantarFromEnv } from "./mengantar/adapter.ts";
 import { fakeAutoLaris, fakeMengantar, type ProviderQuote, type Providers, type ShippingAdapter } from "./providers.ts";
 import { auditLog, shippingMarginRule, storePickupArea } from "./schema.ts";
 import { DomainError, requireCap, type OperatorScope, type SellerScope, type StorefrontScope } from "./scoped.ts";
+import { inStore } from "./tenant.ts";
 
 export { MengantarClient, MengantarError, MengantarWriteDisabledError, redactUrl } from "./mengantar/client.ts";
 export { COURIER_LABELS, mengantarAdapter, mengantarFromEnv, toProviderQuote } from "./mengantar/adapter.ts";
@@ -99,11 +100,13 @@ export const pickupAddressInput = z.strictObject({
 });
 
 export async function getPickupArea(scope: SellerScope) {
-  const [row] = await scope.exec
-    .select({ areaId: storePickupArea.areaId, areaLabel: storePickupArea.areaLabel, addressText: storePickupArea.addressText, updatedAt: storePickupArea.updatedAt })
-    .from(storePickupArea)
-    .where(eq(storePickupArea.storeId, scope.storeId));
-  return row ?? null;
+  return inStore(scope, async (scope) => {
+    const [row] = await scope.exec
+      .select({ areaId: storePickupArea.areaId, areaLabel: storePickupArea.areaLabel, addressText: storePickupArea.addressText, updatedAt: storePickupArea.updatedAt })
+      .from(storePickupArea)
+      .where(eq(storePickupArea.storeId, scope.storeId));
+    return row ?? null;
+  });
 }
 
 /** Server-side area search for the pickup form (owner only; no provider write). */
@@ -117,22 +120,26 @@ export async function searchPickupAreas(scope: SellerScope, keyword: string, ada
 /** Store the chosen provider AREA id + label locally (keeps the address text). */
 export async function setPickupArea(scope: SellerScope, raw: unknown): Promise<void> {
   requireCap(scope, "shipping.manage");
-  const input = pickupAreaInput.parse(raw);
-  await scope.exec
-    .insert(storePickupArea)
-    .values({ storeId: scope.storeId, ...input, updatedBy: scope.userId })
-    .onConflictDoUpdate({ target: storePickupArea.storeId, set: { ...input, updatedBy: scope.userId, updatedAt: new Date() } });
+  return inStore(scope, async (scope) => {
+    const input = pickupAreaInput.parse(raw);
+    await scope.exec
+      .insert(storePickupArea)
+      .values({ storeId: scope.storeId, ...input, updatedBy: scope.userId })
+      .onConflictDoUpdate({ target: storePickupArea.storeId, set: { ...input, updatedBy: scope.userId, updatedAt: new Date() } });
+  });
 }
 
 export async function setPickupAddress(scope: SellerScope, raw: unknown): Promise<void> {
   requireCap(scope, "shipping.manage");
-  const { addressText } = pickupAddressInput.parse(raw);
-  const updated = await scope.exec
-    .update(storePickupArea)
-    .set({ addressText, updatedBy: scope.userId, updatedAt: new Date() })
-    .where(eq(storePickupArea.storeId, scope.storeId))
-    .returning({ storeId: storePickupArea.storeId });
-  if (updated.length === 0) throw new DomainError("no_pickup_area", "Pilih area pickup terlebih dahulu.");
+  return inStore(scope, async (scope) => {
+    const { addressText } = pickupAddressInput.parse(raw);
+    const updated = await scope.exec
+      .update(storePickupArea)
+      .set({ addressText, updatedBy: scope.userId, updatedAt: new Date() })
+      .where(eq(storePickupArea.storeId, scope.storeId))
+      .returning({ storeId: storePickupArea.storeId });
+    if (updated.length === 0) throw new DomainError("no_pickup_area", "Pilih area pickup terlebih dahulu.");
+  });
 }
 
 // ── Checkout-facing service (wired to /checkout in the next phase) ─────────
@@ -151,10 +158,10 @@ export async function shippingOptions(
   adapter: ShippingAdapter = defaultShippingAdapter(),
 ): Promise<{ originAreaId: string; destinationAreaId: string; weightKg: number; options: ShippingOption[] }> {
   const destination = areaId.parse(destinationAreaId);
-  const [origin] = await scope.exec
-    .select({ areaId: storePickupArea.areaId })
-    .from(storePickupArea)
-    .where(eq(storePickupArea.storeId, scope.storeId));
+  // Store context for the pickup row only; the provider call below must not run inside a transaction.
+  const [origin] = await inStore(scope, (scope) =>
+    scope.exec.select({ areaId: storePickupArea.areaId }).from(storePickupArea).where(eq(storePickupArea.storeId, scope.storeId)),
+  );
   if (!origin) throw new DomainError("no_pickup_area", "Toko belum mengatur area pickup.");
   const weightKg = Math.max(1, cart.items);
   const [rule, quotes] = await Promise.all([

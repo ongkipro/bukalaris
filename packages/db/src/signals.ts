@@ -15,6 +15,7 @@ import {
   type SignalStatus,
 } from "./schema.ts";
 import { DomainError, requireCap, type SellerScope, type StorefrontScope } from "./scoped.ts";
+import { inStore, withStore } from "./tenant.ts";
 export { SIGNAL_PROVIDERS, SIGNAL_STATUSES, type SignalProvider, type SignalStatus } from "./schema.ts";
 
 // Ad conversion signals (T-38, PR-20 "signal contract"). Per store × destination
@@ -235,17 +236,19 @@ export type DestinationView = {
 /** The store's destinations without any secret (the token is write-only). */
 export async function listDestinations(scope: SellerScope): Promise<DestinationView[]> {
   requireCap(scope, "marketing.manage");
-  const rows = await scope.exec.select().from(signalDestination).where(eq(signalDestination.storeId, scope.storeId));
-  return rows.map(({ tokenCiphertext, ...d }) => ({
-    provider: d.provider,
-    pixelId: d.pixelId,
-    conversionLabel: d.conversionLabel,
-    hasToken: tokenCiphertext !== null,
-    tokenSetAt: d.tokenSetAt,
-    testEventCode: d.testEventCode,
-    enabled: d.enabled,
-    updatedAt: d.updatedAt,
-  }));
+  return inStore(scope, async (scope) => {
+    const rows = await scope.exec.select().from(signalDestination).where(eq(signalDestination.storeId, scope.storeId));
+    return rows.map(({ tokenCiphertext, ...d }) => ({
+      provider: d.provider,
+      pixelId: d.pixelId,
+      conversionLabel: d.conversionLabel,
+      hasToken: tokenCiphertext !== null,
+      tokenSetAt: d.tokenSetAt,
+      testEventCode: d.testEventCode,
+      enabled: d.enabled,
+      updatedAt: d.updatedAt,
+    }));
+  });
 }
 
 /**
@@ -255,42 +258,49 @@ export async function listDestinations(scope: SellerScope): Promise<DestinationV
  */
 export async function saveDestination(scope: SellerScope, providerRaw: unknown, raw: unknown): Promise<void> {
   requireCap(scope, "marketing.manage");
-  const provider = providerInput.parse(providerRaw);
-  const input = destinationInput.parse(raw);
-  const rule = PIXEL_ID_RULES[provider];
-  if (!rule.re.test(input.pixelId)) throw new DomainError("pixel_id", rule.hint);
-  const conversionLabel = provider === "google" ? input.conversionLabel || null : null;
-  if (provider === "google" && conversionLabel && !/^[A-Za-z0-9_-]{4,60}$/.test(conversionLabel))
-    throw new DomainError("conversion_label", "Label konversi Google hanya huruf, angka, - dan _.");
-  const token = provider !== "google" && input.token ? input.token : null;
-  const sealed = token ? sealToken(token, scope.storeId, provider) : null;
-  const base = { pixelId: input.pixelId, conversionLabel, testEventCode: input.testEventCode || null, enabled: input.enabled, updatedAt: sql`now()` };
-  await scope.exec
-    .insert(signalDestination)
-    .values({ storeId: scope.storeId, provider, ...base, updatedAt: undefined, tokenCiphertext: sealed, tokenSetAt: sealed ? sql`now()` : null })
-    .onConflictDoUpdate({
-      target: [signalDestination.storeId, signalDestination.provider],
-      set: sealed ? { ...base, tokenCiphertext: sealed, tokenSetAt: sql`now()` } : base,
-    });
+  return inStore(scope, async (scope) => {
+    const provider = providerInput.parse(providerRaw);
+    const input = destinationInput.parse(raw);
+    const rule = PIXEL_ID_RULES[provider];
+    if (!rule.re.test(input.pixelId)) throw new DomainError("pixel_id", rule.hint);
+    const conversionLabel = provider === "google" ? input.conversionLabel || null : null;
+    if (provider === "google" && conversionLabel && !/^[A-Za-z0-9_-]{4,60}$/.test(conversionLabel))
+      throw new DomainError("conversion_label", "Label konversi Google hanya huruf, angka, - dan _.");
+    const token = provider !== "google" && input.token ? input.token : null;
+    const sealed = token ? sealToken(token, scope.storeId, provider) : null;
+    const base = { pixelId: input.pixelId, conversionLabel, testEventCode: input.testEventCode || null, enabled: input.enabled, updatedAt: sql`now()` };
+    await scope.exec
+      .insert(signalDestination)
+      .values({ storeId: scope.storeId, provider, ...base, updatedAt: undefined, tokenCiphertext: sealed, tokenSetAt: sealed ? sql`now()` : null })
+      .onConflictDoUpdate({
+        target: [signalDestination.storeId, signalDestination.provider],
+        set: sealed ? { ...base, tokenCiphertext: sealed, tokenSetAt: sql`now()` } : base,
+      });
+  });
 }
 
 /** Forget the stored server token (the browser pixel keeps working). */
 export async function clearDestinationToken(scope: SellerScope, providerRaw: unknown): Promise<void> {
   requireCap(scope, "marketing.manage");
-  const provider = providerInput.parse(providerRaw);
-  await scope.exec
-    .update(signalDestination)
-    .set({ tokenCiphertext: null, tokenSetAt: null, updatedAt: sql`now()` })
-    .where(and(eq(signalDestination.storeId, scope.storeId), eq(signalDestination.provider, provider)));
+  return inStore(scope, async (scope) => {
+    const provider = providerInput.parse(providerRaw);
+    await scope.exec
+      .update(signalDestination)
+      .set({ tokenCiphertext: null, tokenSetAt: null, updatedAt: sql`now()` })
+      .where(and(eq(signalDestination.storeId, scope.storeId), eq(signalDestination.provider, provider)));
+  });
 }
 
 /** What the browser needs: enabled destinations' public ids only. Never a token or test code. */
 export type BrowserSignals = { meta?: { pixelId: string }; tiktok?: { pixelId: string }; google?: { tagId: string; label: string | null } };
 export async function browserSignals(exec: Executor, storeId: number): Promise<BrowserSignals | null> {
-  const rows = await exec
-    .select({ provider: signalDestination.provider, pixelId: signalDestination.pixelId, label: signalDestination.conversionLabel })
-    .from(signalDestination)
-    .where(and(eq(signalDestination.storeId, storeId), eq(signalDestination.enabled, true)));
+  // `storeId` is server-derived (a resolved scope or the buyer's own order), never browser input.
+  const rows = await withStore(exec, storeId, (tx) =>
+    tx
+      .select({ provider: signalDestination.provider, pixelId: signalDestination.pixelId, label: signalDestination.conversionLabel })
+      .from(signalDestination)
+      .where(and(eq(signalDestination.storeId, storeId), eq(signalDestination.enabled, true))),
+  );
   if (rows.length === 0) return null;
   const out: BrowserSignals = {};
   for (const r of rows) {
@@ -379,13 +389,15 @@ export async function purchasePayload(exec: Executor, storeId: number, orderId: 
 
 /** Variant catalog ids (content ids) for variants of this store, in input order; unknown ids are skipped. */
 export async function variantCatalogIds(scope: StorefrontScope, variantIds: number[]): Promise<string[]> {
-  if (variantIds.length === 0) return [];
-  const rows = await scope.exec
-    .select({ id: variant.id, catalogId: variant.catalogId })
-    .from(variant)
-    .where(and(eq(variant.storeId, scope.storeId), inArray(variant.id, variantIds)));
-  const by = new Map(rows.map((r) => [r.id, r.catalogId]));
-  return variantIds.map((v) => by.get(v)).filter((c): c is string => !!c);
+  return inStore(scope, async (scope) => {
+    if (variantIds.length === 0) return [];
+    const rows = await scope.exec
+      .select({ id: variant.id, catalogId: variant.catalogId })
+      .from(variant)
+      .where(and(eq(variant.storeId, scope.storeId), inArray(variant.id, variantIds)));
+    const by = new Map(rows.map((r) => [r.id, r.catalogId]));
+    return variantIds.map((v) => by.get(v)).filter((c): c is string => !!c);
+  });
 }
 
 /** Product catalog ids (group ids) for variants of this store, deduplicated and ordered by input. */
@@ -458,28 +470,30 @@ export type FunnelInput = z.input<typeof funnelInput>;
  * so a client cannot inflate the value. Unknown ids are dropped; no known id → nothing.
  */
 export async function collectFunnelEvent(scope: StorefrontScope, raw: unknown, request: RequestSignalContext): Promise<number> {
-  const input = funnelInput.parse(raw);
-  const ids = [...new Set(input.items.map((i) => i.id))];
-  const rows = await scope.exec
-    .select({ id: variant.catalogId, price: variant.price, variantId: variant.id })
-    .from(variant)
-    .where(and(eq(variant.storeId, scope.storeId), inArray(variant.catalogId, ids)));
-  const price = new Map(rows.map((r) => [r.id, r]));
-  const contents: SignalContent[] = input.items.filter((i) => price.has(i.id)).map((i) => ({ id: i.id, quantity: i.quantity, item_price: price.get(i.id)!.price }));
-  if (contents.length === 0) return 0;
-  const url = input.url && /^https?:\/\//.test(input.url) ? input.url : request.url;
-  const payload: SignalPayload = {
-    eventTime: Math.floor(Date.now() / 1000),
-    value: contents.reduce((s, c) => s + c.item_price * c.quantity, 0),
-    currency: CURRENCY,
-    contents,
-    contentIds: contents.map((c) => c.id),
-    groupIds: await groupIdsFor(scope.exec, scope.storeId, contents.map((c) => price.get(c.id)!.variantId)),
-    numItems: contents.reduce((n, c) => n + c.quantity, 0),
-    ...(url ? { url } : {}),
-    user: requestUser(request),
-  };
-  return scope.exec.transaction((tx) => enqueueSignal(tx, { storeId: scope.storeId, eventId: input.eventId, eventName: input.event, payload }));
+  return inStore(scope, async (scope) => {
+    const input = funnelInput.parse(raw);
+    const ids = [...new Set(input.items.map((i) => i.id))];
+    const rows = await scope.exec
+      .select({ id: variant.catalogId, price: variant.price, variantId: variant.id })
+      .from(variant)
+      .where(and(eq(variant.storeId, scope.storeId), inArray(variant.catalogId, ids)));
+    const price = new Map(rows.map((r) => [r.id, r]));
+    const contents: SignalContent[] = input.items.filter((i) => price.has(i.id)).map((i) => ({ id: i.id, quantity: i.quantity, item_price: price.get(i.id)!.price }));
+    if (contents.length === 0) return 0;
+    const url = input.url && /^https?:\/\//.test(input.url) ? input.url : request.url;
+    const payload: SignalPayload = {
+      eventTime: Math.floor(Date.now() / 1000),
+      value: contents.reduce((s, c) => s + c.item_price * c.quantity, 0),
+      currency: CURRENCY,
+      contents,
+      contentIds: contents.map((c) => c.id),
+      groupIds: await groupIdsFor(scope.exec, scope.storeId, contents.map((c) => price.get(c.id)!.variantId)),
+      numItems: contents.reduce((n, c) => n + c.quantity, 0),
+      ...(url ? { url } : {}),
+      user: requestUser(request),
+    };
+    return inStore(scope, ({ exec: tx }) => enqueueSignal(tx, { storeId: scope.storeId, eventId: input.eventId, eventName: input.event, payload }));
+  });
 }
 
 // ── Transport and provider adapters ────────────────────────────────────────
@@ -674,30 +688,32 @@ export type DestinationHealth = {
 /** Last 7 days per destination: counts by status, the latest error text and the latest acceptance. */
 export async function destinationHealth(scope: SellerScope, days = 7): Promise<DestinationHealth[]> {
   requireCap(scope, "marketing.manage");
-  const since = sql`now() - ${days} * interval '1 day'`;
-  const counts = await scope.exec
-    .select({
-      provider: signalEvent.provider,
-      pending: sql<number>`count(*) filter (where ${signalEvent.status} = 'pending')`.mapWith(Number),
-      sent: sql<number>`count(*) filter (where ${signalEvent.status} = 'sent')`.mapWith(Number),
-      simulated: sql<number>`count(*) filter (where ${signalEvent.status} = 'simulated')`.mapWith(Number),
-      failed: sql<number>`count(*) filter (where ${signalEvent.status} = 'failed')`.mapWith(Number),
-      lastSentAt: sql<Date | null>`max(${signalEvent.sentAt})`,
-    })
-    .from(signalEvent)
-    .where(and(eq(signalEvent.storeId, scope.storeId), gte(signalEvent.createdAt, since)))
-    .groupBy(signalEvent.provider);
-  const out: DestinationHealth[] = [];
-  for (const c of counts) {
-    const [err] = await scope.exec
-      .select({ lastError: signalEvent.lastError })
+  return inStore(scope, async (scope) => {
+    const since = sql`now() - ${days} * interval '1 day'`;
+    const counts = await scope.exec
+      .select({
+        provider: signalEvent.provider,
+        pending: sql<number>`count(*) filter (where ${signalEvent.status} = 'pending')`.mapWith(Number),
+        sent: sql<number>`count(*) filter (where ${signalEvent.status} = 'sent')`.mapWith(Number),
+        simulated: sql<number>`count(*) filter (where ${signalEvent.status} = 'simulated')`.mapWith(Number),
+        failed: sql<number>`count(*) filter (where ${signalEvent.status} = 'failed')`.mapWith(Number),
+        lastSentAt: sql<Date | null>`max(${signalEvent.sentAt})`,
+      })
       .from(signalEvent)
-      .where(and(eq(signalEvent.storeId, scope.storeId), eq(signalEvent.provider, c.provider), gte(signalEvent.createdAt, since), sql`${signalEvent.lastError} is not null`))
-      .orderBy(desc(signalEvent.id))
-      .limit(1);
-    out.push({ ...c, lastSentAt: c.lastSentAt ? new Date(c.lastSentAt) : null, lastError: err?.lastError ?? null });
-  }
-  return out;
+      .where(and(eq(signalEvent.storeId, scope.storeId), gte(signalEvent.createdAt, since)))
+      .groupBy(signalEvent.provider);
+    const out: DestinationHealth[] = [];
+    for (const c of counts) {
+      const [err] = await scope.exec
+        .select({ lastError: signalEvent.lastError })
+        .from(signalEvent)
+        .where(and(eq(signalEvent.storeId, scope.storeId), eq(signalEvent.provider, c.provider), gte(signalEvent.createdAt, since), sql`${signalEvent.lastError} is not null`))
+        .orderBy(desc(signalEvent.id))
+        .limit(1);
+      out.push({ ...c, lastSentAt: c.lastSentAt ? new Date(c.lastSentAt) : null, lastError: err?.lastError ?? null });
+    }
+    return out;
+  });
 }
 
 /**

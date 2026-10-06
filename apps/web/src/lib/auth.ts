@@ -1,5 +1,5 @@
 import "server-only";
-import { db, dbMailer } from "@bukalaris/db";
+import { db, dbMailer, platformDb } from "@bukalaris/db";
 import { account, auditLog, session, twoFactor, user, verification } from "@bukalaris/db/schema";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
@@ -33,7 +33,8 @@ function createAuth() {
         });
       },
       onPasswordReset: async ({ user: u }) => {
-        await db().insert(auditLog).values({ actorUserId: u.id, action: "password.reset" });
+        // Account-level audit row (no store): only the platform pool may write audit_log outside a store context.
+        await platformDb().insert(auditLog).values({ actorUserId: u.id, action: "password.reset" });
       },
     },
     telemetry: { enabled: false },

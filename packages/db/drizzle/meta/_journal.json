@@ -50,6 +50,13 @@
       "when": 1791315304540,
       "tag": "0006_signals",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791320000000,
+      "tag": "0007_rls",
+      "breakpoints": true
     }
   ]
 }

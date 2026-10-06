@@ -1,5 +1,5 @@
 import "server-only";
-import { db, operatorScope, sellerContext } from "@bukalaris/db";
+import { db, operatorScope, platformDb, sellerContext } from "@bukalaris/db";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
@@ -29,10 +29,14 @@ export async function sellerScope() {
   return ctx.scope;
 }
 
+/** Platform operator check for pages outside /admin (e.g. account security). */
+export const isOperator = (userId: string) => operatorScope(platformDb(), userId).then((op) => op !== null);
+
 export const operator = cache(async () => {
   const u = await currentUser();
   if (!u) redirect("/login?next=/admin");
-  const op = await operatorScope(db(), u.id);
+  // Super Admin reads across stores: the privileged pool (ADR-0005); the app pool cannot even see platform_operator.
+  const op = await operatorScope(platformDb(), u.id);
   // IAM-9: platform access requires MFA. `twoFactorEnabled` is only set after a verified TOTP enrolment (accounts track).
   if (op && !u.twoFactorEnabled) redirect("/account/security?next=/admin");
   return { user: u, op };
