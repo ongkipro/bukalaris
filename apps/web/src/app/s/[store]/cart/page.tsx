@@ -1,8 +1,10 @@
 import { fieldClass, Notice } from "@/components/notice";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { SignalEvent } from "@/components/pixels/runtime";
 import { rupiah } from "@/lib/format";
+import { signalsFor } from "@/lib/signals";
 import { cartCookie } from "@/lib/storefront";
-import { canonicalSlug, coverImages, getCart } from "@bukalaris/db";
+import { canonicalSlug, coverImages, getCart, variantCatalogIds } from "@bukalaris/db";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { EmptyState } from "../_components/product-grid";
@@ -14,14 +16,16 @@ export const metadata = { title: "Keranjang" };
 
 export default async function CartPage({ params, searchParams }: PageProps<"/s/[store]/cart">) {
   const { store } = await params;
-  const { error } = await searchParams;
+  const { error, added } = await searchParams;
   const { scope, base } = await storeShell(store);
   const cart = await getCart(scope, (await cookies()).get(cartCookie(scope.storeId))?.value);
   const covers = await coverImages(scope, cart.lines.map((l) => l.productId));
+  const addedEvent = await addToCartSignal(scope, cart.lines, typeof added === "string" ? added : "");
   return (
     <section className="mx-auto grid w-full max-w-3xl gap-5">
       <h1 className="text-2xl font-semibold tracking-tight">Keranjang</h1>
       <Notice error={error} />
+      {addedEvent}
       {cart.lines.length === 0 ? (
         <EmptyState
           title="Keranjang masih kosong."
@@ -65,4 +69,17 @@ export default async function CartPage({ params, searchParams }: PageProps<"/s/[
       )}
     </section>
   );
+}
+
+/** AddToCart signal (T-38) for the line the buyer just added; `added` is display input, validated against the cart. */
+async function addToCartSignal(scope: Awaited<ReturnType<typeof storeShell>>["scope"], lines: { variantId: number; price: number }[], added: string) {
+  const m = /^([0-9]{1,15}):([0-9]{1,2})$/.exec(added);
+  const line = m ? lines.find((l) => l.variantId === Number(m[1])) : undefined;
+  if (!line) return null;
+  const signals = await signalsFor(scope.storeId);
+  if (!signals) return null;
+  const quantity = Math.min(Math.max(Number(m![2]), 1), 99);
+  const [catalogId] = await variantCatalogIds(scope, [line.variantId]);
+  if (!catalogId) return null;
+  return <SignalEvent config={signals} store={scope.storeSlug} name="AddToCart" items={[{ id: catalogId, quantity, price: line.price }]} value={line.price * quantity} />;
 }

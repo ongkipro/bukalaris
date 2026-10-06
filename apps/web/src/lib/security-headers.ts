@@ -7,11 +7,22 @@
  * also carry the request nonce (`(await headers()).get("x-nonce")`); `'strict-dynamic'`
  * then extends trust to whatever those scripts load, so host entries are only a fallback.
  */
+// T-38 (PR-20) pixel destinations. Loaders are injected by the nonce-trusted bundle (strict-dynamic),
+// so `script` is the CSP2 fallback; `connect`/`img` carry the pixels' beacons; `frame` the Google
+// conversion-linker iframe. Only hosts seen in the official snippets; verify against a live test event.
 export const THIRD_PARTY = {
-  script: [] as string[], // e.g. "https://connect.facebook.net"
-  connect: [] as string[], // beacons / CAPI client calls, e.g. "https://www.facebook.com"
-  img: [] as string[], // pixel images, e.g. "https://www.facebook.com"
-  frame: [] as string[], // noscript iframes, e.g. "https://www.googletagmanager.com"
+  script: ["https://connect.facebook.net", "https://analytics.tiktok.com", "https://www.googletagmanager.com"],
+  connect: [
+    "https://www.facebook.com",
+    "https://analytics.tiktok.com",
+    "https://www.googletagmanager.com",
+    "https://www.google.com",
+    "https://www.google.co.id",
+    "https://www.googleadservices.com",
+    "https://googleads.g.doubleclick.net",
+  ],
+  img: ["https://www.facebook.com", "https://analytics.tiktok.com", "https://www.google.com", "https://www.google.co.id", "https://googleads.g.doubleclick.net", "https://www.googletagmanager.com"],
+  frame: ["https://td.doubleclick.net"],
 };
 
 export const CSP_HEADER = "Content-Security-Policy";

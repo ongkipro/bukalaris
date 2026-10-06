@@ -1,7 +1,9 @@
 import { fieldClass, Notice } from "@/components/notice";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { SignalEvent } from "@/components/pixels/runtime";
 import { rupiah } from "@/lib/format";
+import { signalsFor } from "@/lib/signals";
 import { canonicalSlug, getPublishedProduct, publishedProductImages } from "@bukalaris/db";
 import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
@@ -25,12 +27,15 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
   if (canonicalSlug(p) !== slug) permanentRedirect(`${base}/products/${canonicalSlug(p)}`);
   const images = await publishedProductImages(scope, p.id);
   const sellable = p.variants.filter((v) => v.stock > 0);
+  const signals = await signalsFor(scope.storeId);
+  const viewed = sellable[0] ?? p.variants[0];
   const prices = p.variants.map((v) => v.price);
   const min = Math.min(...prices);
   const max = Math.max(...prices);
 
   return (
     <article className="grid gap-8 @3xl:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] @3xl:gap-12">
+      {signals && viewed && <SignalEvent config={signals} store={scope.storeSlug} name="ViewContent" items={[{ id: viewed.catalogId, quantity: 1, price: viewed.price }]} value={viewed.price} />}
       <div className="grid gap-3">
         <StoreImage base={base} image={images[0]} priority className="aspect-square w-full rounded-xl" fallbackLabel={`Belum ada foto untuk ${p.title}`} />
         {images.length > 1 && (

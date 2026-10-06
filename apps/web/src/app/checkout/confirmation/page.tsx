@@ -1,6 +1,9 @@
+import { Pixels } from "@/components/pixels/pixels";
+import { SignalEvent } from "@/components/pixels/runtime";
 import { rupiah } from "@/lib/format";
+import { browserMatch, signalsFor } from "@/lib/signals";
 import { ORDER_COOKIE } from "@/lib/storefront";
-import { channelReturnTarget, db, getBuyerOrder } from "@bukalaris/db";
+import { channelReturnTarget, db, getBuyerOrder, purchaseEventId } from "@bukalaris/db";
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 
@@ -12,8 +15,24 @@ export default async function ConfirmationPage({ searchParams }: PageProps<"/che
   if (!o) notFound();
   // Headless buyers return to the channel's registered origin + path (allowlist, channels track).
   const back = (await channelReturnTarget(db(), cartId)) ?? `/s/${o.storeSlug}`;
+  const signals = await signalsFor(o.storeId);
+  const match = signals ? browserMatch(o) : undefined;
   return (
-    <section className="mx-auto grid w-full max-w-2xl gap-4 rounded-xl border bg-background p-6" aria-labelledby="done">
+    <section className="mx-auto grid w-full max-w-2xl gap-4 rounded-xl border bg-background p-6" aria-labelledby="done" data-purchase-event={o.paymentMethod === "cod" && signals ? purchaseEventId(o.id) : undefined}>
+      <Pixels storeId={o.storeId} match={match} />
+      {signals && o.paymentMethod === "cod" && (
+        <SignalEvent
+          config={signals}
+          store={o.storeSlug}
+          name="Purchase"
+          eventId={purchaseEventId(o.id)}
+          orderId={String(o.id)}
+          items={o.lines.map((l) => ({ id: l.variantCatalogId, quantity: l.quantity, price: l.unitPrice }))}
+          value={o.subtotal}
+          match={match}
+          serverLeg={false}
+        />
+      )}
       <p className="text-sm font-medium tracking-wide text-muted-foreground uppercase">Terima kasih</p>
       <h1 id="done" className="-mt-2 text-2xl font-semibold tracking-tight">Pesanan diterima</h1>
       <p>

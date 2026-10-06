@@ -5,6 +5,7 @@
 import { hostname } from "node:os";
 import { createDb } from "./client.ts";
 import { JOB_CHANNEL, runOnce, sanitizeError } from "./jobs.ts";
+import "./signals.ts"; // registers the signal.* handlers (T-38)
 
 const once = process.argv.includes("--once");
 const workerId = `${hostname()}:${process.pid}`;

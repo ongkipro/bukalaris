@@ -3,7 +3,10 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Pixels } from "@/components/pixels/pixels";
+import { SignalEvent } from "@/components/pixels/runtime";
 import { rupiah } from "@/lib/format";
+import { signalsFor } from "@/lib/signals";
 import { cartCookie } from "@/lib/storefront";
 import { checkoutShippingOptions, checkoutSummary, db, DomainError, searchDestinationAreas, storefrontScope, type Area, type ShippingOption } from "@bukalaris/db";
 import { cookies } from "next/headers";
@@ -25,7 +28,8 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
   // itself must belong to that active store.
   const scope = typeof sp.store === "string" ? await storefrontScope(db(), sp.store) : null;
   if (!scope) return <p role="alert" className="rounded-lg border bg-background p-6">Toko tidak tersedia atau sedang tidak menerima pesanan.</p>;
-  const found = await checkoutSummary(db(), (await cookies()).get(cartCookie(scope.storeId))?.value);
+  const cartId = (await cookies()).get(cartCookie(scope.storeId))?.value;
+  const found = await checkoutSummary(db(), cartId);
   const summary = found?.storeId === scope.storeId ? found : null;
   if (!summary) return <p className="rounded-lg border bg-background p-6">Keranjang kosong atau sudah di-checkout.</p>;
   if (summary.store.status !== "active")
@@ -57,10 +61,22 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
   const codOffered = options.some((o) => o.cod !== null);
   const defaultCourier = options.find((o) => o.cod !== null) ?? options[0];
   const here = `/checkout?store=${encodeURIComponent(scope.storeSlug)}`;
+  const signals = await signalsFor(scope.storeId);
   const pick = (id: string) => `${here}&q=${encodeURIComponent(q)}&area=${id}`;
 
   return (
     <div className="grid gap-6">
+      <Pixels storeId={scope.storeId} />
+      {signals && (
+        <SignalEvent
+          config={signals}
+          store={scope.storeSlug}
+          name="InitiateCheckout"
+          eventId={`checkout:${cartId}`}
+          items={summary.lines.map((l) => ({ id: l.variantCatalogId, quantity: l.quantity, price: l.price }))}
+          value={summary.subtotal}
+        />
+      )}
       <h1 className="text-2xl font-semibold tracking-tight">Checkout · {summary.store.name}</h1>
       <Notice error={str(sp.error) || undefined} />
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">

@@ -36,6 +36,13 @@
       "when": 1791311117965,
       "tag": "0004_checkout2_shipping_cod_abuse",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791312389178,
+      "tag": "0005_signals",
+      "breakpoints": true
     }
   ]
 }

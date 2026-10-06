@@ -4,13 +4,15 @@
 import { cleanupIdleCarts } from "./checkout.ts";
 import { createDb } from "./client.ts";
 import { sanitizeError } from "./jobs.ts";
+import { purgeSignalContext } from "./signals.ts";
 
 /** Default: a week. Override with CART_IDLE_HOURS (integer hours >= 1). */
 const idleHours = Number(process.env.CART_IDLE_HOURS ?? 168);
 const db = createDb();
 try {
   const result = await cleanupIdleCarts(db, { idleHours });
-  console.log(JSON.stringify({ ts: new Date().toISOString(), level: "info", event: "cleanup", idleHours, ...result }));
+  const signals = await purgeSignalContext(db); // T-38: click context / match data older than 30 days
+  console.log(JSON.stringify({ ts: new Date().toISOString(), level: "info", event: "cleanup", idleHours, ...result, signalContexts: signals.contexts, signalEvents: signals.events }));
 } catch (err) {
   console.error(JSON.stringify({ ts: new Date().toISOString(), level: "error", event: "cleanup_failed", error: sanitizeError(err) }));
   process.exitCode = 1;

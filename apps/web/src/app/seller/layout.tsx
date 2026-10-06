@@ -15,6 +15,7 @@ const sellerNav = [
   ["/seller/members", "Anggota"],
   ["/seller/shipping", "Pengiriman"],
   ["/seller/channels", "Channel"],
+  ["/seller/marketing", "Pemasaran"],
   ["/seller/settings", "Pengaturan"],
 ] as const;
 

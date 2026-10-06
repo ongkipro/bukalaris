@@ -2,6 +2,7 @@ import { and, asc, desc, eq, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import { order, orderLine, ORDER_STATUSES, orderStatusHistory, product, stockAdjustment, user, variant, type OrderStatus } from "./schema.ts";
 import { DomainError, requireCap, type SellerScope } from "./scoped.ts";
+import { enqueuePurchase } from "./signals.ts";
 export { ORDER_STATUSES, type OrderStatus } from "./schema.ts";
 
 // Seller orders (SC-12/SC-13) and inventory (SC-04). Q-10 is still open; the
@@ -217,6 +218,9 @@ export async function transitionOrder(scope: SellerScope, orderId: number, actio
         );
       }
     }
+
+    // Prepaid Purchase signal at settlement (T-38, PR-20); idempotent per destination.
+    if (action === "pay") await enqueuePurchase(tx, scope.storeId, orderId);
 
     await tx.insert(orderStatusHistory).values({
       storeId: scope.storeId,
