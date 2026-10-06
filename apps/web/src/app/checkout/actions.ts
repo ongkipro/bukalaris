@@ -2,6 +2,7 @@
 
 import { db, placeOrder, storefrontScope } from "@bukalaris/db";
 import { userError, withError } from "@/lib/errors";
+import { requestSignalContext } from "@/lib/signals";
 import { cartCookie, clientIp, cookieOpts, ORDER_COOKIE } from "@/lib/storefront";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -24,7 +25,7 @@ export async function submitCheckout(f: FormData) {
   let orderId: number | undefined;
   let error: string | undefined;
   try {
-    ({ orderId } = await placeOrder(db(), cartId, input, undefined, { clientIp: await clientIp() }));
+    ({ orderId } = await placeOrder(db(), cartId, input, undefined, { clientIp: await clientIp(), signal: await requestSignalContext() }));
   } catch (err) {
     error = userError(err);
   }

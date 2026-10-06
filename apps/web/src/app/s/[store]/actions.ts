@@ -21,7 +21,9 @@ async function cartMutation(storeSlug: string, back: string, f: FormData, mode: 
   } catch (err) {
     error = userError(err);
   }
-  redirect(error ? withError(`${base}${back}`, error) : `${base}/cart`);
+  // `added` lets the cart page fire the AddToCart signal for exactly this line (T-38); display only.
+  const added = mode === "add" && !error ? `?added=${Number(f.get("variantId"))}:${Number(f.get("quantity"))}` : "";
+  redirect(error ? withError(`${base}${back}`, error) : `${base}/cart${added}`);
 }
 
 export async function addToCart(storeSlug: string, productPath: string, f: FormData) {

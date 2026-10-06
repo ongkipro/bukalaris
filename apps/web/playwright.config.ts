@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -7,6 +8,10 @@ import { resolve } from "node:path";
 if (existsSync("../../.env")) process.loadEnvFile("../../.env");
 // E2E_PORT lets parallel worktrees run their suites side by side.
 const PORT = Number(process.env.E2E_PORT ?? 3100);
+// Per-run throwaway key for the encrypted ad-platform tokens (T-38): e2e never depends on, or
+// reuses, a developer's local secret. The disposable e2e database is wiped every run anyway.
+// Set on process.env so the web server, the worker and any server a spec spawns share it.
+process.env.INTEGRATION_TOKEN_KEY = randomBytes(32).toString("base64");
 export default defineConfig({
   testDir: "e2e",
   globalSetup: "./e2e/global-setup.ts",

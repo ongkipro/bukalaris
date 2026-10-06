@@ -7,6 +7,7 @@ import { MengantarError } from "./mengantar/client.ts";
 import { enqueueOrderNotifications } from "./notify.ts";
 import { type Providers, type ShippingAdapter } from "./providers.ts";
 import { normalizePhone } from "./orders.ts";
+import { recordOrderSignals, type RequestSignalContext } from "./signals.ts";
 import { cart, cartLine, order, orderLine, product, rateLimit, store, storePickupArea, variant } from "./schema.ts";
 import { DomainError, storefrontScope, type StorefrontScope } from "./scoped.ts";
 import { defaultProviders, defaultShippingAdapter, shippingOptions, type CartForShipping } from "./shipping.ts";
@@ -76,7 +77,7 @@ export async function enforceLimits(exec: Executor, hits: Hit[]): Promise<void> 
   throw new DomainError("rate_limited", `Terlalu banyak percobaan. Coba lagi dalam ${wait} detik.`);
 }
 
-export type ClientContext = { clientIp?: string | undefined };
+export type ClientContext = { clientIp?: string | undefined; signal?: RequestSignalContext | undefined };
 const ipHit = (scope: string, ctx: ClientContext, rule: LimitRule): Hit[] => (ctx.clientIp ? [{ key: `${scope}:ip:${ctx.clientIp}`, rule }] : []);
 
 /** Rate limit for storefront cart add/update (per client IP when known, per existing cart). */
@@ -305,6 +306,8 @@ export async function placeOrder(
         await enqueue(tx, { kind: PAYMENT_INSTRUCTION, storeId, key: `order:${o.id}`, payload: { orderId: o.id } });
       }
       await enqueueOrderNotifications(tx, storeId, o.id, "created"); // T-36: buyer (if e-mail) + owners, after commit
+      // Ad signals (T-38): click context with the order; COD Purchase enqueued now, prepaid at settlement.
+      await recordOrderSignals(tx, { storeId, orderId: o.id, paymentMethod: input.paymentMethod, request: ctx.signal });
       return o.id;
     });
   } catch (err) {
@@ -335,6 +338,9 @@ export async function getBuyerOrder(exec: Executor, orderId: number, cartId: str
       paymentReference: order.paymentReference,
       courier: order.courier,
       destinationAreaLabel: order.destinationAreaLabel,
+      // Buyer fields feed the hashed advanced-matching block of the confirmation page (T-38); never rendered.
+      buyerName: order.buyerName,
+      buyerPhone: order.buyerPhone,
       subtotal: order.subtotal,
       shippingFee: order.shippingFee,
       total: order.total,

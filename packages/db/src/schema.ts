@@ -349,3 +349,4 @@ export * from "./schema-shipping.ts";
 export * from "./schema-catalog.ts";
 export * from "./schema-abuse.ts";
 export * from "./schema-notify.ts";
+export * from "./schema-signals.ts";

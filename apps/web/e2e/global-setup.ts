@@ -19,4 +19,10 @@ export default async function globalSetup() {
   const cwd = resolve(process.cwd(), "../../packages/db");
   execFileSync("node", ["src/migrate.ts"], { cwd, env, stdio: "inherit" });
   execFileSync("node", ["src/seed.ts"], { cwd, env, stdio: "inherit" });
+  // The whole suite (both viewports, every spec) buys the seeded "Kaos Katun Basic";
+  // its dev-seed stock (20/5) runs out mid-suite and silently changes the default
+  // variant. Top it up for e2e only; stock assertions in specs are relative.
+  const top = postgres(url, { max: 1, onnotice: () => {} });
+  await top`update variant set stock = 1000 where product_id in (select id from product where slug = 'kaos-katun-basic')`;
+  await top.end();
 }

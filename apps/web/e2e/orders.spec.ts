@@ -38,13 +38,13 @@ test("buyer places an order → seller sees it, processes, ships and completes i
   await login(page, "owner-a@bukalaris.local");
   await page.goto("/seller/orders");
   await expect(page.getByRole("heading", { name: "Pesanan" })).toBeVisible();
-  const row = page.getByRole("row").filter({ hasText: `#${id}` });
+  const row = page.getByRole("row").filter({ has: page.getByRole("link", { name: `#${id}`, exact: true }) });
   await expect(row.getByText("Menunggu konfirmasi")).toBeVisible(); // T-35: COD waits for the seller
   await evidence(page, info, "30-seller-orders");
 
   // Status filter keeps only matching orders.
   await page.getByRole("link", { name: "Selesai" }).click();
-  await expect(page.getByRole("row").filter({ hasText: `#${id}` })).toHaveCount(0);
+  await expect(page.getByRole("row").filter({ has: page.getByRole("link", { name: `#${id}`, exact: true }) })).toHaveCount(0);
   await page.getByRole("link", { name: "Semua" }).click();
   await row.getByRole("link", { name: `#${id}` }).click();
 
@@ -124,7 +124,8 @@ test("seller confirms a transfer, cancels it (stock returns once) and adjusts in
   await expect(inventoryRow(page, "L").getByTestId("stock")).toHaveText(String(before + 3));
   await evidence(page, info, "34-seller-inventory");
 
-  await inventoryRow(page, "L").getByLabel(/Perubahan stok/).fill("-999");
+  // One more than the current stock, so it over-decrements whatever the seeded level is.
+  await inventoryRow(page, "L").getByLabel(/Perubahan stok/).fill(String(-(before + 3 + 1)));
   await inventoryRow(page, "L").getByLabel(/Alasan perubahan/).fill("Salah hitung");
   await inventoryRow(page, "L").getByRole("button", { name: "Sesuaikan" }).click();
   // Scope to page content: Next's route announcer is also role=alert and now carries the page title.

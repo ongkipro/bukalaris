@@ -1,14 +1,17 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 import { spawn } from "node:child_process";
 import { deflateSync } from "node:zlib";
+import { THIRD_PARTY } from "../src/lib/security-headers";
 import { login } from "./helpers";
 
 // T-29 / SEC-14: every HTML surface carries the same security headers; the CSP is nonce based
 // (fresh 128-bit nonce per response) and the pages still run without a single CSP violation.
 const NONCE = "'nonce-[A-Za-z0-9+/]{22}=='";
+// Pixel destinations (T-38) are the only third-party hosts; the lists are the single source in lib/security-headers.ts.
+const hosts = (l: string[]) => l.map((h) => h.replace(/[.]/g, "\\.")).join(" ");
 const CSP = new RegExp(
-  `^default-src 'self'; script-src 'self' ${NONCE} 'strict-dynamic'; style-src 'self' ${NONCE}; img-src 'self'; connect-src 'self'; ` +
-    `font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; frame-src 'none'$`,
+  `^default-src 'self'; script-src 'self' ${hosts(THIRD_PARTY.script)} ${NONCE} 'strict-dynamic'; style-src 'self' ${NONCE}; img-src 'self' ${hosts(THIRD_PARTY.img)}; connect-src 'self' ${hosts(THIRD_PARTY.connect)}; ` +
+    `font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; frame-src ${hosts(THIRD_PARTY.frame)}$`,
 );
 const STATIC = {
   "x-content-type-options": "nosniff",

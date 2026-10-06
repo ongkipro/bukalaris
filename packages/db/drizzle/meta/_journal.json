@@ -43,6 +43,13 @@
       "when": 1791312115291,
       "tag": "0005_notify",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791315304540,
+      "tag": "0006_signals",
+      "breakpoints": true
     }
   ]
 }
