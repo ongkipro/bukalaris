@@ -11,6 +11,8 @@ const nextConfig: NextConfig = {
   // Monorepo: trace workspace packages (packages/db) into the standalone output.
   outputFileTracingRoot: repoRoot,
   transpilePackages: ["@bukalaris/db"],
+  // Product image uploads go through a Server Action (5 MB image + multipart overhead).
+  experimental: { serverActions: { bodySizeLimit: "6mb" } },
 };
 
 export default nextConfig;

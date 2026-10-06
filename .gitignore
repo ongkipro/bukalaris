@@ -11,3 +11,6 @@ playwright/.cache/
 coverage/
 test-results/
 playwright-report/
+
+# Local media uploads (MEDIA_DIR default)
+var/

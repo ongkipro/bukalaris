@@ -10,12 +10,13 @@ export default async function ConfirmationPage({ searchParams }: PageProps<"/che
   const o = id ? await getBuyerOrder(db(), id, (await cookies()).get(ORDER_COOKIE)?.value) : null;
   if (!o) notFound();
   return (
-    <section className="grid gap-4 rounded-lg border bg-background p-6" aria-labelledby="done">
-      <h1 id="done" className="text-2xl font-semibold">Pesanan diterima</h1>
+    <section className="mx-auto grid w-full max-w-2xl gap-4 rounded-xl border bg-background p-6" aria-labelledby="done">
+      <p className="text-sm font-medium tracking-wide text-muted-foreground uppercase">Terima kasih</p>
+      <h1 id="done" className="-mt-2 text-2xl font-semibold tracking-tight">Pesanan diterima</h1>
       <p>
-        Nomor pesanan <strong data-testid="order-id">#{o.id}</strong> di {o.storeName}.
+        Nomor pesanan <strong data-testid="order-id" className="select-all font-mono">#{o.id}</strong> di {o.storeName}. Simpan nomor ini untuk menanyakan status pesanan.
       </p>
-      <p role="status">
+      <p role="status" className="rounded-lg bg-muted/60 p-3">
         {o.paymentMethod === "cod"
           ? "Bayar di tempat (COD) saat barang tiba."
           : o.paymentReference
@@ -30,12 +31,12 @@ export default async function ConfirmationPage({ searchParams }: PageProps<"/che
           </li>
         ))}
       </ul>
-      <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 border-t pt-2 text-sm">
+      <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 border-t pt-2 text-sm tabular-nums">
         <dt>Subtotal</dt><dd className="text-right">{rupiah(o.subtotal)}</dd>
         <dt>Ongkir ({o.courier})</dt><dd className="text-right">{rupiah(o.shippingFee)}</dd>
         <dt className="font-semibold">Total</dt><dd className="text-right font-semibold" data-testid="order-total">{rupiah(o.total)}</dd>
       </dl>
-      <a href={`/s/${o.storeSlug}`} className="text-sm underline">Kembali ke toko</a>
+      <a href={`/s/${o.storeSlug}`} className="text-sm underline underline-offset-4">Kembali ke toko</a>
     </section>
   );
 }

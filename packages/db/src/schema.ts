@@ -87,11 +87,17 @@ export const store = pgTable(
     slug: text("slug").notNull().unique(),
     name: text("name").notNull(),
     status: text("status", { enum: ["active", "suspended"] }).notNull().default("active"),
+    // Store profile and presentation (SC-10/SC-11, PR-8). The theme changes presentation only.
+    description: text("description").notNull().default(""),
+    whatsapp: text("whatsapp"),
+    theme: text("theme", { enum: ["responsive", "mobile"] }).notNull().default("responsive"),
     createdAt: createdAt(),
   },
   (t) => [
     check("store_status_chk", sql`${t.status} in ('active', 'suspended')`),
     check("store_slug_chk", sql`${t.slug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$'`),
+    check("store_theme_chk", sql`${t.theme} in ('responsive', 'mobile')`),
+    check("store_whatsapp_chk", sql`${t.whatsapp} is null or ${t.whatsapp} ~ '^62[0-9]{8,13}$'`),
   ],
 );
 

@@ -1,9 +1,10 @@
 import { Notice } from "@/components/notice";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { operatorOrDeny } from "@/lib/context";
 import { listStores } from "@bukalaris/db";
+import Link from "next/link";
 import { setStoreStatusAction } from "./actions";
 
 export default async function AdminStoresPage({ searchParams }: PageProps<"/admin">) {
@@ -11,7 +12,10 @@ export default async function AdminStoresPage({ searchParams }: PageProps<"/admi
   const stores = await listStores(await operatorOrDeny());
   return (
     <section>
-      <h1 className="mb-4 text-2xl font-semibold">Toko</h1>
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <h1 className="text-2xl font-semibold">Toko</h1>
+        <Link href="/admin/stores/new" className={buttonVariants()}>Buat toko</Link>
+      </div>
       <Notice error={error} saved={saved} />
       <ul className="grid gap-3">
         {stores.map((s) => {
@@ -20,7 +24,7 @@ export default async function AdminStoresPage({ searchParams }: PageProps<"/admi
             <li key={s.id} className="grid gap-3 rounded-lg border p-4 md:grid-cols-[1fr_auto] md:items-center">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">{s.name}</span>
+                  <Link href={`/admin/stores/${s.id}`} className="font-medium hover:underline">{s.name}</Link>
                   <Badge variant={s.status === "active" ? "default" : "destructive"}>
                     {s.status === "active" ? "Aktif" : "Ditangguhkan"}
                   </Badge>
