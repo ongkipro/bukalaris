@@ -120,6 +120,7 @@ test("seller confirms a transfer, cancels it (stock returns once) and adjusts in
   await inventoryRow(page, "L").getByLabel(/Perubahan stok/).fill("-999");
   await inventoryRow(page, "L").getByLabel(/Alasan perubahan/).fill("Salah hitung");
   await inventoryRow(page, "L").getByRole("button", { name: "Sesuaikan" }).click();
-  await expect(page.getByRole("alert").filter({ hasText: /./ })).toContainText("Stok tidak cukup");
+  // Scope to page content: Next's route announcer is also role=alert and now carries the page title.
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("Stok tidak cukup");
   await expect(inventoryRow(page, "L").getByTestId("stock")).toHaveText(String(before + 3));
 });

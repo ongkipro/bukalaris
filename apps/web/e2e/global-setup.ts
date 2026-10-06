@@ -1,9 +1,11 @@
 import { execFileSync } from "node:child_process";
+import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 import postgres from "postgres";
 
-/** Recreate the disposable e2e database contents: create if missing, wipe, migrate, seed. */
+/** Recreate the disposable e2e database contents: create if missing, wipe, migrate, seed. Uploads go too. */
 export default async function globalSetup() {
+  rmSync(resolve("var/e2e-media"), { recursive: true, force: true });
   const url = process.env.E2E_DATABASE_URL;
   if (!url || !/_e2e\b/.test(url)) throw new Error("E2E_DATABASE_URL must point at a *_e2e database");
   const name = new URL(url).pathname.slice(1);

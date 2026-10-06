@@ -34,7 +34,8 @@ async function requestReset(page: Page, email: string) {
 test("password recovery never reveals whether an account exists and resets through the e-mailed link", async ({ page }, info) => {
   test.setTimeout(240_000);
   const unknown = `nobody-${info.project.name}@example.com`;
-  const known = "staff-a@bukalaris.local";
+  // Dedicated seed user: this test changes its password, so shared users (staff-a) stay intact for other specs.
+  const known = "recovery-a@bukalaris.local";
   const newPassword = `Sandi-${info.project.name}-${Date.now()}`;
 
   const first = await requestReset(page, unknown);

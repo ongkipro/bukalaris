@@ -1,5 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 
 // Browser evidence for M1 against a production build (`pnpm build` first) and the
 // disposable E2E_DATABASE_URL database, which global-setup wipes, migrates and seeds.
@@ -23,7 +24,8 @@ export default defineConfig({
       // The same standalone server the Docker image runs (env comes from .env + below).
       command: `PORT=${PORT} NEXT_TELEMETRY_DISABLED=1 pnpm start:standalone`,
       // Better Auth's origin check compares against BETTER_AUTH_URL, so it must match this port.
-      env: { DATABASE_URL: process.env.E2E_DATABASE_URL ?? "", BETTER_AUTH_URL: `http://localhost:${PORT}` },
+      // Disposable upload directory next to the disposable database (wiped by global-setup).
+      env: { DATABASE_URL: process.env.E2E_DATABASE_URL ?? "", BETTER_AUTH_URL: `http://localhost:${PORT}`, MEDIA_DIR: resolve("var/e2e-media") },
       url: `http://localhost:${PORT}/api/health`,
       // Never reuse a server that may point at the dev database.
       reuseExistingServer: false,

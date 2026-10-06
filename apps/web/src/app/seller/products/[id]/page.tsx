@@ -1,10 +1,11 @@
 import { Notice } from "@/components/notice";
 import { Button } from "@/components/ui/button";
 import { sellerScope } from "@/lib/context";
-import { canonicalSlug, getProduct } from "@bukalaris/db";
+import { canonicalSlug, getProduct, listProductMedia } from "@bukalaris/db";
 import { notFound } from "next/navigation";
 import { addVariantAction, updateProductAction, updateVariantAction } from "../../actions";
 import { ProductFields, VariantFields } from "../product-fields";
+import { ProductImages } from "../product-images";
 
 export default async function ProductPage({ params, searchParams }: PageProps<"/seller/products/[id]">) {
   const { id } = await params;
@@ -13,6 +14,7 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
   const productId = /^[0-9]{1,15}$/.test(id) ? Number(id) : NaN;
   const p = Number.isSafeInteger(productId) ? await getProduct(scope, productId) : null;
   if (!p) notFound();
+  const images = await listProductMedia(scope, p.id);
   const url = `/s/${scope.storeSlug}/products/${canonicalSlug(p)}`;
 
   return (
@@ -31,6 +33,8 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
           <Button type="submit">Simpan produk</Button>
         </div>
       </form>
+
+      <ProductImages productId={p.id} images={images} />
 
       <section aria-labelledby="variants" className="grid gap-4">
         <h2 id="variants" className="text-lg font-semibold">Varian</h2>

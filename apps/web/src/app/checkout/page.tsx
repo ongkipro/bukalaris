@@ -24,25 +24,27 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
 
   return (
     <div className="grid gap-6">
-      <h1 className="text-2xl font-semibold">Checkout · {summary.store.name}</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">Checkout · {summary.store.name}</h1>
       <Notice error={error} />
-      <section aria-labelledby="ringkasan" className="rounded-lg border bg-background p-4">
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <section aria-labelledby="ringkasan" className="rounded-xl border bg-background p-4 lg:sticky lg:top-6 lg:order-2">
         <h2 id="ringkasan" className="mb-2 font-medium">Ringkasan pesanan</h2>
         <ul className="divide-y text-sm">
           {summary.lines.map((l) => (
             <li key={l.variantId} className="flex justify-between gap-4 py-2">
-              <span>{l.productTitle} · {l.variantTitle} × {l.quantity}</span>
-              <span>{rupiah(l.price * l.quantity)}</span>
+              <span className="min-w-0">{l.productTitle} · {l.variantTitle} × {l.quantity}</span>
+              <span className="shrink-0 tabular-nums">{rupiah(l.price * l.quantity)}</span>
             </li>
           ))}
         </ul>
         <p className="mt-2 flex justify-between border-t pt-2 font-medium">
           <span>Subtotal</span>
-          <span data-testid="subtotal">{rupiah(summary.subtotal)}</span>
+          <span data-testid="subtotal" className="tabular-nums">{rupiah(summary.subtotal)}</span>
         </p>
+        <p className="mt-1 text-xs text-muted-foreground">Ongkir ditambahkan sesuai kurir yang dipilih.</p>
       </section>
 
-      <form action={submitCheckout} className="grid gap-6 rounded-lg border bg-background p-4">
+      <form action={submitCheckout} className="grid gap-6 rounded-xl border bg-background p-4 sm:p-6 lg:order-1">
         {/* Same key across double-clicks/resubmits of this render: the server returns the same order. */}
         <input type="hidden" name="idempotencyKey" value={randomUUID()} />
         <input type="hidden" name="store" value={scope.storeSlug} />
@@ -65,10 +67,10 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
         <fieldset className="grid gap-2">
           <legend className="mb-2 font-medium">Pengiriman</legend>
           {summary.options.map((o, i) => (
-            <label key={o.courier} className="flex items-center gap-3 rounded-md border p-3 has-checked:border-foreground">
+            <label key={o.courier} className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 has-checked:border-foreground has-checked:bg-muted/40 has-focus-visible:ring-3 has-focus-visible:ring-ring/50">
               <input type="radio" name="courier" value={o.courier} defaultChecked={i === 0} required />
               <span className="flex-1">{o.label}</span>
-              <span className="text-right text-sm">
+              <span className="text-right text-sm tabular-nums">
                 {rupiah(o.fee)}
                 <span className="block text-xs text-muted-foreground">Total {rupiah(summary.subtotal + o.fee)}</span>
               </span>
@@ -77,18 +79,19 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
         </fieldset>
         <fieldset className="grid gap-2">
           <legend className="mb-2 font-medium">Pembayaran</legend>
-          <label className="flex items-center gap-3 rounded-md border p-3 has-checked:border-foreground">
+          <label className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 has-checked:border-foreground has-checked:bg-muted/40 has-focus-visible:ring-3 has-focus-visible:ring-ring/50">
             <input type="radio" name="paymentMethod" value="cod" defaultChecked required />
             <span>Bayar di tempat (COD)</span>
           </label>
-          <label className="flex items-center gap-3 rounded-md border p-3 has-checked:border-foreground">
+          <label className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 has-checked:border-foreground has-checked:bg-muted/40 has-focus-visible:ring-3 has-focus-visible:ring-ring/50">
             <input type="radio" name="paymentMethod" value="manual_transfer" required />
             <span>Transfer bank (simulasi, tanpa transaksi nyata)</span>
           </label>
         </fieldset>
         <p className="text-sm text-muted-foreground">Harga, stok dan ongkir dicek ulang oleh server saat pesanan dibuat.</p>
-        <Button type="submit" size="lg">Buat pesanan</Button>
+        <Button type="submit" size="lg" className="h-11 text-base sm:justify-self-start sm:px-8">Buat pesanan</Button>
       </form>
+      </div>
     </div>
   );
 }

@@ -82,6 +82,59 @@ CREATE TABLE "system_log" (
 	CONSTRAINT "system_log_level_chk" CHECK ("system_log"."level" in ('debug', 'info', 'warn', 'error', 'fatal'))
 );
 --> statement-breakpoint
+CREATE TABLE "collection" (
+	"id" bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "collection_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 9223372036854775807 START WITH 1 CACHE 1),
+	"store_id" bigint NOT NULL,
+	"title" text NOT NULL,
+	"slug" text NOT NULL,
+	"description" text DEFAULT '' NOT NULL,
+	"status" text DEFAULT 'draft' NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "collection_store_id_uq" UNIQUE("store_id","id"),
+	CONSTRAINT "collection_store_slug_uq" UNIQUE("store_id","slug"),
+	CONSTRAINT "collection_status_chk" CHECK ("collection"."status" in ('draft', 'published')),
+	CONSTRAINT "collection_slug_chk" CHECK ("collection"."slug" ~ '^[a-z0-9]+(-[a-z0-9]+)*$')
+);
+--> statement-breakpoint
+CREATE TABLE "collection_product" (
+	"collection_id" bigint NOT NULL,
+	"store_id" bigint NOT NULL,
+	"product_id" bigint NOT NULL,
+	"position" integer NOT NULL,
+	CONSTRAINT "collection_product_collection_id_product_id_pk" PRIMARY KEY("collection_id","product_id")
+);
+--> statement-breakpoint
+CREATE TABLE "media" (
+	"id" bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "media_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 9223372036854775807 START WITH 1 CACHE 1),
+	"store_id" bigint NOT NULL,
+	"product_id" bigint NOT NULL,
+	"position" integer NOT NULL,
+	"alt" text DEFAULT '' NOT NULL,
+	"mime" text NOT NULL,
+	"width" integer NOT NULL,
+	"height" integer NOT NULL,
+	"bytes" integer NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "media_store_id_uq" UNIQUE("store_id","id"),
+	CONSTRAINT "media_mime_chk" CHECK ("media"."mime" in ('image/jpeg', 'image/png', 'image/webp')),
+	CONSTRAINT "media_dims_chk" CHECK ("media"."width" between 1 and 10000 and "media"."height" between 1 and 10000 and "media"."bytes" between 1 and 5242880)
+);
+--> statement-breakpoint
+CREATE TABLE "page" (
+	"id" bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "page_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 9223372036854775807 START WITH 1 CACHE 1),
+	"store_id" bigint NOT NULL,
+	"title" text NOT NULL,
+	"slug" text NOT NULL,
+	"body" text DEFAULT '' NOT NULL,
+	"status" text DEFAULT 'draft' NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "page_store_slug_uq" UNIQUE("store_id","slug"),
+	CONSTRAINT "page_status_chk" CHECK ("page"."status" in ('draft', 'published')),
+	CONSTRAINT "page_slug_chk" CHECK ("page"."slug" ~ '^[a-z0-9]+(-[a-z0-9]+)*$')
+);
+--> statement-breakpoint
 CREATE TABLE "checkout_handoff" (
 	"id" bigint PRIMARY KEY GENERATED ALWAYS AS IDENTITY (sequence name "checkout_handoff_id_seq" INCREMENT BY 1 MINVALUE 1 MAXVALUE 9223372036854775807 START WITH 1 CACHE 1),
 	"store_id" bigint NOT NULL,
@@ -137,6 +190,9 @@ ALTER TABLE "order" DROP CONSTRAINT "order_status_chk";--> statement-breakpoint
 ALTER TABLE "order" ADD COLUMN "paid_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "order" ADD COLUMN "tracking_number" text;--> statement-breakpoint
 ALTER TABLE "order" ADD COLUMN "updated_at" timestamp with time zone DEFAULT now() NOT NULL;--> statement-breakpoint
+ALTER TABLE "store" ADD COLUMN "description" text DEFAULT '' NOT NULL;--> statement-breakpoint
+ALTER TABLE "store" ADD COLUMN "whatsapp" text;--> statement-breakpoint
+ALTER TABLE "store" ADD COLUMN "theme" text DEFAULT 'responsive' NOT NULL;--> statement-breakpoint
 ALTER TABLE "user" ADD COLUMN "two_factor_enabled" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 ALTER TABLE "two_factor" ADD CONSTRAINT "two_factor_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "order_status_history" ADD CONSTRAINT "order_status_history_order_fk" FOREIGN KEY ("store_id","order_id") REFERENCES "public"."order"("store_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
@@ -146,6 +202,11 @@ ALTER TABLE "store_invitation" ADD CONSTRAINT "store_invitation_store_id_store_i
 ALTER TABLE "store_invitation" ADD CONSTRAINT "store_invitation_invited_by_user_id_fk" FOREIGN KEY ("invited_by") REFERENCES "public"."user"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "store_invitation" ADD CONSTRAINT "store_invitation_accepted_user_id_user_id_fk" FOREIGN KEY ("accepted_user_id") REFERENCES "public"."user"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "operator_grant" ADD CONSTRAINT "operator_grant_user_id_platform_operator_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."platform_operator"("user_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "collection" ADD CONSTRAINT "collection_store_id_store_id_fk" FOREIGN KEY ("store_id") REFERENCES "public"."store"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "collection_product" ADD CONSTRAINT "collection_product_collection_fk" FOREIGN KEY ("store_id","collection_id") REFERENCES "public"."collection"("store_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "collection_product" ADD CONSTRAINT "collection_product_product_fk" FOREIGN KEY ("store_id","product_id") REFERENCES "public"."product"("store_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "media" ADD CONSTRAINT "media_product_fk" FOREIGN KEY ("store_id","product_id") REFERENCES "public"."product"("store_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "page" ADD CONSTRAINT "page_store_id_store_id_fk" FOREIGN KEY ("store_id") REFERENCES "public"."store"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "checkout_handoff" ADD CONSTRAINT "checkout_handoff_cart_fk" FOREIGN KEY ("store_id","cart_id") REFERENCES "public"."cart"("store_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "checkout_handoff" ADD CONSTRAINT "checkout_handoff_channel_fk" FOREIGN KEY ("store_id","channel_id") REFERENCES "public"."storefront_channel"("store_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "storefront_channel" ADD CONSTRAINT "storefront_channel_store_id_store_id_fk" FOREIGN KEY ("store_id") REFERENCES "public"."store"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
@@ -159,10 +220,14 @@ CREATE INDEX "system_log_time_idx" ON "system_log" USING btree ("time" DESC NULL
 CREATE INDEX "system_log_request_idx" ON "system_log" USING btree ("request_id");--> statement-breakpoint
 CREATE INDEX "system_log_module_time_idx" ON "system_log" USING btree ("module","time" DESC NULLS LAST);--> statement-breakpoint
 CREATE INDEX "system_log_store_time_idx" ON "system_log" USING btree ("store_id","time" DESC NULLS LAST);--> statement-breakpoint
+CREATE INDEX "collection_product_order_idx" ON "collection_product" USING btree ("collection_id","position");--> statement-breakpoint
+CREATE INDEX "media_product_idx" ON "media" USING btree ("store_id","product_id","position");--> statement-breakpoint
 CREATE INDEX "checkout_handoff_cart_idx" ON "checkout_handoff" USING btree ("store_id","cart_id");--> statement-breakpoint
 CREATE INDEX "storefront_channel_prefix_idx" ON "storefront_channel" USING btree ("token_prefix");--> statement-breakpoint
 CREATE INDEX "job_claim_idx" ON "job" USING btree ("next_attempt_at","id") WHERE "job"."status" in ('pending', 'running');--> statement-breakpoint
 CREATE INDEX "job_store_idx" ON "job" USING btree ("store_id","id");--> statement-breakpoint
 CREATE INDEX "order_store_status_idx" ON "order" USING btree ("store_id","status","id");--> statement-breakpoint
 ALTER TABLE "order" ADD CONSTRAINT "order_shipped_chk" CHECK ("order"."status" not in ('shipped', 'completed') or "order"."tracking_number" is not null);--> statement-breakpoint
-ALTER TABLE "order" ADD CONSTRAINT "order_status_chk" CHECK ("order"."status" in ('awaiting_payment', 'placed', 'processing', 'shipped', 'completed', 'cancelled'));
+ALTER TABLE "order" ADD CONSTRAINT "order_status_chk" CHECK ("order"."status" in ('awaiting_payment', 'placed', 'processing', 'shipped', 'completed', 'cancelled'));--> statement-breakpoint
+ALTER TABLE "store" ADD CONSTRAINT "store_theme_chk" CHECK ("store"."theme" in ('responsive', 'mobile'));--> statement-breakpoint
+ALTER TABLE "store" ADD CONSTRAINT "store_whatsapp_chk" CHECK ("store"."whatsapp" is null or "store"."whatsapp" ~ '^62[0-9]{8,13}$');

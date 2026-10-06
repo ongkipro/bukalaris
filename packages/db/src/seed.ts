@@ -35,9 +35,12 @@ const op = (await operatorScope(db, adminId))!;
 
 const ownerA = await makeUser("owner-a@bukalaris.local", "Ayu (Toko A)");
 const staffA = await makeUser("staff-a@bukalaris.local", "Sari (Staf Toko A)");
+// Dedicated to the password-recovery e2e, which changes its password; never reuse it in other specs.
+const recoveryA = await makeUser("recovery-a@bukalaris.local", "Rani (Staf Toko A, uji pemulihan)");
 const ownerB = await makeUser("owner-b@bukalaris.local", "Bima (Toko B)");
 const storeA = await createStore(op, { slug: "toko-a", name: "Toko Ayu", ownerUserId: ownerA });
 await db.insert(membership).values({ storeId: storeA, userId: staffA, role: "staff" });
+await db.insert(membership).values({ storeId: storeA, userId: recoveryA, role: "staff" });
 await createStore(op, { slug: "toko-b", name: "Toko Bima", ownerUserId: ownerB });
 
 const scopeOf = async (userId: string) => {
