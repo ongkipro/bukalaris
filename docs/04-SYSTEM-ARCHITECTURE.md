@@ -315,6 +315,21 @@ media routes `apps/web/src/app/s/[store]/media/[id]/route.ts` and
 `packages/db/src/mengantar/**`. Integration evidence on `main`: Vitest 88
 passed, Playwright 41 passed + 1 skipped (`BUILD-LOG.md`, 2026-10-07).
 
+### M2 wave 2 locators (2026-10-07, merged to `main`)
+
+- `/seller/marketing` → `apps/web/src/app/seller/marketing/page.tsx`; services
+  `packages/db/src/signals.ts`; pixels `apps/web/src/components/pixels/**`;
+  browser funnel endpoint `apps/web/src/app/api/signals/route.ts`; tests
+  `packages/db/test/signals.test.ts`, `apps/web/e2e/signals.spec.ts` (T-38).
+- `/o/:token` (buyer order status, signed) → `apps/web/src/app/o/[token]/page.tsx`;
+  `packages/db/src/notify.ts`; tests `packages/db/test/notify.test.ts`,
+  `apps/web/e2e/notify.spec.ts` (T-36).
+- Seller/Super Admin shell → `apps/web/src/components/admin-shell.tsx` and
+  shared components under `apps/web/src/components/`; per-page evidence
+  `apps/web/e2e/ui.spec.ts` (T-28).
+- Checkout shipping/COD/abuse (T-34, T-35, T-30) live in the existing SF-07
+  and SC-13 entries (`packages/db/src/{checkout,orders,shipping}.ts`).
+
 ### Implementation locator and change rule
 
 For each implemented page, extend its row with actual file links or an anchor

@@ -5,13 +5,10 @@ This file owns current status. Evidence: `BUILD-LOG.md`, `docs/TASKS.md`
 ("M1 implementation evidence"). Nothing is committed yet — the owner approves
 the first commit.
 
-## In progress — M2 wave 2a (started 2026-10-07)
+## In progress — M2 wave 3 (2026-10-07)
 
-`checkout2` (T-34 phase 2 checkout shipping wiring, T-35 COD confirmation,
-T-30 abuse controls), `catalog` (T-14 five-digit string catalog ids + slug
-aliases, T-31 catalog audit), `hardening` (T-29 security headers, dependency
-hygiene, request-id trust). Next (wave 2b): T-36 email notifications, T-38 ad
-conversion signals, T-27 RLS + DB roles, T-28 seller/admin UI pass.
+`rls` (T-27): PostgreSQL RLS with owner/app/platform roles per ADR-0005. Waves
+1, 2a and 2b are merged (see below).
 
 Business direction (owner, 2026-10-06): revenue = shipping margin through a
 platform-owned Mengantar account; first segment = COD sellers nationwide; ad
@@ -32,9 +29,14 @@ Mengantar writes stay disabled until the owner approves a write test.
   - Transactional outbox + worker; payment instruction via outbox (T-32).
   - Mengantar read client, platform margin, seller pickup area (T-34 phase 1).
   - `pnpm verify`, `pnpm verify:docker`, backup/restore rehearsal, runbook (T-18).
-- Gates on `main`: lint 0, typecheck 0, Vitest 88 passed, build 0, Playwright
-  41 passed + 1 skipped, `verify:docker` exit 0 (30 tables, health 200,
-  HEALTHCHECK healthy, non-root, media volume writable).
+  - Wave 2a: security headers + nonce CSP (T-29), five-digit string catalog ids
+    + slug aliases + catalog audit (T-14, T-31), Mengantar shipping in checkout
+    with margin snapshot (T-34), COD confirmation + risk signals (T-35),
+    rate limits + cart caps/cleanup (T-30).
+  - Wave 2b: email order notifications + signed status links (T-36), ad
+    conversion signals in simulation (T-38), seller/admin UI pass (T-28).
+- Gates on `main` (`3e53efe`): lint 0, typecheck 0, Vitest 129 passed, build 0,
+  Playwright 72 passed + 2 skipped with a CSP-violation guard on every evidence step.
 
 ## Not done / known gaps (2026-10-07)
 
@@ -43,8 +45,8 @@ Mengantar writes stay disabled until the owner approves a write test.
 - Providers: Mengantar reads observed live; writes (booking, origin upsert)
   locked pending owner approval; AutoLaris still fake; receiver score API is
   403 for this account; `MENGANTAR_ORIGIN_AREA_ID` vs pickup address area mismatch to confirm.
-- No COD remittance ledger (Q-17), no real email provider, no ad signals yet (T-38).
-- No PostgreSQL RLS / separate DB roles (T-27); no security headers until T-29 merges.
+- No COD remittance ledger (Q-17), no real email provider; ad signals run in simulation until a test-event call is approved.
+- No PostgreSQL RLS / separate DB roles until T-27 merges.
 - Single app/origin for admin, storefront and checkout (D-2); no Astro storefront.
 - Rate-limit storage for auth is in memory (single instance only).
 - e2e evidence screenshots live in `docs/evidence/m1/` for every milestone and

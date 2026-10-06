@@ -342,7 +342,7 @@ the orchestrator merges, consolidates migrations and records evidence here.
   sees status, counts and recent audit on `/admin/stores/[id]`; sellers are denied.
 
 ### T-27 — Database-enforced tenant isolation
-- Status: Planned — wave 3, after wave 2b merges (touches every service). Design: `docs/ADR-0005-database-tenant-isolation-rls.md` (three roles, transaction-local `app.store_id`, platform pool for cross-store resolvers).
+- Status: In progress — track `rls` (wave 3) implementing ADR-0005.
 - Primary requirement: PR-2
 - Constraints: NFR-1, TEN-3, DATA-1, DECISIONS D-4
 - Dependencies: T-21, T-22, T-23, T-25
@@ -352,7 +352,7 @@ the orchestrator merges, consolidates migrations and records evidence here.
   runtime role, including a test that a missing store context returns no rows.
 
 ### T-28 — Seller and Super Admin UI consistency pass
-- Status: Planned — wave 2, after merge.
+- Status: Done (merged 2026-10-07) — shared AdminShell (skip link, nav scrolling inside the header at 320px, aria-current), PageHeader/EmptyState/StatusBadge with Indonesian labels for every status, WIB dates, confirm dialogs on destructive actions, loading/error states only where no redirect/notFound sits below, data tables scroll inside their container; `e2e/ui.spec.ts` captures every seller/admin page at 320px and desktop. Open: dark mode not rendered, field-level server error mapping, `/seller/marketing` predates the shell patterns. Report `docs/tracks/ui.md`. Main after wave-2b merges (2026-10-07): Vitest 129 passed, Playwright 72 passed + 2 skipped (CSP guard on every evidence step).
 - Primary requirement: PR-2
 - Constraints: NFR-3, UX-2, UI-1
 - Dependencies: T-21, T-22, T-23, T-25, T-26
@@ -458,7 +458,7 @@ until an observed, sanitized call is recorded (skill `mengantar-api`).
   unconfirmed order; tests cover each state and cross-store isolation.
 
 ### T-36 — Email order notifications
-- Status: Planned — after `accounts` (mailer) and `jobs` (outbox) merge.
+- Status: Done (merged 2026-10-07) — optional buyer email; `order.notify` jobs enqueued in the same transaction as created/confirmed/shipped/cancelled transitions, at most once per event+recipient (unique row), escaped HTML/text emails via the dev Mailer; signed order-status link `/o/<id>.<exp>.<hmac>` (30 days, constant-time check). Open: real email provider + SPF/DKIM/DMARC, link revocation before expiry. Report `docs/tracks/notify.md`. Main after wave-2b merges (2026-10-07): Vitest 129 passed, Playwright 72 passed + 2 skipped (CSP guard on every evidence step).
 - Primary requirement: PR-21
 - Constraints: NFR-4, NFR-5, PRIV-4, Q-16
 - Dependencies: T-22, T-32, T-21
@@ -477,7 +477,7 @@ until an observed, sanitized call is recorded (skill `mengantar-api`).
   payable per order, reconciled against provider reports.
 
 ### T-38 — Conversion signals (Meta, TikTok, Google)
-- Status: Planned — starts after T-32 (outbox) and T-14 (catalog ids) merge.
+- Status: Done in simulation (merged 2026-10-07) — `/seller/marketing` destinations with AES-256-GCM write-only tokens (AAD bound to store+provider), first-party click ids, pixels initialised once on storefront/checkout only, shared event ids, server Purchase (COD at creation, prepaid at "mark paid") through the outbox, value excludes shipping, variant catalog ids; delivery is `simulated` unless `SIGNALS_LIVE=1`. Provider contracts UNVERIFIED until the owner approves a test-event call. Open: Google offline conversions after delivery, consent review, email matching now possible with T-36 buyer email. Report `docs/tracks/signals.md`. Main after wave-2b merges (2026-10-07): Vitest 129 passed, Playwright 72 passed + 2 skipped (CSP guard on every evidence step).
 - Primary requirement: PR-20
 - Constraints: PR-12, Q-7, Q-15, NFR-4, PRIV-3, PRIV-5, TEN-1, SEC-11
 - Dependencies: T-14, T-32, T-21

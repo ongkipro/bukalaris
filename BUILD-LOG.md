@@ -322,3 +322,25 @@ Wave 2a launched from `d7a32f5`: `checkout2` (T-34 phase 2, T-35, T-30),
   ad-platform calls), `ui` (T-28).
 - ADR-0005 (Proposed): RLS with owner/app/platform roles, transaction-local
   store context, platform pool limited to named cross-store resolvers; T-27 in wave 3.
+
+## 2026-10-07 — Wave 2b integration (notify, signals, ui) and wave 3 start
+
+- notify (T-36): reviewed link signing (expiry + constant-time HMAC) and HTML
+  escaping. Integration fixes: specs use a fresh buyer phone per order
+  (`testPhone()`), because the shared number hit the per-phone order limit
+  (T-30) — the limit itself worked as designed; channels spec names its channel
+  per project (a revoked same-named row from the other viewport satisfied the
+  assertion early; revoke denial is also proven in `channels.test.ts`).
+- signals (T-38): reviewed simulation default (`SIGNALS_LIVE=1` required for any
+  network call) and AES-256-GCM with AAD. Migration regenerated as `0006`.
+  Integration fixes: unit tests count only `signal.*` jobs; Playwright sets a
+  per-run `INTEGRATION_TOKEN_KEY` (the page correctly fails closed without one);
+  e2e tops up the seeded Kaos stock (sold out mid-suite and silently switched
+  the default variant); orders spec selects rows by exact order link and
+  over-decrements relative to current stock.
+- ui (T-28): conflicts resolved (seller nav keeps Pemasaran in the new NavItem
+  shape; orders.ts keeps notify + signals hooks and the Indonesian status label;
+  channels spec accepts the new revoke confirmation).
+- Results on `main` (`3e53efe`): lint 0, typecheck 0, Vitest 129 passed,
+  build 0, Playwright 72 passed + 2 skipped.
+- Wave 3: track `rls` (T-27, ADR-0005) launched from `ef809e0`.
