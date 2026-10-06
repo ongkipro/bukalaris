@@ -186,6 +186,26 @@ CREATE TABLE "job" (
 	CONSTRAINT "job_lock_chk" CHECK (("job"."status" = 'running') = ("job"."locked_by" is not null and "job"."locked_until" is not null))
 );
 --> statement-breakpoint
+CREATE TABLE "shipping_margin_rule" (
+	"key" text PRIMARY KEY DEFAULT 'default' NOT NULL,
+	"fixed_idr" bigint DEFAULT 0 NOT NULL,
+	"percent_bps" integer DEFAULT 0 NOT NULL,
+	"round_to" integer DEFAULT 500 NOT NULL,
+	"updated_by" text,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "shipping_margin_rule_key_chk" CHECK ("shipping_margin_rule"."key" = 'default'),
+	CONSTRAINT "shipping_margin_rule_values_chk" CHECK ("shipping_margin_rule"."fixed_idr" >= 0 and "shipping_margin_rule"."percent_bps" between 0 and 10000 and "shipping_margin_rule"."round_to" in (1, 100, 500, 1000))
+);
+--> statement-breakpoint
+CREATE TABLE "store_pickup_area" (
+	"store_id" bigint PRIMARY KEY NOT NULL,
+	"area_id" text NOT NULL,
+	"area_label" text NOT NULL,
+	"address_text" text DEFAULT '' NOT NULL,
+	"updated_by" text NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
 ALTER TABLE "order" DROP CONSTRAINT "order_status_chk";--> statement-breakpoint
 ALTER TABLE "order" ADD COLUMN "paid_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "order" ADD COLUMN "tracking_number" text;--> statement-breakpoint
@@ -211,6 +231,7 @@ ALTER TABLE "checkout_handoff" ADD CONSTRAINT "checkout_handoff_cart_fk" FOREIGN
 ALTER TABLE "checkout_handoff" ADD CONSTRAINT "checkout_handoff_channel_fk" FOREIGN KEY ("store_id","channel_id") REFERENCES "public"."storefront_channel"("store_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "storefront_channel" ADD CONSTRAINT "storefront_channel_store_id_store_id_fk" FOREIGN KEY ("store_id") REFERENCES "public"."store"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "job" ADD CONSTRAINT "job_store_id_store_id_fk" FOREIGN KEY ("store_id") REFERENCES "public"."store"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "store_pickup_area" ADD CONSTRAINT "store_pickup_area_store_id_store_id_fk" FOREIGN KEY ("store_id") REFERENCES "public"."store"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "two_factor_user_idx" ON "two_factor" USING btree ("user_id");--> statement-breakpoint
 CREATE INDEX "two_factor_secret_idx" ON "two_factor" USING btree ("secret");--> statement-breakpoint
 CREATE INDEX "order_status_history_order_idx" ON "order_status_history" USING btree ("store_id","order_id");--> statement-breakpoint

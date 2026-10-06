@@ -1,5 +1,5 @@
 {
-  "id": "76954206-20a4-4b27-8b83-f0f300f229a0",
+  "id": "cd740fcb-2bdf-47b1-bedf-bbe38df9dffd",
   "prevId": "d3f70077-26e4-44c6-908d-b19dc3a8fca4",
   "version": "7",
   "dialect": "postgresql",
@@ -3146,6 +3146,134 @@
           "value": "(\"job\".\"status\" = 'running') = (\"job\".\"locked_by\" is not null and \"job\".\"locked_until\" is not null)"
         }
       },
+      "isRLSEnabled": false
+    },
+    "public.shipping_margin_rule": {
+      "name": "shipping_margin_rule",
+      "schema": "",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "'default'"
+        },
+        "fixed_idr": {
+          "name": "fixed_idr",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "percent_bps": {
+          "name": "percent_bps",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "round_to": {
+          "name": "round_to",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 500
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "shipping_margin_rule_key_chk": {
+          "name": "shipping_margin_rule_key_chk",
+          "value": "\"shipping_margin_rule\".\"key\" = 'default'"
+        },
+        "shipping_margin_rule_values_chk": {
+          "name": "shipping_margin_rule_values_chk",
+          "value": "\"shipping_margin_rule\".\"fixed_idr\" >= 0 and \"shipping_margin_rule\".\"percent_bps\" between 0 and 10000 and \"shipping_margin_rule\".\"round_to\" in (1, 100, 500, 1000)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.store_pickup_area": {
+      "name": "store_pickup_area",
+      "schema": "",
+      "columns": {
+        "store_id": {
+          "name": "store_id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "area_id": {
+          "name": "area_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "area_label": {
+          "name": "area_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "address_text": {
+          "name": "address_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "store_pickup_area_store_id_store_id_fk": {
+          "name": "store_pickup_area_store_id_store_id_fk",
+          "tableFrom": "store_pickup_area",
+          "tableTo": "store",
+          "columnsFrom": [
+            "store_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     }
   },

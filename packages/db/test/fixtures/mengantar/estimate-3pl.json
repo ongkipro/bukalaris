@@ -1,0 +1,100 @@
+{
+  "success": true,
+  "data": {
+    "JNE": {
+      "price": 21000,
+      "unsupported": null,
+      "unsupported_cod": null,
+      "estimatedDate": "1 - 2 days"
+    },
+    "JNECargo": {
+      "price": 65000,
+      "unsupported": null,
+      "unsupported_cod": null,
+      "estimatedDate": "4 - 5 days",
+      "minimumWeightCargo": 10
+    },
+    "SiCepat": {
+      "price": 18000,
+      "unsupported": false,
+      "unsupported_cod": null,
+      "estimatedDate": "2 - 3 days"
+    },
+    "SiCepatCargo": {
+      "price": 55000,
+      "unsupported": false,
+      "unsupported_cod": null,
+      "estimatedDate": "2 - 4 days",
+      "minimumWeightCargo": 10
+    },
+    "SAP": {
+      "price": 19000,
+      "unsupported": false,
+      "unsupported_cod": false,
+      "estimatedDate": "2 - 5 days"
+    },
+    "SAPLite": {
+      "price": 19000,
+      "unsupported": false,
+      "unsupported_cod": false,
+      "estimatedDate": "2 - 5 days"
+    },
+    "SapCargo": {
+      "price": 50000,
+      "unsupported": null,
+      "unsupported_cod": true,
+      "estimatedDate": "4 - 9 days",
+      "minimumWeightCargo": 5
+    },
+    "iDexpress": {
+      "price": 19500,
+      "unsupported": false,
+      "unsupported_cod": false,
+      "estimatedDate": "2-4 days"
+    },
+    "iDlite": {
+      "price": 19500,
+      "unsupported": false,
+      "unsupported_cod": false,
+      "estimatedDate": "2-4 days"
+    },
+    "JT": {
+      "price": 18000,
+      "unsupported": false,
+      "unsupported_cod": false,
+      "estimatedDate": "2-4 days"
+    },
+    "lion": {
+      "price": 22320,
+      "unsupported": false,
+      "unsupported_cod": false,
+      "estimatedDate": "2 - 3 days"
+    },
+    "iDexpressCargo": {
+      "price": 45000,
+      "unsupported": false,
+      "unsupported_cod": false,
+      "estimatedDate": "3 - 5 days",
+      "minimumWeightCargo": 10
+    },
+    "anteraja": {
+      "price": 9000,
+      "unsupported": false,
+      "unsupported_cod": false,
+      "estimatedDate": "2-4 days",
+      "isFlat": true
+    },
+    "spx": {
+      "price": 17700,
+      "unsupported": false,
+      "unsupported_cod": false,
+      "estimatedDate": "1 - 2 days"
+    },
+    "pos": {
+      "price": 19000,
+      "unsupported": false,
+      "unsupported_cod": false,
+      "estimatedDate": "4 days"
+    }
+  }
+}

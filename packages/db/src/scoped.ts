@@ -49,6 +49,8 @@ const capabilities = {
   "orders.fulfill": ["owner", "staff"],
   "inventory.write": ["owner", "staff"],
   "integrations.manage": ["owner"],
+  // M2 shipping track: pickup origin is a store-level commercial setting → owner only.
+  "shipping.manage": ["owner"],
 } as const satisfies Record<string, readonly Role[]>;
 export type Capability = keyof typeof capabilities;
 
