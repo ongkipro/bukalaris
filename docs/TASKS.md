@@ -342,7 +342,7 @@ the orchestrator merges, consolidates migrations and records evidence here.
   sees status, counts and recent audit on `/admin/stores/[id]`; sellers are denied.
 
 ### T-27 — Database-enforced tenant isolation
-- Status: Planned — wave 2, after wave-1 merge (touches every service).
+- Status: Planned — wave 3, after wave 2b merges (touches every service). Design: `docs/ADR-0005-database-tenant-isolation-rls.md` (three roles, transaction-local `app.store_id`, platform pool for cross-store resolvers).
 - Primary requirement: PR-2
 - Constraints: NFR-1, TEN-3, DATA-1, DECISIONS D-4
 - Dependencies: T-21, T-22, T-23, T-25

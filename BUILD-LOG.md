@@ -313,3 +313,12 @@ Wave 2a launched from `d7a32f5`: `checkout2` (T-34 phase 2, T-35, T-30),
   passed + 2 skipped.
 - Decision D-9: migrations append-only; NOT NULL on populated tables must be
   expand/backfill/contract after the first deployment.
+
+## 2026-10-07 — Wave 2b started; RLS design
+
+- `pnpm verify:docker` on `main` after wave 2a: health 200, `/s/nope` 404,
+  login 200, HEALTHCHECK healthy, user app, media writable; cleanup confirmed.
+- Wave 2b launched from `b7150ee`: `notify` (T-36), `signals` (T-38, no real
+  ad-platform calls), `ui` (T-28).
+- ADR-0005 (Proposed): RLS with owner/app/platform roles, transaction-local
+  store context, platform pool limited to named cross-store resolvers; T-27 in wave 3.
