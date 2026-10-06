@@ -104,8 +104,10 @@ test.describe("correlation id and error pages", () => {
   test("every response carries a request id; unmatched URLs get the Indonesian 404 with the id", async ({ page, request }, info) => {
     const minted = await request.get("/api/health");
     expect(minted.headers()["x-request-id"]).toMatch(RID);
-    const echoed = await request.get("/api/health", { headers: { "x-request-id": "abc-12345678" } });
-    expect(echoed.headers()["x-request-id"]).toBe("abc-12345678");
+    // T-29: a client-supplied id is ignored unless TRUST_PROXY_REQUEST_ID=1 (reverse proxy sets it); the e2e server does not set it.
+    const supplied = await request.get("/api/health", { headers: { "x-request-id": "abc-12345678" } });
+    expect(supplied.headers()["x-request-id"]).toMatch(RID);
+    expect(supplied.headers()["x-request-id"]).not.toBe("abc-12345678");
     const rejected = await request.get("/api/health", { headers: { "x-request-id": "bad id!<script>" } });
     expect(rejected.headers()["x-request-id"]).toMatch(RID);
     expect(rejected.headers()["x-request-id"]).not.toBe("bad id!<script>");

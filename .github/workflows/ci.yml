@@ -54,6 +54,14 @@ jobs:
           key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: pnpm-${{ runner.os }}-
       - run: pnpm install --frozen-lockfile
+      # Dependency hygiene (T-29 / SEC-15): the production tree must be free of high/critical
+      # advisories; moderate and lower are reported but do not fail the job (recorded with
+      # reachability in docs/tracks/hardening.md).
+      - name: audit (production tree, blocking at high)
+        run: pnpm audit --prod --audit-level high
+      - name: audit (production tree, full report)
+        run: pnpm audit --prod
+        continue-on-error: true
       - run: pnpm exec playwright install --with-deps chromium
         working-directory: apps/web
       # Test and e2e databases are created by their global setups when missing.
