@@ -29,6 +29,8 @@ Values live only in Coolify secrets; never in the repository or image.
 | `MEDIA_DIR` | preset | — | Image default `/data/media`; mount a persistent volume there (see "Media volume") |
 | `ENABLE_HSTS` | optional | — | `1` once TLS terminates at the reverse proxy and it forwards `x-forwarded-proto: https`. Adds `Strict-Transport-Security: max-age=31536000; includeSubDomains` (no `preload`) and `upgrade-insecure-requests`; both are sent only on requests that arrived as HTTPS, so a plain-http hit can never pin a host. Unset by default |
 | `TRUST_PROXY_REQUEST_ID` | optional | — | `1` only when the reverse proxy sets or overwrites `x-request-id` on every forwarded request (Traefik/Coolify do not by default — verify before enabling). With it, a well-formed inbound id (`^[A-Za-z0-9_-]{8,64}$`) is kept for log correlation; without it the app always mints its own, so a client cannot choose the id its log lines carry. Unset by default |
+| `INTEGRATION_TOKEN_KEY` | required (web + worker) | — | 32 bytes, base64 (`openssl rand -base64 32`) or 64 hex chars. AES-256-GCM key sealing the per-store Meta/TikTok server tokens (T-38). Rotating it makes stored tokens unreadable: sellers re-enter them. Never reuse the `.env.example` placeholder |
+| `SIGNALS_LIVE` | optional (worker) | — | `1` lets the outbox worker call Meta Conversions API / TikTok Events API for real. Unset = simulation (events recorded as `simulated`, nothing leaves the host). Enable only after the owner approves a test-event call and the provider contract is verified (docs/tracks/signals.md) |
 | `PORT`, `HOSTNAME` | preset | — | Image defaults `3000`, `0.0.0.0` |
 
 ## Migration step (before the new web version)
