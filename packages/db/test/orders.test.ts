@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { placeOrder } from "../src/checkout.ts";
+import { runOnce } from "../src/jobs.ts";
 import {
   adjustStock,
   allowedActions,
@@ -22,7 +23,9 @@ const statusOf = async (id: number) => (await db.select().from(order).where(eq(o
 type Store = Awaited<ReturnType<typeof makeStore>>;
 async function placed(s: Store, qty = 1, over: Record<string, unknown> = {}) {
   const cartId = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: qty }, "add");
-  return (await placeOrder(db, cartId, buyer(over))).orderId;
+  const { orderId } = await placeOrder(db, cartId, buyer(over));
+  await runOnce(db, { workerId: "test" }); // T-32: the payment instruction comes from the outbox worker
+  return orderId;
 }
 /** Force an order into a given status directly (the matrix test needs every start state). */
 /** The strict input each action accepts (extra keys are rejected by the schema). */
@@ -161,13 +164,18 @@ describe("seller orders (SC-12/SC-13)", () => {
         transitionOrder(staffScope, id, "cancel", { reason: "cancel oleh staf" }),
         transitionOrder(s.owner, id, "process"),
       ]);
+      // Interleavings: a cancel wins (process + other cancel rejected), or process wins and
+      // one cancel then legitimately cancels from `processing`. Either way exactly one
+      // cancel succeeds and stock is restored exactly once.
       const ok = settled.filter((r) => r.status === "fulfilled");
-      expect(ok).toHaveLength(1);
+      expect(ok.length).toBeGreaterThanOrEqual(1);
+      expect(ok.length).toBeLessThanOrEqual(2);
       expect(settled.filter((r) => r.status === "rejected").every((r) => r.reason.code === "invalid_transition")).toBe(true);
-      const final = await statusOf(id);
-      expect(await stockOf(s.variantId)).toBe(final === "cancelled" ? 10 : 6);
-      expect(await db.select().from(stockAdjustment).where(eq(stockAdjustment.orderId, id))).toHaveLength(final === "cancelled" ? 1 : 0);
-      expect(await db.select().from(orderStatusHistory).where(eq(orderStatusHistory.orderId, id))).toHaveLength(1);
+      expect(ok.filter((r) => (r as PromiseFulfilledResult<string>).value === "cancelled")).toHaveLength(1);
+      expect(await statusOf(id)).toBe("cancelled");
+      expect(await stockOf(s.variantId)).toBe(10);
+      expect(await db.select().from(stockAdjustment).where(eq(stockAdjustment.orderId, id))).toHaveLength(1);
+      expect(await db.select().from(orderStatusHistory).where(eq(orderStatusHistory.orderId, id))).toHaveLength(ok.length);
     }
   });
 

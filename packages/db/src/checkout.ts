@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { and, asc, count, eq, gte, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Executor } from "./client.ts";
+import { enqueue, PAYMENT_INSTRUCTION } from "./jobs.ts";
 import { fakeProviders, type Providers } from "./providers.ts";
 import { cart, cartLine, order, orderLine, product, store, variant } from "./schema.ts";
 import { DomainError } from "./scoped.ts";
@@ -169,6 +170,12 @@ export async function placeOrder(
         })),
       );
       await tx.delete(cartLine).where(and(eq(cartLine.storeId, storeId), eq(cartLine.cartId, cartId)));
+      // Post-commit side effect as durable intent in the same transaction (SEC-18): the
+      // worker asks the provider for a payment instruction; until then the order is an
+      // explicit pending state with no reference (D-5).
+      if (input.paymentMethod === "manual_transfer") {
+        await enqueue(tx, { kind: PAYMENT_INSTRUCTION, storeId, key: `order:${o.id}`, payload: { orderId: o.id } });
+      }
       return o.id;
     });
   } catch (err) {
@@ -182,29 +189,7 @@ export async function placeOrder(
     throw err;
   }
 
-  await ensurePaymentInstruction(exec, storeId, orderId, providers);
   return { orderId, replayed: false };
-}
-
-/**
- * After commit: request a payment instruction for transfer orders. Failure leaves
- * the order in an explicit "awaiting_payment" state without a reference (NFR-5).
- */
-async function ensurePaymentInstruction(exec: Executor, storeId: number, orderId: number, providers: Providers) {
-  const [o] = await exec
-    .select({ method: order.paymentMethod, ref: order.paymentReference, total: order.total })
-    .from(order)
-    .where(and(eq(order.storeId, storeId), eq(order.id, orderId)));
-  if (!o || o.method !== "manual_transfer" || o.ref) return;
-  try {
-    const { reference } = await providers.payment.createInstruction({ storeId, orderId, amount: o.total });
-    await exec
-      .update(order)
-      .set({ paymentReference: reference })
-      .where(and(eq(order.storeId, storeId), eq(order.id, orderId), sql`${order.paymentReference} is null`));
-  } catch {
-    // lazy: no retry worker in M1; the confirmation page shows the pending state.
-  }
 }
 
 /** Order outcome for the buyer who owns the checked-out cart (an order id alone grants nothing). */
