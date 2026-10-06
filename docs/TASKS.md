@@ -447,7 +447,7 @@ until an observed, sanitized call is recorded (skill `mengantar-api`).
   gating and that write methods refuse without the flag.
 
 ### T-35 — COD confirmation and risk signals
-- Status: Planned — after T-34 adapter.
+- Status: In progress — track `checkout2` (wave 2a). Observed 2026-10-06: `getReceiverScoreByNumberUser` returns 403 "Not allowed" for this account, so v1 risk signals are store-local only (repeat unconfirmed/cancelled orders per phone, address completeness, COD amount); provider score stays optional behind a capability check.
 - Primary requirement: PR-19
 - Constraints: Q-10, Q-14, PRIV-2, PRIV-3, NFR-2, TEN-1
 - Dependencies: T-21, T-34

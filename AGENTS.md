@@ -87,6 +87,9 @@ Tracks run in separate git worktrees (`~/Projects/bukalaris-wt/<track>`, branch
 | `release` | `.github/workflows/**`, `scripts/**`, `apps/web/Dockerfile`, `.dockerignore`, `docs/RUNBOOK.md` | root `package.json` scripts, `docker-compose.yml`, `docs/DEPLOY-COOLIFY.md` |
 | `jobs` | `packages/db/src/jobs.ts`, `schema-jobs.ts`, `packages/db/src/worker.ts`, `packages/db/test/jobs.test.ts` | `packages/db/src/checkout.ts` (move the post-commit payment call onto the outbox only), `packages/db/package.json` scripts |
 | `shipping` | `packages/db/src/shipping.ts`, `schema-shipping.ts`, `packages/db/src/mengantar/**`, `apps/web/src/app/seller/shipping/**`, `apps/web/src/app/admin/shipping/**`, `packages/db/test/shipping.test.ts` | capability map in `scoped.ts` (additions only) |
+| `checkout2` (wave 2a) | `packages/db/src/{checkout,orders,shipping}.ts`, `schema-orders.ts`, `schema-shipping.ts`, `order` table in `schema.ts`, `apps/web/src/app/checkout/**`, `apps/web/src/app/s/[store]/{actions.ts,cart/**}`, `apps/web/src/app/seller/orders/**` | capability map (additions) |
+| `catalog` (wave 2a) | `packages/db/src/{catalog,storefront}.ts`, `product`/`variant` tables in `schema.ts`, `apps/web/src/app/seller/products/**`, `apps/web/src/app/s/[store]/products/**`, storefront product links | `packages/db/src/seed.ts` (ids only) |
+| `hardening` (wave 2a) | `apps/web/next.config.ts`, `apps/web/package.json` deps, `apps/web/src/proxy.ts`, `apps/web/src/lib/request-id.ts`, security header tests | root `package.json`, `.github/workflows/ci.yml` (audit step) |
 | `content` | `packages/db/src/content.ts`, `schema-content.ts`, `apps/web/src/app/seller/{collections,pages,settings}/**`, `apps/web/src/app/s/**`, `apps/web/src/app/checkout/**` (presentation), `apps/web/src/app/admin/stores/**`, `globals.css` | `store` table in `schema.ts`, `seller/products/**` (images) |
 
 Rules for every track:
