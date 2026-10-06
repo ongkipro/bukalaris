@@ -9,9 +9,15 @@ the first commit.
 
 Parallel tracks on local branches (see `docs/TASKS.md` M2 queue, AGENTS.md
 "Parallel tracks"): `orders` (T-21), `accounts` (T-22), `ops` (T-23),
-`content` (T-24..T-26), `channels` (T-16/T-19), `release` (T-18). Nothing from
-these branches is merged or verified on `main` yet. Wave 2 after merge: T-27
-RLS, T-28 UI pass, T-14 catalog IDs.
+`content` (T-24..T-26), `channels` (T-16/T-19), `jobs` (T-32), `shipping`
+(T-34). Merged into `main` after independent re-verification: `orders` (T-21),
+`release` (T-18). Next after merges: T-27 RLS, T-28 UI pass, T-14 catalog IDs,
+T-29..T-31, T-35, T-36, T-38.
+
+Business direction (owner, 2026-10-06): revenue = shipping margin through a
+platform-owned Mengantar account; first segment = COD sellers nationwide; ad
+signals follow the TokoΦ/AdsBookCMS concept; email notifications first.
+Blocking decision before any real COD shipment: Q-17 COD remittance (finance + legal).
 
 ## What works on `main` (verified locally)
 

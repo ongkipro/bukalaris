@@ -475,3 +475,17 @@ until an observed, sanitized call is recorded (skill `mengantar-api`).
 - Done when: the owner accepts a remittance policy; then a double-entry style
   ledger records COD collected, shipping cost, platform margin and seller
   payable per order, reconciled against provider reports.
+
+### T-38 — Conversion signals (Meta, TikTok, Google)
+- Status: Planned — starts after T-32 (outbox) and T-14 (catalog ids) merge.
+- Primary requirement: PR-20
+- Constraints: PR-12, Q-7, Q-15, NFR-4, PRIV-3, PRIV-5, TEN-1, SEC-11
+- Dependencies: T-14, T-32, T-21
+- Done when: per-store destination settings with encrypted write-only tokens;
+  browser pixels initialised once with a shared event id per funnel event;
+  server Purchase (COD at creation, prepaid at settlement) enqueued in the
+  order transaction and delivered by the worker with idempotency and sanitized
+  errors; seller health view; tests cover hashing/normalization, dedup ids,
+  value excluding shipping, variant content ids, retry/permanent-failure paths
+  and cross-store isolation; any real destination call uses a test-event code
+  and is recorded as sanitized evidence.

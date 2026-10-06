@@ -232,3 +232,30 @@ catalog-identity rule), design pack, code on `main`, `pnpm audit --prod`.
 - TASKS: T-29..T-33 for those findings (wave 2); no tasks for unaccepted PR-18..22.
 - `check-traceability.py docs` → PASS files=26 declarations=207 tasks=33 findings=0;
   `check-spec.py` → PASS.
+
+## 2026-10-06 — Owner decisions, release merge, shipping track
+
+- Merged `m2/release` (T-18) after independent re-run in its worktree:
+  lint 0, typecheck 0, `pnpm verify:docker` exit 0 (web 301 MB, migrate
+  273 MB, health 200, `/s/nope` 404, HEALTHCHECK healthy, user app, media
+  writable, throwaway DB/container/volume cleaned), backup 33,580 bytes and
+  restore rehearsal 14/14 tables equal. Reviewed destructive commands: drops
+  only target script-generated scratch names behind a `bukalaris*` guard.
+  Main after merge: Vitest 34 passed.
+- Owner decisions recorded in 02-PRD.md: Q-12 shipping margin, Q-13 COD sellers
+  nationwide, Mengantar API allowed for development via `secrets-env` (reads
+  live; writes stay disabled pending explicit approval), Q-15 TokoΦ/AdsBookCMS
+  signal concept, Q-16 email first. Derived: Q-2 platform-owned Mengantar
+  account; new Q-17 COD remittance (finance + legal) before any real COD shipment.
+  PR-5 (Mengantar), PR-19, PR-20, PR-21 → accepted for implementation; PR-18 deferred.
+- Research: read-only review of `~/Projects/tokophi` and `~/Projects/adsbookcms`
+  tracking implementations → PR-20 signal contract (events, COD/prepaid
+  purchase timing, dedup ids, variant content ids, hashing, outbox, consent);
+  Q-7 resolved to variant-level ids. Mengantar toolkit `~/Projects/mengantar-documentation`
+  and skill `mengantar-api` used for the shipping design (contract unverified until observed).
+- Tasks: T-34 shipping quotes + margin (track `shipping` launched), T-35 COD
+  confirmation/risk, T-36 email notifications, T-37 remittance ledger (blocked
+  on Q-17), T-38 conversion signals. Suite checker: PASS files=28
+  declarations=212 tasks=38 findings=0.
+- Memory: three verified lessons captured as candidates via `ai-learn capture`
+  (Better Auth rate-limit bypass, Coolify pre-deploy hook, Next build prerender/env order).

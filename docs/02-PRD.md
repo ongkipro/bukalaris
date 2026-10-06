@@ -327,7 +327,7 @@ deferred. Scoped storefront API/token integration is initial headless scope.
 | ID | Decision | Owner | Gate |
 |---|---|---|---|
 | Q-6 | Auth provider, hosting and package versions; framework selected and database recommended in Architecture | Architecture owner | Before implementation baseline |
-| Q-7 | Catalog granularity and seller Pixel/catalog account ownership | Integration owner | Before feed export or advertising events |
+| Q-7 | Catalog granularity and seller Pixel/catalog account ownership (2026-10-06: variant-level item ids with product group ids adopted with Q-15; Pixel/catalog accounts are seller-owned per store) | Integration owner | Before feed export or advertising events |
 | Q-8 | Domain provider, apex support, quotas and operating cost | Platform owner | Before domain provisioning |
 | Q-9 | LP form types and protected/customizable fields | Product owner | Before LP/form implementation |
 | Q-10 | Stock reservation expiry, late payment, order cancellation/refund and COD confirmation policy | Finance owner | Before checkout release |
@@ -470,6 +470,29 @@ Candidate revenue streams (owner chooses; each needs Q-12):
 - Evidence: Proposal only; provider contracts must be verified against current
   official documentation before implementation.
 - Change history: 2026-10-06 — proposed.
+
+#### PR-20 signal contract (2026-10-06, from TokoΦ + AdsBookCMS review)
+
+Reference implementations reviewed read-only: TokoΦ (`specs/decisions/0012`,
+`0013`, `tracking_event_deliveries`, `store_tracking_channels`) and AdsBookCMS
+(`TRACKING_SPECS.md`, `capi_event_outbox`). Neither records provider-accepted
+live events; Bukalaris must verify each destination against current official
+docs and a test-event code before claiming it works.
+
+| Concern | Bukalaris contract (proposal accepted in direction) | Origin |
+|---|---|---|
+| Tenancy | One row per store × destination (meta, tiktok, google): pixel/measurement id, server token encrypted at rest (AES-GCM, key from runtime secret), enabled flags, test-event code; token write-only in UI | TokoΦ |
+| Events | PageView, ViewContent, AddToCart, InitiateCheckout, Purchase on browser and server legs with a shared `event_id` | AdsBookCMS (full funnel) |
+| Purchase definition | COD: at order creation; prepaid: when payment settlement is accepted (BILL-2), even if the buyer never returns | both |
+| Google value quality | Additionally upload COD conversions as offline conversions only after delivery confirmation (primary), browser purchase secondary | AdsBookCMS |
+| Dedup ids | Purchase `event_id` = `purchase:<order number>` issued by the server and returned to the confirmation page; funnel ids generated client-side and passed to both legs | TokoΦ + AdsBookCMS |
+| Value | Goods subtotal in IDR, excluding shipping (shipping margin is not ad revenue) | TokoΦ owner ruling |
+| Content ids | Variant catalog id (PR-12/T-14, ≥5 digits, string) as item id; product catalog id as group id | shared memory rule, TokoΦ ADR 0013 |
+| Matching | SHA-256 of normalized phone (Indonesia → `62…` digits for Meta, `+62…` for TikTok/Google), email when real, name/city optional; fbp/fbc/ttclid/gclid/gbraid/wbraid captured first-party (last ad click wins), IP/UA stored with the order for delayed purchases and purged after 30 days | both |
+| Browser init | Initialize each pixel once with advanced matching available at init; never re-`init` on Purchase | AdsBookCMS finding vs a TokoΦ risk |
+| Delivery | Outbox via T-32 worker, unique (store, destination, event_id), bounded retries with backoff, permanent-failure codes (e.g. invalid token) fail fast, sanitized errors; seller sees 7-day health per destination | both |
+| Consent | No consent banner in Indonesia v1; EEA/UK traffic gets denied defaults; revisit with privacy owner (PRIV-5) | AdsBookCMS |
+| Abandoned forms | Half-filled checkout contacts may be saved for seller follow-up only with an explicit notice (privacy review); never sent as ad events | AdsBookCMS idea, gated |
 
 ### PR-21 — Order notifications
 - Status: Accepted for implementation — email only (owner direction Q-16, 2026-10-06)
