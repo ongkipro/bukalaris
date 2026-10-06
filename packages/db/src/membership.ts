@@ -1,9 +1,10 @@
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { auditLog, membership, user } from "./schema.ts";
+import { revokeSessionsIfOrphaned } from "./accounts.ts";
 import { DomainError, requireCap, type Role, type SellerScope } from "./scoped.ts";
 
-// Store membership (SC-19/SC-20, PR-15). Invitations are not in M1.
+// Store membership (SC-19/SC-20, PR-15). Invitations live in accounts.ts.
 
 export async function listMembers(scope: SellerScope) {
   return scope.exec
@@ -41,5 +42,9 @@ export async function changeMember(scope: SellerScope, targetUserId: string, rol
       storeId: scope.storeId,
       action: next ? `member.role:${targetUserId}:${next}` : `member.remove:${targetUserId}`,
     });
+    // Membership checks run per request, so the change already applies to the next request;
+    // a user left with no membership (and not an operator) also loses every session (IAM-9).
+    if (!next && (await revokeSessionsIfOrphaned(tx, targetUserId)) > 0)
+      await tx.insert(auditLog).values({ actorUserId: scope.userId, storeId: scope.storeId, action: `session.revoke:${targetUserId}` });
   });
 }

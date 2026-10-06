@@ -1,10 +1,13 @@
 import { expect, type Page, type TestInfo } from "@playwright/test";
-import { mkdirSync } from "node:fs";
+import { createHmac } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 // Playwright runs from apps/web (pnpm e2e).
 const dir = resolve(process.cwd(), "../../docs/evidence/m1") + "/";
 mkdirSync(dir, { recursive: true });
+
+export const DEV_PASSWORD = "bukalaris-dev-123";
 
 /** Full-page screenshot into docs/evidence/m1 plus a no-horizontal-scroll check (NFR-3 reflow). */
 export async function evidence(page: Page, info: TestInfo, step: string) {
@@ -13,21 +16,108 @@ export async function evidence(page: Page, info: TestInfo, step: string) {
   await page.screenshot({ path: `${dir}${info.project.name}-${step}.png`, fullPage: true });
 }
 
-export async function login(page: Page, email: string, next: "/seller" | "/admin" = "/seller") {
+// ---------------------------------------------------------------------------
+// TOTP (RFC 6238, SHA-1, 6 digits, 30 s) for the operator MFA flow — no dependency.
+// ---------------------------------------------------------------------------
+const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+export function base32Decode(s: string): Buffer {
+  let bits = 0;
+  let value = 0;
+  const out: number[] = [];
+  for (const ch of s.toUpperCase().replace(/=+$/, "")) {
+    const v = B32.indexOf(ch);
+    if (v < 0) throw new Error(`bad base32 char ${ch}`);
+    value = (value << 5) | v;
+    bits += 5;
+    if (bits >= 8) {
+      out.push((value >>> (bits - 8)) & 0xff);
+      bits -= 8;
+    }
+  }
+  return Buffer.from(out);
+}
+
+export function totp(secretBase32: string, now = Date.now(), period = 30, digits = 6): string {
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(now / 1000 / period)));
+  const h = createHmac("sha1", base32Decode(secretBase32)).update(counter).digest();
+  const o = h[h.length - 1]! & 0xf;
+  const code = ((h[o]! & 0x7f) << 24) | (h[o + 1]! << 16) | (h[o + 2]! << 8) | h[o + 3]!;
+  return String(code % 10 ** digits).padStart(digits, "0");
+}
+
+/** Secrets enrolled during this run, shared across spec files and projects (test-results is wiped per run). */
+const secretsFile = resolve(process.cwd(), "test-results/totp-secrets.json");
+export function totpSecrets(): Record<string, string> {
+  return existsSync(secretsFile) ? (JSON.parse(readFileSync(secretsFile, "utf8")) as Record<string, string>) : {};
+}
+export function saveTotpSecret(email: string, secret: string) {
+  mkdirSync(resolve(secretsFile, ".."), { recursive: true });
+  writeFileSync(secretsFile, JSON.stringify({ ...totpSecrets(), [email]: secret }));
+}
+
+/** Enrol TOTP through the HTTP routes for an already signed-in page (fallback when a spec needs an enrolled operator). */
+export async function enrolTotpViaApi(page: Page, email: string, password = DEV_PASSWORD) {
+  const enable = await page.request.post("/api/auth/two-factor/enable", { data: { password, method: "totp" } });
+  expect(enable.ok(), `two-factor/enable ${enable.status()}`).toBeTruthy();
+  const { totpURI } = (await enable.json()) as { totpURI: string };
+  const secret = new URL(totpURI).searchParams.get("secret")!;
+  const verify = await page.request.post("/api/auth/two-factor/verify-totp", { data: { code: totp(secret) } });
+  expect(verify.ok(), `two-factor/verify-totp ${verify.status()}`).toBeTruthy();
+  saveTotpSecret(email, secret);
+  return secret;
+}
+
+/**
+ * Sign in through the real form. Handles Better Auth's production rate limit
+ * (3 sign-ins / 10 s per IP) by waiting out a 429, the two-factor step for users
+ * enrolled during this run, and the operator MFA gate (enrols via API if needed).
+ */
+export async function login(page: Page, email: string, next: "/seller" | "/admin" = "/seller", password = DEV_PASSWORD) {
   const landing = next === "/seller" ? "/seller/products" : "/admin";
-  // Better Auth allows 3 sign-ins per 10 s per IP in production mode; the suite
-  // logs in more often than that, so wait out a 429 instead of disabling the limit.
   for (let attempt = 0; attempt < 4; attempt++) {
     await page.goto(`/login?next=${next}`);
     await page.getByLabel("Email").fill(email);
-    await page.getByLabel("Kata sandi").fill("bukalaris-dev-123");
+    await page.getByLabel("Kata sandi").fill(password);
     await page.getByRole("button", { name: "Masuk" }).click();
     const outcome = await Promise.race([
-      page.waitForURL((u) => u.pathname === landing).then(() => "ok"),
-      page.getByText("Terlalu banyak percobaan").waitFor().then(() => "429"),
+      page.waitForURL((u) => u.pathname === landing).then(() => "ok" as const),
+      page.waitForURL((u) => u.pathname === "/account/security").then(() => "enrol" as const),
+      page.getByText("Terlalu banyak percobaan").waitFor().then(() => "429" as const),
+      page.getByLabel("Kode autentikator").waitFor().then(() => "totp" as const),
+    ]);
+    if (outcome === "ok") return;
+    if (outcome === "enrol") {
+      await enrolTotpViaApi(page, email, password);
+      await page.goto(landing);
+      await page.waitForURL((u) => u.pathname === landing);
+      return;
+    }
+    if (outcome === "totp") {
+      const secret = totpSecrets()[email];
+      if (!secret) throw new Error(`${email} has TOTP enabled but no secret was recorded in this run`);
+      await submitTotp(page, secret);
+      await page.waitForURL((u) => u.pathname === landing);
+      return;
+    }
+    await page.waitForTimeout(11_000);
+  }
+  throw new Error("login kept being rate limited");
+}
+
+/** Fill the TOTP step; /two-factor/* is limited to 3 requests / 10 s, so a 429 is waited out once. */
+export async function submitTotp(page: Page, secret: string) {
+  // Role textbox: the backup-code list shown after success is also labelled "Kode …".
+  const code = page.getByRole("textbox", { name: /Kode/ });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await code.fill(totp(secret));
+    await page.getByRole("button", { name: /Verifikasi/ }).click();
+    const outcome = await Promise.race([
+      page.getByText("Terlalu banyak percobaan").waitFor().then(() => "429" as const),
+      code.waitFor({ state: "detached" }).then(() => "ok" as const),
     ]);
     if (outcome === "ok") return;
     await page.waitForTimeout(11_000);
   }
-  throw new Error("login kept being rate limited");
+  throw new Error("TOTP verification kept being rate limited");
 }

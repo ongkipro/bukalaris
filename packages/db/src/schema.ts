@@ -31,6 +31,8 @@ export const user = pgTable("user", {
   image: text("image"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  // two-factor plugin: set to true only after a TOTP code has been verified.
+  twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
 });
 
 export const session = pgTable(
@@ -66,6 +68,21 @@ export const account = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("account_user_idx").on(t.userId)],
+);
+
+/** two-factor plugin table (fields from better-auth/plugins/two-factor schema.mjs); secret and codes are encrypted by the plugin. */
+export const twoFactor = pgTable(
+  "two_factor",
+  {
+    id: text("id").primaryKey(),
+    secret: text("secret").notNull(),
+    backupCodes: text("backup_codes").notNull(),
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    verified: boolean("verified").notNull().default(true),
+    failedVerificationCount: integer("failed_verification_count").notNull().default(0),
+    lockedUntil: timestamp("locked_until", { withTimezone: true }),
+  },
+  (t) => [index("two_factor_user_idx").on(t.userId), index("two_factor_secret_idx").on(t.secret)],
 );
 
 export const verification = pgTable("verification", {
