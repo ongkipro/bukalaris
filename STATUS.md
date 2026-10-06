@@ -36,27 +36,30 @@ Mengantar writes stay disabled until the owner approves a write test.
   41 passed + 1 skipped, `verify:docker` exit 0 (30 tables, health 200,
   HEALTHCHECK healthy, non-root, media volume writable).
 
-## Not done / known gaps
+## Not done / known gaps (2026-10-07)
 
-- Not deployed anywhere; `docs/DEPLOY-COOLIFY.md` is an unexecuted draft
-  (migrations need a separate step before the web deploy — Coolify's
-  pre-deployment hook runs in the old container).
-- Providers are fakes; no provider contract or sandbox verified (T-5, T-6).
-- No PostgreSQL RLS or separate runtime/migration DB roles (D-4).
-- One app/origin/cookie namespace for admin, storefront and checkout (D-2);
-  no Astro storefront, no second theme, no external channel/handoff.
-- Auth: no recovery, invitations, email verification, MFA; rate-limit store
-  is in memory.
-- No seller order list, inventory screen, collections, CMS, domains, Log System.
-- No custom error page when the database is unreachable (routes return 500).
+- Not deployed; `docs/DEPLOY-COOLIFY.md` is an unexecuted draft (worker and
+  migrate jobs must be added to it; migrations run as a separate job).
+- Providers: Mengantar reads observed live; writes (booking, origin upsert)
+  locked pending owner approval; AutoLaris still fake; receiver score API is
+  403 for this account; `MENGANTAR_ORIGIN_AREA_ID` vs pickup address area mismatch to confirm.
+- No COD remittance ledger (Q-17), no real email provider, no ad signals yet (T-38).
+- No PostgreSQL RLS / separate DB roles (T-27); no security headers until T-29 merges.
+- Single app/origin for admin, storefront and checkout (D-2); no Astro storefront.
+- Rate-limit storage for auth is in memory (single instance only).
+- e2e evidence screenshots live in `docs/evidence/m1/` for every milestone and
+  are re-rendered on each run (restore before committing).
 
-## Open product decisions affecting M1
+## Open decisions (2026-10-07)
 
-Safe reversible default taken; details in `docs/DECISIONS.md`.
+Defaults taken are reversible; details in `docs/DECISIONS.md` and `docs/02-PRD.md`.
 
-| Decision | Default taken in M1 | Owner |
+| Decision | Current default / state | Owner |
 |---|---|---|
 | Q-6 auth provider | Better Auth 1.7.7 (ADR-0004), pending architecture owner confirmation | Architecture owner |
-| Q-10 stock reservation / late payment / COD confirmation | Decrement at submit, no reservation expiry, no cancel/restock; COD = `placed`, transfer = `awaiting_payment`; nothing marks paid (D-5) | Finance owner |
-| Q-1/Q-2 provider account ownership | Not decided; fakes only | Finance owner |
-| Tenant root (TENANT vs STORE) | Store is the tenant root (D-3) | Data owner |
+| Q-10 checkout policy | Stock decremented at submit; seller cancel restocks once (before shipping); transfer "mark paid" is manual; COD confirmation step coming with T-35 | Finance owner |
+| Q-1 AutoLaris account | Undecided; fake adapter | Finance owner |
+| Q-2 Mengantar account | Platform-owned (derived from Q-12 shipping margin) | Finance owner |
+| Q-14 cross-store COD risk data | Store-scoped only | Privacy + product owner |
+| Q-17 COD remittance to sellers | Undecided — blocks the first real COD shipment | Finance + legal owner |
+| Tenant root | Store is the tenant root (D-3) | Data owner |
