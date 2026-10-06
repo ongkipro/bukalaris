@@ -15,6 +15,7 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
           {op && (
             <nav aria-label="Super Admin" className="flex gap-3 text-sm">
               <Link href="/admin" className="hover:underline">Toko</Link>
+              <Link href="/admin/shipping" className="hover:underline">Ongkir</Link>
               {/* PR-11: visible Log System button (page owned by the ops track). */}
               <Link href="/admin/logs" className="rounded-md border border-background/40 px-2 py-0.5 hover:bg-background/10">Log System</Link>
             </nav>

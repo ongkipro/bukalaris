@@ -420,3 +420,58 @@ findings, tasks below).
   a seller can export and redact one buyer's contact data from an order while
   financial snapshot amounts stay intact; redaction is audited; retention job
   thresholds are configuration with owner-approved values.
+
+## M2 business tasks — 2026-10-06 (owner decisions Q-12, Q-13, Q-15, Q-16)
+
+Provider rule for all tasks below: Mengantar credentials only through
+`secrets-env run -- …` (never files, logs or the browser). Read operations
+(`searchAddress`, `estimate3pl`/`estimate`, `getReceiverScore`, `listOrigins`)
+may call the real API in development. Write operations (`createOrder`,
+`upsertOrigin`, `addPickupTime`, `payUnpaid`, `addDropshipper`, any delete)
+are disabled in code unless `MENGANTAR_WRITE_ENABLED=1` and must not be run
+without a separate explicit owner approval. Endpoint contracts are unverified
+until an observed, sanitized call is recorded (skill `mengantar-api`).
+
+### T-34 — Mengantar shipping quotes with platform margin
+- Status: In progress — track `shipping` (wave 1c): adapter, area search, margin config, seller pickup area, observed read-only contract evidence. Checkout wiring follows after `content` and `jobs` merge.
+- Primary requirement: PR-5
+- Constraints: Q-12, Q-13, NFR-4, NFR-5, TEN-1, SEC-9, DATA-2
+- Dependencies: T-21, T-32
+- Done when: a server-only Mengantar client implements the read operations
+  with timeouts, redacted logging and typed errors; one sanitized observed call
+  per used operation is recorded in `docs/tracks/shipping.md`; sellers set a
+  pickup area via area search; Super Admin sets the platform margin rule;
+  checkout shows only couriers with `unsupported=false`, hides COD where
+  `unsupported_cod=true`, and snapshots provider cost, margin and buyer fee on
+  the order; tests use a recorded-fixture fake and prove the margin math,
+  gating and that write methods refuse without the flag.
+
+### T-35 — COD confirmation and risk signals
+- Status: Planned — after T-34 adapter.
+- Primary requirement: PR-19
+- Constraints: Q-10, Q-14, PRIV-2, PRIV-3, NFR-2, TEN-1
+- Dependencies: T-21, T-34
+- Done when: COD orders start in `awaiting_confirmation`; sellers confirm,
+  hold or reject with a reason; risk reasons show receiver score (read-only
+  provider call, cached per order), repeat unconfirmed/cancelled orders for the
+  same phone in the same store, and address completeness; nothing auto-books an
+  unconfirmed order; tests cover each state and cross-store isolation.
+
+### T-36 — Email order notifications
+- Status: Planned — after `accounts` (mailer) and `jobs` (outbox) merge.
+- Primary requirement: PR-21
+- Constraints: NFR-4, NFR-5, PRIV-4, Q-16
+- Dependencies: T-22, T-32, T-21
+- Done when: order created/confirmed/shipped/cancelled events enqueue one email
+  per event and recipient through the outbox (dev outbox until a provider is
+  chosen); buyer email is optional at checkout; a signed, expiring order-status
+  link shows only that order; tests prove at-most-once per event and link expiry.
+
+### T-37 — COD remittance ledger (design gate)
+- Status: Blocked — needs Q-17 (finance + legal).
+- Primary requirement: PR-5
+- Constraints: Q-17, BILL-1, BILL-3, NFR-2
+- Dependencies: T-34, T-35
+- Done when: the owner accepts a remittance policy; then a double-entry style
+  ledger records COD collected, shipping cost, platform margin and seller
+  payable per order, reconciled against provider reports.

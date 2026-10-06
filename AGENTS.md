@@ -86,6 +86,7 @@ Tracks run in separate git worktrees (`~/Projects/bukalaris-wt/<track>`, branch
 | `channels` | `packages/db/src/channels.ts`, `schema-channels.ts`, `apps/web/src/app/api/storefront/**`, `apps/web/src/app/checkout/h/**`, `apps/web/src/app/seller/channels/**` | `docs/openapi.yaml` (only the operations it implements) |
 | `release` | `.github/workflows/**`, `scripts/**`, `apps/web/Dockerfile`, `.dockerignore`, `docs/RUNBOOK.md` | root `package.json` scripts, `docker-compose.yml`, `docs/DEPLOY-COOLIFY.md` |
 | `jobs` | `packages/db/src/jobs.ts`, `schema-jobs.ts`, `packages/db/src/worker.ts`, `packages/db/test/jobs.test.ts` | `packages/db/src/checkout.ts` (move the post-commit payment call onto the outbox only), `packages/db/package.json` scripts |
+| `shipping` | `packages/db/src/shipping.ts`, `schema-shipping.ts`, `packages/db/src/mengantar/**`, `apps/web/src/app/seller/shipping/**`, `apps/web/src/app/admin/shipping/**`, `packages/db/test/shipping.test.ts` | capability map in `scoped.ts` (additions only) |
 | `content` | `packages/db/src/content.ts`, `schema-content.ts`, `apps/web/src/app/seller/{collections,pages,settings}/**`, `apps/web/src/app/s/**`, `apps/web/src/app/checkout/**` (presentation), `apps/web/src/app/admin/stores/**`, `globals.css` | `store` table in `schema.ts`, `seller/products/**` (images) |
 
 Rules for every track:

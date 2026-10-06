@@ -115,7 +115,7 @@ actual Bukalaris repository remain unresolved.
 - Constraints: DATA-2, BILL-1, SEC-4, UX-4.
 
 ### PR-5 — Shipping and payment orchestration
-- Status: Proposed
+- Status: Accepted for implementation (Mengantar part, owner direction 2026-10-06); AutoLaris part Proposed
 - Owner: Bukalaris product owner
 - Statement: The platform shall obtain delivery eligibility from Mengantar and
   create/reconcile payment instructions with AutoLaris using stable local
@@ -424,7 +424,7 @@ Candidate revenue streams (owner chooses; each needs Q-12):
 | Marketplace | Commission on curated marketplace sales (later) | Q-3, PR-6 |
 
 ### PR-18 — Plans, entitlements and platform billing
-- Status: Proposed
+- Status: Deferred — revenue starts with shipping margin (Q-12, 2026-10-06)
 - Owner: Bukalaris product owner
 - Source: Business model proposal 2026-10-06.
 - Statement: The platform shall assign every store a plan whose entitlements
@@ -439,7 +439,7 @@ Candidate revenue streams (owner chooses; each needs Q-12):
 - Change history: 2026-10-06 — proposed from the business gap analysis.
 
 ### PR-19 — COD risk control
-- Status: Proposed
+- Status: Accepted for implementation — store-scoped only (owner direction Q-13, 2026-10-06; Q-14 open)
 - Owner: Bukalaris product owner
 - Source: Owner direction "COD control"; Q-10.
 - Statement: For COD orders the platform shall support an order-confirmation
@@ -454,7 +454,7 @@ Candidate revenue streams (owner chooses; each needs Q-12):
 - Change history: 2026-10-06 — proposed.
 
 ### PR-20 — Server-side advertising conversion signals
-- Status: Proposed
+- Status: Accepted for implementation — TokoΦ/AdsBookCMS concept (owner direction Q-15, 2026-10-06)
 - Owner: Bukalaris product owner
 - Source: Owner direction "pixel/tracking"; PR-12 identity; Q-7.
 - Statement: The platform shall send browser and server conversion events
@@ -472,7 +472,7 @@ Candidate revenue streams (owner chooses; each needs Q-12):
 - Change history: 2026-10-06 — proposed.
 
 ### PR-21 — Order notifications
-- Status: Proposed
+- Status: Accepted for implementation — email only (owner direction Q-16, 2026-10-06)
 - Owner: Bukalaris product owner
 - Source: Business gap analysis 2026-10-06.
 - Statement: Buyers and sellers shall receive order notifications (created,
@@ -508,3 +508,22 @@ Candidate revenue streams (owner chooses; each needs Q-12):
 | Q-14 | Whether COD risk signals may be shared across stores, and on which legal basis | Privacy + product owner | Before cross-store PR-19 features |
 | Q-15 | Ad-signal scope: destinations, consent model, purchase definitions for COD vs prepaid | Integration + privacy owner | Before PR-20 implementation |
 | Q-16 | Notification channels and provider (email sender domain, WhatsApp provider) | Product owner | Before PR-21 implementation |
+
+### Owner decisions — 2026-10-06 (Paduka Ongki)
+
+| ID | Decision | Consequence recorded by the team |
+|---|---|---|
+| Q-12 | Revenue now = margin on shipping (ongkir) | Buyer-facing shipping fee = provider estimate + platform margin, computed server-side and snapshotted on the order (provider cost, margin, buyer fee). Plans (PR-18) stay Proposed/deferred. |
+| Q-13 | First segment = COD sellers across Indonesia | COD is the primary payment path; PR-19 (COD risk control) becomes P0, store-scoped (Q-14 still open). Area coverage must be nationwide through provider area search. |
+| Q-2 (derived) | Shipping margin implies a platform-owned Mengantar account and balance | Platform pays the provider; COD collections settle to the platform account, so Bukalaris owes sellers their COD proceeds → new decision Q-17. |
+| Mengantar use | Mengantar API allowed for development; credentials only via the local secret store (`secrets-env`, never files or logs) | Read operations (area search, estimate, COD eligibility) may call the real API in development. Shipment creation spends balance and dispatches couriers: it stays fake/disabled until the owner explicitly approves a write test. |
+| Q-15 | Ad signals follow the TokoΦ / AdsBookCMS concept | PR-20 accepted in that direction; exact event taxonomy recorded in PR-20 after reviewing those implementations. |
+| Q-16 | Notifications: email first | PR-21 accepted for email; WhatsApp deferred. Email provider choice still open (dev outbox until then). |
+
+Status changes under owner direction (2026-10-06): PR-5 (Mengantar part),
+PR-19 (store-scoped scope only), PR-20 and PR-21 (email) → Accepted for
+implementation; PR-18 → Deferred behind Q-12.
+
+| ID | Decision | Owner | Gate |
+|---|---|---|---|
+| Q-17 | COD remittance to sellers when collections land in the platform Mengantar account: ledger, payout schedule, fees, reconciliation against provider reports, and legal review of holding seller funds | Finance + legal owner | Before the first real COD shipment |

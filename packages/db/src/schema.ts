@@ -278,3 +278,4 @@ export * from "./schema-ops.ts";
 export * from "./schema-content.ts";
 export * from "./schema-channels.ts";
 export * from "./schema-jobs.ts";
+export * from "./schema-shipping.ts";
