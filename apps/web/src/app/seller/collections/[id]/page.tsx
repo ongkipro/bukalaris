@@ -1,6 +1,9 @@
 import { Notice } from "@/components/notice";
-import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/page-header";
+import { StatusBadge } from "@/components/status-badge";
+import { SubmitButton } from "@/components/submit-button";
 import { sellerScope } from "@/lib/context";
+import { publishStatusLabel, publishStatusTone } from "@/lib/status";
 import { getCollection, listProducts } from "@bukalaris/db";
 import { notFound } from "next/navigation";
 import { updateCollectionAction } from "../actions";
@@ -17,18 +20,22 @@ export default async function CollectionPage({ params, searchParams }: PageProps
   const url = `/s/${scope.storeSlug}/collections/${c.slug}`;
   return (
     <section className="grid max-w-3xl gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">{c.title}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          ID koleksi <span className="font-mono" data-testid="collection-id">{c.id}</span> ·{" "}
-          {c.status === "published" ? <a href={url} className="underline">{url}</a> : <span>{url} (draf, belum tampil)</span>}
-        </p>
-      </div>
+      <PageHeader
+        back={{ href: "/seller/collections", label: "Semua koleksi" }}
+        title={c.title}
+        badge={<StatusBadge label={publishStatusLabel[c.status]} tone={publishStatusTone[c.status]} />}
+        description={
+          <>
+            ID koleksi <span className="font-mono" data-testid="collection-id">{c.id}</span> ·{" "}
+            {c.status === "published" ? <a href={url} className="underline underline-offset-4">{url}</a> : <span>{url} (draf, belum tampil)</span>}
+          </>
+        }
+      />
       <Notice error={error} saved={saved} />
       <form action={updateCollectionAction.bind(null, c.id)} className="grid gap-6">
         <CollectionFields d={c} products={products} />
         <div>
-          <Button type="submit">Simpan koleksi</Button>
+          <SubmitButton>Simpan koleksi</SubmitButton>
         </div>
       </form>
     </section>

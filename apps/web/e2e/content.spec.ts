@@ -192,7 +192,7 @@ test("operator creates a store for an existing owner and opens its detail", asyn
   await expect(page.getByRole("heading", { name: "Toko Baru" })).toBeVisible();
   await expect(page.getByRole("status")).toHaveText("Tersimpan.");
   await expect(page.getByText("owner-b@bukalaris.local").first()).toBeVisible();
-  await expect(page.getByText("store.create")).toBeVisible();
+  await expect(page.getByText("Toko dibuat")).toBeVisible(); // T-28: audit codes render as labels (store.create → "Toko dibuat")
   await evidence(page, info, "41-admin-store-detail");
   expect((await page.request.get(`/s/${slug}`)).status()).toBe(200);
 });

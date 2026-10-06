@@ -1,4 +1,5 @@
-import { rupiah } from "@/lib/format";
+import { rupiah, tanggal } from "@/lib/format";
+import { productStatusLabel } from "@/lib/status";
 import type { listCatalogHistory } from "@bukalaris/db";
 import type { CatalogSnapshot } from "@bukalaris/db/schema";
 
@@ -13,8 +14,7 @@ const actionLabel: Record<Row["action"], string> = {
 // Display order (jsonb does not keep key order).
 const fieldLabel: Record<string, string> = { title: "judul", slug: "slug", status: "status", sku: "SKU", price: "harga", stock: "stok" };
 const FIELDS = Object.keys(fieldLabel);
-const statusLabel: Record<string, string> = { draft: "Draf", active: "Aktif", archived: "Diarsipkan" };
-const when = new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Jakarta" });
+const statusLabel: Record<string, string> = productStatusLabel;
 
 function show(field: string, v: string | number | null | undefined) {
   if (v == null || v === "") return "—";
@@ -40,13 +40,13 @@ export function ProductHistory({ rows }: { rows: Row[] }) {
         <p className="text-sm text-muted-foreground">Setiap perubahan harga, stok, status dan data produk dicatat bersama siapa yang mengubah.</p>
       </div>
       {rows.length === 0 ? (
-        <p className="rounded-lg border p-4 text-sm text-muted-foreground">Belum ada riwayat.</p>
+        <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Belum ada riwayat. Perubahan pertama akan tercatat di sini.</p>
       ) : (
         <ol className="divide-y rounded-lg border text-sm">
           {rows.map((r) => (
             <li key={r.id} className="grid gap-1 p-3 sm:grid-cols-[11rem_minmax(0,1fr)] sm:gap-4">
               <div className="text-xs text-muted-foreground">
-                <time dateTime={r.createdAt.toISOString()}>{when.format(r.createdAt)}</time>
+                <time dateTime={r.createdAt.toISOString()}>{tanggal(r.createdAt)}</time>
                 <div>{r.actorName ?? "—"}</div>
               </div>
               <div>

@@ -1,76 +1,66 @@
+import { AdminShell, ShellNotice, type NavItem } from "@/components/admin-shell";
 import { buttonVariants } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
 import { seller } from "@/lib/context";
-import Link from "next/link";
+import { roleLabel } from "@/lib/status";
 import { signOut } from "../login/actions";
 import { switchStore } from "./actions";
 
 export const metadata = { title: "Seller Admin — Bukalaris" };
 
-const sellerNav = [
-  ["/seller/products", "Produk"],
-  ["/seller/inventory", "Inventaris"],
-  ["/seller/orders", "Pesanan"],
-  ["/seller/collections", "Koleksi"],
-  ["/seller/pages", "Halaman"],
-  ["/seller/members", "Anggota"],
-  ["/seller/shipping", "Pengiriman"],
-  ["/seller/channels", "Channel"],
-  ["/seller/marketing", "Pemasaran"],
-  ["/seller/settings", "Pengaturan"],
-] as const;
+// Owned by M2 tracks: each page is created by its track (AGENTS.md "Parallel tracks").
+const sellerNav: NavItem[] = [
+  { href: "/seller/products", label: "Produk" },
+  { href: "/seller/inventory", label: "Inventaris" },
+  { href: "/seller/orders", label: "Pesanan" },
+  { href: "/seller/collections", label: "Koleksi" },
+  { href: "/seller/pages", label: "Halaman" },
+  { href: "/seller/members", label: "Anggota" },
+  { href: "/seller/shipping", label: "Pengiriman" },
+  { href: "/seller/channels", label: "Channel" },
+  { href: "/seller/marketing", label: "Pemasaran" },
+  { href: "/seller/settings", label: "Pengaturan" },
+];
 
 export default async function SellerLayout({ children }: LayoutProps<"/seller">) {
   const { user, ctx } = await seller();
   return (
-    <div className="flex flex-1 flex-col">
-      <header className="border-b">
-        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
-          <span className="font-semibold">Bukalaris · Seller</span>
-          {ctx.ok && (
-            <nav aria-label="Seller" className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
-              {/* Owned by M2 tracks: each page is created by its track (AGENTS.md "Parallel tracks"). */}
-              {sellerNav.map(([href, label]) => (
-                <Link key={href} href={href} className="hover:underline">{label}</Link>
-              ))}
-              <a href={`/s/${ctx.scope.storeSlug}`} className="hover:underline">Lihat toko</a>
-            </nav>
-          )}
-          <div className="ml-auto flex items-center gap-3 text-sm">
-            {ctx.ok && ctx.stores.length > 1 && (
-              <form action={switchStore} className="flex items-center gap-2">
+    <AdminShell
+      tone="seller"
+      brand="Seller"
+      home="/seller/products"
+      email={user.email}
+      signOut={signOut}
+      nav={ctx.ok ? [...sellerNav, { href: `/s/${ctx.scope.storeSlug}`, label: "Lihat toko", external: true }] : []}
+      context={
+        ctx.ok && (
+          <>
+            {/* Persistent store scope (UI-7): name + role; the switcher only when the account has several stores. */}
+            <span className="truncate text-muted-foreground">
+              {ctx.scope.storeName} · {roleLabel[ctx.scope.role]}
+            </span>
+            {ctx.stores.length > 1 && (
+              <form action={switchStore} className="flex items-center gap-1.5">
                 <label htmlFor="store" className="sr-only">Toko aktif</label>
-                <select id="store" name="storeId" defaultValue={ctx.scope.storeId} className="h-8 rounded-md border bg-background px-2">
+                <NativeSelect id="store" name="storeId" defaultValue={ctx.scope.storeId} className="w-40">
                   {ctx.stores.map((s) => (
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
-                </select>
+                </NativeSelect>
                 <button type="submit" className={buttonVariants({ variant: "outline", size: "sm" })}>Ganti</button>
               </form>
             )}
-            {ctx.ok && <span className="text-muted-foreground">{ctx.scope.storeName} · {ctx.scope.role === "owner" ? "Pemilik" : "Staf"}</span>}
-            <span className="text-muted-foreground max-sm:hidden">{user.email}</span>
-            <form action={signOut}>
-              <button type="submit" className={buttonVariants({ variant: "ghost", size: "sm" })}>Keluar</button>
-            </form>
-          </div>
-        </div>
-      </header>
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">
-        {ctx.ok ? (
-          children
-        ) : (
-          <div role="alert" className="rounded-lg border p-6">
-            <h1 className="text-lg font-semibold">
-              {ctx.reason === "suspended" ? `Toko ${ctx.storeName} sedang ditangguhkan` : "Akun ini belum terhubung ke toko"}
-            </h1>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {ctx.reason === "suspended"
-                ? "Pengelolaan toko dan checkout pembeli dinonaktifkan. Hubungi tim Bukalaris."
-                : "Minta pemilik toko atau tim Bukalaris menambahkan akun Anda."}
-            </p>
-          </div>
-        )}
-      </main>
-    </div>
+          </>
+        )
+      }
+    >
+      {ctx.ok ? (
+        children
+      ) : ctx.reason === "suspended" ? (
+        <ShellNotice title={`Toko ${ctx.storeName} sedang ditangguhkan`}>Pengelolaan toko dan checkout pembeli dinonaktifkan. Hubungi tim Bukalaris.</ShellNotice>
+      ) : (
+        <ShellNotice title="Akun ini belum terhubung ke toko">Minta pemilik toko atau tim Bukalaris menambahkan akun Anda.</ShellNotice>
+      )}
+    </AdminShell>
   );
 }

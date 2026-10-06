@@ -1,21 +1,24 @@
 import { Notice } from "@/components/notice";
-import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/page-header";
+import { SubmitButton } from "@/components/submit-button";
 import { sellerScope } from "@/lib/context";
 import { listProducts } from "@bukalaris/db";
 import { createCollectionAction } from "../actions";
 import { CollectionFields } from "../collection-fields";
 
+export const metadata = { title: "Tambah koleksi — Bukalaris" };
+
 export default async function NewCollectionPage({ searchParams }: PageProps<"/seller/collections/new">) {
   const { error } = await searchParams;
   const products = await listProducts(await sellerScope());
   return (
-    <section className="max-w-3xl">
-      <h1 className="mb-4 text-2xl font-semibold tracking-tight">Tambah koleksi</h1>
+    <section className="grid max-w-3xl gap-6">
+      <PageHeader back={{ href: "/seller/collections", label: "Semua koleksi" }} title="Tambah koleksi" description="Pilih produk dan urutannya; publikasikan saat siap tampil di toko." />
       <Notice error={error} />
       <form action={createCollectionAction} className="grid gap-6">
         <CollectionFields products={products} />
         <div>
-          <Button type="submit">Simpan koleksi</Button>
+          <SubmitButton>Simpan koleksi</SubmitButton>
         </div>
       </form>
     </section>

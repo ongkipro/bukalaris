@@ -1,48 +1,55 @@
-import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
+import { StatusBadge } from "@/components/status-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { sellerScope } from "@/lib/context";
 import { rupiah } from "@/lib/format";
+import { productStatusLabel, productStatusTone } from "@/lib/status";
 import { listProducts } from "@bukalaris/db";
 import Link from "next/link";
 
-const statusLabel = { draft: "Draf", active: "Aktif", archived: "Diarsipkan" } as const;
+export const metadata = { title: "Produk — Bukalaris" };
 
 export default async function ProductsPage() {
   const products = await listProducts(await sellerScope());
   return (
-    <section>
-      <div className="mb-4 flex items-center justify-between gap-4">
-        <h1 className="text-2xl font-semibold">Produk</h1>
-        <Link href="/seller/products/new" className={buttonVariants()}>Tambah produk</Link>
-      </div>
+    <section className="grid gap-6">
+      <PageHeader
+        title="Produk"
+        description="Katalog toko Anda. Hanya produk berstatus Aktif yang tampil dan bisa dibeli di toko."
+        action={<Link href="/seller/products/new" className={buttonVariants()}>Tambah produk</Link>}
+      />
       {products.length === 0 ? (
-        <p className="rounded-lg border p-6 text-sm text-muted-foreground">Belum ada produk. Tambahkan produk pertama Anda.</p>
+        <EmptyState title="Belum ada produk" action={<Link href="/seller/products/new" className={buttonVariants({ variant: "outline" })}>Tambah produk pertama</Link>}>
+          Produk pertama Anda akan muncul di sini dan di toko begitu statusnya Aktif.
+        </EmptyState>
       ) : (
-        <Table>
+        <Table stickyHeader>
+          <caption className="sr-only">Daftar produk</caption>
           <TableHeader>
             <TableRow>
               <TableHead>ID produk</TableHead>
               <TableHead>Produk</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead className="text-right">Varian</TableHead>
-              <TableHead className="text-right">Stok</TableHead>
-              <TableHead className="text-right">Harga mulai</TableHead>
+              <TableHead numeric>Varian</TableHead>
+              <TableHead numeric>Stok</TableHead>
+              <TableHead numeric>Harga mulai</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {products.map((p) => (
               <TableRow key={p.id}>
-                <TableCell className="font-mono text-xs tabular-nums">{p.catalogId}</TableCell>
-                <TableCell>
-                  <Link href={`/seller/products/${p.id}`} className="font-medium hover:underline">{p.title}</Link>
+                <TableCell className="font-mono text-xs tabular-nums text-muted-foreground">{p.catalogId}</TableCell>
+                <TableCell className="max-w-[14rem] whitespace-normal sm:max-w-xs">
+                  <Link href={`/seller/products/${p.id}`} className="font-medium underline-offset-4 hover:underline">{p.title}</Link>
                 </TableCell>
                 <TableCell>
-                  <Badge variant={p.status === "active" ? "default" : "secondary"}>{statusLabel[p.status]}</Badge>
+                  <StatusBadge label={productStatusLabel[p.status]} tone={productStatusTone[p.status]} />
                 </TableCell>
-                <TableCell className="text-right">{p.variants}</TableCell>
-                <TableCell className="text-right">{p.stock ?? 0}</TableCell>
-                <TableCell className="text-right">{rupiah(p.minPrice)}</TableCell>
+                <TableCell numeric>{p.variants}</TableCell>
+                <TableCell numeric className={p.stock ? undefined : "text-destructive"}>{p.stock ?? 0}</TableCell>
+                <TableCell numeric>{rupiah(p.minPrice)}</TableCell>
               </TableRow>
             ))}
           </TableBody>

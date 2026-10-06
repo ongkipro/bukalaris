@@ -86,6 +86,7 @@ test("headless channel: one-time token, external backend via API, one-use handof
 
   // Revocation in the UI denies the token immediately.
   await page.goto("/seller/channels");
+  page.once("dialog", (d) => d.accept()); // T-28: revoking a token is destructive → confirm first
   await page.getByRole("button", { name: `Cabut ${channelName}` }).click();
   await expect(page.getByRole("row").filter({ hasText: channelName }).getByText("Dicabut")).toBeVisible();
   await evidence(page, info, "35-channel-revoked");

@@ -1,13 +1,20 @@
 import { Notice } from "@/components/notice";
-import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/page-header";
+import { SubmitButton } from "@/components/submit-button";
 import { createProductAction } from "../../actions";
 import { ProductFields, VariantFields } from "../product-fields";
+
+export const metadata = { title: "Tambah produk — Bukalaris" };
 
 export default async function NewProductPage({ searchParams }: PageProps<"/seller/products/new">) {
   const { error } = await searchParams;
   return (
-    <section className="max-w-3xl">
-      <h1 className="mb-4 text-2xl font-semibold">Tambah produk</h1>
+    <section className="grid max-w-3xl gap-6">
+      <PageHeader
+        back={{ href: "/seller/products", label: "Semua produk" }}
+        title="Tambah produk"
+        description="Simpan sebagai Draf dulu jika belum siap dijual; varian dan gambar lain bisa ditambah setelah produk dibuat."
+      />
       <Notice error={error} />
       <form action={createProductAction} className="grid gap-6">
         <ProductFields />
@@ -16,7 +23,7 @@ export default async function NewProductPage({ searchParams }: PageProps<"/selle
           <VariantFields prefix="variant_" />
         </fieldset>
         <div>
-          <Button type="submit">Simpan produk</Button>
+          <SubmitButton>Simpan produk</SubmitButton>
         </div>
       </form>
     </section>

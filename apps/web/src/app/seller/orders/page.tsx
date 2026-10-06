@@ -1,11 +1,16 @@
-import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
+import { StatusBadge } from "@/components/status-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { sellerScope } from "@/lib/context";
-import { rupiah } from "@/lib/format";
+import { rupiah, tanggal } from "@/lib/format";
+import { orderStatusLabel, orderStatusTone, paymentShortLabel } from "@/lib/status";
 import { listOrders, ORDER_STATUSES, type OrderStatus } from "@bukalaris/db";
 import Link from "next/link";
-import { parseId, statusLabel, statusVariant, tanggal } from "./status";
+import { parseId } from "./status";
+
+export const metadata = { title: "Pesanan — Bukalaris" };
 
 const isStatus = (s: unknown): s is OrderStatus => typeof s === "string" && (ORDER_STATUSES as readonly string[]).includes(s);
 
@@ -18,10 +23,10 @@ export default async function OrdersPage({ searchParams }: PageProps<"/seller/or
   const href = (s?: OrderStatus, c?: number) => `/seller/orders${s ? `?status=${s}` : ""}${c ? `${s ? "&" : "?"}cursor=${c}` : ""}`;
 
   return (
-    <section>
-      <h1 className="mb-1 text-2xl font-semibold">Pesanan</h1>
-      <p className="mb-4 text-sm text-muted-foreground">Pesanan terbaru di atas. Buka pesanan untuk memproses, mengirim, atau membatalkan.</p>
-      <nav aria-label="Filter status" className="mb-4 flex flex-wrap gap-2 text-sm">
+    <section className="grid gap-6">
+      <PageHeader title="Pesanan" description="Pesanan terbaru di atas. Buka pesanan untuk mengonfirmasi, memproses, mengirim, atau membatalkan." />
+      {/* Status is the primary axis of the queue (UI-7), so it is a URL-addressable filter strip, not a dropdown. */}
+      <nav aria-label="Filter status" className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 text-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {[undefined, ...ORDER_STATUSES].map((s) => (
           <Link
             key={s ?? "all"}
@@ -29,16 +34,21 @@ export default async function OrdersPage({ searchParams }: PageProps<"/seller/or
             aria-current={s === status ? "page" : undefined}
             className={buttonVariants({ variant: s === status ? "default" : "outline", size: "sm" })}
           >
-            {s ? statusLabel[s] : "Semua"}
+            {s ? orderStatusLabel[s] : "Semua"}
           </Link>
         ))}
       </nav>
       {orders.length === 0 ? (
-        <p className="rounded-lg border p-6 text-sm text-muted-foreground">
-          {status ? `Tidak ada pesanan berstatus "${statusLabel[status]}".` : "Belum ada pesanan. Pesanan dari toko Anda akan muncul di sini."}
-        </p>
+        status ? (
+          <EmptyState title={`Tidak ada pesanan berstatus "${orderStatusLabel[status]}"`} action={<Link href="/seller/orders" className={buttonVariants({ variant: "outline", size: "sm" })}>Hapus filter</Link>}>
+            Filter aktif menyembunyikan pesanan lain.
+          </EmptyState>
+        ) : (
+          <EmptyState title="Belum ada pesanan">Pesanan dari toko Anda akan muncul di sini begitu pembeli menyelesaikan checkout.</EmptyState>
+        )
       ) : (
-        <Table>
+        <Table stickyHeader>
+          <caption className="sr-only">Daftar pesanan</caption>
           <TableHeader>
             <TableRow>
               <TableHead>No.</TableHead>
@@ -46,31 +56,33 @@ export default async function OrdersPage({ searchParams }: PageProps<"/seller/or
               <TableHead>Pembeli</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Pembayaran</TableHead>
-              <TableHead className="text-right">Total</TableHead>
+              <TableHead numeric>Total</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {orders.map((o) => (
               <TableRow key={o.id}>
                 <TableCell>
-                  <Link href={`/seller/orders/${o.id}`} className="font-mono text-xs font-medium hover:underline">#{o.id}</Link>
+                  <Link href={`/seller/orders/${o.id}`} className="font-mono text-xs font-medium tabular-nums underline-offset-4 hover:underline">#{o.id}</Link>
                 </TableCell>
-                <TableCell className="whitespace-nowrap text-muted-foreground">{tanggal(o.createdAt)}</TableCell>
+                <TableCell className="text-muted-foreground">
+                  <time dateTime={o.createdAt.toISOString()}>{tanggal(o.createdAt)}</time>
+                </TableCell>
                 <TableCell>
-                  <Link href={`/seller/orders/${o.id}`} className="font-medium hover:underline">{o.buyerName}</Link>
+                  <Link href={`/seller/orders/${o.id}`} className="font-medium underline-offset-4 hover:underline">{o.buyerName}</Link>
                 </TableCell>
                 <TableCell>
-                  <Badge variant={statusVariant[o.status]}>{statusLabel[o.status]}</Badge>
+                  <StatusBadge label={orderStatusLabel[o.status]} tone={orderStatusTone[o.status]} />
                 </TableCell>
-                <TableCell className="whitespace-nowrap">{o.paymentMethod === "cod" ? "COD" : "Transfer"}</TableCell>
-                <TableCell className="whitespace-nowrap text-right">{rupiah(o.total)}</TableCell>
+                <TableCell>{paymentShortLabel[o.paymentMethod]}</TableCell>
+                <TableCell numeric>{rupiah(o.total)}</TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       )}
       {nextCursor && (
-        <div className="mt-4">
+        <div>
           <Link href={href(status, nextCursor)} className={buttonVariants({ variant: "outline", size: "sm" })} rel="next">
             Pesanan lebih lama
           </Link>

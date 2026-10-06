@@ -1,6 +1,5 @@
 "use client";
 
-import { fieldClass } from "@/components/notice";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,7 +25,7 @@ export function CreateChannelForm() {
     <form action={action} className="grid gap-4 rounded-lg border bg-background p-4">
       <h2 className="font-medium">Channel baru</h2>
       {state?.error && (
-        <p role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{state.error}</p>
+        <p id="ch-error" role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">{state.error}</p>
       )}
       <div className="grid gap-2">
         <Label htmlFor="ch-name">Nama</Label>
@@ -39,13 +38,17 @@ export function CreateChannelForm() {
       </div>
       <div className="grid gap-2">
         <Label htmlFor="ch-return">Path kembali</Label>
-        <Input id="ch-return" name="returnPath" defaultValue="/" pattern="/.*" maxLength={500} />
+        <Input id="ch-return" name="returnPath" defaultValue="/" pattern="/.*" maxLength={500} aria-describedby="ch-return-help" />
+        <p id="ch-return-help" className="text-xs text-muted-foreground">Diawali “/”, mis. /thanks. Ditambahkan ke origin setelah checkout selesai.</p>
       </div>
       <div className="grid gap-2">
         <Label htmlFor="ch-expires">Kedaluwarsa (opsional)</Label>
-        <input id="ch-expires" name="expiresAt" type="datetime-local" className={fieldClass} />
+        <Input id="ch-expires" name="expiresAt" type="datetime-local" aria-describedby="ch-expires-help" />
+        <p id="ch-expires-help" className="text-xs text-muted-foreground">Kosongkan agar token berlaku sampai dicabut.</p>
       </div>
-      <Button type="submit" disabled={pending}>{pending ? "Membuat…" : "Buat channel"}</Button>
+      <Button type="submit" disabled={pending} aria-busy={pending || undefined} aria-describedby={state?.error ? "ch-error" : undefined}>
+        {pending ? "Membuat…" : "Buat channel"}
+      </Button>
     </form>
   );
 }

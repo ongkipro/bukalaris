@@ -18,6 +18,11 @@ const badgeVariants = cva(
         ghost:
           "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
         link: "text-primary underline-offset-4 hover:underline",
+        // Status tones (text always carries the meaning; colour is reinforcement). Light: ≥ 4.5:1 on the tinted background.
+        success:
+          "bg-emerald-600/10 text-emerald-800 dark:bg-emerald-400/15 dark:text-emerald-300",
+        warning:
+          "bg-amber-500/15 text-amber-900 dark:bg-amber-400/15 dark:text-amber-200",
       },
     },
     defaultVariants: {

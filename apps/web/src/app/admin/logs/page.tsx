@@ -1,10 +1,12 @@
+import { EmptyState } from "@/components/empty-state";
+import { PageHeader } from "@/components/page-header";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { operatorOrDeny } from "@/lib/context";
 import { log } from "@/lib/log";
-import { fieldClass } from "@/components/notice";
 import { DomainError, listSystemLogs, LOG_LEVELS, MODULE_MAP } from "@bukalaris/db";
 import Link from "next/link";
 import { ZodError } from "zod";
@@ -63,50 +65,51 @@ export default async function LogsPage({ searchParams }: PageProps<"/admin/logs"
   const back = encodeURIComponent(qs({}));
 
   return (
-    <section className="grid gap-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h1 className="text-2xl font-semibold">Log System</h1>
-        <p className="text-sm text-muted-foreground">Diagnostik tersanitasi · lingkungan saat ini · waktu WIB</p>
-      </div>
+    <section className="grid gap-6">
+      <PageHeader title="Log System" description="Kejadian peringatan dan error yang sudah disanitasi, lingkungan saat ini, waktu WIB. Buka kejadian untuk detail dan korelasi request ID." />
 
       {state.kind === "denied" ? (
-        <p role="alert" className="rounded-lg border p-6">Akses ditolak. Melihat Log System butuh izin platform <code>logs.read</code>.</p>
+        <div role="alert" className="rounded-lg border p-6">
+          <p className="font-medium">Akses ditolak.</p>
+          <p className="mt-1 text-sm text-muted-foreground">Melihat Log System butuh izin platform <code>logs.read</code>; minta operator lain memberikannya.</p>
+        </div>
       ) : (
         <>
           <form method="get" action="/admin/logs" aria-label="Filter log" className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2 lg:grid-cols-5">
-            <div className="grid gap-1">
+            <div className="grid gap-1.5">
               <Label htmlFor="f-level">Level</Label>
-              <select id="f-level" name="level" defaultValue={q.level} className={fieldClass}>
+              <NativeSelect id="f-level" name="level" defaultValue={q.level}>
                 <option value="">Semua level</option>
                 {LOG_LEVELS.map((l) => (
                   <option key={l} value={l}>{LEVEL_LABEL[l]}</option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
-            <div className="grid gap-1">
+            <div className="grid gap-1.5">
               <Label htmlFor="f-module">Modul</Label>
-              <select id="f-module" name="module" defaultValue={q.module} className={fieldClass}>
+              <NativeSelect id="f-module" name="module" defaultValue={q.module}>
                 <option value="">Semua modul</option>
                 {[...Object.keys(MODULE_MAP), "unknown"].map((m) => (
                   <option key={m} value={m}>{m}</option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
-            <div className="grid gap-1">
+            <div className="grid gap-1.5">
               <Label htmlFor="f-range">Rentang waktu</Label>
-              <select id="f-range" name="range" defaultValue={range} className={fieldClass}>
+              <NativeSelect id="f-range" name="range" defaultValue={range}>
                 {Object.entries(RANGES).map(([k, [label]]) => (
                   <option key={k} value={k}>{label}</option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
-            <div className="grid gap-1">
+            <div className="grid gap-1.5">
               <Label htmlFor="f-request">Request ID</Label>
-              <Input id="f-request" name="requestId" defaultValue={q.requestId} placeholder="mis. 7f3c…" pattern="[A-Za-z0-9_-]{1,128}" className="font-mono" />
+              <Input id="f-request" name="requestId" defaultValue={q.requestId} placeholder="mis. 7f3c…" pattern="[A-Za-z0-9_-]{1,128}" className="font-mono" aria-describedby="f-request-help" />
+              <p id="f-request-help" className="text-xs text-muted-foreground">Nilai header x-request-id, utuh.</p>
             </div>
-            <div className="grid gap-1">
+            <div className="grid gap-1.5">
               <Label htmlFor="f-store">Store ID</Label>
-              <Input id="f-store" name="storeId" defaultValue={q.storeId} inputMode="numeric" pattern="[0-9]{1,16}" />
+              <Input id="f-store" name="storeId" defaultValue={q.storeId} inputMode="numeric" pattern="[0-9]{1,16}" className="tabular-nums" />
             </div>
             <div className="flex flex-wrap gap-2 sm:col-span-2 lg:col-span-5">
               <Button type="submit">Terapkan</Button>
@@ -116,7 +119,7 @@ export default async function LogsPage({ searchParams }: PageProps<"/admin/logs"
           </form>
 
           {state.kind === "invalid" && (
-            <p role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{state.message}</p>
+            <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">{state.message}</p>
           )}
           {state.kind === "unavailable" && (
             <p role="alert" className="rounded-lg border border-destructive/40 p-6">
@@ -132,11 +135,17 @@ export default async function LogsPage({ searchParams }: PageProps<"/admin/logs"
                 {state.data.items[0] ? `Terakhir diamati ${fmtTime(state.data.items[0].time)}` : "Kesegaran tidak tersedia"}
               </p>
               {state.data.items.length === 0 ? (
-                <p className="rounded-lg border p-6 text-sm text-muted-foreground" data-testid="empty">
-                  {hasFilter ? "Tidak ada kejadian yang cocok dengan filter pada rentang ini." : "Tidak ada kejadian peringatan/error pada rentang ini."}
-                </p>
+                hasFilter ? (
+                  <EmptyState title="Tidak ada kejadian yang cocok dengan filter pada rentang ini." data-testid="empty" action={<Link href="/admin/logs" className={buttonVariants({ variant: "outline", size: "sm" })}>Hapus filter</Link>}>
+                    Sumber log tersedia; coba rentang waktu lebih panjang atau filter lain.
+                  </EmptyState>
+                ) : (
+                  <EmptyState title="Tidak ada kejadian peringatan/error pada rentang ini." data-testid="empty">
+                    Sumber log tersedia dan dibaca; sistem tenang pada rentang ini.
+                  </EmptyState>
+                )
               ) : (
-                <Table>
+                <Table stickyHeader>
                   <caption className="sr-only">Daftar kejadian log</caption>
                   <TableHeader>
                     <TableRow>
@@ -145,25 +154,27 @@ export default async function LogsPage({ searchParams }: PageProps<"/admin/logs"
                       <TableHead className="hidden md:table-cell">Modul</TableHead>
                       <TableHead>Pesan</TableHead>
                       <TableHead className="hidden lg:table-cell">Request ID</TableHead>
-                      <TableHead className="hidden md:table-cell text-right">Toko</TableHead>
+                      <TableHead numeric className="hidden md:table-cell">Toko</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {state.data.items.map((e) => (
                       <TableRow key={e.id}>
-                        <TableCell className="whitespace-normal text-xs">{fmtTime(e.time)}</TableCell>
+                        <TableCell className="whitespace-normal text-xs text-muted-foreground">
+                          <time dateTime={e.time.toISOString()}>{fmtTime(e.time)}</time>
+                        </TableCell>
                         <TableCell className="hidden sm:table-cell"><LevelBadge level={e.level} /></TableCell>
                         <TableCell className="hidden md:table-cell font-mono text-xs">{e.module}</TableCell>
                         <TableCell className="max-w-[11rem] whitespace-normal sm:max-w-xs lg:max-w-md">
                           {/* Narrow screens: severity rides with the summary so time + summary stay readable without scrolling (UX-9). */}
                           <span className="mb-1 block sm:hidden"><LevelBadge level={e.level} /></span>
-                          <Link href={`/admin/logs/${e.id}?back=${back}`} className="font-medium hover:underline" aria-label={`Detail kejadian ${e.id}: ${e.message.slice(0, 60)}`}>
+                          <Link href={`/admin/logs/${e.id}?back=${back}`} className="font-medium underline-offset-4 hover:underline" aria-label={`Detail kejadian ${e.id}: ${e.message.slice(0, 60)}`}>
                             {e.message.length > 90 ? `${e.message.slice(0, 90)}…` : e.message}
                           </Link>
                           {e.code && <span className="ml-1 font-mono text-xs text-muted-foreground">{e.code}</span>}
                         </TableCell>
                         <TableCell className="hidden lg:table-cell font-mono text-xs">{e.requestId ?? "—"}</TableCell>
-                        <TableCell className="hidden md:table-cell text-right">{e.storeId ?? "—"}</TableCell>
+                        <TableCell numeric className="hidden md:table-cell">{e.storeId ?? "—"}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
