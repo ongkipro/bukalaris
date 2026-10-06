@@ -6,6 +6,16 @@ import { switchStore } from "./actions";
 
 export const metadata = { title: "Seller Admin — Bukalaris" };
 
+const sellerNav = [
+  ["/seller/products", "Produk"],
+  ["/seller/inventory", "Inventaris"],
+  ["/seller/orders", "Pesanan"],
+  ["/seller/collections", "Koleksi"],
+  ["/seller/pages", "Halaman"],
+  ["/seller/members", "Anggota"],
+  ["/seller/settings", "Pengaturan"],
+] as const;
+
 export default async function SellerLayout({ children }: LayoutProps<"/seller">) {
   const { user, ctx } = await seller();
   return (
@@ -14,9 +24,11 @@ export default async function SellerLayout({ children }: LayoutProps<"/seller">)
         <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
           <span className="font-semibold">Bukalaris · Seller</span>
           {ctx.ok && (
-            <nav aria-label="Seller" className="flex gap-3 text-sm">
-              <Link href="/seller/products" className="hover:underline">Produk</Link>
-              <Link href="/seller/members" className="hover:underline">Anggota</Link>
+            <nav aria-label="Seller" className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
+              {/* Owned by M2 tracks: each page is created by its track (AGENTS.md "Parallel tracks"). */}
+              {sellerNav.map(([href, label]) => (
+                <Link key={href} href={href} className="hover:underline">{label}</Link>
+              ))}
               <a href={`/s/${ctx.scope.storeSlug}`} className="hover:underline">Lihat toko</a>
             </nav>
           )}

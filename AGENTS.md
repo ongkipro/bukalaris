@@ -72,3 +72,31 @@ on the compose network: `--network bukalaris_default` with
   dependencies for a few lines. Record deliberate ceilings in `docs/DECISIONS.md`.
 - Never claim something works without running it; record evidence in
   `BUILD-LOG.md` and `docs/TASKS.md`.
+
+## Parallel tracks (M2)
+
+Tracks run in separate git worktrees (`~/Projects/bukalaris-wt/<track>`, branch
+`m2/<track>`); the orchestrator merges them into `main` locally. No push.
+
+| Track | Owns (create/edit freely) | May also edit |
+|---|---|---|
+| `orders` | `packages/db/src/orders.ts`, `schema-orders.ts`, `apps/web/src/app/seller/{orders,inventory}/**` | `order` table + its CHECKs in `schema.ts` |
+| `accounts` | `packages/db/src/accounts.ts`, `schema-accounts.ts`, `apps/web/src/app/{login,account,invite}/**`, `apps/web/src/app/seller/members/**`, `apps/web/src/lib/auth.ts` | Better Auth tables in `schema.ts`, `membership.ts`, member actions in `seller/actions.ts` |
+| `ops` | `packages/db/src/ops.ts`, `schema-ops.ts`, `apps/web/src/app/admin/logs/**`, `apps/web/src/lib/log.ts`, `apps/web/src/instrumentation.ts`, `app/{error,global-error,not-found}.tsx` | `apps/web/src/proxy.ts` (correlation id only) |
+| `content` | `packages/db/src/content.ts`, `schema-content.ts`, `apps/web/src/app/seller/{collections,pages,settings}/**`, `apps/web/src/app/s/**`, `apps/web/src/app/checkout/**` (presentation), `apps/web/src/app/admin/stores/**`, `globals.css` | `store` table in `schema.ts`, `seller/products/**` (images) |
+
+Rules for every track:
+- Do not edit another track's files, `seller/layout.tsx`, `admin/layout.tsx`
+  (navigation is pre-populated), `packages/db/src/index.ts` or the root
+  configs. If a shared change is unavoidable, make it minimal and list it in
+  your track report.
+- Each track uses its own `.env` (databases `bukalaris_<track>`,
+  `bukalaris_<track>_test`, `bukalaris_<track>_e2e`; ports in `.env`).
+- Migrations: run `pnpm db:generate` in your branch to test; the orchestrator
+  regenerates one consolidated migration at merge.
+- Tests: Vitest file `packages/db/test/<track>.test.ts`, Playwright spec
+  `apps/web/e2e/<track>.spec.ts`. Run lint, typecheck, test, build and e2e
+  before every commit; commit on your branch only.
+- Report: `docs/tracks/<track>.md` (what changed, commands + results,
+  decisions/defaults taken, open issues). Do not edit BUILD-LOG/STATUS/TASKS;
+  the orchestrator does.

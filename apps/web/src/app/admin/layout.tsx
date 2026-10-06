@@ -1,5 +1,6 @@
 import { buttonVariants } from "@/components/ui/button";
 import { operator } from "@/lib/context";
+import Link from "next/link";
 import { signOut } from "../login/actions";
 
 export const metadata = { title: "Super Admin — Bukalaris" };
@@ -11,6 +12,13 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
       <header className="border-b bg-foreground text-background">
         <div className="mx-auto flex w-full max-w-5xl items-center gap-4 px-4 py-3">
           <span className="font-semibold">Bukalaris · Bos</span>
+          {op && (
+            <nav aria-label="Super Admin" className="flex gap-3 text-sm">
+              <Link href="/admin" className="hover:underline">Toko</Link>
+              {/* PR-11: visible Log System button (page owned by the ops track). */}
+              <Link href="/admin/logs" className="rounded-md border border-background/40 px-2 py-0.5 hover:bg-background/10">Log System</Link>
+            </nav>
+          )}
           <span className="ml-auto text-sm opacity-80 max-sm:hidden">{user.email}</span>
           <form action={signOut}>
             <button type="submit" className={buttonVariants({ variant: "secondary", size: "sm" })}>Keluar</button>
