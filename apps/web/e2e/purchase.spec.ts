@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { evidence } from "./helpers";
+import { chooseDestination, evidence } from "./helpers";
 
 test("buyer: storefront → cart → hosted checkout → confirmation", async ({ page }, info) => {
   await page.goto("/s/toko-a");
@@ -19,6 +19,7 @@ test("buyer: storefront → cart → hosted checkout → confirmation", async ({
 
   await expect(page.getByRole("heading", { name: /Checkout · Toko Ayu/ })).toBeVisible();
   await expect(page.getByTestId("subtotal")).toHaveText("Rp 178.000");
+  await chooseDestination(page);
   // A tampered hidden price field is ignored: the server derives totals.
   await page.locator("form").last().evaluate((f) => {
     const i = document.createElement("input");
@@ -34,7 +35,9 @@ test("buyer: storefront → cart → hosted checkout → confirmation", async ({
   await page.getByRole("button", { name: "Buat pesanan" }).click();
 
   await expect(page.getByRole("heading", { name: "Pesanan diterima" })).toBeVisible();
-  await expect(page.getByTestId("order-total")).toHaveText("Rp 193.000");
+  // 178.000 + fake JNE COD 15.494 + platform margin (Rp 2.000, rounded up to Rp 500) = 17.500
+  await expect(page.getByTestId("order-shipping")).toHaveText("Rp 17.500");
+  await expect(page.getByTestId("order-total")).toHaveText("Rp 195.500");
   await expect(page.getByRole("status")).toContainText("COD");
   await evidence(page, info, "14-confirmation");
 

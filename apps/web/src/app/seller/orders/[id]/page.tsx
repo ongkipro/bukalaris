@@ -20,7 +20,8 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
   const o = Number.isSafeInteger(orderId) ? await getOrder(scope, orderId) : null;
   if (!o) notFound();
   const fulfil = can(scope, "orders.fulfill");
-  const simple = o.actions.filter((a) => a === "pay" || a === "process" || a === "complete");
+  const simple = o.actions.filter((a) => a === "confirm" || a === "pay" || a === "process" || a === "complete");
+  const confirming = o.status === "awaiting_confirmation" || o.status === "on_hold";
 
   return (
     <section className="grid max-w-3xl gap-6">
@@ -34,9 +35,30 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
       </div>
       <Notice error={error} saved={saved} />
 
+      {confirming && (
+        <section aria-labelledby="risk" className="grid gap-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 text-sm" data-testid="cod-risk">
+          <h2 id="risk" className="text-lg font-semibold">Sinyal risiko COD</h2>
+          <p className="text-muted-foreground">
+            Dari data toko ini saja. Hubungi pembeli di nomor HP di bawah sebelum mengonfirmasi; pesanan yang belum dikonfirmasi tidak akan dikirim.
+          </p>
+          {o.risk.length === 0 ? (
+            <p role="status">Tidak ada sinyal risiko dari riwayat toko ini.</p>
+          ) : (
+            <ul className="list-disc space-y-1 pl-5">
+              {o.risk.map((r) => (
+                <li key={r.code}>{r.message}</li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
       {fulfil && o.actions.length > 0 && (
         <section aria-labelledby="actions" className="grid gap-4 rounded-lg border p-4">
           <h2 id="actions" className="text-lg font-semibold">Tindakan</h2>
+          {o.actions.includes("confirm") && (
+            <p className="text-sm text-muted-foreground">Konfirmasi hanya setelah pembeli membenarkan pesanan dan alamatnya. Tahan jika belum bisa dihubungi; tolak jika pesanan tidak valid.</p>
+          )}
           {o.actions.includes("pay") && (
             <p className="text-sm text-muted-foreground">
               Tandai dibayar hanya setelah Anda memeriksa transfer masuk sendiri. Ini konfirmasi manual, bukan rekonsiliasi otomatis dari penyedia pembayaran.
@@ -56,6 +78,27 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
                 <Input id="trackingNumber" name="trackingNumber" required minLength={3} maxLength={80} placeholder={`Resi ${o.courier}`} />
               </div>
               <Button type="submit">{actionLabel.ship}</Button>
+            </form>
+          )}
+          {o.actions.includes("hold") && (
+            <form action={orderAction.bind(null, o.id, "hold")} className="grid gap-2 border-t pt-4 sm:grid-cols-[1fr_auto] sm:items-end">
+              <div className="grid gap-2">
+                <Label htmlFor="holdReason">Alasan penahanan</Label>
+                <Input id="holdReason" name="reason" required minLength={5} maxLength={500} placeholder="mis. Nomor HP belum bisa dihubungi" />
+              </div>
+              <Button type="submit" variant="outline">{actionLabel.hold}</Button>
+            </form>
+          )}
+          {o.actions.includes("reject") && (
+            <form action={orderAction.bind(null, o.id, "reject")} className="grid gap-2 border-t pt-4 sm:grid-cols-[1fr_auto] sm:items-end">
+              <div className="grid gap-2">
+                <Label htmlFor="rejectReason">Alasan penolakan</Label>
+                <Input id="rejectReason" name="reason" required minLength={5} maxLength={500} placeholder="Wajib, tercatat di riwayat" aria-describedby="reject-help" />
+                <p id="reject-help" className="text-xs text-muted-foreground">Pesanan dibatalkan dan stok setiap barang dikembalikan sekali.</p>
+              </div>
+              <ConfirmSubmit variant="destructive" message={`Tolak pesanan COD #${o.id}? Stok barang akan dikembalikan dan pesanan tidak bisa dilanjutkan.`}>
+                {actionLabel.reject}
+              </ConfirmSubmit>
             </form>
           )}
           {o.actions.includes("cancel") && (
@@ -80,7 +123,8 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
           <p className="font-medium">{o.buyerName}</p>
           <p><a href={`tel:${o.buyerPhone}`} className="underline">{o.buyerPhone}</a></p>
           <p className="whitespace-pre-line text-muted-foreground">{o.shippingAddress}</p>
-          <p className="text-muted-foreground">Kurir: {o.courier}</p>
+          <p className="text-muted-foreground">Area: {o.destinationAreaLabel}</p>
+          <p className="text-muted-foreground">Kurir: {o.courier} <span className="font-mono text-xs">({o.courierCode})</span> · {o.weightKg} kg</p>
           {o.trackingNumber && <p>Resi: <span className="font-mono" data-testid="tracking">{o.trackingNumber}</span></p>}
         </section>
         <section aria-labelledby="payment" className="grid gap-1 text-sm">
@@ -90,6 +134,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
             Referensi: {o.paymentReference ? <span className="font-mono break-all">{o.paymentReference}</span> : "—"}
           </p>
           {o.paidAt && <p className="text-muted-foreground">Dikonfirmasi dibayar {tanggal(o.paidAt)}</p>}
+          {o.confirmedAt && <p className="text-muted-foreground">Pesanan COD dikonfirmasi {tanggal(o.confirmedAt)}</p>}
         </section>
       </div>
 

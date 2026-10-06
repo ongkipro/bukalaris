@@ -22,14 +22,14 @@ describe("checkout (PR-4, DATA-2, NFR-2)", () => {
 
     const { orderId } = await placeOrder(db, cartId, buyer());
     const o = await getBuyerOrder(db, orderId, cartId);
-    // Fee comes from the server-side quote (fake: 15,000 for one cart line), not the client.
-    expect(o).toMatchObject({ subtotal: 250_000, shippingFee: 15_000, total: 265_000 });
+    // Fee comes from the server-side quote with margin (fake JNE COD 15_494 + Rp 2.006 → 17_500), not the client.
+    expect(o).toMatchObject({ subtotal: 250_000, shippingFee: 17_500, total: 267_500 });
     expect(o!.lines[0]).toMatchObject({ unitPrice: 125_000, quantity: 2, lineTotal: 250_000 });
     expect(await stockOf(s.variantId)).toBe(8);
 
     // Later catalog edits do not rewrite the snapshot (DATA-2).
     await updateVariant(s.owner, s.variantId, { title: "M", price: 1, stock: 8 });
-    expect((await getBuyerOrder(db, orderId, cartId))!.total).toBe(265_000);
+    expect((await getBuyerOrder(db, orderId, cartId))!.total).toBe(267_500);
   });
 
   it("an order id alone does not reveal the order", async () => {
@@ -69,7 +69,8 @@ describe("checkout (PR-4, DATA-2, NFR-2)", () => {
     const carts = await Promise.all(
       Array.from({ length: 12 }, () => setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 1 }, "add")),
     );
-    const settled = await Promise.allSettled(carts.map((c) => placeOrder(db, c, buyer())));
+    // Twelve different buyers (phones), so only stock — not the per-phone abuse limit — decides.
+    const settled = await Promise.allSettled(carts.map((c, i) => placeOrder(db, c, buyer({ buyerPhone: `0812000000${String(i).padStart(2, "0")}` }))));
     const ok = settled.filter((r) => r.status === "fulfilled");
     const failed = settled.filter((r): r is PromiseRejectedResult => r.status === "rejected");
     expect(ok.length).toBeLessThanOrEqual(initial);

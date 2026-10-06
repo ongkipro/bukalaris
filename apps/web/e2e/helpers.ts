@@ -9,6 +9,14 @@ mkdirSync(dir, { recursive: true });
 
 export const DEV_PASSWORD = "bukalaris-dev-123";
 
+/** Hosted checkout step 1 (T-34): search the destination area through the fake adapter and pick it (no JS needed). */
+export async function chooseDestination(page: Page, keyword = "menteng", pick: RegExp = /^Pilih Menteng/) {
+  await page.getByLabel(/Cari kelurahan/).fill(keyword);
+  await page.getByRole("button", { name: "Cari area" }).click();
+  await page.getByRole("link", { name: pick }).click();
+  await expect(page.getByTestId("destination-area")).toBeVisible();
+}
+
 /** Full-page screenshot into docs/evidence/m1 plus a no-horizontal-scroll check (NFR-3 reflow). */
 export async function evidence(page: Page, info: TestInfo, step: string) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

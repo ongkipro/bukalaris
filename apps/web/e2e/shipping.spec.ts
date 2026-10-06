@@ -26,7 +26,8 @@ test("operator edits the platform margin rule; preview and audit follow", async 
   await page.getByLabel("Margin tetap (Rp)").fill("-5");
   await page.getByLabel("Margin tetap (Rp)").evaluate((el: HTMLInputElement) => el.removeAttribute("min"));
   await page.getByRole("button", { name: "Simpan aturan" }).click();
-  await expect(page.getByRole("alert")).toBeVisible();
+  // Scope to main: Next's route announcer is also role=alert, and matching it let the restore below race the redirect.
+  await expect(page.getByRole("main").getByRole("alert")).toBeVisible();
   await expect(page.getByTestId("margin-preview").filter({ hasText: "Rp 22.320" })).toContainText("Rp 25.000");
 
   // Restore the default so the other project / later tests start from it.

@@ -15,6 +15,27 @@
       "when": 1791307189483,
       "tag": "0001_m2_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791308149746,
+      "tag": "0002_red_sunspot",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791308781455,
+      "tag": "0003_calm_shriek",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791309172979,
+      "tag": "0004_short_jack_power",
+      "breakpoints": true
     }
   ]
 }

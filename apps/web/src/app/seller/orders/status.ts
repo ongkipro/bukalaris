@@ -1,6 +1,8 @@
 import type { OrderAction, OrderStatus } from "@bukalaris/db";
 
 export const statusLabel: Record<OrderStatus, string> = {
+  awaiting_confirmation: "Menunggu konfirmasi",
+  on_hold: "Ditahan",
   awaiting_payment: "Menunggu pembayaran",
   placed: "Baru",
   processing: "Diproses",
@@ -10,6 +12,8 @@ export const statusLabel: Record<OrderStatus, string> = {
 };
 
 export const statusVariant: Record<OrderStatus, "default" | "secondary" | "outline" | "destructive"> = {
+  awaiting_confirmation: "outline",
+  on_hold: "secondary",
   awaiting_payment: "outline",
   placed: "default",
   processing: "default",
@@ -19,6 +23,9 @@ export const statusVariant: Record<OrderStatus, "default" | "secondary" | "outli
 };
 
 export const actionLabel: Record<OrderAction, string> = {
+  confirm: "Konfirmasi pesanan",
+  hold: "Tahan pesanan",
+  reject: "Tolak pesanan",
   pay: "Tandai sudah dibayar",
   process: "Proses pesanan",
   ship: "Kirim pesanan",

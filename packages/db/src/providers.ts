@@ -2,8 +2,6 @@
 // and need no credentials. The real Mengantar adapter lives in ./mengantar/
 // (server-only); AutoLaris stays fake until its gate (T-6) passes.
 
-export type ShippingQuote = { courier: string; label: string; fee: number };
-
 /** A provider area (kelurahan/kecamatan level); `id` is the provider's area id used for origin/destination. */
 export type Area = { id: string; label: string };
 
@@ -34,8 +32,6 @@ export type ProviderQuote = {
 
 /** Mengantar: area search, delivery eligibility and fee estimate, called only server-side. */
 export interface ShippingAdapter {
-  /** M1 address-string quote used by the current hosted checkout. `items` = number of distinct cart lines. */
-  quote(input: { storeId: number; address: string; items: number }): Promise<ShippingQuote[]>;
   searchArea(keyword: string): Promise<Area[]>;
   estimate(input: EstimateInput): Promise<ProviderQuote[]>;
 }
@@ -53,25 +49,28 @@ export const FAKE_AREAS: Area[] = [
   { id: "a2a2a2a2a2a2a2a2a2a2a2a2", label: "Cihapit, Bandung Wetan, Bandung, Jawa Barat 40114" },
   { id: "b1b1b1b1b1b1b1b1b1b1b1b1", label: "Menteng, Menteng, Jakarta Pusat, DKI Jakarta 10310" },
   { id: "c1c1c1c1c1c1c1c1c1c1c1c1", label: "Gubeng, Gubeng, Surabaya, Jawa Timur 60281" },
+  /** No courier offers COD here (every supported courier flags `unsupported_cod`). */
+  { id: "d1d1d1d1d1d1d1d1d1d1d1d1", label: "Wamena, Wamena, Jayawijaya, Papua Pegunungan 99511" },
 ];
+/** Fake destination where COD is refused by every courier. */
+export const FAKE_NO_COD_AREA = FAKE_AREAS[4]!.id;
 
 export const fakeMengantar: ShippingAdapter = {
-  async quote({ items }) {
-    const extra = Math.max(0, items - 1) * 2_000;
-    return [
-      { courier: "fake-reg", label: "Reguler (simulasi Mengantar)", fee: 15_000 + extra },
-      { courier: "fake-express", label: "Ekspres (simulasi Mengantar)", fee: 28_000 + extra },
-    ];
-  },
   async searchArea(keyword) {
     const k = keyword.trim().toLowerCase();
     return k.length < 3 ? [] : FAKE_AREAS.filter((a) => a.label.toLowerCase().includes(k));
   },
-  /** Deterministic shape with every gating case: supported, COD-refused and unsupported. */
-  async estimate({ weightKg }) {
+  /**
+   * Deterministic shape with every gating case: supported, COD-refused and unsupported.
+   * Unknown destinations get no quotes (the provider serves no route there); the
+   * `FAKE_NO_COD_AREA` destination refuses COD on every courier.
+   */
+  async estimate({ destinationAreaId, weightKg }) {
+    if (!FAKE_AREAS.some((a) => a.id === destinationAreaId)) return [];
+    const noCod = destinationAreaId === FAKE_NO_COD_AREA;
     const w = Math.max(0, weightKg - 1) * 5_000;
     return [
-      { courier: "JNE", label: "JNE Express (simulasi)", etd: "1 - 2 days", unsupported: false, unsupportedCod: false, providerCost: 10_500 + w, providerCostCod: 15_494 + w },
+      { courier: "JNE", label: "JNE Express (simulasi)", etd: "1 - 2 days", unsupported: false, unsupportedCod: noCod, providerCost: 10_500 + w, providerCostCod: 15_494 + w },
       { courier: "SiCepat", label: "SiCepat Ekspres (simulasi)", etd: "2 - 3 days", unsupported: false, unsupportedCod: true, providerCost: 8_000 + w, providerCostCod: 12_994 + w },
       { courier: "pos", label: "POS Indonesia (simulasi)", etd: "4 days", unsupported: true, unsupportedCod: false, providerCost: 16_150 + w, providerCostCod: 21_144 + w },
     ];
