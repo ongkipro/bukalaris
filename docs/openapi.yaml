@@ -189,9 +189,9 @@ paths:
       tags:
       - Storefront
       security:
-      - {}
       - storefrontToken: []
       x-status: proposed
+      x-implemented: 'GET /api/storefront/v1/products (M2 channels track, apps/web/src/app/api/storefront/v1/**). Channel token required; the token resolves the store. Returns {items:[PublicProductSummary]}; no pagination, search or collection filter yet.'
       x-tenant-source: verified-native-host-or-scoped-channel-token
       responses:
         '200':
@@ -221,22 +221,6 @@ paths:
           $ref: '#/components/responses/Unavailable'
         '401':
           $ref: '#/components/responses/Unauthorized'
-      parameters:
-      - $ref: '#/components/parameters/Cursor'
-      - $ref: '#/components/parameters/Limit'
-      - name: q
-        in: query
-        required: false
-        schema:
-          type: string
-          maxLength: 200
-      - name: collection_id
-        in: query
-        required: false
-        schema:
-          type: string
-          minLength: 1
-          maxLength: 128
   /storefront/products/{slug}:
     servers:
     - url: https://app.bukalaris.com/api/v1
@@ -251,9 +235,9 @@ paths:
       tags:
       - Storefront
       security:
-      - {}
       - storefrontToken: []
       x-status: proposed
+      x-implemented: 'GET /api/storefront/v1/products/{slug} (M2 channels track, apps/web/src/app/api/storefront/v1/**). Channel token required; the token resolves the store. slug is the canonical slug or the numeric id; historical aliases are not implemented.'
       x-tenant-source: verified-native-host-or-scoped-channel-token
       responses:
         '200':
@@ -405,9 +389,9 @@ paths:
       tags:
       - Storefront
       security:
-      - {}
       - storefrontToken: []
       x-status: proposed
+      x-implemented: 'POST /api/storefront/v1/carts (M2 channels track, apps/web/src/app/api/storefront/v1/**). Channel token required; the token resolves the store. items may be empty. The cart id (random UUID) together with the channel token is the cart capability (DECISIONS D-6); no separate cart_capability and no Idempotency-Key yet.'
       x-tenant-source: verified-native-host-or-scoped-channel-token
       responses:
         '201':
@@ -441,8 +425,6 @@ paths:
           $ref: '#/components/responses/Unavailable'
         '401':
           $ref: '#/components/responses/Unauthorized'
-      parameters:
-      - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -461,10 +443,9 @@ paths:
       tags:
       - Checkout
       security:
-      - cartCapability: &id001 []
-      - cartCapability: *id001
-        storefrontToken: []
+      - storefrontToken: []
       x-status: proposed
+      x-implemented: 'GET /api/storefront/v1/carts/{cart_id} (M2 channels track, apps/web/src/app/api/storefront/v1/**). Channel token required; the token resolves the store. 404 cart_not_found for a foreign-store or checked-out cart.'
       x-tenant-source: verified-native-host-or-scoped-channel-token
       responses:
         '200':
@@ -514,10 +495,9 @@ paths:
       tags:
       - Checkout
       security:
-      - cartCapability: &id002 []
-      - cartCapability: *id002
-        storefrontToken: []
+      - storefrontToken: []
       x-status: proposed
+      x-implemented: 'POST /api/storefront/v1/carts/{cart_id}/items (M2 channels track, apps/web/src/app/api/storefront/v1/**). Channel token required; the token resolves the store. Adds quantity to the variant line (max 99). No revision check or Idempotency-Key yet.'
       x-tenant-source: verified-native-host-or-scoped-channel-token
       responses:
         '200':
@@ -559,7 +539,6 @@ paths:
           type: string
           minLength: 1
           maxLength: 128
-      - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -578,10 +557,9 @@ paths:
       tags:
       - Checkout
       security:
-      - cartCapability: &id003 []
-      - cartCapability: *id003
-        storefrontToken: []
+      - storefrontToken: []
       x-status: proposed
+      x-implemented: 'PATCH /api/storefront/v1/carts/{cart_id}/items/{item_id} (M2 channels track, apps/web/src/app/api/storefront/v1/**). Channel token required; the token resolves the store. item_id is the variant id (one line per variant). quantity 0 removes the line.'
       x-tenant-source: verified-native-host-or-scoped-channel-token
       responses:
         '200':
@@ -626,11 +604,10 @@ paths:
       - name: item_id
         in: path
         required: true
+        description: The variant id of the line (implemented; one line per variant).
         schema:
           type: string
-          minLength: 1
-          maxLength: 128
-      - $ref: '#/components/parameters/IdempotencyKey'
+          pattern: ^[1-9][0-9]*$
       requestBody:
         required: true
         content:
@@ -3696,10 +3673,9 @@ paths:
       tags:
       - Checkout
       security:
-      - cartCapability: &id005 []
-      - cartCapability: *id005
-        storefrontToken: []
+      - storefrontToken: []
       x-status: proposed
+      x-implemented: 'POST /api/storefront/v1/carts/{cart_id}/checkout-handoffs (M2 channels track, apps/web/src/app/api/storefront/v1/**). Channel token required; the token resolves the store. Body is an empty object. checkout_url = <checkout origin>/checkout/h/<43-char code>; the code hash is stored, TTL 10 minutes, consumed atomically once. Exchange sets the per-store cart cookie and redirects to /checkout?store=<slug>; return destination is the channel''s registered origin + path. Idempotent retry is not implemented: each call issues a new code.'
       x-tenant-source: verified-native-host-or-scoped-channel-token
       responses:
         '400':
@@ -3734,7 +3710,6 @@ paths:
           type: string
           minLength: 1
           maxLength: 128
-      - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: true
         content:
@@ -3803,6 +3778,7 @@ paths:
       security:
       - sessionCookie: []
       x-status: proposed
+      x-implemented: 'Implemented as the Seller Admin page /seller/channels (server component, apps/web/src/app/seller/channels/page.tsx), capability integrations.manage (owner). Metadata only: token prefix, never the secret. No HTTP route yet.'
       x-tenant-source: authorized-store-path
       responses:
         '200':
@@ -3857,6 +3833,7 @@ paths:
       security:
       - sessionCookie: []
       x-status: proposed
+      x-implemented: 'Implemented as a Seller Admin server action (apps/web/src/app/seller/channels/actions.ts → packages/db/src/channels.ts createChannel): name, https origin (http only for localhost), one local return_path, optional expires_at. Token blsk_<prefix>_<secret> is returned in the action result once; only its SHA-256 hash is stored. Repeat submission creates another channel (no idempotency). No HTTP route yet.'
       x-tenant-source: authorized-store-path
       responses:
         '400':
@@ -3916,6 +3893,7 @@ paths:
       security:
       - sessionCookie: []
       x-status: proposed
+      x-implemented: 'Implemented as a Seller Admin server action (revokeChannel): sets status revoked; new API calls and unused handoffs are denied immediately; no revision check. No HTTP route yet.'
       x-tenant-source: authorized-store-path
       responses:
         '400':
@@ -3957,14 +3935,7 @@ paths:
         schema:
           type: string
           minLength: 1
-      - $ref: '#/components/parameters/IdempotencyKey'
       - $ref: '#/components/parameters/CsrfToken'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RevisionInput'
 components:
   securitySchemes:
     sessionCookie:
@@ -4887,8 +4858,8 @@ components:
     CartLine:
       type: object
       additionalProperties: false
+      description: One line per variant; the variant id identifies the line (implemented).
       required:
-      - id
       - variant_id
       - product_id
       - title
@@ -4896,10 +4867,6 @@ components:
       - unit_price
       - line_total
       properties:
-        id:
-          type: string
-          minLength: 1
-          maxLength: 128
         variant_id:
           type: string
           pattern: ^[1-9][0-9]*$
@@ -4922,23 +4889,16 @@ components:
     Cart:
       type: object
       additionalProperties: false
+      description: Implemented shape. Carts have no revision or expiry yet (DECISIONS D-5/D-6);
+        the id is a random UUID that, with the channel token, is the cart capability.
       required:
       - id
-      - revision
-      - expires_at
       - lines
       - subtotal
       properties:
         id:
           type: string
-          minLength: 1
-          maxLength: 128
-        revision:
-          type: integer
-          minimum: 1
-        expires_at:
-          type: string
-          format: date-time
+          format: uuid
         lines:
           type: array
           items:
@@ -4960,38 +4920,28 @@ components:
       additionalProperties: false
       required:
       - cart
-      - cart_capability
       properties:
         cart:
           $ref: '#/components/schemas/Cart'
-        cart_capability:
-          type: string
-          description: Opaque secret shown once. Store only in controlled memory/server
-            session; never URL or logs.
+      description: 'Implemented. No separate cart_capability: keep cart.id server-side
+        in the storefront backend session; never URL or logs.'
     CartItemEdit:
       type: object
       additionalProperties: false
       required:
-      - expected_revision
       - quantity
       properties:
-        expected_revision:
-          type: integer
-          minimum: 1
         quantity:
           type: integer
           minimum: 0
+          maximum: 99
     CartItemAdd:
       type: object
       additionalProperties: false
       required:
-      - expected_revision
       - variant_id
       - quantity
       properties:
-        expected_revision:
-          type: integer
-          minimum: 1
         variant_id:
           type: string
           pattern: ^[1-9][0-9]*$
@@ -5477,18 +5427,36 @@ components:
     PublicProductList:
       type: object
       additionalProperties: false
+      description: Implemented shape; pagination is not implemented yet (all published products).
       required:
       - items
-      - next_cursor
       properties:
         items:
           type: array
           items:
-            $ref: '#/components/schemas/PublicProduct'
-        next_cursor:
-          type:
-          - string
-          - 'null'
+            $ref: '#/components/schemas/PublicProductSummary'
+    PublicProductSummary:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - slug
+      - canonical_path
+      - title
+      - min_price
+      properties:
+        id:
+          type: string
+          pattern: ^[1-9][0-9]*$
+        slug:
+          type: string
+          description: Canonical slug, or the numeric id when the product has no custom slug (DATA-5).
+        canonical_path:
+          type: string
+        title:
+          type: string
+        min_price:
+          $ref: '#/components/schemas/Money'
     CollectionList:
       type: object
       additionalProperties: false
@@ -5769,18 +5737,9 @@ components:
     CheckoutHandoffInput:
       type: object
       additionalProperties: false
-      properties:
-        expected_revision:
-          type: integer
-          minimum: 1
-        return_target:
-          type: string
-          enum:
-          - store_home
-          - cart
-      required:
-      - expected_revision
-      - return_target
+      description: Implemented as an empty object. The return destination is the channel's
+        registered origin + return path; the client cannot choose it.
+      properties: {}
     CheckoutHandoff:
       type: object
       additionalProperties: false
@@ -5834,20 +5793,20 @@ components:
         storefront_origin:
           type: string
           format: uri
-        return_paths:
-          type: array
-          items:
-            type: string
-            pattern: ^/[^/]*.*$
-          minItems: 1
-        expires_at:
+        return_path:
           type: string
+          pattern: ^/(?!/)\S*$
+          default: /
+          description: Single local path appended to storefront_origin for the post-checkout return link.
+        expires_at:
+          type:
+          - string
+          - 'null'
           format: date-time
+          description: Optional; a channel without expiry stays valid until revoked.
       required:
       - name
       - storefront_origin
-      - return_paths
-      - expires_at
     StorefrontChannel:
       type: object
       additionalProperties: false
@@ -5864,6 +5823,8 @@ components:
         storefront_origin:
           type: string
           format: uri
+        return_path:
+          type: string
         status:
           type: string
           enum:
@@ -5871,23 +5832,23 @@ components:
           - revoked
           - expired
         expires_at:
-          type: string
+          type:
+          - string
+          - 'null'
           format: date-time
         token_prefix:
           type: string
           minLength: 1
-        revision:
-          type: integer
-          minimum: 1
+          description: 8 base64url characters; the list shows blsk_<prefix>_… only.
       required:
       - id
       - name
       - store_id
       - storefront_origin
+      - return_path
       - status
       - expires_at
       - token_prefix
-      - revision
     StorefrontChannelCreated:
       type: object
       additionalProperties: false

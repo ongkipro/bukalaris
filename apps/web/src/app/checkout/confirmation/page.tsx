@@ -1,14 +1,17 @@
 import { rupiah } from "@/lib/format";
 import { ORDER_COOKIE } from "@/lib/storefront";
-import { db, getBuyerOrder } from "@bukalaris/db";
+import { channelReturnTarget, db, getBuyerOrder } from "@bukalaris/db";
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 
 export default async function ConfirmationPage({ searchParams }: PageProps<"/checkout/confirmation">) {
   const { order } = await searchParams;
   const id = typeof order === "string" && /^[0-9]{1,15}$/.test(order) ? Number(order) : null;
-  const o = id ? await getBuyerOrder(db(), id, (await cookies()).get(ORDER_COOKIE)?.value) : null;
+  const cartId = (await cookies()).get(ORDER_COOKIE)?.value;
+  const o = id ? await getBuyerOrder(db(), id, cartId) : null;
   if (!o) notFound();
+  // Headless buyers return to the channel's registered origin + path (allowlist, channels track).
+  const back = (await channelReturnTarget(db(), cartId)) ?? `/s/${o.storeSlug}`;
   return (
     <section className="grid gap-4 rounded-lg border bg-background p-6" aria-labelledby="done">
       <h1 id="done" className="text-2xl font-semibold">Pesanan diterima</h1>
@@ -35,7 +38,7 @@ export default async function ConfirmationPage({ searchParams }: PageProps<"/che
         <dt>Ongkir ({o.courier})</dt><dd className="text-right">{rupiah(o.shippingFee)}</dd>
         <dt className="font-semibold">Total</dt><dd className="text-right font-semibold" data-testid="order-total">{rupiah(o.total)}</dd>
       </dl>
-      <a href={`/s/${o.storeSlug}`} className="text-sm underline">Kembali ke toko</a>
+      <a href={back} className="text-sm underline" data-testid="return-link">Kembali ke toko</a>
     </section>
   );
 }
