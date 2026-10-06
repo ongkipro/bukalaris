@@ -8,6 +8,13 @@
       "when": 1791298028567,
       "tag": "0000_secret_tattoo",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791303857511,
+      "tag": "0001_bored_sir_ram",
+      "breakpoints": true
     }
   ]
 }

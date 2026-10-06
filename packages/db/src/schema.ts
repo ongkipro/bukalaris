@@ -195,6 +195,9 @@ export const cartLine = pgTable(
 // ---------------------------------------------------------------------------
 // Orders: immutable commercial snapshot (DATA-2).
 // ---------------------------------------------------------------------------
+export const ORDER_STATUSES = ["awaiting_payment", "placed", "processing", "shipped", "completed", "cancelled"] as const;
+export type OrderStatus = (typeof ORDER_STATUSES)[number];
+
 export const order = pgTable(
   "order",
   {
@@ -204,9 +207,13 @@ export const order = pgTable(
     cartId: uuid("cart_id").notNull().unique(),
     idempotencyKey: text("idempotency_key").notNull(),
     requestHash: text("request_hash").notNull(),
-    status: text("status", { enum: ["placed", "awaiting_payment"] }).notNull(),
+    // Lifecycle (M2 orders track, docs/tracks/orders.md): awaiting_payment → placed → processing → shipped → completed;
+    // placed/awaiting_payment/processing → cancelled (restocks once). Transitions only via orders.ts.
+    status: text("status", { enum: ORDER_STATUSES }).notNull(),
     paymentMethod: text("payment_method", { enum: ["cod", "manual_transfer"] }).notNull(),
     paymentReference: text("payment_reference"),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    trackingNumber: text("tracking_number"),
     buyerName: text("buyer_name").notNull(),
     buyerPhone: text("buyer_phone").notNull(),
     shippingAddress: text("shipping_address").notNull(),
@@ -215,12 +222,15 @@ export const order = pgTable(
     shippingFee: idr("shipping_fee").notNull(),
     total: idr("total").notNull(),
     createdAt: createdAt(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     unique("order_store_id_uq").on(t.storeId, t.id),
+    index("order_store_status_idx").on(t.storeId, t.status, t.id),
     unique("order_idempotency_uq").on(t.storeId, t.idempotencyKey),
     check("order_total_chk", sql`${t.total} = ${t.subtotal} + ${t.shippingFee} and ${t.subtotal} >= 0 and ${t.shippingFee} >= 0`),
-    check("order_status_chk", sql`${t.status} in ('placed', 'awaiting_payment')`),
+    check("order_status_chk", sql`${t.status} in ('awaiting_payment', 'placed', 'processing', 'shipped', 'completed', 'cancelled')`),
+    check("order_shipped_chk", sql`${t.status} not in ('shipped', 'completed') or ${t.trackingNumber} is not null`),
     check("order_payment_chk", sql`${t.paymentMethod} in ('cod', 'manual_transfer')`),
   ],
 );
