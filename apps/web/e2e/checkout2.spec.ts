@@ -1,10 +1,10 @@
 import { expect, type Page, test } from "@playwright/test";
-import { chooseDestination, evidence, login } from "./helpers";
+import { chooseDestination, evidence, testPhone, login } from "./helpers";
 
 // checkout2 track (T-34 phase 2, T-35, T-30). The e2e server has no MENGANTAR_* env,
 // so every quote comes from the fake adapter: no network call leaves the test.
 
-async function fillRecipient(page: Page, phone = "081234567890", address = "Jl. Merdeka No. 1 RT 02 RW 05, Bandung 40111") {
+async function fillRecipient(page: Page, phone = testPhone(), address = "Jl. Merdeka No. 1 RT 02 RW 05, Bandung 40111") {
   await page.getByLabel("Nama").fill("Budi Santoso");
   await page.getByLabel("Nomor HP").fill(phone);
   await page.getByLabel("Alamat lengkap").fill(address);

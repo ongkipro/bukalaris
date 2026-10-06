@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { Executor } from "./client.ts";
 import { enqueue, PAYMENT_INSTRUCTION } from "./jobs.ts";
 import { MengantarError } from "./mengantar/client.ts";
+import { enqueueOrderNotifications } from "./notify.ts";
 import { type Providers, type ShippingAdapter } from "./providers.ts";
 import { normalizePhone } from "./orders.ts";
 import { cart, cartLine, order, orderLine, product, rateLimit, store, storePickupArea, variant } from "./schema.ts";
@@ -22,6 +23,8 @@ export const checkoutInput = z.strictObject({
   idempotencyKey: z.uuid(),
   buyerName: z.string().trim().min(2, "Nama wajib diisi.").max(120),
   buyerPhone: z.string().trim().regex(/^\+?[0-9]{8,15}$/, "Nomor HP 8–15 digit."),
+  // Optional (T-36): an empty form field counts as "not given"; never required for COD.
+  buyerEmail: z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), z.string().trim().toLowerCase().email("Alamat email tidak valid.").max(254).optional()),
   shippingAddress: z.string().trim().min(10, "Alamat terlalu pendek.").max(500),
   destinationAreaId: areaId,
   destinationAreaLabel: z.string().trim().min(3, "Pilih area tujuan dari hasil pencarian.").max(200),
@@ -255,6 +258,7 @@ export async function placeOrder(
           paymentMethod: input.paymentMethod,
           buyerName: input.buyerName,
           buyerPhone: input.buyerPhone,
+          buyerEmail: input.buyerEmail ?? null,
           shippingAddress: input.shippingAddress,
           courierCode: option.courier,
           courier: option.label,
@@ -300,6 +304,7 @@ export async function placeOrder(
       if (input.paymentMethod === "manual_transfer") {
         await enqueue(tx, { kind: PAYMENT_INSTRUCTION, storeId, key: `order:${o.id}`, payload: { orderId: o.id } });
       }
+      await enqueueOrderNotifications(tx, storeId, o.id, "created"); // T-36: buyer (if e-mail) + owners, after commit
       return o.id;
     });
   } catch (err) {

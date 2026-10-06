@@ -6,7 +6,7 @@ import { cartCookie, clientIp, cookieOpts, ORDER_COOKIE } from "@/lib/storefront
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-const FIELDS = ["idempotencyKey", "buyerName", "buyerPhone", "shippingAddress", "destinationAreaId", "destinationAreaLabel", "courier", "paymentMethod"] as const;
+const FIELDS = ["idempotencyKey", "buyerName", "buyerPhone", "buyerEmail", "shippingAddress", "destinationAreaId", "destinationAreaLabel", "courier", "paymentMethod"] as const;
 
 export async function submitCheckout(f: FormData) {
   const jar = await cookies();

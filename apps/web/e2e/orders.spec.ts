@@ -1,5 +1,8 @@
 import { expect, type Page, test } from "@playwright/test";
-import { chooseDestination, evidence, login } from "./helpers";
+import { chooseDestination, evidence, testPhone, login } from "./helpers";
+
+/** Phone of the most recent buyKaos() order (fresh per order: checkout rate-limits per phone). */
+let phone = "";
 
 /** Buyer places a COD/transfer order for the seeded "Kaos Katun Basic" variant; returns the order id. */
 async function buyKaos(page: Page, variant: "M" | "L", qty: number, payment: "cod" | "manual_transfer") {
@@ -10,7 +13,8 @@ async function buyKaos(page: Page, variant: "M" | "L", qty: number, payment: "co
   await page.getByRole("link", { name: "Checkout" }).click();
   await chooseDestination(page);
   await page.getByLabel("Nama").fill("Budi Santoso");
-  await page.getByLabel("Nomor HP").fill("081234567890");
+  phone = testPhone();
+  await page.getByLabel("Nomor HP").fill(phone);
   await page.getByLabel("Alamat lengkap").fill("Jl. Merdeka No. 1, Bandung 40111");
   await page.locator(`input[name="paymentMethod"][value="${payment}"]`).check();
   await page.getByRole("button", { name: "Buat pesanan" }).click();
@@ -49,7 +53,7 @@ test("buyer places an order → seller sees it, processes, ships and completes i
   await page.getByRole("button", { name: "Konfirmasi pesanan" }).click();
   await expect(page.getByTestId("order-status")).toHaveText("Baru");
   await expect(page.getByText("Budi Santoso")).toBeVisible();
-  await expect(page.getByText("081234567890")).toBeVisible();
+  await expect(page.getByText(phone)).toBeVisible();
   await expect(page.getByText(/Kaos Katun Basic · M/)).toBeVisible();
   await expect(page.getByTestId("order-total")).toHaveText("Rp 106.500"); // 89.000 + COD ongkir 17.500
   await evidence(page, info, "31-seller-order-new");

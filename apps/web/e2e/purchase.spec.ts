@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { chooseDestination, evidence } from "./helpers";
+import { chooseDestination, evidence, testPhone } from "./helpers";
 
 test("buyer: storefront → cart → hosted checkout → confirmation", async ({ page }, info) => {
   await page.goto("/s/toko-a");
@@ -29,7 +29,7 @@ test("buyer: storefront → cart → hosted checkout → confirmation", async ({
     f.appendChild(i);
   });
   await page.getByLabel("Nama").fill("Budi Santoso");
-  await page.getByLabel("Nomor HP").fill("081234567890");
+  await page.getByLabel("Nomor HP").fill(testPhone());
   await page.getByLabel("Alamat lengkap").fill("Jl. Merdeka No. 1, Bandung 40111");
   await evidence(page, info, "13-checkout");
   await page.getByRole("button", { name: "Buat pesanan" }).click();

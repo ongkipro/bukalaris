@@ -149,3 +149,14 @@ export async function submitTotp(page: Page, secret: string) {
   }
   throw new Error("TOTP verification kept being rate limited");
 }
+
+/**
+ * A fresh Indonesian mobile number per call. Checkout rate-limits orders per phone
+ * (T-30: 10 per 10 minutes), so specs must not share one buyer number; reuse a value
+ * explicitly only when a test is about repeat-phone behaviour.
+ */
+let phoneSeq = 0;
+export function testPhone(): string {
+  const n = (Date.now() % 1e6) * 100 + (phoneSeq++ % 100) + process.pid % 7;
+  return `0812${String(n).padStart(8, "0").slice(-8)}`;
+}

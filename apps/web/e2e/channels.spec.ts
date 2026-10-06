@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { chooseDestination, evidence, login } from "./helpers";
+import { chooseDestination, evidence, testPhone, login } from "./helpers";
 
 const API = "/api/storefront/v1";
 
@@ -8,7 +8,10 @@ test("headless channel: one-time token, external backend via API, one-use handof
   await login(page, "owner-a@bukalaris.local");
   await page.goto("/seller/channels");
   await expect(page.getByRole("heading", { name: "Channel", level: 1 })).toBeVisible();
-  await page.getByLabel("Nama").fill("Storefront Uji");
+  // Unique per project: both viewports share one store, and a same-named revoked row
+  // from the other project must not satisfy this run's assertions.
+  const channelName = `Storefront Uji ${info.project.name}`;
+  await page.getByLabel("Nama").fill(channelName);
   await page.getByLabel("Origin storefront").fill("https://toko-ayu.example");
   await page.getByLabel("Path kembali").fill("/thanks");
   await evidence(page, info, "30-channel-form");
@@ -65,7 +68,7 @@ test("headless channel: one-time token, external backend via API, one-use handof
   await evidence(page, info, "32-handoff-checkout");
   await chooseDestination(page);
   await page.getByLabel("Nama").fill("Budi Santoso");
-  await page.getByLabel("Nomor HP").fill("081234567890");
+  await page.getByLabel("Nomor HP").fill(testPhone());
   await page.getByLabel("Alamat lengkap").fill("Jl. Merdeka No. 1, Bandung 40111");
   await page.getByRole("button", { name: "Buat pesanan" }).click();
   await expect(page.getByRole("heading", { name: "Pesanan diterima" })).toBeVisible();
@@ -83,8 +86,8 @@ test("headless channel: one-time token, external backend via API, one-use handof
 
   // Revocation in the UI denies the token immediately.
   await page.goto("/seller/channels");
-  await page.getByRole("button", { name: "Cabut Storefront Uji" }).click();
-  await expect(page.getByText("Dicabut").first()).toBeVisible();
+  await page.getByRole("button", { name: `Cabut ${channelName}` }).click();
+  await expect(page.getByRole("row").filter({ hasText: channelName }).getByText("Dicabut")).toBeVisible();
   await evidence(page, info, "35-channel-revoked");
   const denied = await request.get(`${API}/products`, { headers });
   expect(denied.status()).toBe(401);

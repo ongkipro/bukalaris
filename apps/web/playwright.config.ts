@@ -34,7 +34,8 @@ export default defineConfig({
     {
       // Outbox worker (T-32): transfer orders get their payment reference from it, as in production.
       command: "node ../../packages/db/src/worker.ts",
-      env: { DATABASE_URL: process.env.E2E_DATABASE_URL ?? "", WORKER_POLL_MS: "1000" },
+      // BETTER_AUTH_URL: the worker renders e-mail links against the public origin (T-36), i.e. this port.
+      env: { DATABASE_URL: process.env.E2E_DATABASE_URL ?? "", WORKER_POLL_MS: "1000", BETTER_AUTH_URL: `http://localhost:${PORT}` },
       wait: { stdout: /"event":"started"/ },
       reuseExistingServer: false,
       timeout: 30_000,
