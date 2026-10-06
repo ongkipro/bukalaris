@@ -44,6 +44,10 @@ const capabilities = {
   "catalog.read": ["owner", "staff"],
   "catalog.write": ["owner", "staff"],
   "members.manage": ["owner"],
+  // M2 orders track: owner and staff both fulfil orders and adjust stock.
+  "orders.read": ["owner", "staff"],
+  "orders.fulfill": ["owner", "staff"],
+  "inventory.write": ["owner", "staff"],
 } as const satisfies Record<string, readonly Role[]>;
 export type Capability = keyof typeof capabilities;
 
