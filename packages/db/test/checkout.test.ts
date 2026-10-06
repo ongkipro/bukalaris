@@ -7,9 +7,9 @@ import { runOnce } from "../src/jobs.ts";
 import { fakeProviders, type Providers } from "../src/providers.ts";
 import { order, variant } from "../src/schema.ts";
 import { setCartLine } from "../src/storefront.ts";
-import { buyer, db, makeStore } from "./helpers.ts";
+import { buyer, db, makeStore, platform } from "./helpers.ts";
 
-const stockOf = async (id: number) => (await db.select().from(variant).where(eq(variant.id, id)))[0]!.stock;
+const stockOf = async (id: number) => (await platform.select().from(variant).where(eq(variant.id, id)))[0]!.stock;
 
 describe("checkout (PR-4, DATA-2, NFR-2)", () => {
   it("rejects client-supplied prices or totals and derives money server-side", async () => {
@@ -49,7 +49,7 @@ describe("checkout (PR-4, DATA-2, NFR-2)", () => {
     expect(results.filter((r) => !r.replayed)).toHaveLength(1);
     const again = await placeOrder(db, cartId, input);
     expect(again).toEqual({ orderId: results[0]!.orderId, replayed: true });
-    expect(await db.select().from(order)).toHaveLength(1);
+    expect(await platform.select().from(order)).toHaveLength(1);
     expect(await stockOf(s.variantId)).toBe(7);
   });
 
@@ -78,7 +78,7 @@ describe("checkout (PR-4, DATA-2, NFR-2)", () => {
     expect(failed.every((r) => r.reason.code === "out_of_stock")).toBe(true);
     expect(await stockOf(s.variantId)).toBeGreaterThanOrEqual(0);
     expect(await stockOf(s.variantId)).toBe(0);
-    expect(await db.select().from(order)).toHaveLength(3);
+    expect(await platform.select().from(order)).toHaveLength(3);
   });
 
   it("rolls back the whole order when one line is out of stock", async () => {
@@ -86,7 +86,7 @@ describe("checkout (PR-4, DATA-2, NFR-2)", () => {
     const cartId = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 6 }, "add");
     await expect(placeOrder(db, cartId, buyer())).rejects.toMatchObject({ code: "out_of_stock" });
     expect(await stockOf(s.variantId)).toBe(5);
-    expect(await db.select().from(order)).toHaveLength(0);
+    expect(await platform.select().from(order)).toHaveLength(0);
   });
 
   it("transfer orders get a payment instruction from the outbox worker; a provider failure leaves an explicit pending state", async () => {
@@ -96,13 +96,13 @@ describe("checkout (PR-4, DATA-2, NFR-2)", () => {
     const c1 = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 1 }, "add");
     const { orderId } = await placeOrder(db, c1, buyer({ paymentMethod: "manual_transfer" }));
     expect(await getBuyerOrder(db, orderId, c1)).toMatchObject({ status: "awaiting_payment", paymentReference: null });
-    await runOnce(db, { workerId: "test" });
+    await runOnce(platform, { workerId: "test" });
     expect(await getBuyerOrder(db, orderId, c1)).toMatchObject({ status: "awaiting_payment", paymentReference: `FAKE-AL-${orderId}` });
 
     const down: Providers = { ...fakeProviders, payment: { createInstruction: () => Promise.reject(new Error("timeout")) } };
     const c2 = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 1 }, "add");
     const r2 = await placeOrder(db, c2, buyer({ paymentMethod: "manual_transfer" }), down);
-    await runOnce(db, { workerId: "test", providers: down });
+    await runOnce(platform, { workerId: "test", providers: down });
     expect(await getBuyerOrder(db, r2.orderId, c2)).toMatchObject({ status: "awaiting_payment", paymentReference: null });
   });
 

@@ -9,27 +9,27 @@ import { transitionOrder } from "../src/orders.ts";
 import { fakeProviders } from "../src/providers.ts";
 import { job, mailOutbox, membership, orderNotification, user } from "../src/schema.ts";
 import { setCartLine } from "../src/storefront.ts";
-import { buyer, db, makeStore, makeUser, seller } from "./helpers.ts";
+import { admin, buyer, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
 
 // mail_outbox has no FK to the truncated tables, so the shared helper's cascade does not reach it.
-beforeEach(() => db.execute("truncate mail_outbox restart identity"));
+beforeEach(() => admin.execute("truncate mail_outbox restart identity"));
 
 const notifyJobs = (orderId: number) =>
-  db
+  platform
     .select({ key: job.key, status: job.status, attempts: job.attempts, payload: job.payload, lastError: job.lastError })
     .from(job)
     .where(and(eq(job.kind, ORDER_NOTIFY), like(job.key, `notify:${orderId}:%`)))
     .orderBy(job.id);
 const mails = (orderId: number) =>
-  db
+  platform
     .select({ to: mailOutbox.toEmail, subject: mailOutbox.subject, text: mailOutbox.textBody, html: mailOutbox.htmlBody })
     .from(mailOutbox)
     .where(like(mailOutbox.textBody, `%Pesanan #${orderId} ·%`))
     .orderBy(mailOutbox.id);
-const notifyOutcomes = async (workerId = "W") => (await runOnce(db, { workerId })).filter((o) => o.kind === ORDER_NOTIFY);
+const notifyOutcomes = async (workerId = "W") => (await runOnce(platform, { workerId })).filter((o) => o.kind === ORDER_NOTIFY);
 const makeDue = (orderId: number) =>
-  db.execute(`update job set next_attempt_at = now() - interval '1 second', locked_until = case when locked_until is null then null else now() - interval '1 second' end where key like 'notify:${orderId}:%'`);
-const ownerEmail = async (userId: string) => (await db.select({ email: user.email }).from(user).where(eq(user.id, userId)))[0]!.email;
+  platform.execute(`update job set next_attempt_at = now() - interval '1 second', locked_until = case when locked_until is null then null else now() - interval '1 second' end where key like 'notify:${orderId}:%'`);
+const ownerEmail = async (userId: string) => (await platform.select({ email: user.email }).from(user).where(eq(user.id, userId)))[0]!.email;
 const BUYER = "budi@example.com";
 
 async function orderWith(s: Awaited<ReturnType<typeof makeStore>>, over: Record<string, unknown> = {}) {
@@ -59,17 +59,17 @@ describe("order e-mail notifications (T-36, PR-21)", () => {
     // A failed checkout (out of stock) leaves neither an order nor a job; an aborted transaction leaves no job.
     const big = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 99 }, "add");
     await expect(placeOrder(db, big, buyer({ buyerEmail: BUYER }))).rejects.toMatchObject({ code: "out_of_stock" });
-    const before = (await db.select().from(job)).length;
+    const before = (await platform.select().from(job)).length;
     await expect(
-      db.transaction(async (tx) => {
+      platform.transaction(async (tx) => {
         await enqueueOrderNotifications(tx, s.storeId, orderId, "ship");
         throw new Error("abort");
       }),
     ).rejects.toThrow("abort");
-    expect((await db.select().from(job)).length).toBe(before);
+    expect((await platform.select().from(job)).length).toBe(before);
     // Actions without a notification are a no-op.
-    await db.transaction((tx) => enqueueOrderNotifications(tx, s.storeId, orderId, "process"));
-    expect((await db.select().from(job)).length).toBe(before);
+    await platform.transaction((tx) => enqueueOrderNotifications(tx, s.storeId, orderId, "process"));
+    expect((await platform.select().from(job)).length).toBe(before);
   });
 
   it("sends exactly one mail per event and recipient: worker re-run, lost lease and repeated action never duplicate", async () => {
@@ -86,19 +86,19 @@ describe("order e-mail notifications (T-36, PR-21)", () => {
 
     // Confirm → one buyer job. Worker A runs the handler and dies before completing the job.
     await transitionOrder(s.owner, orderId, "confirm");
-    const [j] = await claimBatch(db, "A", 5);
+    const [j] = await claimBatch(platform, "A", 5);
     expect(j).toMatchObject({ kind: ORDER_NOTIFY, key: `notify:${orderId}:confirmed:buyer` });
-    await getHandler(ORDER_NOTIFY)!({ db, providers: fakeProviders }, j!);
+    await getHandler(ORDER_NOTIFY)!({ db: platform, providers: fakeProviders }, j!);
     expect(await mails(orderId)).toHaveLength(3);
     // Lease expired: B reclaims and re-runs the handler; the order_notification key stops a second mail.
     await makeDue(orderId);
     expect(await notifyOutcomes("B")).toMatchObject([{ id: j!.id, status: "done", attempts: 2 }]);
     expect(await mails(orderId)).toHaveLength(3);
-    expect(await db.select().from(orderNotification).where(eq(orderNotification.orderId, orderId))).toHaveLength(3);
+    expect(await platform.select().from(orderNotification).where(eq(orderNotification.orderId, orderId))).toHaveLength(3);
 
     // Repeating the action is rejected before any enqueue; a manual duplicate enqueue is a no-op on (kind, key).
     await expect(transitionOrder(s.owner, orderId, "confirm")).rejects.toMatchObject({ code: "invalid_transition" });
-    expect(await enqueue(db, { kind: ORDER_NOTIFY, storeId: s.storeId, key: `notify:${orderId}:confirmed:buyer`, payload: {} })).toEqual({ id: null, created: false });
+    expect(await enqueue(platform, { kind: ORDER_NOTIFY, storeId: s.storeId, key: `notify:${orderId}:confirmed:buyer`, payload: {} })).toEqual({ id: null, created: false });
     expect(await notifyJobs(orderId)).toHaveLength(3);
   });
 
@@ -122,7 +122,7 @@ describe("order e-mail notifications (T-36, PR-21)", () => {
         { status: "pending", attempts: 1 },
       ]);
       expect(await mails(orderId)).toHaveLength(0);
-      expect(await db.select().from(orderNotification).where(eq(orderNotification.orderId, orderId))).toHaveLength(0); // rolled back with the mail
+      expect(await platform.select().from(orderNotification).where(eq(orderNotification.orderId, orderId))).toHaveLength(0); // rolled back with the mail
       expect(await notifyOutcomes()).toEqual([]); // not due until the backoff elapses
       down = false;
       await makeDue(orderId);
@@ -142,7 +142,7 @@ describe("order e-mail notifications (T-36, PR-21)", () => {
     // A second owner and a staff member in store A: owners get seller mail, staff do not.
     const owner2 = await makeUser("owner2");
     const staff = await makeUser("staff");
-    await db.insert(membership).values([
+    await platform.insert(membership).values([
       { storeId: a.storeId, userId: owner2, role: "owner" },
       { storeId: a.storeId, userId: staff, role: "staff" },
     ]);
@@ -170,7 +170,7 @@ describe("order e-mail notifications (T-36, PR-21)", () => {
     // Transfer order cancelled by staff: buyer + both owners (not the staff member, not store B's owner).
     const { orderId: t } = await orderWith(a, { paymentMethod: "manual_transfer" });
     await transitionOrder(await seller(staff, a.storeId), t, "cancel", { reason: "Pembeli berubah pikiran" });
-    await runOnce(db, { workerId: "W" });
+    await runOnce(platform, { workerId: "W" });
     const cancelled = await mails(t);
     expect(cancelled.map((m) => m.to).sort()).toEqual([BUYER, ownerA, owner2Email, BUYER, ownerA, owner2Email].sort());
     expect(cancelled.filter((m) => m.subject.includes("dibatalkan")).map((m) => m.to).sort()).toEqual([BUYER, ownerA, owner2Email].sort());
@@ -180,7 +180,7 @@ describe("order e-mail notifications (T-36, PR-21)", () => {
     const { orderId: r } = await orderWith(a, { buyerEmail: "" });
     await transitionOrder(a.owner, r, "reject", { reason: "Nomor tidak bisa dihubungi" });
     const { orderId: ob } = await orderWith(b);
-    await runOnce(db, { workerId: "W" });
+    await runOnce(platform, { workerId: "W" });
     expect((await mails(r)).map((m) => `${m.subject} → ${m.to}`).sort()).toEqual(
       [
         `[Toko toko-a] Pesanan COD #${r} menunggu konfirmasi → ${ownerA}`,
@@ -190,17 +190,17 @@ describe("order e-mail notifications (T-36, PR-21)", () => {
       ].sort(),
     );
     expect((await mails(ob)).map((m) => m.to).sort()).toEqual([BUYER, ownerB].sort());
-    expect((await db.select().from(mailOutbox)).some((m) => m.toEmail === ownerB && m.textBody.includes("Toko toko-a"))).toBe(false);
+    expect((await platform.select().from(mailOutbox)).some((m) => m.toEmail === ownerB && m.textBody.includes("Toko toko-a"))).toBe(false);
   });
 
   it("escapes every interpolated value in the HTML body and keeps the plain text readable", async () => {
     const s = await makeStore("toko-a");
     const nasty = `<b>Kaos & "Co"</b>`;
     const productId = await createProduct(s.owner, { title: nasty, status: "active", variant: { title: "XL <img src=x onerror=alert(1)>", price: 50_000, stock: 5 } });
-    const variantId = (await db.query.variant.findFirst({ where: (v, { eq }) => eq(v.productId, productId) }))!.id;
+    const variantId = (await platform.query.variant.findFirst({ where: (v, { eq }) => eq(v.productId, productId) }))!.id;
     const cartId = await setCartLine(s.sf, undefined, { variantId, quantity: 1 }, "add");
     const { orderId } = await placeOrder(db, cartId, buyer({ buyerEmail: BUYER, buyerName: "Budi <script>alert(1)</script>" }));
-    await runOnce(db, { workerId: "W" });
+    await runOnce(platform, { workerId: "W" });
     const [m] = await mails(orderId);
     expect(m!.text).toContain(`- ${nasty} · XL <img src=x onerror=alert(1)> × 1`);
     expect(m!.text).toContain("Halo Budi <script>alert(1)</script>");
@@ -216,7 +216,7 @@ describe("order e-mail notifications (T-36, PR-21)", () => {
     const s = await makeStore("toko-a");
     const { orderId: a } = await orderWith(s);
     const { orderId: b } = await orderWith(s, { buyerEmail: "" });
-    await runOnce(db, { workerId: "W" });
+    await runOnce(platform, { workerId: "W" });
 
     const tokenA = signOrderLink(a);
     expect(tokenA).toMatch(new RegExp(`^${a}\\.[0-9]+\\.[A-Za-z0-9_-]{43}$`));

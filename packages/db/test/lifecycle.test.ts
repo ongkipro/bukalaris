@@ -6,7 +6,7 @@ import { setStoreStatus, storeAudit } from "../src/platform.ts";
 import { membership } from "../src/schema.ts";
 import { operatorScope, sellerContext, storefrontScope } from "../src/scoped.ts";
 import { setCartLine } from "../src/storefront.ts";
-import { buyer, db, makeStore, makeUser, seller } from "./helpers.ts";
+import { buyer, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
 
 describe("store suspension (PR-1)", () => {
   it("blocks storefront, checkout and seller admin, and is audited", async () => {
@@ -28,7 +28,7 @@ describe("store suspension (PR-1)", () => {
   it("a seller in several stores falls back to an active one when the preferred store is suspended", async () => {
     const a = await makeStore("toko-a");
     const b = await makeStore("toko-b");
-    await db.insert(membership).values({ storeId: b.storeId, userId: a.ownerId, role: "staff" });
+    await platform.insert(membership).values({ storeId: b.storeId, userId: a.ownerId, role: "staff" });
     await setStoreStatus(a.op, a.storeId, { status: "suspended", reason: "Uji fallback toko" });
 
     const ctx = await sellerContext(db, a.ownerId, a.storeId);
@@ -44,7 +44,7 @@ describe("store suspension (PR-1)", () => {
 
   it("only platform operators get an operator scope", async () => {
     const s = await makeStore("toko-a");
-    expect(await operatorScope(db, s.ownerId)).toBeNull();
+    expect(await operatorScope(platform, s.ownerId)).toBeNull();
   });
 });
 
@@ -59,7 +59,7 @@ describe("membership (PR-15)", () => {
   it("allows handoff once another owner exists", async () => {
     const s = await makeStore("toko-a");
     const other = await makeUser("other");
-    await db.insert(membership).values({ storeId: s.storeId, userId: other, role: "staff" });
+    await platform.insert(membership).values({ storeId: s.storeId, userId: other, role: "staff" });
     await changeMember(s.owner, other, "owner");
     await changeMember(s.owner, s.ownerId, null);
     expect((await listMembers(await seller(other))).map((m) => m.role)).toEqual(["owner"]);
@@ -68,18 +68,18 @@ describe("membership (PR-15)", () => {
   it("concurrent mutual removal by two owners leaves one owner", async () => {
     const s = await makeStore("toko-a");
     const other = await makeUser("other");
-    await db.insert(membership).values({ storeId: s.storeId, userId: other, role: "owner" });
+    await platform.insert(membership).values({ storeId: s.storeId, userId: other, role: "owner" });
     const otherScope = await seller(other);
     const settled = await Promise.allSettled([changeMember(s.owner, other, null), changeMember(otherScope, s.ownerId, null)]);
     expect(settled.filter((r) => r.status === "fulfilled")).toHaveLength(1);
-    const owners = await db.select().from(membership).where(eq(membership.storeId, s.storeId));
+    const owners = await platform.select().from(membership).where(eq(membership.storeId, s.storeId));
     expect(owners.filter((m) => m.role === "owner")).toHaveLength(1);
   });
 
   it("staff cannot manage members", async () => {
     const s = await makeStore("toko-a");
     const staff = await makeUser("staff");
-    await db.insert(membership).values({ storeId: s.storeId, userId: staff, role: "staff" });
+    await platform.insert(membership).values({ storeId: s.storeId, userId: staff, role: "staff" });
     await expect(changeMember(await seller(staff), s.ownerId, null)).rejects.toMatchObject({ code: "forbidden" });
   });
 });

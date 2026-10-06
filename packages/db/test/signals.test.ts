@@ -33,7 +33,7 @@ import {
   type SignalResponse,
 } from "../src/signals.ts";
 import { setCartLine } from "../src/storefront.ts";
-import { buyer, db, makeStore, makeUser, seller } from "./helpers.ts";
+import { buyer, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
 
 /** Order creation also enqueues `order.notify` (T-36); these tests are about `signal.*` jobs only. */
 const sig = <T extends { kind: string }>(out: T[]) => out.filter((o) => o.kind.startsWith("signal."));
@@ -67,7 +67,7 @@ const payload = (over: Partial<SignalPayload> = {}): SignalPayload => ({
   ...over,
 });
 const request = (cookies: Record<string, string | undefined> = {}) => ({ cookies, clientIp: "203.0.113.7", userAgent: "Mozilla/5.0 test", url: "https://toko-a.localhost/" });
-const events = (storeId: number) => db.select().from(signalEvent).where(eq(signalEvent.storeId, storeId)).orderBy(signalEvent.provider);
+const events = (storeId: number) => platform.select().from(signalEvent).where(eq(signalEvent.storeId, storeId)).orderBy(signalEvent.provider);
 
 async function configured(slug: string, providers: ("meta" | "tiktok" | "google")[] = ["meta", "tiktok"]) {
   const s = await makeStore(slug, { price: 100_000 });
@@ -196,7 +196,7 @@ describe("destinations (seller settings)", () => {
     const [d] = await listDestinations(s.owner);
     expect(d).toMatchObject({ provider: "meta", pixelId: "123456789012345", hasToken: true, enabled: true });
     expect(JSON.stringify(d)).not.toContain("EAAB");
-    const [row] = await db.execute(sql`select token_ciphertext from signal_destination`);
+    const [row] = await platform.execute(sql`select token_ciphertext from signal_destination`);
     expect(String(row!.token_ciphertext)).toMatch(/^v1\./);
     expect(String(row!.token_ciphertext)).not.toContain("EAAB");
     expect(openToken(String(row!.token_ciphertext), s.storeId, "meta")).toBe("EAAB-tok");
@@ -212,7 +212,7 @@ describe("destinations (seller settings)", () => {
     await expect(saveDestination(s.owner, "pinterest", { pixelId: "1", enabled: true })).rejects.toThrow();
 
     const staffId = await makeUser("staff");
-    await db.insert(membership).values({ storeId: s.storeId, userId: staffId, role: "staff" });
+    await platform.insert(membership).values({ storeId: s.storeId, userId: staffId, role: "staff" });
     const staff = await seller(staffId);
     await expect(saveDestination(staff, "meta", { pixelId: "123456789012345", enabled: true })).rejects.toMatchObject({ code: "forbidden" });
     await expect(listDestinations(staff)).rejects.toMatchObject({ code: "forbidden" });
@@ -240,8 +240,8 @@ describe("server Purchase (COD at creation, prepaid at settlement)", () => {
       ["tiktok", purchaseEventId(orderId), "Purchase", "pending", orderId],
     ]);
     const p = rows[0]!.payload as unknown as SignalPayload;
-    const [v] = await db.select({ catalogId: variant.catalogId, productId: variant.productId }).from(variant).where(eq(variant.id, s.variantId));
-    const [prod] = await db.select({ catalogId: product.catalogId }).from(product).where(eq(product.id, v!.productId));
+    const [v] = await platform.select({ catalogId: variant.catalogId, productId: variant.productId }).from(variant).where(eq(variant.id, s.variantId));
+    const [prod] = await platform.select({ catalogId: product.catalogId }).from(product).where(eq(product.id, v!.productId));
     expect(p.value).toBe(200_000); // 2 × 100 000, no shipping fee (order total is 217 500)
     expect(p.contentIds).toEqual([v!.catalogId]);
     expect(p.groupIds).toEqual([prod!.catalogId]);
@@ -259,10 +259,10 @@ describe("server Purchase (COD at creation, prepaid at settlement)", () => {
       ip: "203.0.113.7",
     });
     expect(JSON.stringify(p)).not.toContain("081234567890");
-    const [ctx] = await db.select().from(orderSignalContext).where(eq(orderSignalContext.orderId, orderId));
+    const [ctx] = await platform.select().from(orderSignalContext).where(eq(orderSignalContext.orderId, orderId));
     expect(ctx).toMatchObject({ storeId: s.storeId, fbp: "fb.1.1700000000000.42", gclid: "Cj0Kclick", utm: { source: "fb", campaign: "promo" }, clientIp: "203.0.113.7" });
     // Two outbox jobs, one per destination; a second enqueue is a no-op.
-    expect((await db.select().from(job).where(eq(job.kind, "signal.deliver")))).toHaveLength(2);
+    expect((await platform.select().from(job).where(eq(job.kind, "signal.deliver")))).toHaveLength(2);
     expect(await enqueuePurchase(db, s.storeId, orderId)).toBe(0);
     expect(await events(s.storeId)).toHaveLength(2);
   });
@@ -272,7 +272,7 @@ describe("server Purchase (COD at creation, prepaid at settlement)", () => {
     const cartId = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 1 }, "add");
     const { orderId } = await placeOrder(db, cartId, buyer(), undefined, { signal: request() });
     const requests = fakeTransport();
-    const out = await runOnce(db, { workerId: "w1" });
+    const out = await runOnce(platform, { workerId: "w1" });
     expect(sig(out).map((o) => o.status)).toEqual(["done", "done"]);
     expect(requests).toHaveLength(2);
     const meta = requests.find((r) => r.url.includes("graph.facebook.com"))!;
@@ -289,7 +289,7 @@ describe("server Purchase (COD at creation, prepaid at settlement)", () => {
       expect.objectContaining({ provider: "tiktok", sent: 1, failed: 0, pending: 0, simulated: 0, lastError: null }),
     ]);
     // Re-running the worker sends nothing again (jobs done, events no longer pending).
-    expect(sig(await runOnce(db, { workerId: "w1" }))).toEqual([]);
+    expect(sig(await runOnce(platform, { workerId: "w1" }))).toEqual([]);
     expect(requests).toHaveLength(2);
   });
 
@@ -298,7 +298,7 @@ describe("server Purchase (COD at creation, prepaid at settlement)", () => {
     const cartId = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 1 }, "add");
     await placeOrder(db, cartId, buyer(), undefined, { signal: request() });
     delete process.env.SIGNALS_LIVE;
-    expect(sig(await runOnce(db, { workerId: "w1" })).map((o) => o.status)).toEqual(["done"]);
+    expect(sig(await runOnce(platform, { workerId: "w1" })).map((o) => o.status)).toEqual(["done"]);
     const [row] = await events(s.storeId);
     expect(row).toMatchObject({ status: "simulated", lastError: null });
     expect(row!.sentAt).not.toBeNull();
@@ -310,7 +310,7 @@ describe("server Purchase (COD at creation, prepaid at settlement)", () => {
     const cartId = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 1 }, "add");
     const { orderId } = await placeOrder(db, cartId, buyer({ paymentMethod: "manual_transfer" }), undefined, { signal: request({ _fbp: "fb.1.1700000000000.9" }) });
     expect(await events(s.storeId)).toEqual([]);
-    const [ctx] = await db.select().from(orderSignalContext).where(eq(orderSignalContext.orderId, orderId));
+    const [ctx] = await platform.select().from(orderSignalContext).where(eq(orderSignalContext.orderId, orderId));
     expect(ctx?.fbp).toBe("fb.1.1700000000000.9"); // kept for the delayed purchase
     await transitionOrder(s.owner, orderId, "pay");
     const rows = await events(s.storeId);
@@ -328,24 +328,24 @@ describe("server Purchase (COD at creation, prepaid at settlement)", () => {
     await placeOrder(db, cartId, buyer(), undefined, { signal: request() });
     const requests = fakeTransport([{ status: 503, body: "upstream" }, new Error("ECONNRESET"), { status: 400, body: { error: { code: 190, message: "Invalid OAuth access token: Bearer secret-value" } } }]);
 
-    const first = await runOnce(db, { workerId: "w1" });
+    const first = await runOnce(platform, { workerId: "w1" });
     expect(sig(first)[0]).toMatchObject({ status: "pending", attempts: 1 });
     let [row] = await events(s.storeId);
     expect(row).toMatchObject({ status: "pending", lastError: "Meta HTTP 503: " });
     // Due in 5 s; pull the job forward instead of waiting.
-    await db.update(job).set({ nextAttemptAt: sql`now()` });
-    const second = await runOnce(db, { workerId: "w1" });
+    await platform.update(job).set({ nextAttemptAt: sql`now()` });
+    const second = await runOnce(platform, { workerId: "w1" });
     expect(sig(second)[0]).toMatchObject({ status: "pending", attempts: 2 });
     [row] = await events(s.storeId);
     expect(row!.lastError).toBe("meta: Error"); // network error: name only, never the request
-    await db.update(job).set({ nextAttemptAt: sql`now()` });
-    const third = await runOnce(db, { workerId: "w1" });
+    await platform.update(job).set({ nextAttemptAt: sql`now()` });
+    const third = await runOnce(platform, { workerId: "w1" });
     expect(sig(third)[0]).toMatchObject({ status: "done", attempts: 3 }); // permanent → job completes, no retry
     [row] = await events(s.storeId);
     expect(row).toMatchObject({ status: "failed", lastError: "Meta HTTP 400 code 190: Invalid OAuth access token: Bearer secret-value" });
     expect(requests).toHaveLength(3);
     expect((await destinationHealth(s.owner))[0]).toMatchObject({ failed: 1, sent: 0, lastError: expect.stringContaining("code 190") });
-    expect(sig(await runOnce(db, { workerId: "w1" }))).toEqual([]);
+    expect(sig(await runOnce(platform, { workerId: "w1" }))).toEqual([]);
   });
 
   it("a destination disabled before delivery, an exhausted retry budget and a stale event all end as failed", async () => {
@@ -354,29 +354,29 @@ describe("server Purchase (COD at creation, prepaid at settlement)", () => {
     await placeOrder(db, cartId, buyer(), undefined, { signal: request() });
     await saveDestination(s.owner, "meta", { pixelId: "123456789012345", enabled: false });
     const requests = fakeTransport();
-    expect((await runOnce(db, { workerId: "w1" }))[0]!.status).toBe("done");
+    expect((await runOnce(platform, { workerId: "w1" }))[0]!.status).toBe("done");
     expect(requests).toHaveLength(0);
     expect((await events(s.storeId))[0]).toMatchObject({ status: "failed", lastError: expect.stringContaining("dinonaktifkan") });
 
     // Exhausted budget: last attempt fails transiently → event failed, job terminal.
-    await db.delete(signalEvent);
+    await platform.delete(signalEvent);
     await saveDestination(s.owner, "meta", { pixelId: "123456789012345", enabled: true });
     const cart2 = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 1 }, "add");
     await placeOrder(db, cart2, buyer(), undefined, { signal: request() });
     fakeTransport([{ status: 500, body: "" }]);
-    await db.update(job).set({ attempts: MAX_ATTEMPTS - 1, nextAttemptAt: sql`now()` }).where(eq(job.kind, "signal.deliver"));
+    await platform.update(job).set({ attempts: MAX_ATTEMPTS - 1, nextAttemptAt: sql`now()` }).where(eq(job.kind, "signal.deliver"));
     // The handler marks the event failed on its last allowed attempt and completes the job (no terminal retry loop).
-    expect((await runOnce(db, { workerId: "w1" })).find((o) => o.kind === "signal.deliver")).toMatchObject({ status: "done", attempts: MAX_ATTEMPTS });
+    expect((await runOnce(platform, { workerId: "w1" })).find((o) => o.kind === "signal.deliver")).toMatchObject({ status: "done", attempts: MAX_ATTEMPTS });
     expect((await events(s.storeId))[0]).toMatchObject({ status: "failed", lastError: "Meta HTTP 500: " });
 
     // Stale (> 7 days): permanent without calling the provider.
-    await db.delete(signalEvent);
+    await platform.delete(signalEvent);
     const cart3 = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 1 }, "add");
     await placeOrder(db, cart3, buyer(), undefined, { signal: request() });
-    await db.update(signalEvent).set({ payload: sql`jsonb_set(payload, '{eventTime}', to_jsonb(extract(epoch from now())::bigint - 8 * 86400))` });
+    await platform.update(signalEvent).set({ payload: sql`jsonb_set(payload, '{eventTime}', to_jsonb(extract(epoch from now())::bigint - 8 * 86400))` });
     const reqs = fakeTransport();
-    await db.update(job).set({ nextAttemptAt: sql`now()` });
-    await runOnce(db, { workerId: "w1" });
+    await platform.update(job).set({ nextAttemptAt: sql`now()` });
+    await runOnce(platform, { workerId: "w1" });
     expect(reqs).toHaveLength(0);
     expect((await events(s.storeId))[0]).toMatchObject({ status: "failed", lastError: expect.stringContaining("7 hari") });
   });
@@ -387,14 +387,14 @@ describe("server Purchase (COD at creation, prepaid at settlement)", () => {
     const cartId = await setCartLine(a.sf, undefined, { variantId: a.variantId, quantity: 1 }, "add");
     const { orderId } = await placeOrder(db, cartId, buyer(), undefined, { signal: request() });
     const requests = fakeTransport();
-    await runOnce(db, { workerId: "w1" });
+    await runOnce(platform, { workerId: "w1" });
     expect(requests).toHaveLength(1);
     expect(requests[0]!.url).toContain("access_token=tok-meta-toko-a");
     expect(await events(b.storeId)).toEqual([]);
     expect((await events(a.storeId))[0]!.eventId).toBe(purchaseEventId(orderId));
     expect(await destinationHealth(b.owner)).toEqual([]);
     // Same event id in another store is a different row (unique is per store).
-    await db.insert(signalEvent).values({ storeId: b.storeId, provider: "meta", eventId: purchaseEventId(orderId), eventName: "Purchase", payload: payload() });
+    await platform.insert(signalEvent).values({ storeId: b.storeId, provider: "meta", eventId: purchaseEventId(orderId), eventName: "Purchase", payload: payload() });
     expect(await events(b.storeId)).toHaveLength(1);
   });
 });
@@ -403,7 +403,7 @@ describe("browser funnel events reported to the server leg", () => {
   it("re-prices from the catalog, drops unknown ids, dedups on event id and ignores stores without a server destination", async () => {
     const a = await configured("toko-a", ["meta", "google"]); // google: browser only → one row
     const b = await makeStore("toko-b");
-    const [v] = await db.select({ catalogId: variant.catalogId }).from(variant).where(eq(variant.id, a.variantId));
+    const [v] = await platform.select({ catalogId: variant.catalogId }).from(variant).where(eq(variant.id, a.variantId));
     const eventId = "11111111-2222-4333-8444-555555555555";
     const input = { event: "AddToCart", eventId, items: [{ id: v!.catalogId, quantity: 3 }, { id: "99999", quantity: 1 }], url: "https://toko-a.localhost/cart" };
     expect(await collectFunnelEvent(a.sf, input, request({ _fbp: "fb.1.1700000000000.1" }))).toBe(1);
@@ -416,7 +416,7 @@ describe("browser funnel events reported to the server leg", () => {
     expect(p.user).not.toHaveProperty("ph62");
     // Unknown-only ids → nothing; a foreign store's catalog id is unknown here (TEN-1).
     expect(await collectFunnelEvent(a.sf, { ...input, eventId: "11111111-2222-4333-8444-555555555556", items: [{ id: "99999", quantity: 1 }] }, request())).toBe(0);
-    const [vb] = await db.select({ catalogId: variant.catalogId }).from(variant).where(eq(variant.id, b.variantId));
+    const [vb] = await platform.select({ catalogId: variant.catalogId }).from(variant).where(eq(variant.id, b.variantId));
     expect(await collectFunnelEvent(a.sf, { ...input, eventId: "11111111-2222-4333-8444-555555555557", items: [{ id: vb!.catalogId, quantity: 1 }] }, request())).toBe(0);
     expect(await collectFunnelEvent(b.sf, { ...input, items: [{ id: vb!.catalogId, quantity: 1 }] }, request())).toBe(0); // no destination
     await expect(collectFunnelEvent(a.sf, { ...input, event: "Purchase" }, request())).rejects.toThrow();
@@ -431,15 +431,15 @@ describe("retention (PRIV-3)", () => {
     const { orderId: old } = await placeOrder(db, c1, buyer(), undefined, { signal: request({ _fbp: "fb.1.1.old" }) });
     const c2 = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 1 }, "add");
     const { orderId: fresh } = await placeOrder(db, c2, buyer(), undefined, { signal: request({ _fbp: "fb.1.1.fresh" }) });
-    await db.update(orderSignalContext).set({ createdAt: sql`now() - interval '31 days'` }).where(eq(orderSignalContext.orderId, old));
-    await db.update(signalEvent).set({ createdAt: sql`now() - interval '31 days'` }).where(eq(signalEvent.orderId, old));
-    expect(await purgeSignalContext(db)).toEqual({ contexts: 1, events: 1 });
-    expect(await db.select().from(orderSignalContext)).toHaveLength(1);
-    const rows = await db.select().from(signalEvent).orderBy(signalEvent.id);
+    await platform.update(orderSignalContext).set({ createdAt: sql`now() - interval '31 days'` }).where(eq(orderSignalContext.orderId, old));
+    await platform.update(signalEvent).set({ createdAt: sql`now() - interval '31 days'` }).where(eq(signalEvent.orderId, old));
+    expect(await purgeSignalContext(platform)).toEqual({ contexts: 1, events: 1 });
+    expect(await platform.select().from(orderSignalContext)).toHaveLength(1);
+    const rows = await platform.select().from(signalEvent).orderBy(signalEvent.id);
     expect((rows[0]!.payload as SignalPayload).user).toBeUndefined();
     expect((rows[0]!.payload as SignalPayload).value).toBe(100_000);
     expect((rows[1]!.payload as unknown as SignalPayload).user?.fbp).toBe("fb.1.1.fresh");
     expect(rows[1]!.orderId).toBe(fresh);
-    expect(await purgeSignalContext(db)).toEqual({ contexts: 0, events: 0 });
+    expect(await purgeSignalContext(platform)).toEqual({ contexts: 0, events: 0 });
   });
 });

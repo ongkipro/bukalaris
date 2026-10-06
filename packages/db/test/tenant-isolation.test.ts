@@ -3,7 +3,7 @@ import { addVariant, getProduct, listProducts, updateProduct, updateVariant } fr
 import { variant } from "../src/schema.ts";
 import { sellerContext, slugFromHost } from "../src/scoped.ts";
 import { getCart, getPublishedProduct, listPublishedProducts, setCartLine } from "../src/storefront.ts";
-import { db, makeStore } from "./helpers.ts";
+import { db, makeStore, platform } from "./helpers.ts";
 
 describe("tenant isolation (TEN-1, TEN-2, TEN-5)", () => {
   it("seller cannot read another store's products", async () => {
@@ -28,7 +28,7 @@ describe("tenant isolation (TEN-1, TEN-2, TEN-5)", () => {
     const a = await makeStore("toko-a");
     const b = await makeStore("toko-b");
     await expect(
-      db.insert(variant).values({ storeId: a.storeId, productId: b.productId, title: "X", price: 1, stock: 1 }),
+      platform.insert(variant).values({ storeId: a.storeId, productId: b.productId, title: "X", price: 1, stock: 1 }),
     ).rejects.toMatchObject({ cause: { constraint_name: "variant_product_fk" } });
   });
 

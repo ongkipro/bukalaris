@@ -20,9 +20,9 @@ import { addressIncomplete, getOrder, transitionOrder } from "../src/orders.ts";
 import { cart, cartLine, membership, order, rateLimit, stockAdjustment, variant } from "../src/schema.ts";
 import { defaultShippingAdapter } from "../src/shipping.ts";
 import { getCart, setCartLine } from "../src/storefront.ts";
-import { buyer, db, DESTINATION, makeStore, makeUser, PICKUP_AREA, seller } from "./helpers.ts";
+import { buyer, db, DESTINATION, makeStore, makeUser, PICKUP_AREA, platform, seller } from "./helpers.ts";
 
-const row = async (id: number) => (await db.select().from(order).where(eq(order.id, id)))[0]!;
+const row = async (id: number) => (await platform.select().from(order).where(eq(order.id, id)))[0]!;
 
 describe("checkout shipping wiring (T-34 phase 2, Q-12)", () => {
   it("snapshots courier code + label, route area ids and the fee split from the server-side quote", async () => {
@@ -67,7 +67,7 @@ describe("checkout shipping wiring (T-34 phase 2, Q-12)", () => {
     // SiCepat prepaid is fine: 8_000 + 2_000 → 10_000.
     const { orderId } = await placeOrder(db, cartId, buyer({ courier: "SiCepat", paymentMethod: "manual_transfer" }));
     expect(await row(orderId)).toMatchObject({ courierCode: "SiCepat", shippingProviderCost: 8_000, shippingMargin: 2_000, shippingFee: 10_000 });
-    expect(await db.select().from(order)).toHaveLength(1);
+    expect(await platform.select().from(order)).toHaveLength(1);
   });
 
   it("a store without a pickup area cannot take orders and the summary says so", async () => {
@@ -85,9 +85,9 @@ describe("checkout shipping wiring (T-34 phase 2, Q-12)", () => {
     const cartId = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 1 }, "add");
     const { orderId } = await placeOrder(db, cartId, buyer());
     for (const bad of [{ shippingMargin: 2_007 }, { shippingProviderCost: -1, shippingMargin: 17_501 }, { weightKg: 0 }]) {
-      await expect(db.update(order).set(bad).where(eq(order.id, orderId))).rejects.toMatchObject({ cause: { constraint_name: "order_shipping_fee_chk" } });
+      await expect(platform.update(order).set(bad).where(eq(order.id, orderId))).rejects.toMatchObject({ cause: { constraint_name: "order_shipping_fee_chk" } });
     }
-    await expect(db.update(order).set({ destinationAreaId: "x" }).where(eq(order.id, orderId))).rejects.toMatchObject({ cause: { constraint_name: "order_area_chk" } });
+    await expect(platform.update(order).set({ destinationAreaId: "x" }).where(eq(order.id, orderId))).rejects.toMatchObject({ cause: { constraint_name: "order_area_chk" } });
   });
 
   it("a provider outage is one retryable buyer message; area search validates the keyword", async () => {
@@ -102,7 +102,7 @@ describe("checkout shipping wiring (T-34 phase 2, Q-12)", () => {
     await expect(searchDestinationAreas("bandung", down)).rejects.toMatchObject({ code: "provider" });
     await expect(searchDestinationAreas("ba", fakeMengantar)).rejects.toMatchObject({ code: "keyword" });
     expect(await searchDestinationAreas("jakarta", fakeMengantar)).toEqual([{ id: DESTINATION.destinationAreaId, label: DESTINATION.destinationAreaLabel }]);
-    expect(await db.select().from(order)).toHaveLength(0);
+    expect(await platform.select().from(order)).toHaveLength(0);
     // Nothing selects the real client here: no MENGANTAR_API_KEY in the test process.
     expect(process.env.MENGANTAR_API_KEY).toBeUndefined();
     expect(defaultShippingAdapter()).toBe(fakeMengantar);
@@ -113,7 +113,7 @@ describe("COD confirmation and risk (T-35, PR-19)", () => {
   const cartFor = (s: Awaited<ReturnType<typeof makeStore>>, qty = 1) => setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: qty }, "add");
   const codOrder = async (s: Awaited<ReturnType<typeof makeStore>>, over: Record<string, unknown> = {}, qty = 1) =>
     (await placeOrder(db, await cartFor(s, qty), buyer(over))).orderId;
-  const stockOf = async (id: number) => (await db.select().from(variant).where(eq(variant.id, id)))[0]!.stock;
+  const stockOf = async (id: number) => (await platform.select().from(variant).where(eq(variant.id, id)))[0]!.stock;
 
   it("COD starts in awaiting_confirmation (transfer does not); confirm and hold move it, with actor and notes", async () => {
     const s = await makeStore("toko-a");
@@ -139,7 +139,7 @@ describe("COD confirmation and risk (T-35, PR-19)", () => {
       ["on_hold", "placed", "Pesanan COD dikonfirmasi oleh penjual"],
     ]);
     // The database refuses a confirmation state on a transfer order.
-    await expect(db.update(order).set({ status: "awaiting_confirmation" }).where(eq(order.id, transfer))).rejects.toMatchObject({ cause: { constraint_name: "order_cod_state_chk" } });
+    await expect(platform.update(order).set({ status: "awaiting_confirmation" }).where(eq(order.id, transfer))).rejects.toMatchObject({ cause: { constraint_name: "order_cod_state_chk" } });
   });
 
   it("reject cancels and restocks exactly once, also when it races a confirm; staff may do it, another store may not", async () => {
@@ -163,7 +163,7 @@ describe("COD confirmation and risk (T-35, PR-19)", () => {
     if (ok[0] === "cancelled") {
       expect(final.status).toBe("cancelled");
       expect(await stockOf(s.variantId)).toBe(10);
-      const moves = await db.select().from(stockAdjustment).where(eq(stockAdjustment.orderId, id));
+      const moves = await platform.select().from(stockAdjustment).where(eq(stockAdjustment.orderId, id));
       expect(moves).toEqual([expect.objectContaining({ delta: 3, reason: expect.stringMatching(/^Penolakan pesanan COD #\d+: /) })]);
       expect(final.actions).toEqual([]);
     } else {
@@ -174,7 +174,7 @@ describe("COD confirmation and risk (T-35, PR-19)", () => {
 
     // Staff can reject too; a rejected order cannot be cancelled again (single restock).
     const staffId = await makeUser("staff");
-    await db.insert(membership).values({ storeId: s.storeId, userId: staffId, role: "staff" });
+    await platform.insert(membership).values({ storeId: s.storeId, userId: staffId, role: "staff" });
     const id2 = await codOrder(s, {}, 2);
     expect(await transitionOrder(await seller(staffId), id2, "reject", { reason: "Alamat palsu" })).toBe("cancelled");
     await expect(transitionOrder(s.owner, id2, "cancel", { reason: "batal lagi" })).rejects.toMatchObject({ code: "invalid_transition" });
@@ -228,7 +228,7 @@ describe("abuse controls (T-30, SEC-16)", () => {
     await expect(enforceLimits(db, [{ key: "t:a", rule }])).rejects.toMatchObject({ code: "rate_limited", message: expect.stringMatching(/^Terlalu banyak percobaan\. Coba lagi dalam \d+ detik\.$/) });
     await expect(enforceLimits(db, [{ key: "t:b", rule }])).resolves.toBeUndefined();
     // Time travel: move the window into the past → the next hit opens a fresh window.
-    await db.update(rateLimit).set({ windowStart: sql`${rateLimit.windowStart} - interval '2 minutes'` });
+    await platform.update(rateLimit).set({ windowStart: sql`${rateLimit.windowStart} - interval '2 minutes'` });
     expect((await hit(db, "t:a", rule)).count).toBe(1);
     // The IP rule boundary (60 per 10 min) holds exactly.
     for (let i = 1; i <= LIMITS.orderIp.limit; i++) await enforceLimits(db, [{ key: "order:ip:203.0.113.7", rule: LIMITS.orderIp }]);
@@ -243,18 +243,18 @@ describe("abuse controls (T-30, SEC-16)", () => {
     await expect(placeOrder(db, cartId, buyer())).rejects.toMatchObject({ code: "rate_limited" });
     // Garbage input never reaches the counters.
     await expect(placeOrder(db, cartId, buyer({ buyerPhone: "abc" }))).rejects.toMatchObject({ name: "ZodError" });
-    expect(await db.select().from(rateLimit).where(eq(rateLimit.key, `order:cart:${cartId}`))).toMatchObject([{ count: 6 }]);
-    expect(await db.select().from(order)).toHaveLength(0);
+    expect(await platform.select().from(rateLimit).where(eq(rateLimit.key, `order:cart:${cartId}`))).toMatchObject([{ count: 6 }]);
+    expect(await platform.select().from(order)).toHaveLength(0);
 
     // Same phone on fresh carts: 10 orders are fine, the 11th is refused.
     const phone = "0812-7777-0000".replaceAll("-", "");
     for (let i = 0; i < LIMITS.orderPhone.limit; i++) await placeOrder(db, await cartFor(s), buyer({ buyerPhone: i % 2 ? phone : `+62${phone.slice(1)}` }));
     await expect(placeOrder(db, await cartFor(s), buyer({ buyerPhone: phone }))).rejects.toMatchObject({ code: "rate_limited" });
-    expect(await db.select().from(order)).toHaveLength(LIMITS.orderPhone.limit);
+    expect(await platform.select().from(order)).toHaveLength(LIMITS.orderPhone.limit);
     // A different phone still gets through; with a known client IP the IP key is counted too.
     await expect(placeOrder(db, await cartFor(s), buyer({ buyerPhone: "081200009999" }), fakeProviders, { clientIp: "203.0.113.9" })).resolves.toMatchObject({ replayed: false });
-    expect(await db.select().from(rateLimit).where(eq(rateLimit.key, "order:ip:203.0.113.9"))).toMatchObject([{ count: 1 }]);
-    expect((await db.select().from(rateLimit)).some((r) => r.key.startsWith("order:ip:") && r.key !== "order:ip:203.0.113.9")).toBe(false); // no IP → no IP key
+    expect(await platform.select().from(rateLimit).where(eq(rateLimit.key, "order:ip:203.0.113.9"))).toMatchObject([{ count: 1 }]);
+    expect((await platform.select().from(rateLimit)).some((r) => r.key.startsWith("order:ip:") && r.key !== "order:ip:203.0.113.9")).toBe(false); // no IP → no IP key
     // Cart mutation limiter: per IP and per cart keys.
     for (let i = 0; i < LIMITS.cartCart.limit; i++) await limitCartMutation(db, { clientIp: "198.51.100.1", cartId });
     await expect(limitCartMutation(db, { clientIp: "198.51.100.1", cartId })).rejects.toMatchObject({ code: "rate_limited" });
@@ -288,25 +288,25 @@ describe("abuse controls (T-30, SEC-16)", () => {
     const fresh = await cartFor(s);
     const edge = await cartFor(s);
     await placeOrder(db, oldOrdered, buyer());
-    const age = (id: string, hours: number) => db.update(cart).set({ createdAt: sql`now() - ${hours} * interval '1 hour'` }).where(eq(cart.id, id));
+    const age = (id: string, hours: number) => platform.update(cart).set({ createdAt: sql`now() - ${hours} * interval '1 hour'` }).where(eq(cart.id, id));
     await age(oldOpen, 169);
     await age(oldOrdered, 500);
     await age(edge, 167);
     await hit(db, "old", { limit: 1, windowSec: 60 });
-    await db.update(rateLimit).set({ windowStart: sql`now() - interval '25 hours'` }).where(eq(rateLimit.key, "old"));
+    await platform.update(rateLimit).set({ windowStart: sql`now() - interval '25 hours'` }).where(eq(rateLimit.key, "old"));
     await hit(db, "recent", { limit: 1, windowSec: 60 });
 
-    await expect(cleanupIdleCarts(db, { idleHours: 0 })).rejects.toMatchObject({ code: "idle_hours" });
-    expect(await cleanupIdleCarts(db, { idleHours: 168 })).toEqual({ carts: 1, counters: 1 });
-    const remaining = (await db.select({ id: cart.id }).from(cart)).map((c) => c.id).sort();
+    await expect(cleanupIdleCarts(platform, { idleHours: 0 })).rejects.toMatchObject({ code: "idle_hours" });
+    expect(await cleanupIdleCarts(platform, { idleHours: 168 })).toEqual({ carts: 1, counters: 1 });
+    const remaining = (await platform.select({ id: cart.id }).from(cart)).map((c) => c.id).sort();
     expect(remaining).toEqual([oldOrdered, fresh, edge].sort());
-    expect(await db.select().from(cartLine).where(eq(cartLine.cartId, oldOpen))).toEqual([]);
-    const keys = (await db.select().from(rateLimit)).map((r) => r.key);
+    expect(await platform.select().from(cartLine).where(eq(cartLine.cartId, oldOpen))).toEqual([]);
+    const keys = (await platform.select().from(rateLimit)).map((r) => r.key);
     expect(keys).not.toContain("old");
     expect(keys).toContain("recent"); // current-window counters (incl. the order's own) stay
     // The order and its lines are intact; the buyer can still open the outcome.
-    expect(await getBuyerOrder(db, (await db.select().from(order))[0]!.id, oldOrdered)).not.toBeNull();
+    expect(await getBuyerOrder(db, (await platform.select().from(order))[0]!.id, oldOrdered)).not.toBeNull();
     // Idempotent: nothing left to delete.
-    expect(await cleanupIdleCarts(db, { idleHours: 168 })).toEqual({ carts: 0, counters: 0 });
+    expect(await cleanupIdleCarts(platform, { idleHours: 168 })).toEqual({ carts: 0, counters: 0 });
   });
 });
