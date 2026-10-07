@@ -385,3 +385,18 @@ dummy content.
 - `docs-scan` agent on `main` (docs only, uncommitted until reviewed): system
   map vs every route, statuses for T-1..T-20, README/API/deploy/runbook/UX/
   observability sync, validators.
+
+## 2026-10-07 — GitHub (private) and pre-publication scan
+
+- Owner asked for a public GitHub repo. Pre-push scan of all 908 history blobs
+  (patterns for keys/tokens/private keys/JWT/personal emails + byte comparison
+  against 8 secret-store values, run via `secrets-env run`, values never
+  printed): no credentials; one hit — the real `MENGANTAR_ORIGIN_AREA_ID` in
+  `packages/db/test/fixtures/mengantar/estimate-all-cod.json`, which also holds
+  the account's real negotiated prices/discounts.
+- Owner decision: publish PRIVATE first. Working tree sanitized (synthetic area
+  id; shipping tests 12 passed); the old value remains in history.
+- Before any switch to PUBLIC: replace real account prices in fixtures, the fake
+  adapter and dependent test expectations, then publish a clean history
+  (owner decides rewrite vs fresh snapshot), and review PRD/business docs for
+  publication.
