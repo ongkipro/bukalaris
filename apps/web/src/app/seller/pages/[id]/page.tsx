@@ -6,7 +6,7 @@ import { sellerScope } from "@/lib/context";
 import { publishStatusLabel, publishStatusTone } from "@/lib/status";
 import { getPage } from "@bukalaris/db";
 import { notFound } from "next/navigation";
-import { MarkdownLite } from "@/app/s/[store]/_components/markdown-lite";
+import { MarkdownLite } from "@/app/s/[store]/(shop)/_components/markdown-lite";
 import { updatePageAction } from "../actions";
 import { PageFields } from "../page-fields";
 

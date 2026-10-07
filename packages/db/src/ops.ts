@@ -96,7 +96,7 @@ const ROUTE_PREFIXES: [string, string][] = [
 ];
 /** Module for a Next route template such as `/app/s/[store]/page` or `/s/[store]`. Unknown → "unknown". */
 export function moduleForRoute(routePath: string | undefined): string {
-  const p = (routePath ?? "").replace(/^\/app/, "").replace(/\/(page|route|layout)$/, "") || "/";
+  const p = (routePath ?? "").replace(/^\/app/, "").replace(/\/\([^/)]+\)/g, "").replace(/\/(page|route|layout)$/, "") || "/";
   return ROUTE_PREFIXES.find(([prefix]) => p === prefix || p.startsWith(`${prefix}/`))?.[1] ?? "unknown";
 }
 

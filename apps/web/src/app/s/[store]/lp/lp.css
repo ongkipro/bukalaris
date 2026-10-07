@@ -1,0 +1,113 @@
+/* Independent landing-page presentation (PR-9, UI-6). Nothing here reads the storefront theme:
+   the LP sets its own tokens from the document's design settings through data attributes
+   (no inline styles under the nonce CSP). Mobile-first; one reading column that reflows at 320px. */
+.lp {
+  --lp-accent: oklch(0.25 0 0);
+  --lp-accent-soft: oklch(0.96 0 0);
+  --lp-accent-fg: oklch(0.99 0 0);
+  --lp-scale: 1;
+  font-size: calc(1rem * var(--lp-scale));
+  line-height: 1.6;
+  background: oklch(1 0 0);
+  color: oklch(0.17 0 0);
+  text-wrap: pretty;
+}
+.lp[data-accent="teal"] { --lp-accent: oklch(0.52 0.1 200); --lp-accent-soft: oklch(0.96 0.02 200); }
+.lp[data-accent="emerald"] { --lp-accent: oklch(0.52 0.14 155); --lp-accent-soft: oklch(0.96 0.03 155); }
+.lp[data-accent="amber"] { --lp-accent: oklch(0.62 0.15 70); --lp-accent-soft: oklch(0.97 0.04 85); --lp-accent-fg: oklch(0.15 0 0); }
+.lp[data-accent="rose"] { --lp-accent: oklch(0.58 0.19 10); --lp-accent-soft: oklch(0.96 0.03 10); }
+.lp[data-accent="indigo"] { --lp-accent: oklch(0.5 0.17 275); --lp-accent-soft: oklch(0.96 0.02 275); }
+.lp[data-scale="compact"] { --lp-scale: 0.92; }
+.lp[data-scale="large"] { --lp-scale: 1.12; }
+
+.lp-wrap {
+  width: 100%;
+  max-width: 40rem;
+  margin-inline: auto;
+  padding-inline: 1rem;
+}
+@media (min-width: 48rem) {
+  .lp-wrap { max-width: 44rem; padding-inline: 1.5rem; }
+}
+
+/* Type scale in em so the document's font scale moves everything together. */
+.lp-h1 { font-size: 2em; line-height: 1.1; letter-spacing: -0.025em; font-weight: 700; text-wrap: balance; }
+.lp-h2 { font-size: 1.375em; line-height: 1.25; letter-spacing: -0.015em; font-weight: 650; text-wrap: balance; }
+.lp-lead { font-size: 1.125em; line-height: 1.5; color: oklch(0.42 0 0); }
+.lp-sm { font-size: 0.875em; }
+.lp-xs { font-size: 0.75em; }
+.lp-muted { color: oklch(0.5 0 0); }
+.lp-eyebrow { font-size: 0.75em; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--lp-accent); }
+@media (min-width: 48rem) {
+  .lp-h1 { font-size: 2.75em; }
+  .lp-h2 { font-size: 1.625em; }
+}
+
+.lp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+  min-height: 3em;
+  padding-inline: 1.5em;
+  border-radius: 999px;
+  background: var(--lp-accent);
+  color: var(--lp-accent-fg);
+  font-weight: 600;
+  text-decoration: none;
+  transition: filter 150ms, transform 150ms;
+}
+.lp-btn:hover { filter: brightness(1.08); }
+.lp-btn:active { transform: translateY(1px); }
+.lp-btn:focus-visible,
+.lp-option:has(:focus-visible),
+.lp-field:focus-visible,
+.lp-link:focus-visible,
+.lp-faq summary:focus-visible { outline: 3px solid color-mix(in oklch, var(--lp-accent) 45%, transparent); outline-offset: 2px; }
+.lp-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.lp-card { border: 1px solid oklch(0.9 0 0); border-radius: 1rem; background: oklch(1 0 0); }
+.lp-soft { background: var(--lp-accent-soft); }
+.lp-accent-text { color: var(--lp-accent); }
+.lp-accent-border { border-color: var(--lp-accent); }
+.lp-img { width: 100%; height: auto; border-radius: 1rem; background: oklch(0.96 0 0); object-fit: cover; }
+.lp-link { color: inherit; text-decoration: underline; text-underline-offset: 0.2em; border-radius: 0.25rem; }
+
+/* Platform order component. */
+.lp-option {
+  display: flex;
+  align-items: center;
+  gap: 0.75em;
+  padding: 0.875em 1em;
+  border: 1px solid oklch(0.88 0 0);
+  border-radius: 0.75rem;
+  cursor: pointer;
+}
+.lp-option:has(:checked) { border-color: var(--lp-accent); background: var(--lp-accent-soft); }
+.lp-option:has(:disabled) { opacity: 0.5; cursor: not-allowed; }
+.lp-option input { accent-color: var(--lp-accent); }
+.lp-field {
+  height: 3em;
+  width: 100%;
+  border: 1px solid oklch(0.88 0 0);
+  border-radius: 0.75rem;
+  background: oklch(1 0 0);
+  padding-inline: 0.875em;
+  font: inherit;
+}
+
+.lp-faq details { border-top: 1px solid oklch(0.9 0 0); }
+.lp-faq details:last-child { border-bottom: 1px solid oklch(0.9 0 0); }
+.lp-faq summary { display: flex; justify-content: space-between; gap: 1em; padding-block: 1em; font-weight: 600; cursor: pointer; list-style: none; border-radius: 0.25rem; }
+.lp-faq summary::-webkit-details-marker { display: none; }
+.lp-faq summary::after { content: "+"; color: var(--lp-accent); font-weight: 700; }
+.lp-faq details[open] summary::after { content: "–"; }
+.lp-faq .prose-lite { padding-bottom: 1.25em; }
+
+/* The markdown-lite body inherits the LP scale (overrides the rem sizes in globals.css). */
+.lp .prose-lite h2 { font-size: 1.375em; }
+.lp .prose-lite h3 { font-size: 1.125em; }
+.lp .prose-lite h4 { font-size: 1em; }
+
+/* Builder swatches share the palette so the seller sees the real colours. */
+.lp-swatch { width: 1.5rem; height: 1.5rem; border-radius: 999px; background: var(--lp-accent); box-shadow: inset 0 0 0 1px oklch(0 0 0 / 10%); }

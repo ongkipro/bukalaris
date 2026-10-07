@@ -48,6 +48,8 @@ const APP_GRANTS: Record<string, string> = {
   signal_destination: "SELECT,INSERT,UPDATE",
   signal_event: "SELECT,INSERT",
   order_signal_context: "SELECT,INSERT",
+  landing_page: "SELECT,INSERT,UPDATE", // T-42: pages are created and re-pointed by the app
+  landing_page_revision: "SELECT,INSERT", // T-42: revisions are immutable snapshots
   audit_log: "INSERT",
   rate_limit: "SELECT,INSERT,UPDATE",
   shipping_margin_rule: "SELECT",

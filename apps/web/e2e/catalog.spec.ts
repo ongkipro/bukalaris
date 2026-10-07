@@ -24,7 +24,7 @@ test("catalog ids are shown and copyable, slug renames redirect without chains, 
   await page.getByLabel("Stok").fill("4");
   await page.getByRole("button", { name: "Simpan produk" }).click();
   await expect(page.getByRole("heading", { name: title })).toBeVisible();
-  const editor = page.url();
+  const editor = page.url().split("?")[0]!; // without ?saved=1, so the rename loop below waits for its own save
   const dbId = new URL(editor).pathname.split("/").pop()!;
 
   // --- Ids: product and variant each carry a distinct ≥ 5-digit catalog id, separate from the database id.
