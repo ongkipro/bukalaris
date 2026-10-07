@@ -1,6 +1,6 @@
 {
-  "id": "7c6de764-5950-4574-81ca-219666d2a2bb",
-  "prevId": "7ab34049-0503-4a62-b1b2-c52918d095d1",
+  "id": "d47ede01-e47e-437c-a1f5-3d81de36b7e7",
+  "prevId": "acb381d0-687a-4bd6-9ca7-728df570de34",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4824,6 +4824,96 @@
         "landing_page_revision_size_chk": {
           "name": "landing_page_revision_size_chk",
           "value": "octet_length(\"landing_page_revision\".\"document\"::text) <= 262144"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.order_redaction": {
+      "name": "order_redaction",
+      "schema": "",
+      "columns": {
+        "store_id": {
+          "name": "store_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "order_id": {
+          "name": "order_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "override": {
+          "name": "override",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "order_redaction_order_fk": {
+          "name": "order_redaction_order_fk",
+          "tableFrom": "order_redaction",
+          "columnsFrom": [
+            "store_id",
+            "order_id"
+          ],
+          "tableTo": "order",
+          "columnsTo": [
+            "store_id",
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "order_redaction_store_id_order_id_pk": {
+          "name": "order_redaction_store_id_order_id_pk",
+          "columns": [
+            "store_id",
+            "order_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "order_redaction_source_chk": {
+          "name": "order_redaction_source_chk",
+          "value": "\"order_redaction\".\"source\" in ('seller', 'retention')"
+        },
+        "order_redaction_override_chk": {
+          "name": "order_redaction_override_chk",
+          "value": "not \"order_redaction\".\"override\" or \"order_redaction\".\"reason\" is not null"
         }
       },
       "isRLSEnabled": false

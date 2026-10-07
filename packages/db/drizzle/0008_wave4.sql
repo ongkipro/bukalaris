@@ -78,11 +78,25 @@ CREATE TABLE "landing_page_revision" (
 	CONSTRAINT "landing_page_revision_size_chk" CHECK (octet_length("landing_page_revision"."document"::text) <= 262144)
 );
 --> statement-breakpoint
+CREATE TABLE "order_redaction" (
+	"store_id" bigint NOT NULL,
+	"order_id" bigint NOT NULL,
+	"actor_user_id" text NOT NULL,
+	"source" text NOT NULL,
+	"override" boolean DEFAULT false NOT NULL,
+	"reason" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "order_redaction_store_id_order_id_pk" PRIMARY KEY("store_id","order_id"),
+	CONSTRAINT "order_redaction_source_chk" CHECK ("order_redaction"."source" in ('seller', 'retention')),
+	CONSTRAINT "order_redaction_override_chk" CHECK (not "order_redaction"."override" or "order_redaction"."reason" is not null)
+);
+--> statement-breakpoint
 ALTER TABLE "shipment" ADD CONSTRAINT "shipment_store_id_store_id_fk" FOREIGN KEY ("store_id") REFERENCES "public"."store"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "shipment" ADD CONSTRAINT "shipment_order_fk" FOREIGN KEY ("store_id","order_id") REFERENCES "public"."order"("store_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "feed_token" ADD CONSTRAINT "feed_token_store_id_store_id_fk" FOREIGN KEY ("store_id") REFERENCES "public"."store"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "landing_page" ADD CONSTRAINT "landing_page_store_id_store_id_fk" FOREIGN KEY ("store_id") REFERENCES "public"."store"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "landing_page_revision" ADD CONSTRAINT "landing_page_revision_page_fk" FOREIGN KEY ("store_id","page_id") REFERENCES "public"."landing_page"("store_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "order_redaction" ADD CONSTRAINT "order_redaction_order_fk" FOREIGN KEY ("store_id","order_id") REFERENCES "public"."order"("store_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "shipment_store_status_idx" ON "shipment" USING btree ("store_id","status");--> statement-breakpoint
 CREATE INDEX "feed_token_prefix_idx" ON "feed_token" USING btree ("token_prefix");--> statement-breakpoint
 CREATE UNIQUE INDEX "feed_token_store_active_uq" ON "feed_token" USING btree ("store_id") WHERE "feed_token"."status" = 'active';

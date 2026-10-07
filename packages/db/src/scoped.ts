@@ -61,6 +61,8 @@ const capabilities = {
   "shipping.manage": ["owner"],
   // M2 signals track (T-38): ad destinations carry server tokens → owner only.
   "marketing.manage": ["owner"],
+  // M2 privacy track (T-43): buyer data export and irreversible redaction → owner only.
+  "privacy.manage": ["owner"],
 } as const satisfies Record<string, readonly Role[]>;
 export type Capability = keyof typeof capabilities;
 

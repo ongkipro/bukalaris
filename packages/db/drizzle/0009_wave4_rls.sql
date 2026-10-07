@@ -27,3 +27,14 @@ ALTER TABLE "landing_page_revision" FORCE ROW LEVEL SECURITY;--> statement-break
 CREATE POLICY tenant_isolation ON "landing_page_revision" USING ("store_id" = app_store_id()) WITH CHECK ("store_id" = app_store_id());--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE ON "landing_page" TO bukalaris_app;--> statement-breakpoint
 GRANT SELECT, INSERT ON "landing_page_revision" TO bukalaris_app;
+--> statement-breakpoint
+
+-- from 0009_privacy_rls.sql
+ALTER TABLE "order_redaction" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "order_redaction" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
+CREATE POLICY tenant_isolation ON "order_redaction" USING ("store_id" = app_store_id()) WITH CHECK ("store_id" = app_store_id());--> statement-breakpoint
+GRANT SELECT, INSERT ON "order_redaction" TO bukalaris_app;--> statement-breakpoint
+GRANT DELETE ON "order_signal_context" TO bukalaris_app;--> statement-breakpoint
+GRANT UPDATE ON "signal_event" TO bukalaris_app;--> statement-breakpoint
+GRANT SELECT, UPDATE ON "order_notification" TO bukalaris_app;--> statement-breakpoint
+GRANT UPDATE ON "mail_outbox" TO bukalaris_app;
