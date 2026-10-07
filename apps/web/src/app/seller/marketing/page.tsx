@@ -2,9 +2,22 @@ import { fieldClass, Notice } from "@/components/notice";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ConfirmSubmit } from "@/components/confirm-submit";
 import { sellerScope } from "@/lib/context";
-import { can, destinationHealth, listDestinations, liveMode, SIGNAL_PROVIDERS, type DestinationHealth, type DestinationView, type SignalProvider } from "@bukalaris/db";
-import { clearTokenAction, saveDestinationAction } from "./actions";
+import {
+  can,
+  destinationHealth,
+  feedSettings,
+  listDestinations,
+  liveMode,
+  SIGNAL_PROVIDERS,
+  type DestinationHealth,
+  type DestinationView,
+  type FeedSettings,
+  type SignalProvider,
+} from "@bukalaris/db";
+import { clearTokenAction, revokeFeedTokenAction, saveDestinationAction } from "./actions";
+import { FeedTokenForm } from "./feed-token-form";
 
 export const metadata = { title: "Pemasaran — Seller Admin" };
 
@@ -44,7 +57,7 @@ export default async function MarketingPage({ searchParams }: PageProps<"/seller
       </section>
     );
   }
-  const [destinations, health] = await Promise.all([listDestinations(scope), destinationHealth(scope)]);
+  const [destinations, health, feeds] = await Promise.all([listDestinations(scope), destinationHealth(scope), feedSettings(scope)]);
   const byProvider = new Map(destinations.map((d) => [d.provider, d]));
   const healthBy = new Map(health.map((h) => [h.provider, h]));
   return (
@@ -67,7 +80,50 @@ export default async function MarketingPage({ searchParams }: PageProps<"/seller
           <DestinationCard key={p} provider={p} current={byProvider.get(p)} health={healthBy.get(p)} />
         ))}
       </div>
+      <FeedSection feeds={feeds} />
     </section>
+  );
+}
+
+/** T-40: token-protected catalog feeds for Meta Commerce Manager and Google Merchant Center. */
+function FeedSection({ feeds }: { feeds: FeedSettings }) {
+  return (
+    <article className="grid gap-4 rounded-lg border p-4" data-testid="feed-section" aria-labelledby="feed-title">
+      <div className="grid gap-1">
+        <h2 id="feed-title" className="font-medium">Feed katalog</h2>
+        <p className="text-sm text-muted-foreground">
+          Meta dan Google mengambil katalog toko dari URL feed secara terjadwal. Satu item per varian produk aktif: ID item = ID varian, ID grup = ID produk —
+          sama dengan content id yang dikirim sinyal konversi, jadi iklan katalog dan event pembelian bertemu di produk yang sama.
+        </p>
+      </div>
+      <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-sm tabular-nums" data-testid="feed-stats">
+        <dt className="text-muted-foreground">Produk aktif dalam feed</dt>
+        <dd className="text-right">{feeds.activeProducts - feeds.withoutImage}</dd>
+        <dt className="text-muted-foreground">Aktif tanpa gambar (dilewati)</dt>
+        <dd className={`text-right ${feeds.withoutImage ? "text-destructive" : ""}`}>{feeds.withoutImage}</dd>
+      </dl>
+      {feeds.withoutImage > 0 && (
+        <p className="text-xs text-muted-foreground">Kedua platform mewajibkan gambar utama; unggah gambar di halaman produk agar produk itu ikut dalam feed.</p>
+      )}
+      {feeds.token ? (
+        <p className="text-sm" data-testid="feed-token-state">
+          Token aktif <code className="rounded bg-muted px-1 text-xs">blfd_{feeds.token.prefix}_…</code> dibuat {fmt.format(feeds.token.createdAt)}. URL feed hanya ditampilkan
+          saat dibuat.
+        </p>
+      ) : (
+        <p className="text-sm text-muted-foreground" data-testid="feed-token-state">Belum ada token feed. Buat satu untuk mendapatkan URL feed Meta dan Google.</p>
+      )}
+      <div className="flex flex-wrap items-start gap-2">
+        <FeedTokenForm hasToken={feeds.token !== null} />
+        {feeds.token && (
+          <form action={revokeFeedTokenAction}>
+            <ConfirmSubmit variant="outline" message="Cabut token feed? Meta dan Google tidak bisa lagi mengambil katalog sampai Anda membuat token baru dan memperbaruinya di sana.">
+              Cabut token feed
+            </ConfirmSubmit>
+          </form>
+        )}
+      </div>
+    </article>
   );
 }
 

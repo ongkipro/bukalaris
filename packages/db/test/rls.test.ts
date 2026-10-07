@@ -48,6 +48,7 @@ const APP_GRANTS: Record<string, string> = {
   signal_destination: "SELECT,INSERT,UPDATE",
   signal_event: "SELECT,INSERT",
   order_signal_context: "SELECT,INSERT",
+  feed_token: "SELECT,INSERT,UPDATE",
   audit_log: "INSERT",
   rate_limit: "SELECT,INSERT,UPDATE",
   shipping_margin_rule: "SELECT",
