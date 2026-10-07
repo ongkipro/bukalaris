@@ -563,10 +563,14 @@ data/permission -> test/task. Job operations use a module/operation identity and
 nullable Page ID; do not invent a page for them.
 
 Log detail resolves `module` and `page_id` against `MODULE_MAP` in
-`packages/db/src/ops.ts` (the runtime subset of this map: `admin.stores`,
-`admin.logs`, `admin.logs.detail`, `auth`, `seller.products`, `seller.members`,
-`seller.orders`, `storefront.catalog`, `storefront.cart`, `checkout`,
-`checkout.confirmation`, `api.health`); an unknown mapping shows "Mapping
+`packages/db/src/ops.ts` (the runtime subset of this map). Since 2026-10-07 it
+covers every `page.tsx`/`route.ts` under `apps/web/src/app` except the marketing
+root `/` and the dev-only `/dev/outbox`, including wave 4 routes ahead of merge
+(SC-14, SC-24, SF-09, HTTP-15); `test/ops.test.ts` "page/module map covers every
+route" walks the app directory and fails on an unmapped route. Seller sub-pages
+and handlers resolve to their surface (`/seller/products/[id]/media/[mediaId]`
+→ SC-02, `/api/storefront/v1/*` → HTTP-05 as the API module); an unknown mapping
+shows "Mapping
 unavailable". `release` comes from `RELEASE_REVISION` or `SOURCE_COMMIT`.
 Never build source URLs from arbitrary log text, assume the current branch
 matches an older release, or read local files based on an event field. Public

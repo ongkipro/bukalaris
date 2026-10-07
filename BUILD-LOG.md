@@ -400,3 +400,17 @@ dummy content.
   adapter and dependent test expectations, then publish a clean history
   (owner decides rewrite vs fresh snapshot), and review PRD/business docs for
   publication.
+
+## 2026-10-07 — Log System module map covers every route; wave 4 resumed
+
+- Wave 4 track agents had stopped mid-task (all six worktrees uncommitted at
+  `0f4801b`); relaunched in parallel: fulfillment, feeds, dashboard, landing,
+  privacy, demo. Results and merges follow in a later entry.
+- `packages/db/src/ops.ts` `MODULE_MAP`/`ROUTE_PREFIXES` extended from 12 to 41
+  modules with the ARCH-5 page IDs (AU-02/04/05, SA-03/07, SC-01..SC-24,
+  SF-02..SF-11, HTTP-02/04/05/12/13/15); `/checkout/h/invalid` → SF-10,
+  products detail → SF-04 (was SF-01). New test walks `apps/web/src/app` and
+  fails on any unmapped `page`/`route` (exempt: `/`, `/dev/outbox`).
+- Commands (main): `vitest run test/ops.test.ts` 7 passed; `pnpm lint` 0;
+  `pnpm typecheck` 0; `pnpm test` 15 files / 138 passed.
+- Docs: ARCH-5 note on the runtime module map updated.

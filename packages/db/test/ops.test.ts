@@ -4,6 +4,7 @@ import {
   getSystemLog,
   hasPlatformCap,
   listSystemLogs,
+  MODULE_MAP,
   moduleForRoute,
   recordLogEvent,
   requirePlatformCap,
@@ -77,7 +78,12 @@ describe("Log System sink (PR-11, OBS-5)", () => {
     expect(e).toMatchObject({ level: "error", module: "unknown", pageId: "SF-07", environment: "development" });
     expect(e.message).toHaveLength(500);
     expect(scrubText(undefined)).toBe("");
-    expect(moduleForRoute("/app/s/[store]/products/[slug]/page")).toBe("storefront.catalog");
+    expect(moduleForRoute("/app/s/[store]/products/[slug]/page")).toBe("storefront.product");
+    expect(moduleForRoute("/app/seller/page")).toBe("seller.overview");
+    expect(moduleForRoute("/app/seller/inventory/page")).toBe("seller.inventory");
+    expect(moduleForRoute("/app/api/storefront/v1/carts/[cartId]/route")).toBe("api.storefront");
+    expect(moduleForRoute("/app/checkout/h/invalid/page")).toBe("checkout.handoff.invalid");
+    expect(moduleForRoute("/app/checkout/h/[code]/route")).toBe("checkout.handoff");
     expect(moduleForRoute("/app/admin/logs/[id]/page")).toBe("admin.logs.detail");
     expect(moduleForRoute("/admin")).toBe("admin.stores");
     expect(moduleForRoute("/app/whatever/page")).toBe("unknown");
@@ -161,5 +167,30 @@ describe("Log System sink (PR-11, OBS-5)", () => {
     expect(await getSystemLog(op, -1)).toBeNull();
     const reads = await platform.select().from(auditLog).where(eq(auditLog.action, "logs.read"));
     expect(reads.map((r) => r.reason)).toEqual([`event:${a}`, `event:${unmapped}`, "event:999999"]);
+  });
+});
+
+describe("page/module map covers every route (ARCH-5)", () => {
+  it("maps each page.tsx/route.ts under apps/web/src/app to a known module", async () => {
+    const { readdirSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const root = fileURLToPath(new URL("../../../apps/web/src/app/", import.meta.url));
+    const routes: string[] = [];
+    const walk = (dir: string, rel: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        if (e.isDirectory()) walk(`${dir}${e.name}/`, `${rel}/${e.name}`);
+        else if (/^(page|route)\.tsx?$/.test(e.name)) routes.push(`/app${rel}/${e.name.replace(/\.tsx?$/, "")}`);
+      }
+    };
+    walk(root, "");
+    // Pages that deliberately have no Log System module: the marketing root and the dev-only outbox viewer.
+    const exempt = new Set(["/app/page", "/app/dev/outbox/page"]);
+    const unmapped = routes.filter((r) => !exempt.has(r) && moduleForRoute(r) === "unknown");
+    expect(routes.length).toBeGreaterThan(40);
+    expect(unmapped).toEqual([]);
+    for (const r of routes) {
+      const m = moduleForRoute(r);
+      if (m !== "unknown") expect(MODULE_MAP[m], `${r} → ${m}`).toBeDefined();
+    }
   });
 });
