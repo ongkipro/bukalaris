@@ -99,6 +99,7 @@ Tracks run in separate git worktrees (`~/Projects/bukalaris-wt/<track>`, branch
 | `dashboard` (wave 4) | `packages/db/src/dashboard.ts`, `apps/web/src/app/seller/page.tsx` + `seller/_dashboard/**` | `apps/web/src/components/nav-link.tsx` (exact match for `/seller`) |
 | `landing` (wave 4) | `packages/db/src/landing.ts`, `schema-landing.ts`, `apps/web/src/app/seller/landing-pages/**`, `apps/web/src/app/s/[store]/lp/**` | `apps/web/src/components/pixels/**` (reuse only), `proxy.ts` only if `/lp` needs it |
 | `privacy` (wave 4) | `packages/db/src/privacy.ts`, `schema-privacy.ts`, `apps/web/src/app/seller/privacy/**`, `docs/13-COMPLIANCE-PRIVACY.md` (inventory section) | `cleanup.ts` (retention job, disabled by default) |
+| `demo` (wave 4) | `packages/db/src/demo/**` (demo seed + generated placeholder images), root/db `package.json` script `db:seed:demo`, `docs/DEMO.md` | none |
 | `docs-scan` (wave 4, main) | `docs/**` except track reports, `README`-level docs, `AGENTS.md` sections other than the ownership table | none — no code |
 | `content` | `packages/db/src/content.ts`, `schema-content.ts`, `apps/web/src/app/seller/{collections,pages,settings}/**`, `apps/web/src/app/s/**`, `apps/web/src/app/checkout/**` (presentation), `apps/web/src/app/admin/stores/**`, `globals.css` | `store` table in `schema.ts`, `seller/products/**` (images) |
 
