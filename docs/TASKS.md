@@ -22,7 +22,7 @@ not create a second primary.
   negative test targets for browser, worker, cache, media, and root tenant data.
 
 ### T-3 — Specify seller and Super Admin workflows
-- Status: Partial (re-checked 2026-10-07) — implemented on `main`: products/variants/media, inventory, orders with COD confirmation, collections, CMS pages, settings/themes, members/invitations, channels, shipping origin, marketing destinations (SC-02..SC-08, SC-10..SC-13, SC-17, SC-19, SC-21..SC-23) and Super Admin SA-02/03/05/06/07 (ARCH-5). Still Planned: SC-09 menus, SC-18 domains; Pending in wave 4: SC-01 dashboard (T-41), SC-14..16 landing pages (T-42), SC-24 privacy (T-43). The UX contract in 17-UX-FLOWS is not yet marked accepted by the product owner.
+- Status: Partial (re-checked 2026-10-07) — implemented on `main`: products/variants/media, inventory, orders with COD confirmation, collections, CMS pages, settings/themes, members/invitations, channels, shipping origin, marketing destinations and catalog feeds, dashboard, shipment booking, landing pages v1 and buyer data (SC-01..SC-08, SC-10..SC-17, SC-19, SC-21..SC-24) and Super Admin SA-02/03/05/06/07 (ARCH-5; wave 4 merged 2026-10-07). Still Planned: SC-09 menus, SC-18 domains. The UX contract in 17-UX-FLOWS is not yet marked accepted by the product owner.
 - Primary requirement: PR-2
 - Constraints: IAM-1, IAM-2, UX-1, UX-2
 - Dependencies: T-1
@@ -66,7 +66,7 @@ not create a second primary.
   marketplace checkout before finance decision Q-3.
 
 ### T-8 — Define buyer account and affiliate data boundaries
-- Status: Planned — later scope (PR-7, BA-01..03, AF-01); no buyer account exists. Related but separate: signed buyer order-status link (T-36) and buyer-data export/redaction (T-43, in progress).
+- Status: Planned — later scope (PR-7, BA-01..03, AF-01); no buyer account exists. Related but separate: signed buyer order-status link (T-36) and buyer-data export/redaction (T-43, done).
 - Primary requirement: PR-7
 - Constraints: DATA-4, IAM-4, PRIV-1, PRIV-2, UX-6
 - Dependencies: T-1
@@ -94,7 +94,7 @@ not create a second primary.
   desktop viewport, including keyboard navigation and the buyer purchase path.
 
 ### T-11 — Specify MCP-enabled storefront landing-page builder
-- Status: Planned — T-42 (track `landing`, in progress) delivers landing pages v1 with typed blocks and revisions without drag-and-drop or MCP; the builder/MCP contract here stays future scope (with T-20).
+- Status: Planned — T-42 (merged 2026-10-07, `c0816b6`) delivered landing pages v1 with typed blocks and immutable revisions without drag-and-drop or MCP; the builder/MCP contract here stays future scope (with T-20).
 - Primary requirement: PR-9
 - Constraints: ARCH-4, TD-4, API-3, UI-4, UI-6, UX-7, IAM-2, IAM-7, TEN-1
 - Dependencies: T-1, T-3, T-10
@@ -118,7 +118,7 @@ not create a second primary.
   do not treat a fixed section library as the accepted layout ceiling.
 
 ### T-12 — Maintain the system and page implementation map
-- Status: Done for `main` at `13f388f` (docs-scan, 2026-10-07) — ARCH-5 lists every route under `apps/web/src/app/**` and every background entry point exactly once with entry files, exported server operations, tables, capability, tests, task and status; retired/merged pages carry notes (AU-03, SA-01, SC-11, SC-20); pending wave-4 pages name their track. Stays open as a maintenance rule ("How to keep this map current").
+- Status: Done for `main` at `13f388f` (docs-scan, 2026-10-07) — ARCH-5 lists every route under `apps/web/src/app/**` and every background entry point exactly once with entry files, exported server operations, tables, capability, tests, task and status; retired/merged pages carry notes (AU-03, SA-01, SC-11, SC-20). Wave 4 rows flipped to Implemented and storefront paths moved to `s/[store]/(shop)/` at `c1adf27` (HTTP-16, JOB-07 added). Stays open as a maintenance rule ("How to keep this map current").
 - Primary requirement: PR-10
 - Constraints: ARCH-5, UX-8
 - Dependencies: T-1, T-3
@@ -420,7 +420,7 @@ findings, tasks below).
   crash-in-the-middle and duplicate-claim tests pass.
 
 ### T-33 — Buyer personal-data lifecycle
-- Status: Planned — needs privacy-owner retention periods (Q-11) before enforcement.
+- Status: Partial (2026-10-07) — inventory, export and redaction mechanism delivered by T-43; the retention job exists in `cleanup.ts` but stays disabled until the privacy owner sets retention periods (Q-11, `BUYER_DATA_RETENTION_DAYS`). Inventory gap: the `shipment` table (`tracking_history`) is not yet covered (13-COMPLIANCE-PRIVACY).
 - Primary requirement: PR-4
 - Constraints: SEC-19, PRIV-1, PRIV-4, PRIV-2
 - Dependencies: T-21
@@ -501,7 +501,7 @@ until an observed, sanitized call is recorded (skill `mengantar-api`).
 ## M2 wave 4 — 2026-10-07 (no new provider writes or approvals needed)
 
 ### T-39 — Shipment booking and tracking via the outbox
-- Status: In progress — track `fulfillment`.
+- Status: Done on the fake adapter (merged 2026-10-07, `1d94691`) — `shipment` table (one per order, FORCE RLS), `bookShipment`/`refreshTracking` in `packages/db/src/fulfillment.ts`, worker jobs `shipment.book`/`shipment.track` (ARCH-5 JOB-07), booking section on SC-13 and courier timeline on SF-11; exactly-once booking under duplicate clicks, lost leases and retries; only 409/429 retry a provider write, timeouts/5xx fail closed; insufficient balance → `awaiting_balance` → one `payUnpaid`; COD refused unless `ALLOW_COD_BOOKING=1` (Q-17); every Mengantar write still refused without `MENGANTAR_WRITE_ENABLED=1` — no Mengantar call was made. Evidence: `test/fulfillment.test.ts` (12), `e2e/fulfillment.spec.ts`, report `docs/tracks/fulfillment.md`. Gates on `main` after the wave 4 merges: pending verify (orchestrator `pnpm verify`; see STATUS.md). Open: create-order / `GET /order` / `payUnpaid` shapes and cargo/lite courier map UNVERIFIED until an approved write test; recovery from `booking`/uncertain results is manual; RTS/provider cancellation leaves the order `shipped` (no automatic restock); `.env.example` lacks `MENGANTAR_PICKUP_ADDRESS_ID`, `MENGANTAR_PICKUP_TIME_ID`, `ALLOW_COD_BOOKING`.
 - Primary requirement: PR-5
 - Constraints: Q-2, Q-17, NFR-2, NFR-5, TEN-1, DATA-2
 - Dependencies: T-34, T-32, T-35
@@ -516,7 +516,7 @@ until an observed, sanitized call is recorded (skill `mengantar-api`).
   exactly-once booking under retries and duplicate clicks.
 
 ### T-40 — Catalog feeds for Meta and Google
-- Status: In progress — track `feeds`.
+- Status: Done locally (merged 2026-10-07, `6393c70`) — `GET /feeds/<token>/meta.csv` and `/feeds/<token>/google.xml` (ARCH-5 HTTP-15): one item per variant of an active product with a cover, item id = variant catalog id, group = product catalog id, `<n> IDR`, availability from stock, canonical link, absolute image link; per-store revocable token (`feed_token`, hash only, one active), 60 fetches/store/hour; token management on `/seller/marketing` (owner). Evidence: `test/feeds.test.ts` (10), `e2e/feeds.spec.ts`, report `docs/tracks/feeds.md`. Gates on `main` after the wave 4 merges: pending verify (orchestrator `pnpm verify`; see STATUS.md). Open: nothing uploaded to Meta/Google, so platform acceptance is unverified; owner decision on Google `identifier_exists` (emit `no` or collect GTIN/MPN); no category/colour/size/sale-price attributes yet; no ETag/cache (fine at M2 sizes); products without an image are skipped.
 - Primary requirement: PR-12
 - Constraints: PR-20, Q-7, DATA-5, TEN-1, SEC-9
 - Dependencies: T-14
@@ -528,7 +528,7 @@ until an observed, sanitized call is recorded (skill `mengantar-api`).
   ids, escaping, isolation and token checks. No provider upload.
 
 ### T-41 — Seller performance dashboard
-- Status: In progress — track `dashboard`.
+- Status: Done (merged 2026-10-07, `258b9c6`) — `/seller` (SC-01) shows orders, goods revenue, shipping collected apart from goods, AOV, COD confirmed/rejected rates, COD work queue, funnel from `signal_event` and top 5 products for today / 7 / 30 Asia/Jakarta days, with explicit empty states (`sellerDashboard` in `packages/db/src/dashboard.ts`). Evidence: `test/dashboard.test.ts` (7 cases, KPIs reconciled with raw order rows), `e2e/dashboard.spec.ts`, report `docs/tracks/dashboard.md`. Gates on `main` after the wave 4 merges: pending verify (orchestrator `pnpm verify`; see STATUS.md). Open: `(store_id, created_at)` index deferred until the KPI query is slow at real volume; funnel Purchase counts events, not orders.
 - Primary requirement: PR-22
 - Constraints: TEN-1, NFR-1, NFR-3
 - Dependencies: T-21, T-35, T-38
@@ -538,7 +538,7 @@ until an observed, sanitized call is recorded (skill `mengantar-api`).
   reconcile with order rows in tests; empty periods show an explicit empty state.
 
 ### T-42 — Landing pages v1 with order section
-- Status: In progress — track `landing`.
+- Status: Done for v1 (merged 2026-10-07, `c0816b6`) — SC-14/15/16 builder (typed blocks, up/down buttons, publish/unpublish with audit), immutable `landing_page_revision` rows with DB-enforced draft/published pointers, public SF-09 `/s/[store]/lp/[slug]` outside the storefront shell (storefront routes moved into the `s/[store]/(shop)/` route group; `moduleForRoute` strips route groups), order section → store cart → hosted checkout, pixels reused. Evidence: `test/landing.test.ts` (8), `e2e/landing.spec.ts` (theme switch leaves the LP unchanged), report `docs/tracks/landing.md`. Gates on `main` after the wave 4 merges: pending verify (orchestrator `pnpm verify`; see STATUS.md). Open: drag-and-drop/MCP (T-11, T-20); no page deletion or revision history/restore UI; new storefront routes must live under `(shop)`; `ops.spec.ts` "database unreachable" depends on a seeded dev DB.
 - Primary requirement: PR-9
 - Constraints: ARCH-4, TD-4, UI-4, UI-6, TEN-1, PR-16, PR-20
 - Dependencies: T-24, T-34, T-38
@@ -553,7 +553,7 @@ until an observed, sanitized call is recorded (skill `mengantar-api`).
   theme independence. Drag-and-drop editing and MCP stay for later (T-11, T-20).
 
 ### T-43 — Buyer data export and redaction (T-33 mechanism)
-- Status: In progress — track `privacy`.
+- Status: Done (merged 2026-10-07, `e580b64`) — PRIV-1 inventory in 13-COMPLIANCE-PRIVACY mirrored by `BUYER_DATA_INVENTORY`; owner-only `/seller/privacy` (SC-24) finds a buyer by phone/e-mail in the store, downloads JSON (HTTP-16) and redacts selected orders (`[dihapus]`, amounts and lines intact, `order_redaction` + `audit_log`, override with a reason for open orders); retention job in `cleanup.ts` disabled unless `BUYER_DATA_RETENTION_DAYS` is set (Q-11). Ceiling: app role `UPDATE` on `mail_outbox` (DECISIONS D-10). Evidence: `test/privacy.test.ts` (10), `e2e/privacy.spec.ts`, report `docs/tracks/privacy.md`. Gates on `main` after the wave 4 merges: pending verify (orchestrator `pnpm verify`; see STATUS.md). Open: `shipment` table not yet in the inventory/export/redaction; `purchasePayload` (`signals.ts`) would hash the `[dihapus]` placeholder after an override redaction of an open order; backups taken before a redaction still hold the data (restore must re-apply `order_redaction`); free-text notes not redacted; Q-11 retention periods.
 - Primary requirement: PR-4
 - Constraints: SEC-19, PRIV-1, PRIV-2, PRIV-4
 - Dependencies: T-21
@@ -562,3 +562,6 @@ until an observed, sanitized call is recorded (skill `mengantar-api`).
   redacts contact fields of selected orders while amounts and lines stay
   intact; redaction is audited and irreversible; a retention job exists but is
   disabled until the owner sets retention days (Q-11).
+
+### Demo data — local demo merchants and content (owner direction, no task number)
+- Status: Done (merged 2026-10-07, `c1adf27`) — `pnpm db:seed:demo [-- --reset]` (ARCH-5 JOB-06, `packages/db/src/demo/**`) seeds four fictional stores with owners/staff, a demo operator, 51 products / 84 variants with generated PNG images, collections, CMS pages and 16 orders per store across all statuses through the real services; refuses production, non-loopback hosts and `*_e2e` databases; usage in `docs/DEMO.md`. Evidence: `test/demo.test.ts`, report `docs/tracks/demo.md`. Open: demo content for the wave 4 features (a landing page per store, a booked shipment with tracking, feed token, an export/redaction example); `shipping.test.ts` leaves its margin rule in the `_test` DB.

@@ -3100,6 +3100,7 @@ paths:
       - sessionCookie: []
       - serviceToken: []
       x-status: proposed
+      x-implemented: 'Implemented as a Seller Admin server action (apps/web/src/app/seller/orders/[id]/actions.ts bookShipmentAction → packages/db/src/fulfillment.ts bookShipment, capability orders.fulfill, T-39): one shipment per order, booking runs as the outbox job shipment.book; a provider timeout fails closed (manual check) instead of staying pending. Fake adapter unless MENGANTAR_API_KEY and MENGANTAR_PICKUP_ADDRESS_ID are set; writes refused without MENGANTAR_WRITE_ENABLED=1; COD refused unless ALLOW_COD_BOOKING=1. No HTTP route yet.'
       x-tenant-source: authorized-store-path
       responses:
         '202':

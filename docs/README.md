@@ -12,10 +12,12 @@ Owner: Bukalaris product and architecture team. Product decisions are in the
 PRD; architecture proposals stay proposals until reconciled with the code.
 Repository layout: `apps/web` (one Next.js app: Seller Admin `/seller`, Super
 Admin `/admin`, storefront `/s/<slug>` or `<slug>.<STORE_ROOT_DOMAIN>`, hosted
-`/checkout`, buyer order status `/o/<token>`, Storefront API `/api/storefront/v1`)
+`/checkout`, buyer order status `/o/<token>`, Storefront API `/api/storefront/v1`,
+catalog feeds `/feeds/<token>/…`, landing pages `/s/<slug>/lp/<page>`)
 and `packages/db` (PostgreSQL/Drizzle schema, append-only SQL migrations, RLS
 roles, store-scoped services, the outbox worker `src/worker.ts`, the maintenance
-command `src/cleanup.ts`, integration tests). How to run and test:
+command `src/cleanup.ts`, the local demo seed `src/demo/` ([DEMO.md](DEMO.md)),
+integration tests). How to run and test:
 [`AGENTS.md`](../AGENTS.md) and [`RUNBOOK.md`](RUNBOOK.md). Astro storefront
 is deferred ([DECISIONS D-2](DECISIONS.md)). Nothing is deployed
 ([DEPLOY-COOLIFY.md](DEPLOY-COOLIFY.md) is a draft).
@@ -53,7 +55,8 @@ and workflows; which screens exist on `main` is recorded in the UX document's
 - Super Admin: tenant lifecycle, platform operations, restricted Log System.
 - Hosted checkout: Bukalaris-owned /checkout and confirmation, independent of
   storefront themes/origins, with server-authoritative transaction processing.
-- Later: independent mobile-first LP builder and MCP, marketplace discovery,
+- Later: drag-and-drop LP builder and MCP (landing pages v1 with typed blocks
+  exist, T-42), marketplace discovery,
   buyer accounts, affiliate; settlement/payout scope requires new decisions.
 
 ## Document ownership

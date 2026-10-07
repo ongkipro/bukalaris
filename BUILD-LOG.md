@@ -414,3 +414,43 @@ dummy content.
 - Commands (main): `vitest run test/ops.test.ts` 7 passed; `pnpm lint` 0;
   `pnpm typecheck` 0; `pnpm test` 15 files / 138 passed.
 - Docs: ARCH-5 note on the runtime module map updated.
+
+## 2026-10-07 — Wave 4 integration (dashboard, feeds, fulfillment, landing, privacy, demo)
+
+- Tracks had stopped mid-task; resumed three at a time (six at once caused
+  timing contention). Each agent reviewed the inherited diff, fixed defects and
+  ran all five gates before committing on its branch. Notable fixes:
+  fulfillment no longer retries create-order on timeout/5xx (double booking),
+  retries reuse the attempt (double pay) and resi fetch is a separate read-only
+  job; feeds got a 60/h per-store fetch limit; privacy export drops internal
+  shipping cost/margin; demo seed refuses non-loopback hosts and `*_e2e`, and no
+  longer writes the platform margin rule (leaked into 4 tests).
+- Shared fix found by dashboard: 13 Seller nav entries overflowed at 1440px
+  (`ui.spec` failed on every wave-4 branch) → `md:flex-wrap md:overflow-visible`
+  in `admin-shell.tsx`, identical on all branches.
+- Merges (`--no-ff`): dashboard `258b9c6`, feeds `6393c70`, fulfillment
+  `1d94691`, landing `c0816b6` (storefront under `s/[store]/(shop)/`;
+  `moduleForRoute` strips route groups), privacy `e580b64`, demo `c1adf27`.
+  Orchestrator review: dashboard queries via `inStore` + `scope.storeId`; feed
+  tokens hashed, constant-time compare, platform-pool resolver; Mengantar writes
+  locked in the client; demo local-only guard.
+- Migrations: track files replaced by `0008_wave4.sql` (generated; shipment,
+  feed_token, landing_page, landing_page_revision, order_redaction) and
+  `0009_wave4_rls.sql` (hand-written RLS kept verbatim per track); statement
+  sets compared against the track files; throwaway DB 31 policies.
+- Accepted ceiling D-10: `bukalaris_app` UPDATE on store-less `mail_outbox`
+  (dev sink) for redaction; revisit with a real mail provider.
+- Results on `main` (`c1adf27` + docs): `pnpm verify` exit 0 — lint 0,
+  typecheck 0, Vitest 186 passed (21 files), build 0, Playwright 92 passed +
+  2 skipped; `pnpm verify:docker` exit 0 (42 tables, 31 policies, health 200,
+  HEALTHCHECK healthy). Two worker `relation "job" does not exist` lines appear
+  only while e2e setup recreates its DB.
+- Docs: ARCH-5 Pending rows → Implemented (+ HTTP-16 buyer export, JOB-07
+  shipment jobs), TASKS T-39..T-43 Done, STATUS, DECISIONS D-10, RUNBOOK,
+  DEPLOY-COOLIFY env rows, privacy/observability/UX/openapi/DEMO sync;
+  `check-spec.py` PASS.
+- Open: `.env.example` lacks MENGANTAR_PICKUP_ADDRESS_ID/TIME_ID,
+  ALLOW_COD_BOOKING, BUYER_DATA_RETENTION_DAYS (file blocked by the local
+  permission settings); `shipment` not yet in the privacy inventory; dashboard
+  `(store_id, created_at)` index deferred; demo content for wave-4 features;
+  track open issues in `docs/tracks/*.md` and TASKS.

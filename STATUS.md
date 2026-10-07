@@ -1,16 +1,14 @@
 # Bukalaris — status
 
-Updated: 2026-10-06. Milestone: M1 (repository, stack baseline, vertical slice).
+Updated: 2026-10-07 (after the M2 wave 4 merges, `c1adf27`). Milestone: M2.
 This file owns current status. Evidence: `BUILD-LOG.md`, `docs/TASKS.md`
-("M1 implementation evidence"). Nothing is committed yet — the owner approves
-the first commit.
+("M1 implementation evidence", M2 task statuses) and the track reports in
+`docs/tracks/`. The wave 4 merges are local commits on `main` (not pushed); nothing is deployed.
 
-## In progress — M2 wave 4 (started 2026-10-07)
+## In progress
 
-Parallel tracks: `fulfillment` (T-39 booking + tracking; Mengantar writes stay
-locked), `feeds` (T-40), `dashboard` (T-41), `landing` (T-42 landing pages v1),
-`privacy` (T-43), `demo` (demo users, merchants and dummy content), plus a
-docs scan of the system map and all Markdown. Waves 1–3 are merged.
+Nothing running in parallel: M2 waves 1–4 are merged into `main` (wave 4 on
+2026-10-07). Next work is the follow-ups under "Not done / known gaps".
 
 Owner input still needed: Q-17 COD remittance, Mengantar write-test approval,
 ad-platform test-event approval, email provider, VPS/DNS for deployment.
@@ -41,10 +39,25 @@ Mengantar writes stay disabled until the owner approves a write test.
   - Wave 2b: email order notifications + signed status links (T-36), ad
     conversion signals in simulation (T-38), seller/admin UI pass (T-28).
   - Wave 3: PostgreSQL RLS with owner/app/platform roles (T-27, ADR-0005).
-- Gates on `main` (`0a3cfd8`): lint 0, typecheck 0, Vitest 137 passed (as the
-  RLS-bound app role), build 0, Playwright 72 passed + 2 skipped with a
-  CSP-violation guard on every evidence step, `verify:docker` exit 0
+  - Wave 4 (merged 2026-10-07; migrations `0008_wave4.sql` + hand-written
+    `0009_wave4_rls.sql`, five new tables, all store tables under FORCE RLS):
+    - Shipment booking and tracking through the outbox on the fake adapter;
+      Mengantar writes still locked, COD booking refused while Q-17 is open (T-39).
+    - Token-protected Meta CSV and Google Merchant RSS catalog feeds (T-40).
+    - Seller dashboard at `/seller`: KPIs, COD work queue, funnel, top products (T-41).
+    - Landing pages v1 with immutable revisions and an order section at
+      `/s/<slug>/lp/<page>`, independent of the store theme; storefront routes
+      moved into the `(shop)` route group (T-42).
+    - Buyer data export and audited redaction; retention job off by default (T-43).
+    - Local demo data: `pnpm db:seed:demo` (four fictional stores, `docs/DEMO.md`).
+- Gates on `main` before wave 4 (`0a3cfd8`): lint 0, typecheck 0, Vitest 137
+  passed (as the RLS-bound app role), build 0, Playwright 72 passed + 2 skipped
+  with a CSP-violation guard on every evidence step, `verify:docker` exit 0
   (26 policies), backup + restore rehearsal rls_ok=yes.
+- Gates on `main` after wave 4 (`c1adf27`): lint 0, typecheck 0, Vitest
+  186 passed (21 files), build 0, Playwright 92 passed + 2 skipped,
+  `verify:docker` exit 0 (42 tables, 31 tenant policies, health 200,
+  HEALTHCHECK healthy).
 
 ## Not done / known gaps (2026-10-07)
 
@@ -53,6 +66,29 @@ Mengantar writes stay disabled until the owner approves a write test.
 - Providers: Mengantar reads observed live; writes (booking, origin upsert)
   locked pending owner approval; AutoLaris still fake; receiver score API is
   403 for this account; `MENGANTAR_ORIGIN_AREA_ID` vs pickup address area mismatch to confirm.
+- Shipment booking (T-39): create-order / `GET /order` / `payUnpaid` request and
+  response shapes and the courier map are unverified until an approved write
+  test; a booking stuck in `booking` or with an uncertain result needs manual
+  recovery (seller checks the Mengantar dashboard); a returned/cancelled
+  shipment leaves the order `shipped` (no automatic restock).
+- Feeds (T-40): not accepted by Meta or Google yet (no upload allowed); owner
+  decision on Google `identifier_exists` (emit `no` or collect GTIN/MPN).
+- Privacy (T-43): the `shipment` table (`tracking_history` may hold receiver
+  data from the provider) is not yet in the buyer-data inventory, export or
+  redaction; `purchasePayload` in `signals.ts` would hash the `[dihapus]`
+  placeholder after an override redaction; backups taken before a redaction
+  still hold the data; retention periods (Q-11) owed, so the retention job
+  stays off. App role has table-wide `UPDATE` on `mail_outbox` (DECISIONS D-10).
+- Landing pages (T-42): new storefront routes must live under
+  `apps/web/src/app/s/[store]/(shop)/` to keep the store shell; no page
+  deletion or revision history UI; drag-and-drop/MCP later (T-11, T-20).
+- Dashboard (T-41): `(store_id, created_at)` order index deferred until the
+  KPI query is slow at real volume.
+- Demo seed: no demo content yet for wave 4 features (landing page, booked
+  shipment, feed token, export/redaction example).
+- `.env.example` lacks the wave 4 variables `MENGANTAR_PICKUP_ADDRESS_ID`,
+  `MENGANTAR_PICKUP_TIME_ID`, `ALLOW_COD_BOOKING`, `BUYER_DATA_RETENTION_DAYS`
+  (documented in `docs/RUNBOOK.md` / `docs/DEPLOY-COOLIFY.md`).
 - No COD remittance ledger (Q-17), no real email provider; ad signals run in simulation until a test-event call is approved.
 - Local `.env` `DATABASE_URL` on `main` still uses the superuser (bypasses RLS in `pnpm dev`); switch it to `bukalaris_app` by hand.
 - Single app/origin for admin, storefront and checkout (D-2); no Astro storefront.
@@ -67,9 +103,10 @@ Defaults taken are reversible; details in `docs/DECISIONS.md` and `docs/02-PRD.m
 | Decision | Current default / state | Owner |
 |---|---|---|
 | Q-6 auth provider | Better Auth 1.7.7 (ADR-0004), pending architecture owner confirmation | Architecture owner |
-| Q-10 checkout policy | Stock decremented at submit; seller cancel restocks once (before shipping); transfer "mark paid" is manual; COD confirmation step coming with T-35 | Finance owner |
+| Q-10 checkout policy | Stock decremented at submit; seller cancel restocks once (before shipping); transfer "mark paid" is manual; COD confirmation step in place (T-35) | Finance owner |
 | Q-1 AutoLaris account | Undecided; fake adapter | Finance owner |
 | Q-2 Mengantar account | Platform-owned (derived from Q-12 shipping margin) | Finance owner |
 | Q-14 cross-store COD risk data | Store-scoped only | Privacy + product owner |
-| Q-17 COD remittance to sellers | Undecided — blocks the first real COD shipment | Finance + legal owner |
+| Q-17 COD remittance to sellers | Undecided — blocks the first real COD shipment; COD booking refused unless `ALLOW_COD_BOOKING=1` | Finance + legal owner |
+| Q-11 buyer-data retention periods | Undecided — retention job off (`BUYER_DATA_RETENTION_DAYS` unset) | Privacy owner |
 | Tenant root | Store is the tenant root (D-3) | Data owner |

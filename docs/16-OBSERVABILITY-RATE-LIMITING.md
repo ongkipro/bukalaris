@@ -17,15 +17,19 @@ Unknown; the limits and the diagnostic sink that exist on `main` are listed in
 | Checkout and cart limits | Postgres fixed-window counters in `rate_limit` (`hit`, `enforceLimits`, `LIMITS` in `packages/db/src/checkout.ts`); IP from `x-forwarded-for` last hop or `x-real-ip` (`lib/storefront.ts` `clientIp`), dimension skipped when absent; retryable Indonesian message with seconds to wait | order submit: 60 / 10 min per IP, 5 / min per cart, 10 / 10 min per phone; cart add/update: 300 / 10 min per IP, 60 / 10 min per cart; cart cap 30 distinct variants, qty ≤ 99 per line | `test/checkout2.test.ts` ("abuse controls"), `e2e/checkout2.spec.ts` ("order submission is rate limited per cart") |
 | Browser funnel endpoint | `POST /api/signals` | 600 / 10 min per IP, body ≤ 8 KB | `test/signals.test.ts`, `e2e/signals.spec.ts` |
 | Storefront API v1 | no limiter yet (channel token + 256-bit one-use handoff codes) | — | open item, TASKS T-16/T-19 |
+| Catalog feeds (T-40) | `limitFeedFetch` (`packages/db/src/feeds.ts`) on the same `rate_limit` counter, key `feed:store:<id>`, counted only for a valid token; 429 + `Retry-After` | 60 fetches / store / hour; unknown tokens not counted | `test/feeds.test.ts` ("fetch budget is per store") |
+| Shipment booking (T-39) | outbox jobs `shipment.book`/`shipment.track` (`fulfillment.ts`); one shipment per order (unique), one job per attempt; provider writes serialised per platform account with `pg_advisory_xact_lock`; only 409/429 retry a write, timeouts/5xx fail closed | tracking polls 15 min doubling to 6 h, max 60 per shipment; manual refresh max 50 | `test/fulfillment.test.ts` |
 | Outbox and jobs (OBS-3) | `job` rows with `attempts`, `next_attempt_at`, `last_error` (sanitized by `sanitizeError`); worker logs one JSON `job` outcome per claim | lease 60 s, 10 attempts with exponential backoff, payload ≤ 4 KB | `test/jobs.test.ts` |
-| Cleanup | `cleanup.ts`: idle open carts, counters older than a day, signal click context older than 30 days | `CART_IDLE_HOURS` default 168 | `test/checkout2.test.ts`, `test/signals.test.ts` |
+| Cleanup | `cleanup.ts`: idle open carts, counters older than a day, signal click context older than 30 days; buyer-data retention redaction only when `BUYER_DATA_RETENTION_DAYS` is set (off by default, T-43) | `CART_IDLE_HOURS` default 168; retention max 1000 orders per run | `test/checkout2.test.ts`, `test/signals.test.ts`, `test/privacy.test.ts` |
 | Readiness | `GET /api/ready` one `select 1` with 2 s timeout → 503; `GET /api/health` liveness without DB | — | `e2e/ops.spec.ts`, `scripts/verify-docker.sh` |
 
 Not implemented: metrics/traces, external sink or alerting, retention jobs for
 `system_log`/`audit_log`/`job`, stale/partial source states in the viewer
 (same-DB sink, no ingestion delay), `log.warn/info` calls from most business
-paths (only `onRequestError` and the Log System pages emit today), Mengantar
-booking queue serialisation (T-39), per-store framing allowances.
+paths (only `onRequestError` and the Log System pages emit today), per-store
+framing allowances. Mengantar booking is serialised (see "Shipment booking"
+above) but only exercised against the fake adapter; the provider's concurrency
+rule is unverified until an approved write test.
 
 | ID | Owner | Operator question | Required terminal signal |
 |---|---|---|---|
@@ -50,7 +54,7 @@ user input. Inbound trace/baggage values are untrusted and are never identity.
 | Seller mutation | Session identity + store + operation | Serialize/conflict-detect sensitive edits | No limiter; slug changes serialised with `pg_advisory_xact_lock(store_id)`, order transitions row-locked |
 | Checkout/create payment | Cart/order idempotency + store + network | One logical attempt; bounded retries | Idempotency key + request hash per store; counters per IP/cart/phone (see "Implemented") |
 | Provider webhook/job | Provider identity + event/reference | Verify then durable-deduplicate | Outbox `(kind, key)` unique; no inbound webhooks exist |
-| Mengantar order booking | Store/provider queue | No unsafe parallel creation; follow verified provider rule | Not implemented (T-39); writes refuse without `MENGANTAR_WRITE_ENABLED=1` |
+| Mengantar order booking | Store/provider queue | No unsafe parallel creation; follow verified provider rule | Outbox job per attempt + per-account advisory lock (T-39, fake adapter); writes refuse without `MENGANTAR_WRITE_ENABLED=1` |
 
 Before a pilot, run a safe synthetic success and expected-rejection journey to
 prove terminal event, trace/log correlation, metric change, redaction, and

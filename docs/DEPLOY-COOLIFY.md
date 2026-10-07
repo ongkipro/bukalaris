@@ -19,7 +19,8 @@ labels when executing.
 Values live only in Coolify secrets; never in the repository or image. The
 table is the complete list of `process.env.*` reads in `apps/web` and
 `packages/db` on `main` (2026-10-07; grep `process\.env\.` and the
-`env.MENGANTAR_*` reads in `packages/db/src/mengantar/adapter.ts`). Three
+`env.MENGANTAR_*` reads in `packages/db/src/mengantar/adapter.ts` and
+`mengantar/booking.ts`; re-checked after the wave 4 merge at `c1adf27`). Three
 processes share the image: **Web** (`node server.js`), **Worker**
 (`node packages/db/src/worker.ts`) and **Cleanup** (`node packages/db/src/cleanup.ts`);
 **Migrate** is the separate `migrate` image stage.
@@ -37,9 +38,12 @@ processes share the image: **Web** (`node server.js`), **Worker**
 | `STORE_ROOT_DOMAIN` | required | — | — | e.g. `bukalaris.com`; `toko-a.bukalaris.com` serves store `toko-a` (`src/proxy.ts`). Default `localhost` |
 | `INTEGRATION_TOKEN_KEY` | required | required | — | 32 bytes, base64 (`openssl rand -base64 32`) or 64 hex chars. AES-256-GCM key sealing the per-store Meta/TikTok server tokens (T-38). Rotating it makes stored tokens unreadable: sellers re-enter them. Never reuse the `.env.example` placeholder |
 | `SIGNALS_LIVE` | optional | optional (worker) | — | `1` lets the outbox worker call Meta Conversions API / TikTok Events API for real; the web app reads it only to label delivery mode on `/seller/marketing`. Unset = simulation (events recorded as `simulated`, nothing leaves the host). Enable only after the owner approves a test-event call and the provider contract is verified (docs/tracks/signals.md) |
-| `MENGANTAR_API_KEY` | optional | — | — | When set, checkout area search and courier quotes call the real Mengantar API (read-only operations); unset = `fakeMengantar` fixture adapter. Pass only through the secret store, never files or logs |
-| `MENGANTAR_BASE_URL` | optional | — | — | Overrides the Mengantar base URL (default in `packages/db/src/mengantar/client.ts`) |
-| `MENGANTAR_WRITE_ENABLED` | never in production until approved | never | — | `1` unlocks Mengantar write operations (create order, upsert origin, …). Stays unset until the owner approves a write test (TASKS T-39); tests assert writes refuse without it |
+| `MENGANTAR_API_KEY` | optional | optional (worker) | — | When set, checkout area search and courier quotes call the real Mengantar API (read-only operations); unset = `fakeMengantar` fixture adapter. The worker's shipment booking/tracking (T-39) uses the real adapter only when this **and** `MENGANTAR_PICKUP_ADDRESS_ID` are set, else the fake booking adapter. Pass only through the secret store, never files or logs |
+| `MENGANTAR_BASE_URL` | optional | optional (worker) | — | Overrides the Mengantar base URL (default in `packages/db/src/mengantar/client.ts`) |
+| `MENGANTAR_WRITE_ENABLED` | never in production until approved | never until approved (worker) | — | `1` unlocks Mengantar write operations (create order, `payUnpaid`, upsert origin, …) in the client; shipment booking runs in the worker, so that is where it would take effect. Stays unset until the owner approves a write test (T-39 request/response shapes are unverified); with credentials but no flag a booking fails with a "booking disabled" message and no request is sent (`test/fulfillment.test.ts`) |
+| `MENGANTAR_PICKUP_ADDRESS_ID` | — | optional (worker) | — | Platform's registered Mengantar pickup address id used for every booking (T-39). Required together with `MENGANTAR_API_KEY` for the real booking adapter; unset = fake booking adapter. Not in `.env.example` yet |
+| `MENGANTAR_PICKUP_TIME_ID` | — | optional (worker) | — | Optional pickup time slot id sent with bookings. Not in `.env.example` yet |
+| `ALLOW_COD_BOOKING` | never until Q-17 is decided | never until Q-17 is decided | — | `1` allows Mengantar booking of COD orders; unset = refused in the seller action and re-checked by the worker, the UI shows the Q-17 notice. Not in `.env.example` yet |
 | `MEDIA_DIR` | preset | — | — | Image default `/data/media`; mount a persistent volume there (see "Media volume") |
 | `ENABLE_HSTS` | optional | — | — | `1` once TLS terminates at the reverse proxy and it forwards `x-forwarded-proto: https`. Adds `Strict-Transport-Security: max-age=31536000; includeSubDomains` (no `preload`) and `upgrade-insecure-requests`; both are sent only on requests that arrived as HTTPS, so a plain-http hit can never pin a host. Unset by default |
 | `TRUST_PROXY_REQUEST_ID` | optional | — | — | `1` only when the reverse proxy sets or overwrites `x-request-id` on every forwarded request (Traefik/Coolify do not by default — verify before enabling). With it, a well-formed inbound id (`^[A-Za-z0-9_-]{8,64}$`) is kept for log correlation; without it the app always mints its own, so a client cannot choose the id its log lines carry. Unset by default |
@@ -47,6 +51,7 @@ processes share the image: **Web** (`node server.js`), **Worker**
 | `RELEASE_REVISION` (or `SOURCE_COMMIT`) | recommended | — | — | Release revision recorded on every log event for the Log System's attribution (`lib/log.ts`); set it to the deployed commit in the build/deploy configuration (either name is read; unset → `null`) |
 | `WORKER_POLL_MS`, `WORKER_BATCH` | — | optional (worker) | — | Poll interval (default 2000, clamped 100–30000 ms; `pg_notify` wakes it earlier) and claim batch (default 10, 1–100) |
 | `CART_IDLE_HOURS` | — | optional (cleanup) | — | Idle-cart age for `cleanup.ts` (default 168, integer ≥ 1) |
+| `BUYER_DATA_RETENTION_DAYS` | — | optional (cleanup) | — | Enables the buyer-data retention step of `cleanup.ts` (T-43): redacts contact data of `completed`/`cancelled` orders not updated for this many days (integer ≥ 1; junk fails loudly). Unset = disabled; set only with the privacy owner's approved period (Q-11). Not in `.env.example` yet |
 | `DEV_OUTBOX` | never in production | — | — | `1` exposes `/dev/outbox` (stored dev mail) in a production build. Leave unset |
 | `NODE_ENV` | preset | preset | preset | `production` in the image; guards `seed.ts`, `local-roles.ts`, cookie `secure`, CSP dev allowances |
 | `PORT`, `HOSTNAME` | preset | — | — | Image defaults `3000`, `0.0.0.0` |
@@ -69,13 +74,16 @@ the same Dockerfile with the command overridden to
 `FOR UPDATE SKIP LOCKED`, so more replicas are safe but unnecessary), env
 `PLATFORM_DATABASE_URL`, `BETTER_AUTH_URL`, `ORDER_LINK_SECRET`,
 `INTEGRATION_TOKEN_KEY`, optional `SIGNALS_LIVE`, `WORKER_POLL_MS`,
-`WORKER_BATCH`. It logs JSON lines, stops gracefully on SIGTERM and retries
+`WORKER_BATCH`, and for shipment booking/tracking (T-39) `MENGANTAR_API_KEY`,
+`MENGANTAR_PICKUP_ADDRESS_ID`, optional `MENGANTAR_PICKUP_TIME_ID` (writes stay
+locked without `MENGANTAR_WRITE_ENABLED=1`; COD needs `ALLOW_COD_BOOKING=1`). It logs JSON lines, stops gracefully on SIGTERM and retries
 while the database is unreachable. Without it, transfer orders never receive a
-payment instruction, no order e-mail is sent and no ad signal is delivered.
+payment instruction, no order e-mail is sent and no ad signal is delivered, and no shipment is booked or tracked.
 
 Cleanup (`node packages/db/src/cleanup.ts`, T-30/T-38) runs once and exits:
 schedule it (Coolify scheduled task or cron, e.g. daily) with
-`PLATFORM_DATABASE_URL` and optional `CART_IDLE_HOURS`. The outbox has no
+`PLATFORM_DATABASE_URL` and optional `CART_IDLE_HOURS`; the buyer-data
+retention step runs only when `BUYER_DATA_RETENTION_DAYS` is set. The outbox has no
 scheduler of its own. Neither process is part of `verify:docker` yet.
 
 ## Database roles (once per database, before the first migration)

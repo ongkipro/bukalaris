@@ -155,3 +155,22 @@ top of `main`. From the first deployment on, adding a NOT NULL column to a
 populated table follows expand → backfill → contract (15-DELIVERY-MIGRATIONS
 DEL-2); `0004` adds NOT NULL order columns without defaults, which is only
 acceptable because no database with orders exists yet (dev DB checked: 0 orders).
+
+## D-10 — App role may update the store-less `mail_outbox` for redaction (2026-10-07, T-43)
+
+Decision (accepted ceiling): `0009_wave4_rls.sql` grants `UPDATE ON mail_outbox
+TO bukalaris_app` so a seller's buyer-data redaction (`redactOrders` in
+`packages/db/src/privacy.ts`) can strip the body, and for buyer copies the
+address, of mails already written to the dev mail sink. `mail_outbox` has no
+`store_id` and no RLS policy, so this grant is table-wide, wider than the tenant
+boundary. The code only touches rows matched through the store's RLS-protected
+`order_notification` records and platform-wide order ids, inside the store's
+`inStore` context; no other app code updates `mail_outbox`.
+
+Why acceptable now: `mail_outbox` is the local/dev sink (OPS-01 `/dev/outbox`),
+no real mail provider exists, nothing is deployed, and redaction must reach
+every copy of the buyer's contact data (SEC-19, PRIV-4).
+
+Revisit when a real mail provider is chosen: add `store_id` + `FORCE ROW LEVEL
+SECURITY` to `mail_outbox` (or its replacement), or move the body redaction to
+the platform role, then revoke the table-wide app `UPDATE`.

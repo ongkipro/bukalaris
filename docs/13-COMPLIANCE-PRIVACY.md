@@ -66,6 +66,17 @@ Not in the table because they hold no personal data by construction: `job.payloa
 (ids only, T-32), `system_log.fields` (allowlisted keys, T-23), `cart`/`cart_line`
 (no buyer fields), `order_line` (catalog snapshot and amounts).
 
+Known gap (2026-10-07, after the wave 4 merge): the `shipment` table from T-39
+(`packages/db/src/schema-fulfillment.ts`) is not yet in this table, in
+`BUYER_DATA_INVENTORY`, in the export or in redaction. No column name matches
+the schema scan (it stores area ids, courier, resi and amounts), but
+`shipment.tracking_history` (jsonb, last 50 provider lines) and
+`shipment.provider_status` / `shipment.last_error` hold provider text that may
+include receiver names or address fragments, and the booking payload sent to
+Mengantar carries the buyer's name, phone and address. Until it is added (owner:
+privacy track follow-up), a redaction leaves shipment rows untouched; the buyer
+link `/o/<token>` shows only status, resi and the timeline text.
+
 Redaction record: each redacted order gets one `order_redaction` row (store,
 order, actor, `seller`/`retention`, override flag + reason) and each batch one
 `audit_log` row `privacy.redact` with the counts; both are append-only for the

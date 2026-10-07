@@ -83,9 +83,9 @@ All people, phone numbers (`0812-0000-xxxx`), addresses (`Jl. Contoh …`), stor
 names and e-mails (`*.demo.bukalaris.local`) are fictional; courier names are the
 fake shipping adapter's own simulated labels.
 
-## Not seeded yet (tables on other wave-4 branches)
+## Not seeded yet (wave 4 features, merged 2026-10-07)
 
-Add after the wave-4 merge, through the owning services:
+Still to add, through the owning services:
 
 - a landing page with an order section per store (`landing`);
 - a booked shipment with a resi and tracking events on a shipped order (`fulfillment`);

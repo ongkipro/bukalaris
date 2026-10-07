@@ -16,16 +16,17 @@ cp .env.example .env                # first time only; dev placeholders, never r
 scripts/db-roles.sh                 # only for a compose volume created before T-27 (roles + ownership; idempotent)
 pnpm db:migrate && pnpm db:seed     # migrate as bukalaris_owner, seed through the platform role; seed is idempotent
 pnpm dev                            # http://localhost:3000 (PORT in .env for worktrees)
-pnpm --filter @bukalaris/db worker  # outbox worker (payment instruction, order e-mails, ad signals); `-- --once` for a single pass
-pnpm --filter @bukalaris/db cleanup # one-shot: idle carts (> CART_IDLE_HOURS, default 168), old rate-limit windows, signal context > 30 days
+pnpm db:seed:demo                   # optional: four fictional demo stores (docs/DEMO.md); `-- --reset` rebuilds them
+pnpm --filter @bukalaris/db worker  # outbox worker (payment instruction, order e-mails, ad signals, shipment booking/tracking); `-- --once` for a single pass
+pnpm --filter @bukalaris/db cleanup # one-shot: idle carts (> CART_IDLE_HOURS, default 168), old rate-limit windows, signal context > 30 days; buyer-data retention only when BUYER_DATA_RETENTION_DAYS is set (off by default, Q-11)
 docker compose stop db              # keeps the volume; `down -v` wipes every local database
 ```
 
 `pnpm dev` runs the web app only. Transfer orders stay `awaiting_payment`
 without a reference, no e-mail lands in `/dev/outbox` and no ad signal is
-delivered until the worker runs; the e2e config starts it automatically as a
+delivered and no shipment is booked or tracked until the worker runs; the e2e config starts it automatically as a
 second `webServer`. Root scripts: `dev`, `build`, `lint`, `typecheck`, `test`,
-`e2e`, `db:generate`, `db:migrate`, `db:seed`, `db:backup`,
+`e2e`, `db:generate`, `db:migrate`, `db:seed`, `db:seed:demo`, `db:backup`,
 `db:restore-rehearsal`, `verify`, `verify:docker` (`package.json`); worker and
 cleanup have no root alias (`packages/db/package.json`).
 
@@ -177,6 +178,10 @@ with a recorded command and result before the first live deploy.
 - [ ] Database backup schedule in place; `scripts/db-backup.sh` and
       `scripts/db-restore-rehearsal.sh` rehearsed against the target
       Postgres container (`DB_CONTAINER=…`) with the result recorded.
+- [ ] Restore procedure re-applies buyer-data redactions: a backup taken
+      before a redaction still holds the contact data, and replaying
+      `order_redaction` after a restore is not automated yet (T-43,
+      `docs/13-COMPLIANCE-PRIVACY.md`).
 - [ ] Secrets set in Coolify only (`BETTER_AUTH_SECRET`, `ORDER_LINK_SECRET`,
       `INTEGRATION_TOKEN_KEY` fresh per environment, `BETTER_AUTH_URL` equal to
       the public origin, `STORE_ROOT_DOMAIN`; full table in

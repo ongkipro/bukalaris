@@ -72,25 +72,26 @@ destructive actions, empty/loading/error states). Full locators: ARCH-5.
 | SA-03 store detail / create | `/admin/stores/[id]`, `/admin/stores/new` | `e2e/content.spec.ts`, `e2e/ui.spec.ts` | — |
 | SA-05 / SA-06 Log System | `/admin/logs`, `/admin/logs/[id]` (text-labelled nav entry; filters; detail with related events and map link; "Kesegaran tidak tersedia" when empty) | denied seller/operator without grant, DB outage (`e2e/ops.spec.ts`) | stale/partial source states, export |
 | SA-07 shipping margin | `/admin/shipping` (preview of the fee, audit list) | `e2e/shipping.spec.ts` | — |
-| SC-01 overview | `/seller` redirects to `/seller/products` | — | dashboard (T-41, Pending) |
+| SC-01 overview | `/seller` dashboard (period switcher today / 7 / 30 days WIB, KPI tiles, COD work queue linking to awaiting orders, top products, funnel; explicit empty state) | empty store, keyboard period switch, staff access (`e2e/dashboard.spec.ts`) | custom date range |
 | SC-02 / SC-03 / SC-17 products | `/seller/products`, `/seller/products/[id]`, `/seller/products/new` (catalog id with copy button, slug, storefront URL, images, change history) | keyboard-only create (`e2e/ui.spec.ts`), cross-store 404, slug rename 308 (`e2e/catalog.spec.ts`) | publish as separate action (status field instead), duplicate, revision conflicts |
 | SC-04 inventory | `/seller/inventory` (signed adjustments with reason) | `e2e/orders.spec.ts` | — |
 | SC-05 / SC-06 collections | `/seller/collections`, `/new`, `/[id]` | `e2e/content.spec.ts` | cover image |
 | SC-07 / SC-08 pages | `/seller/pages`, `/new`, `/[id]` (markdown-lite, draft/published) | `e2e/content.spec.ts` | revisions, preview |
 | SC-09 menus | — (navigation derived from published collections and pages) | — | Planned |
 | SC-10 / SC-11 settings and theme | `/seller/settings` (profile, WhatsApp, theme `responsive` / `mobile`) | staff denied (`e2e/content.spec.ts`) | theme preview before publish |
-| SC-12 / SC-13 orders | `/seller/orders` (status filter, cursor), `/seller/orders/[id]` (allowed actions only; COD confirm/hold/reject with risk reasons; cancel restocks; shipping needs a tracking number) | `e2e/orders.spec.ts`, `e2e/checkout2.spec.ts` | shipment booking (T-39), returns/refunds |
-| SC-14..SC-16 landing pages | — (nav entry present, 404 on `main`) | — | T-42 Pending |
+| SC-12 / SC-13 orders | `/seller/orders` (status filter, cursor), `/seller/orders/[id]` (allowed actions only; COD confirm/hold/reject with risk reasons; cancel restocks; shipping needs a tracking number; "Pengiriman Mengantar" section: book, retry, refresh status, timeline, Q-17 notice for COD) | `e2e/orders.spec.ts`, `e2e/checkout2.spec.ts`, `e2e/fulfillment.spec.ts` | returns/refunds, restock on returned shipments, real provider booking (writes locked) |
+| SC-14..SC-16 landing pages | `/seller/landing-pages`, `/new`, `/[id]` (settings, typed block cards with up/down/remove, publish/unpublish with confirm), `/[id]/preview` | stale tab refused, other store sees nothing (`e2e/landing.spec.ts`) | drag-and-drop, MCP (T-11, T-20), delete, revision history/restore |
 | SC-18 domains | — | — | Planned (T-15) |
 | SC-19 / SC-20 members | `/seller/members` (roles, remove with confirm, invitations with revoke) | last owner protected, staff read-only (`e2e/ui.spec.ts`, `e2e/accounts.spec.ts`) | member detail page (SC-20 retired) |
 | SC-21 channels | `/seller/channels` (token shown once, revoke with confirm) | `e2e/channels.spec.ts` | token replacement flow |
 | SC-22 shipping origin | `/seller/shipping` (area search, pickup address; staff view-only) | `e2e/shipping.spec.ts` | — |
-| SC-23 marketing | `/seller/marketing` (Meta/TikTok/Google destinations, write-only tokens, health) | staff read-only (`e2e/signals.spec.ts`) | shell patterns of T-28, feed URLs (T-40) |
-| SC-24 buyer data | — (nav entry present, 404 on `main`) | — | T-43 Pending |
+| SC-23 marketing | `/seller/marketing` (Meta/TikTok/Google destinations, write-only tokens, health; "Feed katalog": create / regenerate / revoke token, URLs shown once) | staff read-only (`e2e/signals.spec.ts`, `e2e/feeds.spec.ts`) | shell patterns of T-28 |
+| SC-24 buyer data | `/seller/privacy` (search by phone/e-mail, JSON download, redaction with checkbox selection, override + reason for open orders, confirm dialog) | open order refused without override, staff read-only (`e2e/privacy.spec.ts`) | shipment data in export/redaction |
 | SF-01..SF-06 storefront | `/s/[store]` or `<slug>.<root>/`, `/collections/[slug]`, `/search`, `/products/[slug]`, `/pages/[slug]`, `/cart` | both themes at 320px, unknown/suspended store 404, two carts coexist (`e2e/content.spec.ts`, `e2e/purchase.spec.ts`) | collection filters/sorting, stale-price review in cart |
 | SF-07 / SF-08 checkout | `/checkout?store=` (area search → courier options → recipient, optional e-mail, payment → submit; works without JS), `/checkout/confirmation` | tampered total ignored, no pickup area, no-COD area, rate limit message (`e2e/purchase.spec.ts`, `e2e/checkout2.spec.ts`) | changed-quote review step, payment provider states (AutoLaris fake) |
+| SF-09 landing page | `/s/[store]/lp/[slug]` (no storefront shell; order section with variant + quantity only → hosted checkout) | identical in both store themes, unpublished/other store 404 (`e2e/landing.spec.ts`) | — |
 | SF-10 invalid handoff | `/checkout/h/invalid` | replayed handoff (`e2e/channels.spec.ts`) | — |
-| SF-11 buyer order status | `/o/[token]` (status, lines, totals, courier, tracking number; no address or phone) | tampered link 404 (`e2e/notify.spec.ts`) | tracking states (T-39) |
+| SF-11 buyer order status | `/o/[token]` (status, lines, totals, courier, tracking number; "Perjalanan paket" timeline after a Mengantar booking; no address or phone) | tampered link 404 (`e2e/notify.spec.ts`), timeline (`e2e/fulfillment.spec.ts`) | — |
 
 ## Shared state rules
 
