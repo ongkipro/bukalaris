@@ -104,7 +104,8 @@ export async function enrolTotpViaApi(page: Page, email: string, password = DEV_
 export async function login(page: Page, email: string, next: "/seller" | "/admin" = "/seller", password = DEV_PASSWORD) {
   const landing = next === "/seller" ? "/seller/products" : "/admin";
   for (let attempt = 0; attempt < 4; attempt++) {
-    await page.goto(`/login?next=${next}`);
+    // T-41: /seller is the dashboard now, so seller specs land on the products page explicitly.
+    await page.goto(`/login?next=${landing}`);
     await page.getByLabel("Email").fill(email);
     await page.getByLabel("Kata sandi").fill(password);
     await page.getByRole("button", { name: "Masuk" }).click();
