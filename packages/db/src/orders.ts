@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, lt, sql } from "drizzle-orm";
 import { z } from "zod";
+import type { Executor } from "./client.ts";
 import { enqueueOrderNotifications } from "./notify.ts";
 import { order, orderLine, ORDER_STATUS_LABEL, ORDER_STATUSES, orderStatusHistory, product, stockAdjustment, user, variant, type OrderStatus } from "./schema.ts";
 import { DomainError, requireCap, type SellerScope } from "./scoped.ts";
@@ -173,72 +174,78 @@ const reasonInput = z.strictObject({ reason: z.string().trim().min(5, "Alasan mi
 export async function transitionOrder(scope: SellerScope, orderId: number, action: OrderAction, raw: unknown = {}): Promise<OrderStatus> {
   requireCap(scope, "orders.fulfill");
   if (!Object.hasOwn(TRANSITIONS, action)) throw new DomainError("invalid_action", "Aksi tidak dikenal.");
-  const t = TRANSITIONS[action];
   const note = action === "ship" ? shipInput.parse(raw).trackingNumber : REASONED.includes(action) ? reasonInput.parse(raw).reason : null;
+  return inStore(scope, ({ exec }) => applyTransition(exec, scope.storeId, orderId, action, note, scope.userId));
+}
 
-  return inStore(scope, async ({ exec: tx }) => {
-    const [o] = await tx
-      .select({ id: order.id, status: order.status, paymentMethod: order.paymentMethod })
-      .from(order)
-      .where(and(eq(order.storeId, scope.storeId), eq(order.id, orderId)))
-      .for("update");
-    if (!o) throw new DomainError("not_found", "Pesanan tidak ditemukan.");
-    if (!(t.from as readonly OrderStatus[]).includes(o.status)) {
-      throw new DomainError("invalid_transition", `Pesanan berstatus "${ORDER_STATUS_LABEL[o.status]}" tidak bisa diproses dengan aksi ini.`);
+/**
+ * The one place an order changes status (used by `transitionOrder` and by the fulfillment
+ * worker, T-39). `tx` must already carry the store context (`inStore`/`withStore`): it locks the
+ * order row, re-checks the status, writes the history row and enqueues the notification.
+ */
+export async function applyTransition(tx: Executor, storeId: number, orderId: number, action: OrderAction, note: string | null, actorUserId: string): Promise<OrderStatus> {
+  const t = TRANSITIONS[action];
+  const [o] = await tx
+    .select({ id: order.id, status: order.status, paymentMethod: order.paymentMethod })
+    .from(order)
+    .where(and(eq(order.storeId, storeId), eq(order.id, orderId)))
+    .for("update");
+  if (!o) throw new DomainError("not_found", "Pesanan tidak ditemukan.");
+  if (!(t.from as readonly OrderStatus[]).includes(o.status)) {
+    throw new DomainError("invalid_transition", `Pesanan berstatus "${ORDER_STATUS_LABEL[o.status]}" tidak bisa diproses dengan aksi ini.`);
+  }
+
+  await tx
+    .update(order)
+    .set({
+      status: t.to,
+      updatedAt: new Date(),
+      ...(action === "pay" ? { paidAt: new Date() } : {}),
+      ...(action === "confirm" ? { confirmedAt: new Date() } : {}),
+      ...(action === "ship" ? { trackingNumber: note } : {}),
+    })
+    .where(and(eq(order.storeId, storeId), eq(order.id, orderId)));
+
+  if (RESTOCKING.includes(action)) {
+    // The row lock above guarantees this block runs at most once per order.
+    const lines = await tx
+      .select({ variantId: orderLine.variantId, quantity: orderLine.quantity })
+      .from(orderLine)
+      .where(and(eq(orderLine.storeId, storeId), eq(orderLine.orderId, orderId)))
+      .orderBy(asc(orderLine.variantId)); // same lock order as checkout and adjustStock
+    for (const l of lines) {
+      await tx
+        .update(variant)
+        .set({ stock: sql`${variant.stock} + ${l.quantity}` })
+        .where(and(eq(variant.storeId, storeId), eq(variant.id, l.variantId)));
     }
-
-    await tx
-      .update(order)
-      .set({
-        status: t.to,
-        updatedAt: new Date(),
-        ...(action === "pay" ? { paidAt: new Date() } : {}),
-        ...(action === "confirm" ? { confirmedAt: new Date() } : {}),
-        ...(action === "ship" ? { trackingNumber: note } : {}),
-      })
-      .where(and(eq(order.storeId, scope.storeId), eq(order.id, orderId)));
-
-    if (RESTOCKING.includes(action)) {
-      // The row lock above guarantees this block runs at most once per order.
-      const lines = await tx
-        .select({ variantId: orderLine.variantId, quantity: orderLine.quantity })
-        .from(orderLine)
-        .where(and(eq(orderLine.storeId, scope.storeId), eq(orderLine.orderId, orderId)))
-        .orderBy(asc(orderLine.variantId)); // same lock order as checkout and adjustStock
-      for (const l of lines) {
-        await tx
-          .update(variant)
-          .set({ stock: sql`${variant.stock} + ${l.quantity}` })
-          .where(and(eq(variant.storeId, scope.storeId), eq(variant.id, l.variantId)));
-      }
-      if (lines.length > 0) {
-        await tx.insert(stockAdjustment).values(
-          lines.map((l) => ({
-            storeId: scope.storeId,
-            variantId: l.variantId,
-            delta: l.quantity,
-            reason: `${action === "reject" ? "Penolakan pesanan COD" : "Pembatalan pesanan"} #${orderId}: ${note}`,
-            actorUserId: scope.userId,
-            orderId,
-          })),
-        );
-      }
+    if (lines.length > 0) {
+      await tx.insert(stockAdjustment).values(
+        lines.map((l) => ({
+          storeId,
+          variantId: l.variantId,
+          delta: l.quantity,
+          reason: `${action === "reject" ? "Penolakan pesanan COD" : "Pembatalan pesanan"} #${orderId}: ${note}`,
+          actorUserId,
+          orderId,
+        })),
+      );
     }
+  }
 
-    // Prepaid Purchase signal at settlement (T-38, PR-20); idempotent per destination.
-    if (action === "pay") await enqueuePurchase(tx, scope.storeId, orderId);
+  // Prepaid Purchase signal at settlement (T-38, PR-20); idempotent per destination.
+  if (action === "pay") await enqueuePurchase(tx, storeId, orderId);
 
-    await tx.insert(orderStatusHistory).values({
-      storeId: scope.storeId,
-      orderId,
-      fromStatus: o.status,
-      toStatus: t.to,
-      actorUserId: scope.userId,
-      note: action === "pay" ? "Pembayaran transfer dikonfirmasi manual oleh penjual" : action === "confirm" ? "Pesanan COD dikonfirmasi oleh penjual" : note,
-    });
-    await enqueueOrderNotifications(tx, scope.storeId, orderId, action); // T-36: no-op for actions without a notification
-    return t.to;
+  await tx.insert(orderStatusHistory).values({
+    storeId,
+    orderId,
+    fromStatus: o.status,
+    toStatus: t.to,
+    actorUserId,
+    note: action === "pay" ? "Pembayaran transfer dikonfirmasi manual oleh penjual" : action === "confirm" ? "Pesanan COD dikonfirmasi oleh penjual" : note,
   });
+  await enqueueOrderNotifications(tx, storeId, orderId, action); // T-36: no-op for actions without a notification
+  return t.to;
 }
 
 // ---------------------------------------------------------------------------

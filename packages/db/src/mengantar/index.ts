@@ -2,3 +2,4 @@
 export * from "./client.ts";
 export * from "./adapter.ts";
 export * from "./schemas.ts";
+export * from "./booking.ts";

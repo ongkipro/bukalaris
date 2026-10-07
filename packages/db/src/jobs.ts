@@ -48,14 +48,15 @@ export function sanitizeError(err: unknown): string {
 /**
  * Insert job intent in the caller's transaction so it commits (or rolls back) with
  * the business write. Same `(kind, key)` again is a no-op (`created: false`).
+ * `runAt` defers the first attempt (T-39 tracking polls); default: due immediately.
  */
 export async function enqueue(
   exec: Executor,
-  input: { kind: string; storeId: number; key: string; payload?: Record<string, unknown> },
+  input: { kind: string; storeId: number; key: string; payload?: Record<string, unknown>; runAt?: Date },
 ): Promise<{ id: number | null; created: boolean }> {
   const [row] = await exec
     .insert(job)
-    .values({ kind: input.kind, storeId: input.storeId, key: input.key, payload: input.payload ?? {} })
+    .values({ kind: input.kind, storeId: input.storeId, key: input.key, payload: input.payload ?? {}, ...(input.runAt && { nextAttemptAt: input.runAt }) })
     .onConflictDoNothing({ target: [job.kind, job.key] })
     .returning({ id: job.id });
   if (!row) return { id: null, created: false };

@@ -7,13 +7,30 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { sellerScope } from "@/lib/context";
 import { rupiah, tanggal } from "@/lib/format";
-import { orderActionLabel, orderStatusLabel, orderStatusTone, paymentLabel } from "@/lib/status";
-import { can, getOrder, type OrderStatus } from "@bukalaris/db";
+import { orderActionLabel, orderStatusLabel, orderStatusTone, paymentLabel, type Tone } from "@/lib/status";
+import { BOOKABLE, can, codBookingAllowed, getOrder, getShipment, providerStatusLabel, RETRYABLE, SHIPMENT_STATUS_LABEL, shipmentTimeline, TERMINAL, type OrderStatus, type ShipmentStatus } from "@bukalaris/db";
 import { notFound } from "next/navigation";
 import { orderAction } from "../actions";
 import { parseId } from "../status";
+import { bookShipmentAction, refreshTrackingAction } from "./actions";
 
 const label = (s: string) => orderStatusLabel[s as OrderStatus] ?? s;
+const shipmentTone: Record<ShipmentStatus, Tone> = {
+  queued: "warning",
+  booking: "warning",
+  awaiting_balance: "warning",
+  booked: "outline",
+  in_transit: "default",
+  delivered: "success",
+  returned: "destructive",
+  problem: "warning",
+  cancelled: "destructive",
+  failed: "destructive",
+};
+const savedText: Record<string, string> = {
+  booking: "Booking diminta. Resi dan status pesanan diperbarui otomatis; muat ulang halaman ini sebentar lagi.",
+  tracking: "Pembaruan status diminta; muat ulang halaman ini sebentar lagi.",
+};
 
 export default async function OrderPage({ params, searchParams }: PageProps<"/seller/orders/[id]">) {
   const { id } = await params;
@@ -22,7 +39,10 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
   const orderId = parseId(id);
   const o = Number.isSafeInteger(orderId) ? await getOrder(scope, orderId) : null;
   if (!o) notFound();
+  const shipmentRow = await getShipment(scope, o.id);
   const fulfil = can(scope, "orders.fulfill");
+  const bookable = (BOOKABLE as readonly string[]).includes(o.status);
+  const codLocked = o.paymentMethod === "cod" && !codBookingAllowed();
   const simple = o.actions.filter((a) => a === "confirm" || a === "pay" || a === "process" || a === "complete");
   const confirming = o.status === "awaiting_confirmation" || o.status === "on_hold";
 
@@ -38,7 +58,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
           </>
         }
       />
-      <Notice error={error} saved={saved} />
+      <Notice error={error} saved={saved} savedText={typeof saved === "string" ? savedText[saved] : undefined} />
 
       {confirming && (
         <section aria-labelledby="risk" className="grid gap-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 text-sm" data-testid="cod-risk">
@@ -83,7 +103,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
               <div className="grid gap-2">
                 <Label htmlFor="trackingNumber">Nomor resi kurir</Label>
                 <Input id="trackingNumber" name="trackingNumber" required minLength={3} maxLength={80} placeholder={`Resi ${o.courier}`} aria-describedby="tracking-help" />
-                <p id="tracking-help" className="text-xs text-muted-foreground">Nomor resi dari {o.courier}; pembeli melacak paket dengan nomor ini.</p>
+                <p id="tracking-help" className="text-xs text-muted-foreground">Resi yang Anda buat sendiri di {o.courier}. Untuk resi otomatis, gunakan booking Mengantar di bawah.</p>
               </div>
               <SubmitButton pendingText="Mengirim…">{orderActionLabel.ship}</SubmitButton>
             </form>
@@ -125,6 +145,76 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
         </section>
       )}
       {!fulfil && <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Akun Anda hanya dapat melihat pesanan; tindakan pemenuhan dilakukan pemilik atau staf toko.</p>}
+
+      {(shipmentRow || (fulfil && bookable)) && (
+        <section aria-labelledby="shipment" className="grid gap-4 rounded-lg border p-4" data-testid="shipment">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 id="shipment" className="text-lg font-semibold">Pengiriman Mengantar</h2>
+            {shipmentRow && <StatusBadge label={SHIPMENT_STATUS_LABEL[shipmentRow.status]} tone={shipmentTone[shipmentRow.status]} data-testid="shipment-status" />}
+          </div>
+
+          {!shipmentRow && codLocked && (
+            <p className="text-sm text-muted-foreground" data-testid="cod-locked">
+              Booking COD lewat Mengantar belum dibuka: kebijakan remitansi COD (Q-17) masih menunggu keputusan pemilik platform. Kirim pesanan COD ini dengan resi manual di atas.
+            </p>
+          )}
+          {!shipmentRow && !codLocked && (
+            <form action={bookShipmentAction.bind(null, o.id)} className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
+              <p className="text-sm text-muted-foreground">
+                Booking {o.courier} ke {o.destinationAreaLabel} ({o.weightKg} kg{o.paymentMethod === "cod" ? `, COD ${rupiah(o.total)}` : ""}) lewat akun Mengantar platform. Resi terbit otomatis dan pesanan berpindah ke
+                &ldquo;Dikirim&rdquo;; pembeli diberi tahu sekali.
+              </p>
+              <SubmitButton pendingText="Mengantre…">Kirim lewat Mengantar</SubmitButton>
+            </form>
+          )}
+
+          {shipmentRow && (
+            <>
+              <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
+                <dt className="text-muted-foreground">Resi</dt>
+                <dd className="font-mono break-all" data-testid="shipment-resi">{shipmentRow.trackingNumber ?? "Belum terbit"}</dd>
+                <dt className="text-muted-foreground">Status kurir</dt>
+                <dd data-testid="shipment-provider-status">{providerStatusLabel(shipmentRow.providerStatus) ?? "Belum ada pembaruan"}</dd>
+                <dt className="text-muted-foreground">Order Mengantar</dt>
+                <dd className="font-mono break-all">{shipmentRow.providerOrderId ?? "—"}</dd>
+                <dt className="text-muted-foreground">Diperbarui</dt>
+                <dd>{shipmentRow.lastTrackedAt ? tanggal(shipmentRow.lastTrackedAt) : "—"}</dd>
+              </dl>
+              {shipmentRow.lastError && (
+                <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive" data-testid="shipment-error">
+                  {shipmentRow.lastError}
+                </p>
+              )}
+              {fulfil && ((RETRYABLE as readonly string[]).includes(shipmentRow.status) || (shipmentRow.providerOrderId && !(TERMINAL as readonly string[]).includes(shipmentRow.status))) && (
+                <div className="flex flex-wrap gap-2">
+                  {(RETRYABLE as readonly string[]).includes(shipmentRow.status) && bookable && (
+                    <form action={bookShipmentAction.bind(null, o.id)}>
+                      <SubmitButton pendingText="Mengantre…">Coba lagi</SubmitButton>
+                    </form>
+                  )}
+                  {shipmentRow.providerOrderId && !(TERMINAL as readonly string[]).includes(shipmentRow.status) && (
+                    <form action={refreshTrackingAction.bind(null, o.id)}>
+                      <SubmitButton variant="outline" pendingText="Meminta…">Perbarui status</SubmitButton>
+                    </form>
+                  )}
+                </div>
+              )}
+              <ol className="divide-y rounded-lg border text-sm" aria-label="Riwayat pengiriman" data-testid="shipment-timeline">
+                {shipmentTimeline(shipmentRow).map((t, i) => (
+                  <li key={i} className="grid gap-0.5 p-3 sm:grid-cols-[12rem_minmax(0,1fr)] sm:gap-4">
+                    {typeof t.at === "string" ? (
+                      <span className="text-muted-foreground tabular-nums">{t.at ? `${t.at} WIB` : "—"}</span>
+                    ) : (
+                      <time dateTime={t.at.toISOString()} className="text-muted-foreground">{tanggal(t.at)}</time>
+                    )}
+                    <span className="break-words">{t.text}</span>
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
+        </section>
+      )}
 
       <div className="grid gap-6 sm:grid-cols-2">
         <section aria-labelledby="buyer" className="grid content-start gap-1 text-sm">

@@ -52,3 +52,41 @@ export const rateMapSchema = z.record(z.string(), courierRateSchema);
 
 /** `GET /getReceiverScoreByNumberUser`: shape is account-specific; keep it loose. */
 export const receiverScoreSchema = z.looseObject({}).nullable();
+
+/**
+ * One created order of `POST /order` (`data[]`), per the partner spec (docs 01 §8, openapi
+ * `CreateOrderResponse`). UNVERIFIED until an observed, sanitized write is recorded (T-39):
+ * `cnote_no` is null and `isPaid` false when the account balance was insufficient.
+ */
+export const createdOrderSchema = z.looseObject({
+  ORDER_ID: z.string().optional(),
+  cnote_no: z.string().nullish(),
+  status: z.string().optional(),
+  statusCategory: z.string().optional(),
+  isPaid: z.boolean().optional(),
+  batch_id: z.string().optional(),
+  batch: z.string().optional(),
+  error: z.unknown().optional(),
+});
+export const createOrderResponseSchema = z.looseObject({
+  success: z.boolean().optional(),
+  batch: z.string().optional(),
+  batch_id: z.string().optional(),
+  courier: z.string().optional(),
+  errors: z.array(z.unknown()).optional(),
+  data: z.array(createdOrderSchema).optional(),
+});
+export type CreatedOrder = z.infer<typeof createdOrderSchema>;
+
+/** One tracked order of `GET /order` (openapi `TrackingInfo`); only the fields read are typed. */
+export const trackingInfoSchema = z.looseObject({
+  ORDER_ID: z.string().optional(),
+  cnote_no: z.string().nullish(),
+  status: z.string().optional(),
+  statusCategory: z.string().optional(),
+  isPaid: z.boolean().optional(),
+  history: z.array(z.looseObject({ date: z.string().optional(), desc: z.string().optional() })).optional(),
+});
+export type TrackingInfo = z.infer<typeof trackingInfoSchema>;
+/** `GET /order` data: UNVERIFIED whether a list, a paginated object or one order; normalised by the adapter. */
+export const orderLookupSchema = z.unknown();
