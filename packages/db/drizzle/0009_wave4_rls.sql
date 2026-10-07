@@ -7,3 +7,9 @@ ALTER TABLE "feed_token" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "feed_token" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 CREATE POLICY tenant_isolation ON "feed_token" USING ("store_id" = app_store_id()) WITH CHECK ("store_id" = app_store_id());--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE ON "feed_token" TO bukalaris_app;
+
+-- from 0009_fulfillment_rls.sql
+ALTER TABLE "shipment" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "shipment" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
+CREATE POLICY tenant_isolation ON "shipment" USING ("store_id" = app_store_id()) WITH CHECK ("store_id" = app_store_id());--> statement-breakpoint
+GRANT SELECT, INSERT, UPDATE ON "shipment" TO bukalaris_app;

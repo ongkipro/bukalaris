@@ -1,7 +1,9 @@
 import type { z } from "zod";
 import {
   areaListSchema,
+  createOrderResponseSchema,
   envelopeSchema,
+  orderLookupSchema,
   pickupAddressListSchema,
   rateMapSchema,
   receiverScoreSchema,
@@ -146,10 +148,20 @@ export class MengantarClient {
     return this.#get(this.#keyed("/getReceiverScoreByNumberUser", { search: phone }), receiverScoreSchema);
   }
 
+  /**
+   * Order lookup / tracking (T-39): `GET /order?order_id=…` or `?tracking_id=…`. The shape of
+   * `data` is UNVERIFIED (list or single object); `mengantar/booking.ts` normalises it.
+   */
+  getOrder(ref: { providerOrderId?: string | null; trackingNumber?: string | null }) {
+    const query = ref.providerOrderId ? { order_id: ref.providerOrderId } : { tracking_id: ref.trackingNumber ?? undefined };
+    return this.#get(this.#keyed("/order", query), orderLookupSchema);
+  }
+
   // ── Writes (disabled unless MENGANTAR_WRITE_ENABLED=1) ───────────────────
 
-  createOrder(payload: { courier: string; pickup: Record<string, unknown>; orders: Record<string, unknown>[] }) {
-    return this.#write("createOrder", "POST", this.#keyed("/order"), payload);
+  /** Returns the whole response body (`batch_id` and `errors` live beside `data`), parsed loosely. */
+  async createOrder(payload: { courier: string; pickup: Record<string, unknown>; orders: Record<string, unknown>[] }) {
+    return createOrderResponseSchema.parse(await this.#write("createOrder", "POST", this.#keyed("/order"), payload, true));
   }
   upsertOrigin(input: Record<string, unknown>) {
     return this.#write("upsertOrigin", "POST", this.#keyed("/address"), input);
@@ -183,9 +195,9 @@ export class MengantarClient {
     return redactUrl(s, this.#apiKey);
   }
 
-  async #write(operation: string, method: string, url: string, body: unknown): Promise<unknown> {
+  async #write(operation: string, method: string, url: string, body: unknown, raw = false): Promise<unknown> {
     if (!this.#writeEnabled) throw new MengantarWriteDisabledError(operation);
-    return this.#request(method, url, { body, attempts: 1 });
+    return this.#request(method, url, { body, attempts: 1, raw });
   }
 
   async #get<T>(url: string, schema: z.ZodType<T>): Promise<T> {
@@ -197,13 +209,13 @@ export class MengantarClient {
     return parsed.data;
   }
 
-  /** Returns the envelope's `data` (or the whole body when there is no envelope). */
-  async #request(method: string, url: string, opts: { body?: unknown; attempts: number }): Promise<unknown> {
+  /** Returns the envelope's `data` (or the whole body when there is no envelope, or when `raw`). */
+  async #request(method: string, url: string, opts: { body?: unknown; attempts: number; raw?: boolean }): Promise<unknown> {
     let last: MengantarError | undefined;
     for (let attempt = 1; attempt <= opts.attempts; attempt++) {
       this.#onRequest?.({ method, url: this.#redact(url), attempt });
       try {
-        return await this.#once(method, url, opts.body);
+        return await this.#once(method, url, opts.body, opts.raw === true);
       } catch (err) {
         if (!(err instanceof MengantarError)) throw err;
         last = err;
@@ -215,7 +227,7 @@ export class MengantarClient {
     throw last!;
   }
 
-  async #once(method: string, url: string, body: unknown): Promise<unknown> {
+  async #once(method: string, url: string, body: unknown, raw: boolean): Promise<unknown> {
     let res: Response;
     try {
       res = await this.#fetch(url, {
@@ -241,7 +253,7 @@ export class MengantarClient {
       const message = envelope?.errorsFront || envelope?.message || `HTTP ${res.status}`;
       throw new MengantarError(res.ok ? "provider" : "http", `Mengantar: ${this.#redact(message)}`, res.status, this.#sanitize(parsed), detectCode(envelope));
     }
-    return envelope && "data" in envelope ? envelope.data : parsed;
+    return !raw && envelope && "data" in envelope ? envelope.data : parsed;
   }
 
   /** Body for errors/evidence: JSON round-trip with the key removed; never includes the URL. */

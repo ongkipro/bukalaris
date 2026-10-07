@@ -7,6 +7,7 @@ import { platformDb } from "./client.ts";
 import { JOB_CHANNEL, runOnce, sanitizeError } from "./jobs.ts";
 import "./notify.ts"; // registers the order e-mail handler (T-36)
 import "./signals.ts"; // registers the signal.* handlers (T-38)
+import "./fulfillment.ts"; // registers the shipment.* handlers (T-39)
 
 const once = process.argv.includes("--once");
 const workerId = `${hostname()}:${process.pid}`;

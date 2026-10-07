@@ -1,6 +1,6 @@
 {
-  "id": "5869cc96-0da7-4f20-9497-480f680f8e3c",
-  "prevId": "68d5dda8-7245-497d-9b70-6977ac27171d",
+  "id": "03eee3da-c481-4468-a587-141fe65c9b67",
+  "prevId": "b0f31cec-e948-436e-8a26-97be2932e1e9",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4182,6 +4182,263 @@
         "signal_event_payload_chk": {
           "name": "signal_event_payload_chk",
           "value": "octet_length(\"signal_event\".\"payload\"::text) <= 16384"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.shipment": {
+      "name": "shipment",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "name": "shipment_id_seq",
+            "increment": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "startWith": "1",
+            "cache": "1",
+            "cycle": false,
+            "schema": "public",
+            "type": "always"
+          }
+        },
+        "store_id": {
+          "name": "store_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "order_id": {
+          "name": "order_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requested_by": {
+          "name": "requested_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'queued'"
+        },
+        "courier_code": {
+          "name": "courier_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "origin_area_id": {
+          "name": "origin_area_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "destination_area_id": {
+          "name": "destination_area_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "weight_kg": {
+          "name": "weight_kg",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cod_amount": {
+          "name": "cod_amount",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "provider_order_id": {
+          "name": "provider_order_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provider_batch_id": {
+          "name": "provider_batch_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tracking_number": {
+          "name": "tracking_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provider_status": {
+          "name": "provider_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "paid": {
+          "name": "paid",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "tracking_history": {
+          "name": "tracking_history",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "booking_attempts": {
+          "name": "booking_attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "manual_polls": {
+          "name": "manual_polls",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "last_error": {
+          "name": "last_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "booked_at": {
+          "name": "booked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "delivered_at": {
+          "name": "delivered_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_tracked_at": {
+          "name": "last_tracked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "shipment_store_status_idx": {
+          "name": "shipment_store_status_idx",
+          "columns": [
+            {
+              "expression": "store_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "with": {},
+          "method": "btree",
+          "concurrently": false
+        }
+      },
+      "foreignKeys": {
+        "shipment_store_id_store_id_fk": {
+          "name": "shipment_store_id_store_id_fk",
+          "tableFrom": "shipment",
+          "columnsFrom": [
+            "store_id"
+          ],
+          "tableTo": "store",
+          "columnsTo": [
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        },
+        "shipment_order_fk": {
+          "name": "shipment_order_fk",
+          "tableFrom": "shipment",
+          "columnsFrom": [
+            "store_id",
+            "order_id"
+          ],
+          "tableTo": "order",
+          "columnsTo": [
+            "store_id",
+            "id"
+          ],
+          "onUpdate": "no action",
+          "onDelete": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "shipment_order_uq": {
+          "name": "shipment_order_uq",
+          "columns": [
+            "store_id",
+            "order_id"
+          ],
+          "nullsNotDistinct": false
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "shipment_status_chk": {
+          "name": "shipment_status_chk",
+          "value": "\"shipment\".\"status\" in ('queued', 'booking', 'awaiting_balance', 'booked', 'in_transit', 'delivered', 'returned', 'problem', 'cancelled', 'failed')"
+        },
+        "shipment_amounts_chk": {
+          "name": "shipment_amounts_chk",
+          "value": "\"shipment\".\"cod_amount\" >= 0 and \"shipment\".\"weight_kg\" >= 1 and \"shipment\".\"booking_attempts\" >= 0 and \"shipment\".\"manual_polls\" >= 0"
+        },
+        "shipment_booked_chk": {
+          "name": "shipment_booked_chk",
+          "value": "\"shipment\".\"status\" in ('queued', 'booking', 'failed') or \"shipment\".\"provider_order_id\" is not null"
+        },
+        "shipment_resi_chk": {
+          "name": "shipment_resi_chk",
+          "value": "\"shipment\".\"tracking_number\" is null or \"shipment\".\"paid\""
+        },
+        "shipment_history_chk": {
+          "name": "shipment_history_chk",
+          "value": "octet_length(\"shipment\".\"tracking_history\"::text) <= 16384"
         }
       },
       "isRLSEnabled": false

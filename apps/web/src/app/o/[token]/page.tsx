@@ -1,5 +1,5 @@
 import { rupiah } from "@/lib/format";
-import { BUYER_STATUS_LABEL, db, getOrderForLink } from "@bukalaris/db";
+import { BUYER_STATUS_LABEL, db, getOrderForLink, getShipmentForLink, providerStatusLabel, SHIPMENT_STATUS_LABEL, shipmentTimeline } from "@bukalaris/db";
 import { notFound } from "next/navigation";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +15,9 @@ export default async function OrderStatusPage({ params }: PageProps<"/o/[token]"
   const { token } = await params;
   const o = await getOrderForLink(db(), token);
   if (!o) notFound();
+  // Courier tracking (T-39): only when the seller booked through Mengantar; resi alone shows above.
+  const s = o.trackingNumber ? await getShipmentForLink(db(), token) : null;
+  const tracking = s && s.trackingNumber ? s : null;
   return (
     <section className="grid gap-4 rounded-xl border bg-background p-6" aria-labelledby="status-heading">
       <p className="text-sm font-medium tracking-wide text-muted-foreground uppercase">{o.storeName}</p>
@@ -47,6 +50,26 @@ export default async function OrderStatusPage({ params }: PageProps<"/o/[token]"
           <dd className="font-mono break-all" data-testid="tracking">{o.trackingNumber ?? "Belum tersedia"}</dd>
         </div>
       </dl>
+      {tracking && (
+        <section aria-labelledby="tracking-heading" className="grid gap-2 border-t pt-3 text-sm" data-testid="tracking-timeline">
+          <h2 id="tracking-heading" className="font-semibold">Perjalanan paket</h2>
+          <p>
+            <span data-testid="tracking-status">{providerStatusLabel(tracking.providerStatus) ?? SHIPMENT_STATUS_LABEL[tracking.status]}</span>
+            {tracking.lastTrackedAt && <span className="block text-xs text-muted-foreground">Dicek {dt.format(tracking.lastTrackedAt)} WIB</span>}
+          </p>
+          <ol className="grid gap-1.5">
+            {shipmentTimeline(tracking)
+              .slice(1)
+              .reverse()
+              .map((t, i) => (
+                <li key={i} className="grid gap-x-3 sm:grid-cols-[11rem_minmax(0,1fr)]">
+                  <span className="text-muted-foreground tabular-nums">{typeof t.at === "string" ? (t.at ? `${t.at} WIB` : "—") : `${dt.format(t.at)} WIB`}</span>
+                  <span className="break-words">{t.text}</span>
+                </li>
+              ))}
+          </ol>
+        </section>
+      )}
       <p className="text-xs text-muted-foreground">Dipesan {dt.format(o.createdAt)} WIB. Hubungi penjual bila ada pertanyaan tentang pesanan ini.</p>
     </section>
   );
