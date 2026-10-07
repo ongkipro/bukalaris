@@ -69,7 +69,7 @@
       "cargoDiscountExtraPercent": 0,
       "cargoDiscountExtra": 0,
       "unsupportedOriginSicepat": false,
-      "originId": "5fc64616f8f44b34aa4cd7d4",
+      "originId": "0000000000000000000a0001",
       "destinationId": "5fc62de9f8f44b34aa4bdc9e",
       "unsupportedPickup": false
     },
@@ -97,7 +97,7 @@
       "cargoDiscountExtraPercent": 0,
       "cargoDiscountExtra": 0,
       "unsupportedOriginSicepat": false,
-      "originId": "5fc64616f8f44b34aa4cd7d4",
+      "originId": "0000000000000000000a0001",
       "destinationId": "5fc62de9f8f44b34aa4bdc9e",
       "unsupportedPickup": false
     },
