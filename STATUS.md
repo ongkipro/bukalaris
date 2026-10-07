@@ -5,11 +5,15 @@ This file owns current status. Evidence: `BUILD-LOG.md`, `docs/TASKS.md`
 ("M1 implementation evidence"). Nothing is committed yet — the owner approves
 the first commit.
 
-## M2 state (2026-10-07)
+## In progress — M2 wave 4 (started 2026-10-07)
 
-All M2 tracks are merged on `main` (waves 1, 2a, 2b, 3). Next work needs owner
-input: Q-17 COD remittance, Mengantar write-test approval, ad-platform
-test-event approval, email provider, VPS/DNS for deployment.
+Parallel tracks: `fulfillment` (T-39 booking + tracking; Mengantar writes stay
+locked), `feeds` (T-40), `dashboard` (T-41), `landing` (T-42 landing pages v1),
+`privacy` (T-43), `demo` (demo users, merchants and dummy content), plus a
+docs scan of the system map and all Markdown. Waves 1–3 are merged.
+
+Owner input still needed: Q-17 COD remittance, Mengantar write-test approval,
+ad-platform test-event approval, email provider, VPS/DNS for deployment.
 
 Business direction (owner, 2026-10-06): revenue = shipping margin through a
 platform-owned Mengantar account; first segment = COD sellers nationwide; ad

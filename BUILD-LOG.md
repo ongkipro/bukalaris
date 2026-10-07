@@ -368,3 +368,20 @@ Wave 2a launched from `d7a32f5`: `checkout2` (T-34 phase 2, T-35, T-30),
   table product). Backups now keep owners/ACLs; the rehearsal asserts policy
   count, 0 rows without context and full reads with it — new dump rls_ok=yes,
   old dump fails (exit 1).
+
+## 2026-10-07 — Wave 4 started (parallel)
+
+Owner direction: continue development in parallel; scan and perfect the docs,
+complete the system map, keep the logs current; add demo users/merchants with
+dummy content.
+- Tasks added: T-39 shipment booking + tracking (writes stay locked), T-40
+  catalog feeds, T-41 seller dashboard (PR-22 accepted under the owner's
+  delegation, vetoable), T-42 landing pages v1 (PR-9), T-43 buyer data
+  export/redaction (T-33 mechanism). Suite checker: PASS files=42
+  declarations=218 tasks=43 findings=0.
+- Worktrees from `0f4801b` with role-based `.env` (app/platform/owner URLs,
+  dev DBs owned by `bukalaris_owner`): `fulfillment` 3270, `feeds` 3280,
+  `dashboard` 3290, `landing` 3300, `privacy` 3310, `demo` 3320.
+- `docs-scan` agent on `main` (docs only, uncommitted until reviewed): system
+  map vs every route, statuses for T-1..T-20, README/API/deploy/runbook/UX/
+  observability sync, validators.
