@@ -45,7 +45,11 @@ flowchart TB
 Decision, 2026-09-25: Next.js App Router, TypeScript with strict checking,
 shadcn/ui, and Tailwind CSS are selected for the admin applications.
 Recommendation: Use the following monorepo layout, with one commerce core and
-one PostgreSQL database. Paths are proposed locators, not existing code.
+one PostgreSQL database. Paths are proposed locators. What exists on `main`
+(2026-10-07) is a single Next.js app `apps/web` serving every surface and one
+package `packages/db` (DECISIONS D-2, deliberate ceiling); the worker and the
+maintenance command are `packages/db/src/worker.ts` and `cleanup.ts` run from
+the same image with a different command. The row-by-row route map is ARCH-5.
 
 | Application | Framework and rendering | Host / role |
 |---|---|---|
@@ -104,8 +108,13 @@ server can run unchanged on an edge runtime. No resources are provisioned here.
   UI and MCP operations enforce the same ownership, revision, and form rules.
   Public rendering reads only the published revision and excludes editor code.
 - Constraints: PR-9, TD-4, API-3, UI-6, UX-7, TEN-1, DATA-1.
-- Evidence: Architecture proposal only; no application/runtime proof.
+- Evidence: Architecture proposal; no LP runtime on `main`. T-42 (track
+  `landing`, wave 4) implements landing pages v1 with typed blocks, draft and
+  published revisions and `/s/[store]/lp/[slug]`; visual builder and MCP stay
+  future (T-11, T-20). Module stubs `packages/db/src/landing.ts`,
+  `schema-landing.ts` exist and are empty.
 - Change history: 2026-09-18 — proposed module ownership and render separation.
+  2026-10-07 — T-42 scope noted.
 
 ```mermaid
 flowchart TB
@@ -196,7 +205,8 @@ and form contract enforcement before claiming this architecture implemented.
 
 ## ARCH-5 — Canonical system and page map
 
-- Status: Proposed
+- Status: Implemented as documentation; re-checked against `main` on 2026-10-07
+  (revision `13f388f`, wave 4 in progress in separate worktrees, not on `main`).
 - Owner: Bukalaris architecture owner
 - Source: PR-10.
 - Statement: This section owns the page implementation index. UX owns behavior,
@@ -207,145 +217,163 @@ and form contract enforcement before claiming this architecture implemented.
   repository-relative route/layout/component, service/API, schema/query, test,
   and task links plus a checked code revision. No fabricated code paths.
 - Constraints: PR-10, UX-8, DATA-1.
-- Evidence: Planning inventory below; runtime mapping remains pending T-1.
-- Change history: 2026-09-18 — initial page discovery index.
+- Evidence: Every row below was checked file by file against
+  `apps/web/src/app/**` and `packages/db/src/*.ts` on `main` at `13f388f`
+  (`docs-scan`, 2026-10-07). Gates at `0a3cfd8` (STATUS.md): Vitest 137,
+  Playwright 72 + 2 skipped, `verify:docker` exit 0.
+- Change history: 2026-09-18 — initial page discovery index. 2026-10-06 — M1
+  locators. 2026-10-07 — M2 wave 1–3 locators; one consolidated table replaces
+  the per-wave locator sections; handlers and jobs get `HTTP-`/`JOB-` ids.
 
 ### Map conventions
 
-All routes below are **proposals**, relative to their surface; they are not
-implemented endpoints. `/admin` and `/seller` describe proposed route groups,
-not approved deployment origins. `Code: Pending` applies to every row because
-no Bukalaris repository has been found. Logical data names reference the Data
-Model; missing entities are proposals, not existing tables. Requirement/task
-links identify planning ownership, not completion. No runtime page is claimed.
+One row per route or background entry point. **Route** is the path served by
+`apps/web` on `main` (one Next.js app, DECISIONS D-2); where the planning pack
+proposed a different path it is quoted as "proposed …" and the Page ID is kept.
+Storefront routes are `/s/<slug>/…` in path mode and `<slug>.<STORE_ROOT_DOMAIN>/…`
+in host mode (`apps/web/src/proxy.ts` rewrites the host form, DOM-1 subset).
+**Server operations** are exported symbols of `packages/db/src/<file>.ts`
+(verified with grep); Next.js server actions live in the listed `actions.ts`.
+**Permission** names the capability from `packages/db/src/scoped.ts`
+(`catalog.read|write`, `members.manage`, `orders.read|fulfill`,
+`inventory.write`, `integrations.manage`, `shipping.manage`,
+`marketing.manage`; owner-only where stated), the platform grant `logs.read`
+(`schema-ops.ts`), or "operator" = `platform_operator` row + verified TOTP
+(`apps/web/src/lib/context.ts`). Every store-owned query runs inside the
+store's RLS context (`packages/db/src/tenant.ts`, ADR-0005). **Tests** are
+`packages/db/test/*.test.ts` (Vitest) and `apps/web/e2e/*.spec.ts`
+(Playwright). **Status**: Implemented = on `main` with the listed checks;
+Pending = owned by a running wave-4 track (AGENTS.md "Parallel tracks") and
+absent on `main`; Planned = no code and no track; Retired = replaced, note says by what.
 
-| Page ID | Surface / page | Proposed route | Module and logical data | Requirement / task | Code |
-|---|---|---|---|---|---|
-| AU-01 | Operator / sign in | /login | Authentication and session | PR-15 / T-17 | M1 — see [locators](#m1-implementation-locators) |
-| AU-02 | Operator / recovery | /account/recovery | Auth recovery contract | PR-15 / T-17 | M2 — `apps/web/src/app/account/recovery/page.tsx`, `apps/web/src/app/account/recovery/reset/page.tsx`; Better Auth reset via HTTP; `e2e/accounts.spec.ts` |
-| AU-03 | Seller / context selection | /select-store | Session membership | PR-15 / T-17 | Pending |
-| AU-04 | Operator / invitation acceptance (added 2026-10-06) | /invite/:token | Invitation, membership | PR-15 / T-22 | M2 — `apps/web/src/app/invite/[token]/page.tsx`, `apps/web/src/app/invite/actions.ts`; `acceptInvitation` (`packages/db/src/accounts.ts`); `test/accounts.test.ts`, `e2e/accounts.spec.ts` |
-| AU-05 | Operator / account security and MFA (added 2026-10-06) | /account/security | Two-factor enrolment | PR-15 / T-22 | M2 — `apps/web/src/app/account/security/page.tsx`; Better Auth `twoFactor` (TOTP); `e2e/accounts.spec.ts` |
-| SA-01 | Super Admin / overview | /admin | Platform operations; store/outcome summaries | PR-1 / T-3 | Pending |
-| SA-02 | Super Admin / seller list | /admin/stores | Tenancy; Store | PR-1 / T-3 | M1 — see [locators](#m1-implementation-locators) |
-| SA-03 | Super Admin / seller detail | /admin/stores/:storeId | Tenancy; Store, membership, audit | PR-1 / T-3 | M2 — `apps/web/src/app/admin/stores/[id]/page.tsx`, `apps/web/src/app/admin/stores/new/page.tsx`; `packages/db/src/content.ts`, `platform.ts`; `e2e/content.spec.ts` |
-| SA-04 | Super Admin / marketplace review | /admin/marketplace | Marketplace Listing | PR-6 / T-7 | Pending |
-| SA-05 | Super Admin / Log System | /admin/logs | Restricted diagnostic sink | PR-11 / T-13 | M2 — `apps/web/src/app/admin/logs/page.tsx`; `listSystemLogs` (`packages/db/src/ops.ts`); `test/ops.test.ts`, `e2e/ops.spec.ts` |
-| SA-06 | Super Admin / log detail | /admin/logs/:eventId | Diagnostic event/correlation | PR-11 / T-13 | M2 — `apps/web/src/app/admin/logs/[id]/page.tsx`; `getSystemLog`; `test/ops.test.ts`, `e2e/ops.spec.ts` |
-| SC-01 | Seller / overview | /seller | Store commerce summaries | PR-2 / T-3 | Pending |
-| SC-02 | Seller / products | /seller/products | Product | PR-2 / T-3 | M1 — see [locators](#m1-implementation-locators) |
-| SC-03 | Seller / product editor | /seller/products/:productId | Product, Variant | PR-2 / T-3 | M1 — see [locators](#m1-implementation-locators) |
-| SC-04 | Seller / inventory | /seller/inventory | Variant, Inventory | PR-2 / T-3 | M2 — `apps/web/src/app/seller/inventory/page.tsx`; `listInventory`, `adjustStock` (`packages/db/src/orders.ts`); `test/orders.test.ts`, `e2e/orders.spec.ts` |
-| SC-05 | Seller / collections | /seller/collections | Collection | PR-2 / T-3 | M2 — `apps/web/src/app/seller/collections/page.tsx`, `new/page.tsx`; `packages/db/src/content.ts`; `test/content.test.ts`, `e2e/content.spec.ts` |
-| SC-06 | Seller / collection editor | /seller/collections/:collectionId | Collection, Product | PR-2 / T-3 | M2 — `apps/web/src/app/seller/collections/[id]/page.tsx`; `packages/db/src/content.ts`; `test/content.test.ts` |
-| SC-07 | Seller / CMS pages | /seller/pages | CMS Page | PR-2 / T-3 | M2 — `apps/web/src/app/seller/pages/page.tsx`, `new/page.tsx`; `packages/db/src/content.ts`; `test/content.test.ts`, `e2e/content.spec.ts` |
-| SC-08 | Seller / CMS page editor | /seller/pages/:pageId | CMS Page | PR-2 / T-3 | M2 — `apps/web/src/app/seller/pages/[id]/page.tsx`; `packages/db/src/content.ts`; `test/content.test.ts` |
-| SC-09 | Seller / menus | /seller/menus | Menu | PR-2 / T-3 | Pending |
-| SC-10 | Seller / store settings | /seller/settings | Store, domain, enabled methods | PR-2 / T-3 | M2 — `apps/web/src/app/seller/settings/page.tsx`; `packages/db/src/content.ts`; `test/content.test.ts`, `e2e/content.spec.ts` |
-| SC-11 | Seller / theme selection | /seller/themes | Store theme configuration | PR-8 / T-10 | M2 — Theme selection inside `apps/web/src/app/seller/settings/page.tsx` (`responsive`/`mobile`); storefront shell `apps/web/src/app/s/[store]/layout.tsx`; `e2e/content.spec.ts` |
-| SC-12 | Seller / orders | /seller/orders | Order | PR-2 / T-3 | M2 — `apps/web/src/app/seller/orders/page.tsx`; `listOrders` (`packages/db/src/orders.ts`); `test/orders.test.ts`, `e2e/orders.spec.ts` |
-| SC-13 | Seller / order detail | /seller/orders/:orderId | Order, Payment Attempt, Shipment | PR-2 / T-3 | M2 — `apps/web/src/app/seller/orders/[id]/page.tsx`, `seller/orders/actions.ts`; `getOrder`, `transitionOrder`; `test/orders.test.ts`, `e2e/orders.spec.ts` |
-| SC-14 | Seller / Landing Page Builder list | /seller/landing-pages | Landing Page | PR-9 / T-11 | Pending |
-| SC-15 | Seller / landing-page editor | /seller/landing-pages/:pageId | Landing Page, Page Revision | PR-9 / T-11 | Pending |
-| SC-16 | Seller / private LP preview | /seller/landing-pages/:pageId/preview | Authorized Page Revision | PR-9 / T-11 | Pending |
-| SC-17 | Seller / product creation | /seller/products/new | Product, Variant, automatic identity/slug | PR-12 / T-14 | M1 — see [locators](#m1-implementation-locators) |
-| SC-18 | Seller / domains | /seller/settings/domains | Store domain lifecycle | PR-13 / T-15 | Pending |
-| SC-19 | Seller / members | /seller/settings/members | Membership and capabilities | PR-15 / T-17 | M1 — see [locators](#m1-implementation-locators) |
-| SC-20 | Seller / member detail | /seller/settings/members/:memberId | Membership, invitation, audit | PR-15 / T-17 | M2 — Members + invitations in `apps/web/src/app/seller/members/page.tsx` (no separate detail page); `packages/db/src/{accounts,membership}.ts`; `test/accounts.test.ts`, `e2e/accounts.spec.ts` |
-| SF-01 | Storefront / home | / | Store, published catalog/content | PR-3 / T-2 | M1 — see [locators](#m1-implementation-locators) |
-| SF-02 | Storefront / collection | /collections/:slug | Collection, Product | PR-3 / T-2 | M2 — `apps/web/src/app/s/[store]/collections/[slug]/page.tsx`; `packages/db/src/content.ts`; `e2e/content.spec.ts` |
-| SF-03 | Storefront / search | /search | Published Product index/query | PR-3 / T-2 | M2 — `apps/web/src/app/s/[store]/search/page.tsx`; `packages/db/src/content.ts`; `test/content.test.ts`, `e2e/content.spec.ts` |
-| SF-04 | Storefront / product | /products/:slug | Product, Variant | PR-3 / T-2 | M1 — see [locators](#m1-implementation-locators) |
-| SF-05 | Storefront / CMS page | /pages/:slug | Published CMS Page | PR-3 / T-2 | M2 — `apps/web/src/app/s/[store]/pages/[slug]/page.tsx`; `packages/db/src/content.ts`; `e2e/content.spec.ts` |
-| SF-06 | Storefront / cart | /cart | Cart, Variant | PR-4 / T-4 | M1 — see [locators](#m1-implementation-locators) |
-| SF-07 | Hosted Checkout / checkout (stable ID retained) | /checkout | Checkout Session, quotes | PR-16 / T-19 | M1 — see [locators](#m1-implementation-locators) |
-| SF-08 | Hosted Checkout / confirmation | /checkout/confirmation | Authorized order outcome | PR-16 / T-19 | M1 — see [locators](#m1-implementation-locators) |
-| SF-09 | Storefront / independent LP | /lp/:slug | Published Page Revision, form reference | PR-9 / T-11 | Pending |
-| BA-01 | Buyer Account / orders (later) | /account/orders | Buyer-owned Order projections | PR-7 / T-8 | Pending |
-| BA-02 | Buyer Account / addresses (later) | /account/addresses | Buyer, Address | PR-7 / T-8 | Pending |
-| BA-03 | Buyer Account / profile (later) | /account/profile | Buyer | PR-7 / T-8 | Pending |
-| AF-01 | Affiliate / links and aggregates (later) | /affiliate | Attribution, approved aggregates | PR-7 / T-8 | Pending |
+Shared code that is not a page: auth `apps/web/src/lib/auth.ts`; request
+context and scopes `apps/web/src/lib/context.ts`; storefront helpers
+`apps/web/src/lib/storefront.ts`; media store `apps/web/src/lib/media.ts`;
+logging `apps/web/src/lib/log.ts`, `apps/web/src/instrumentation.ts`;
+security headers `apps/web/src/lib/security-headers.ts`; host rewrite,
+correlation id and CSP `apps/web/src/proxy.ts`; shells and shared components
+`apps/web/src/components/**` (`admin-shell.tsx`, `pixels/**`); error pages
+`apps/web/src/app/{error,global-error,not-found}.tsx`, `admin/error.tsx`,
+`seller/error.tsx`, `s/[store]/not-found.tsx`, `o/[token]/not-found.tsx`;
+schema `packages/db/src/schema*.ts`; migrations `packages/db/drizzle/0000…0007`.
 
-Product creation (SC-17) may reuse the product editor implementation (SC-03)
-with explicit create mode. Authentication uses AU-01 through AU-03.
-Marketplace buyer screens and further workflow pages must be added when their
-contracts are defined; this is the current inventory, not a
-claim that unspecified future pages are already designed.
+### Pages
 
-### M1 implementation locators
+| Page ID | Route on `main` | Entry files (`apps/web/src/app/…`) | Server operations (`packages/db/src/…`) | Data | Permission | Tests | Task | Status |
+|---|---|---|---|---|---|---|---|---|
+| AU-01 | `/login` | `login/page.tsx`, `login/login-form.tsx`, `login/actions.ts` (`signOut`) | Better Auth `POST /api/auth/sign-in/email`, `/api/auth/two-factor/verify-totp` (HTTP-01); `lib/auth.ts` (sign-up disabled) | `user`, `session`, `account`, `two_factor` | none; built-in limiter 3 sign-ins / 10 s / IP | `e2e/accounts.spec.ts` (MFA login), sign-in helper in every spec | T-17, T-22 | Implemented |
+| AU-02 | `/account/recovery`, `/account/recovery/reset` | `account/layout.tsx`, `account/recovery/page.tsx`, `recovery-form.tsx`, `recovery/reset/page.tsx`, `reset-form.tsx` | Better Auth `request-password-reset` / `reset-password` via `lib/auth-client.ts`; `dbMailer` (`accounts.ts`); `onPasswordReset` audit in `lib/auth.ts` | `verification`, `mail_outbox`, `audit_log` | none; limiter 3 requests / 60 s | `e2e/accounts.spec.ts` (no enumeration, reset via mailed link) | T-22 | Implemented |
+| AU-03 | proposed `/select-store` — no page | store switcher in `seller/layout.tsx` → `switchStore` (`seller/actions.ts`) | `sellerContext` (`scoped.ts`; cookie `bl_store` is a membership-checked preference) | `membership`, `store` | active membership | `test/tenant-isolation.test.ts` ("requested store id is honoured only with membership"), `test/lifecycle.test.ts` | T-17 | Retired — header switcher replaces the page |
+| AU-04 | `/invite/[token]` | `invite/[token]/page.tsx`, `new-account-form.tsx`, `invite/actions.ts` (`acceptAsCurrentUser`, `acceptAsNewAccount`) | `previewInvitation`, `acceptInvitation` (`accounts.ts`) | `store_invitation`, `user`, `account`, `membership`, `audit_log` | hashed single-use token, e-mail bound, 7-day TTL | `test/accounts.test.ts`, `e2e/accounts.spec.ts` | T-22 | Implemented |
+| AU-05 | `/account/security` | `account/security/page.tsx`, `security-enrol.tsx` | Better Auth `two-factor/enable`, `verify-totp`; `currentUser`, `isOperator` (`lib/context.ts`) | `two_factor`, `session` | signed-in user; operators are redirected here until TOTP is enabled | `e2e/accounts.spec.ts` ("operator must enrol TOTP before Super Admin opens") | T-22 | Implemented |
+| SA-01 | proposed `/admin` overview | — | — | — | — | — | T-3 | Retired — `/admin` renders the store list (SA-02); a separate overview is not planned |
+| SA-02 | `/admin` (proposed `/admin/stores`; there is no `/admin/stores` index route) | `admin/layout.tsx`, `admin/page.tsx`, `admin/actions.ts` (`setStoreStatusAction`) | `listStores`, `setStoreStatus` (`platform.ts`); `operatorScope` on the platform pool | `store`, `platform_operator`, `audit_log` | operator (TOTP enforced in `lib/context.ts`) | `test/lifecycle.test.ts`, `e2e/super-admin.spec.ts`, `e2e/ui.spec.ts` | T-3 | Implemented |
+| SA-03 | `/admin/stores/[id]`, `/admin/stores/new` | `admin/stores/[id]/page.tsx`, `admin/stores/new/page.tsx`, `admin/stores/actions.ts` (`createStoreAction`, `setStoreStatusDetailAction`) | `getStoreDetail`, `createStoreForOwnerEmail` (`content.ts`); `setStoreStatus` (`platform.ts`) | `store`, `membership`, `user`, `product`, `order`, `audit_log` | operator | `test/content.test.ts` ("Super Admin store detail and creation"), `e2e/content.spec.ts`, `e2e/ui.spec.ts` | T-26 | Implemented |
+| SA-04 | proposed `/admin/marketplace` | — | — | Marketplace Listing (not modelled) | — | — | T-7 | Planned (later scope) |
+| SA-05 | `/admin/logs` | `admin/logs/page.tsx`, `admin/logs/loading.tsx`, `admin/logs/shared.tsx` | `listSystemLogs`, `LOG_LEVELS`, `MODULE_MAP`, `requirePlatformCap` (`ops.ts`) | `system_log`, `operator_grant`, `audit_log` (every read audited) | operator + `logs.read` grant | `test/ops.test.ts`, `e2e/ops.spec.ts`, `e2e/ui.spec.ts` | T-23 (T-13) | Implemented |
+| SA-06 | `/admin/logs/[id]` | `admin/logs/[id]/page.tsx` | `getSystemLog` (`ops.ts`; related events by request id, page/module mapping) | `system_log`, `audit_log` | operator + `logs.read` | `test/ops.test.ts`, `e2e/ops.spec.ts` | T-23 (T-13) | Implemented |
+| SA-07 (added 2026-10-07) | `/admin/shipping` | `admin/shipping/page.tsx`, `admin/shipping/loading.tsx`, `admin/shipping/actions.ts` (`setMarginRuleAction`) | `getMarginRule`, `setMarginRule`, `applyMargin`, `marginRuleAudit`, `ROUND_TO_OPTIONS` (`shipping.ts`) | `shipping_margin_rule`, `audit_log` | operator | `test/shipping.test.ts` ("margin rule and pickup origin"), `e2e/shipping.spec.ts`, `e2e/ui.spec.ts` | T-34 | Implemented |
+| SC-01 | `/seller` | `seller/layout.tsx`, `seller/page.tsx` (redirects to `/seller/products`) | `sellerContext` | — | active membership | `e2e/ui.spec.ts` (shell) | T-41 | Pending — dashboard owned by track `dashboard`; `main` has the redirect only |
+| SC-02 | `/seller/products` | `seller/products/page.tsx` | `listProducts` (`catalog.ts`) | `product`, `variant` | `catalog.read` | `test/tenant-isolation.test.ts`, `e2e/admin-product.spec.ts`, `e2e/ui.spec.ts` | T-3 | Implemented |
+| SC-03 | `/seller/products/[id]` | `seller/products/[id]/page.tsx`, `product-fields.tsx`, `product-history.tsx`, `product-images.tsx`, `seller/actions.ts` (`updateProductAction`, `addVariantAction`, `updateVariantAction`), `seller/products/media-actions.ts` | `getProduct`, `updateProduct`, `addVariant`, `updateVariant`, `listCatalogHistory`, `canonicalSlug` (`catalog.ts`); `listProductMedia`, `addProductMedia`, `updateMediaAlt`, `moveMediaUp`, `removeProductMedia` (`content.ts`) | `product`, `variant`, `product_slug_alias`, `catalog_audit`, `media` | `catalog.write` | `test/tenant-isolation.test.ts`, `test/catalog.test.ts`, `test/content.test.ts` ("product media"), `e2e/catalog.spec.ts`, `e2e/content.spec.ts`, `e2e/ui.spec.ts` | T-14, T-25, T-31 | Implemented |
+| SC-04 | `/seller/inventory` | `seller/inventory/page.tsx`, `loading.tsx`, `seller/inventory/actions.ts` (`adjustStockAction`) | `listInventory`, `listStockAdjustments`, `adjustStock` (`orders.ts`) | `variant`, `stock_adjustment` | `catalog.read` to view, `inventory.write` to adjust | `test/orders.test.ts` ("inventory"), `e2e/orders.spec.ts`, `e2e/ui.spec.ts` | T-21 | Implemented |
+| SC-05 | `/seller/collections`, `/seller/collections/new` | `seller/collections/page.tsx`, `new/page.tsx`, `collection-fields.tsx`, `seller/collections/actions.ts` (`createCollectionAction`) | `listCollections`, `createCollection` (`content.ts`); `listProducts` | `collection`, `collection_product` | `catalog.read` / `catalog.write` | `test/content.test.ts` ("collections"), `e2e/content.spec.ts`, `e2e/ui.spec.ts` | T-25 | Implemented |
+| SC-06 | `/seller/collections/[id]` | `seller/collections/[id]/page.tsx`, `actions.ts` (`updateCollectionAction`) | `getCollection`, `updateCollection` (`content.ts`) | `collection`, `collection_product` | `catalog.write` | `test/content.test.ts` | T-25 | Implemented |
+| SC-07 | `/seller/pages`, `/seller/pages/new` | `seller/pages/page.tsx`, `new/page.tsx`, `page-fields.tsx`, `seller/pages/actions.ts` (`createPageAction`) | `listPages`, `createPage`, `RESERVED_PAGE_SLUGS` (`content.ts`) | `page` | `catalog.read` / `catalog.write` | `test/content.test.ts` ("CMS pages"), `e2e/content.spec.ts`, `e2e/ui.spec.ts` | T-25 | Implemented |
+| SC-08 | `/seller/pages/[id]` | `seller/pages/[id]/page.tsx`, `actions.ts` (`updatePageAction`) | `getPage`, `updatePage` (`content.ts`) | `page` | `catalog.write` | `test/content.test.ts` | T-25 | Implemented |
+| SC-09 | proposed `/seller/menus` | — | storefront navigation is derived from published collections and pages (`s/[store]/_lib.ts`) | no `menu` table | — | — | T-3 | Planned — no menu entity; derived navigation is the ceiling |
+| SC-10 | `/seller/settings` | `seller/settings/page.tsx`, `loading.tsx`, `seller/settings/actions.ts` (`updateSettingsAction`) | `getStoreSettings`, `updateStoreSettings` (`content.ts`) | `store` (profile, WhatsApp, `theme`) | owner only (`content.ts:46`) | `test/content.test.ts` ("store settings and theme"), `e2e/content.spec.ts`, `e2e/ui.spec.ts` | T-24 | Implemented |
+| SC-11 | proposed `/seller/themes` | theme field inside SC-10; rendering `s/[store]/layout.tsx` (`data-theme`, container queries in `globals.css`) | `updateStoreSettings` (`Theme` = `responsive` \| `mobile`) | `store.theme` | owner only | `e2e/content.spec.ts` (both themes, no overflow at 320px) | T-24 | Retired — merged into SC-10 |
+| SC-12 | `/seller/orders` | `seller/orders/page.tsx`, `seller/orders/run.ts`, `seller/orders/status.ts` | `listOrders`, `ORDER_STATUSES` (`orders.ts`) | `order` | `orders.read` | `test/orders.test.ts`, `e2e/orders.spec.ts`, `e2e/ui.spec.ts` | T-21 | Implemented |
+| SC-13 | `/seller/orders/[id]` | `seller/orders/[id]/page.tsx`, `seller/orders/actions.ts` (`orderAction`) | `getOrder`, `transitionOrder`, `allowedActions`, `codRiskReasons` (`orders.ts`); hooks `enqueueOrderNotifications` (`notify.ts`), `enqueuePurchase` (`signals.ts`) | `order`, `order_line`, `order_status_history`, `variant` (restock), `job`, `order_notification`, `signal_event` | `orders.read` / `orders.fulfill` | `test/orders.test.ts`, `test/checkout2.test.ts` ("COD confirmation and risk"), `test/notify.test.ts`, `test/signals.test.ts`, `e2e/orders.spec.ts`, `e2e/checkout2.spec.ts`, `e2e/notify.spec.ts` | T-21, T-35, T-36, T-38 | Implemented (shipment booking: Pending, T-39 track `fulfillment`) |
+| SC-14 | `/seller/landing-pages` | — (nav entry already in `seller/layout.tsx`; 404 on `main`) | `landing.ts` is an empty stub | `schema-landing.ts` stub | — | — | T-42 | Pending — track `landing` |
+| SC-15 | `/seller/landing-pages/[id]` | — | — | — | — | — | T-42 | Pending — track `landing` |
+| SC-16 | `/seller/landing-pages/[id]/preview` | — | — | — | — | — | T-42 | Pending — track `landing` (preview scope decided by the track) |
+| SC-17 | `/seller/products/new` | `seller/products/new/page.tsx`, `product-fields.tsx`, `seller/actions.ts` (`createProductAction`) | `createProduct` (`catalog.ts`; product + first variant in one transaction, `catalog_id` from `catalog_id_seq`) | `product`, `variant`, `catalog_audit` | `catalog.write` | `e2e/admin-product.spec.ts`, `e2e/ui.spec.ts` (keyboard-only), `test/catalog.test.ts` | T-14 | Implemented |
+| SC-18 | proposed `/seller/settings/domains` | — | — | no domain table | — | — | T-15 | Planned (Q-8 provider open) |
+| SC-19 | `/seller/members` (proposed `/seller/settings/members`) | `seller/members/page.tsx`, `loading.tsx`, `seller/actions.ts` (`changeMemberAction`, `inviteMemberAction`, `revokeInvitationAction`) | `listMembers`, `changeMember` (`membership.ts`); `listInvitations`, `createInvitation`, `revokeInvitation`, `dbMailer` (`accounts.ts`) | `membership`, `store_invitation`, `mail_outbox`, `audit_log`, `session` (revoked when orphaned) | `members.manage` (owner) | `test/lifecycle.test.ts` (last owner, concurrent removal, staff denied), `test/accounts.test.ts`, `e2e/accounts.spec.ts`, `e2e/ui.spec.ts` | T-17, T-22 | Implemented |
+| SC-20 | proposed `/seller/settings/members/:memberId` | — | — | — | — | — | T-17 | Retired — members and invitations are managed inline on SC-19 |
+| SC-21 | `/seller/channels` (proposed `/seller/settings/storefront-channels`) | `seller/channels/page.tsx`, `loading.tsx`, `create-channel-form.tsx`, `seller/channels/actions.ts` (`createChannelAction`, `revokeChannelAction`) | `listChannels`, `createChannel`, `revokeChannel` (`channels.ts`) | `storefront_channel` (SHA-256 token hash + prefix) | `integrations.manage` (owner) | `test/channels.test.ts`, `e2e/channels.spec.ts` | T-16, T-19 | Implemented |
+| SC-22 (added 2026-10-07) | `/seller/shipping` | `seller/shipping/page.tsx`, `loading.tsx`, `seller/shipping/actions.ts` (`setPickupAreaAction`, `setPickupAddressAction`) | `getPickupArea`, `searchPickupAreas`, `setPickupArea`, `setPickupAddress` (`shipping.ts`); provider via `defaultShippingAdapter` (Mengantar when `MENGANTAR_API_KEY` is set, else `fakeMengantar`) | `store_pickup_area` | `shipping.manage` (owner; staff read-only) | `test/shipping.test.ts`, `e2e/shipping.spec.ts`, `e2e/ui.spec.ts` | T-34 | Implemented |
+| SC-23 (added 2026-10-07) | `/seller/marketing` | `seller/marketing/page.tsx`, `seller/marketing/actions.ts` (`saveDestinationAction`, `clearTokenAction`) | `listDestinations`, `saveDestination`, `clearDestinationToken`, `destinationHealth`, `liveMode`, `SIGNAL_PROVIDERS` (`signals.ts`) | `signal_destination` (AES-256-GCM sealed token), `signal_event` | `marketing.manage` (owner) | `test/signals.test.ts` ("destinations"), `e2e/signals.spec.ts` | T-38 | Implemented (feed URLs section: Pending, T-40 track `feeds`) |
+| SC-24 (added 2026-10-07) | `/seller/privacy` | — (nav entry already in `seller/layout.tsx`; 404 on `main`) | `privacy.ts` is an empty stub | `schema-privacy.ts` stub | — | — | T-43 | Pending — track `privacy` |
+| SF-01 | `/s/[store]` · host mode `/` | `s/[store]/layout.tsx`, `s/[store]/page.tsx`, `s/[store]/_lib.ts` (`storeShell`), `s/[store]/_components/*`, `s/[store]/not-found.tsx` | `storefrontScope` (`scoped.ts`); `getStorefrontStore`, `listPublishedCollections`, `listPublishedPages`, `coverImages` (`content.ts`); `listPublishedProducts` (`storefront.ts`); `slugFromHost` (`host.ts`) | `store`, `product`, `variant`, `media`, `collection`, `page` | active store only; unknown/suspended → 404 | `test/tenant-isolation.test.ts`, `test/lifecycle.test.ts`, `e2e/purchase.spec.ts`, `e2e/content.spec.ts`, `e2e/security-headers.spec.ts` | T-2, T-24 | Implemented |
+| SF-02 | `/s/[store]/collections/[slug]` | `s/[store]/collections/[slug]/page.tsx` | `getPublishedCollection`, `coverImages` (`content.ts`) | `collection`, `collection_product`, `product` | published + active only | `test/content.test.ts`, `e2e/content.spec.ts` | T-25 | Implemented |
+| SF-03 | `/s/[store]/search?q=` | `s/[store]/search/page.tsx`, `_components/search-form.tsx` | `searchPublishedProducts`, `SEARCH_LIMIT` (`content.ts`; ILIKE, 24 results) | `product`, `variant` | active products of that store | `test/content.test.ts` ("storefront search"), `e2e/content.spec.ts` | T-25 | Implemented |
+| SF-04 | `/s/[store]/products/[slug]` (slug or catalog id; legacy db id and aliases 308) | `s/[store]/products/[slug]/page.tsx`, `s/[store]/actions.ts` (`addToCart`) | `getPublishedProduct` (`storefront.ts`), `publishedProductImages` (`content.ts`), `canonicalSlug` (`catalog.ts`), `setCartLine`, `limitCartMutation` (`checkout.ts`) | `product`, `variant`, `product_slug_alias`, `media`, `cart`, `cart_line`, `rate_limit` | public; cart cookie `bl_cart_<storeId>` | `test/catalog.test.ts`, `e2e/purchase.spec.ts`, `e2e/catalog.spec.ts`, `e2e/signals.spec.ts` | T-2, T-14 | Implemented |
+| SF-05 | `/s/[store]/pages/[slug]` | `s/[store]/pages/[slug]/page.tsx`, `_components/markdown-lite.tsx` | `getPublishedPage` (`content.ts`) | `page` | published only | `test/content.test.ts`, `e2e/content.spec.ts` | T-25 | Implemented |
+| SF-06 | `/s/[store]/cart` | `s/[store]/cart/page.tsx`, `s/[store]/actions.ts` (`updateCart`) | `getCart`, `setCartLine` (`storefront.ts`); `limitCartMutation`, `CART_MAX_LINES` (`checkout.ts`); `coverImages`, `variantCatalogIds` | `cart`, `cart_line`, `rate_limit` | cart cookie = capability (D-6) | `test/tenant-isolation.test.ts`, `test/checkout2.test.ts` ("abuse controls"), `e2e/purchase.spec.ts` | T-2, T-30 | Implemented |
+| SF-07 | `/checkout?store=<slug>` | `checkout/layout.tsx` (platform-owned, no theme), `checkout/page.tsx`, `checkout/actions.ts` (`submitCheckout`) | `checkoutSummary`, `searchDestinationAreas`, `checkoutShippingOptions`, `placeOrder`, `enforceLimits` (`checkout.ts`); `shippingOptions`, `quoteWithMargin` (`shipping.ts`); `enqueue` (`jobs.ts`); `enqueueOrderNotifications` (`notify.ts`); `recordOrderSignals` (`signals.ts`); `defaultProviders` (`shipping.ts`: Mengantar adapter or `fakeMengantar`, `fakeAutoLaris` from `providers.ts`) | `cart`, `order`, `order_line`, `variant.stock`, `store_pickup_area`, `shipping_margin_rule`, `rate_limit`, `job`, `order_notification`, `signal_event`, `order_signal_context` | cart cookie; idempotency key + request hash; limits 60/10 min per IP, 5/min per cart, 10/10 min per phone | `test/checkout.test.ts`, `test/checkout2.test.ts`, `e2e/purchase.spec.ts`, `e2e/checkout2.spec.ts`, `e2e/channels.spec.ts` | T-19, T-30, T-34, T-35 | Implemented (providers: Mengantar reads live when keyed, AutoLaris fake) |
+| SF-08 | `/checkout/confirmation?order=` | `checkout/confirmation/page.tsx` | `getBuyerOrder` (`checkout.ts`), `channelReturnTarget` (`channels.ts`), `purchaseEventId` (`signals.ts`); `browserMatch`, `signalsFor` (`lib/signals.ts`) | `order`, `order_line`, `checkout_handoff`, `storefront_channel` | checked-out cart cookie `bl_order_cart` | `test/checkout.test.ts`, `e2e/purchase.spec.ts`, `e2e/channels.spec.ts`, `e2e/signals.spec.ts` | T-19, T-38 | Implemented |
+| SF-09 | `/s/[store]/lp/[slug]` (proposed `/lp/:slug`) | — | `landing.ts` stub | — | — | — | T-42 | Pending — track `landing` |
+| SF-10 (added 2026-10-07) | `/checkout/h/invalid` | `checkout/h/invalid/page.tsx` | — (landing for unknown/expired/used handoff codes from HTTP-12) | — | public | `e2e/channels.spec.ts` (replayed handoff) | T-19 | Implemented |
+| SF-11 (added 2026-10-07) | `/o/[token]` | `o/layout.tsx`, `o/[token]/page.tsx`, `o/[token]/not-found.tsx` | `getOrderForLink`, `verifyOrderLink`, `BUYER_STATUS_LABEL` (`notify.ts`) | `order`, `order_line` | HMAC-SHA256 signed link, 30-day TTL (`ORDER_LINK_SECRET`) | `test/notify.test.ts`, `e2e/notify.spec.ts` | T-36 | Implemented (tracking states: Pending, T-39) |
+| WEB-01 (added 2026-10-07) | `/` | `page.tsx` (brand placeholder), `layout.tsx` | — | — | public | `e2e/security-headers.spec.ts` (headers only) | — | Implemented as placeholder; marketing site not planned on `apps/web` (D-2) |
+| OPS-01 (added 2026-10-07) | `/dev/outbox` | `dev/outbox/page.tsx` | `listOutbox` (`accounts.ts`) | `mail_outbox` | hidden in production unless `DEV_OUTBOX=1` | `e2e/accounts.spec.ts` ("dev outbox is hidden in production"), `e2e/notify.spec.ts` | T-22, T-36 | Implemented (dev tool) |
+| BA-01..BA-03 | proposed `/account/orders`, `/account/addresses`, `/account/profile` | — | — | — | — | — | T-8 | Planned (later scope; `/account/*` is used by AU-02/AU-05 today) |
+| AF-01 | proposed `/affiliate` | — | — | — | — | — | T-8 | Planned (later scope) |
 
-Checked against the working tree on 2026-10-06 (uncommitted; no commit exists
-yet — the owner approves the first commit). Paths are repository-relative.
-Shared pieces: scope/data access `packages/db/src/scoped.ts`, schema
-`packages/db/src/schema.ts`, migration `packages/db/drizzle/`, auth
-`apps/web/src/lib/auth.ts`, request context `apps/web/src/lib/context.ts`,
-host rewrite `apps/web/src/proxy.ts`. Integration tests:
-`packages/db/test/*.test.ts`; browser tests: `apps/web/e2e/*.spec.ts`.
+### HTTP handlers (no browser page)
 
-| Page ID | Implemented route → entry | Server operations | Data / permission | Checks | Task |
-|---|---|---|---|---|---|
-| AU-01 | `/login` → `apps/web/src/app/login/page.tsx`, `apps/web/src/app/login/login-form.tsx` | Better Auth `POST /api/auth/sign-in/email` (`apps/web/src/app/api/auth/[...all]/route.ts`); `signOut` in `login/actions.ts` | `user`, `session`, `account`; sign-up disabled | e2e login in all specs; rate limit 429 observed (BUILD-LOG) | T-17 |
-| SA-02 | `/admin` (proposed `/admin/stores`) → `apps/web/src/app/admin/page.tsx`, `layout.tsx` | `listStores`, `setStoreStatus` (`packages/db/src/platform.ts`) via `admin/actions.ts` | `store`, `audit_log`; `operatorScope` | `test/lifecycle.test.ts`; `e2e/super-admin.spec.ts` | T-3 |
-| SC-02 | `/seller/products` → `apps/web/src/app/seller/products/page.tsx` | `listProducts` (`packages/db/src/catalog.ts`) | `product`, `variant`; `catalog.read` | `test/tenant-isolation.test.ts`; `e2e/admin-product.spec.ts` | T-3 |
-| SC-03 | `/seller/products/[id]` → `seller/products/[id]/page.tsx` | `getProduct`, `updateProduct`, `addVariant`, `updateVariant` via `seller/actions.ts` | `catalog.write`; compound FKs | `test/tenant-isolation.test.ts`; e2e cross-store 404 | T-14 |
-| SC-17 | `/seller/products/new` → `seller/products/new/page.tsx` | `createProduct` (product + first variant, one transaction) | numeric identity, optional slug (canonical = slug ?? id) | `e2e/admin-product.spec.ts` | T-14 |
-| SC-19 | `/seller/members` → `seller/members/page.tsx` | `listMembers`, `changeMember` (`packages/db/src/membership.ts`) | `membership`, `audit_log`; `members.manage` (owner) | `test/lifecycle.test.ts` (last owner, concurrent removal, staff denied) | T-17 |
-| SF-01 | `/s/[store]` or `<slug>.<STORE_ROOT_DOMAIN>/` → `apps/web/src/app/s/[store]/page.tsx`, `layout.tsx` | `storefrontScope`, `listPublishedProducts` (`packages/db/src/storefront.ts`) | active store only; active products only | `test/tenant-isolation.test.ts`, `test/lifecycle.test.ts`; `e2e/purchase.spec.ts` | T-2 |
-| SF-04 | `/s/[store]/products/[slug]` → `s/[store]/products/[slug]/page.tsx` | `getPublishedProduct`, `setCartLine` via `s/[store]/actions.ts` | id-or-slug lookup, 308 to canonical slug | `e2e/purchase.spec.ts` | T-2 |
-| SF-06 | `/s/[store]/cart` → `s/[store]/cart/page.tsx` | `getCart`, `setCartLine` | `cart`, `cart_line` (store-bound, cookie capability) | `test/tenant-isolation.test.ts`; `e2e/purchase.spec.ts` | T-2 |
-| SF-07 | `/checkout?store=<slug>` → `apps/web/src/app/checkout/page.tsx`, `apps/web/src/app/checkout/layout.tsx`, `apps/web/src/app/checkout/actions.ts` | `checkoutSummary`, `placeOrder` (`packages/db/src/checkout.ts`); fake providers `packages/db/src/providers.ts` | `order`, `order_line`, `variant.stock`; idempotency + request hash | `test/checkout.test.ts`; `e2e/purchase.spec.ts` (tampered hidden total ignored) | T-19 |
-| SF-08 | `/checkout/confirmation` → `checkout/confirmation/page.tsx` | `getBuyerOrder` (requires checked-out cart cookie) | order snapshot | `test/checkout.test.ts`; e2e 404 without cookie | T-19 |
+| ID | Method and route | Entry file | Server operations | Data | Auth / limits | Tests | Task | Status |
+|---|---|---|---|---|---|---|---|---|
+| HTTP-01 | `GET`/`POST /api/auth/[...all]` | `api/auth/[...all]/route.ts` → `lib/auth.ts` | Better Auth handler (email+password, `twoFactor` TOTP, reset); `dbMailer`; `auditLog` on `password.reset` | `user`, `session`, `account`, `verification`, `two_factor`, `mail_outbox`, `audit_log` | Better Auth built-in limiter: 3 / 10 s on `/sign-in*`, 3 / 60 s on reset requests (in-memory, per process) | `e2e/accounts.spec.ts`; 429 observed (BUILD-LOG) | T-17, T-22 | Implemented |
+| HTTP-02 | `GET /api/health` | `api/health/route.ts` | none (liveness, no DB) | — | public | `scripts/verify-docker.sh`, Dockerfile `HEALTHCHECK` | T-18 | Implemented |
+| HTTP-03 | `GET /api/ready` | `api/ready/route.ts` | `db().execute("select 1")` with 2 s timeout → 503 | — | public, `no-store` | `e2e/ops.spec.ts` (DB unreachable → 503) | T-23 | Implemented |
+| HTTP-04 | `POST /api/signals` | `api/signals/route.ts` | `collectFunnelEvent`, `CLICK_COOKIE` (`signals.ts`), `enforceLimits` (`checkout.ts`), `storefrontScope`; `clientIp` (`lib/storefront.ts`) | `signal_event`, `rate_limit` | anonymous; 8 KB body; 600 / 10 min per IP | `test/signals.test.ts` ("browser funnel events"), `e2e/signals.spec.ts` | T-38 | Implemented |
+| HTTP-05 | `GET /api/storefront/v1/products` | `api/storefront/v1/products/route.ts`, `_lib.ts` (`withChannel`, `apiError`, `cartJson`) | `authenticateChannel` (`channels.ts`), `listPublishedProducts` (`storefront.ts`) | `storefront_channel`, `product`, `variant` | bearer channel token (`blsk_…`); no pagination, no rate limit | `test/channels.test.ts`, `e2e/channels.spec.ts` | T-16 | Implemented (`openapi.yaml` `listStorefrontProducts` `x-implemented`) |
+| HTTP-06 | `GET /api/storefront/v1/products/[slug]` | `api/storefront/v1/products/[slug]/route.ts` | `getPublishedProduct` | `product`, `variant` | channel token | `test/channels.test.ts` | T-16 | Implemented (`getStorefrontProduct`) |
+| HTTP-07 | `POST /api/storefront/v1/carts` | `api/storefront/v1/carts/route.ts` | `createEmptyCart` (`channels.ts`), `setCartLine`, `getCart` | `cart`, `cart_line` | channel token; cart id = capability | `test/channels.test.ts`, `e2e/channels.spec.ts` | T-16 | Implemented (`createCart`) |
+| HTTP-08 | `GET /api/storefront/v1/carts/[cartId]` | `api/storefront/v1/carts/[cartId]/route.ts` | `ownsOpenCart`, `getCart` | `cart`, `cart_line` | channel token; foreign/checked-out → 404 | `test/channels.test.ts` | T-16 | Implemented (`getCart`) |
+| HTTP-09 | `POST /api/storefront/v1/carts/[cartId]/items` | `…/items/route.ts` | `ownsOpenCart`, `setCartLine`, `getCart` | `cart_line` | channel token; qty ≤ 99 | `test/channels.test.ts` | T-16 | Implemented (`addCartItem`) |
+| HTTP-10 | `PATCH /api/storefront/v1/carts/[cartId]/items/[variantId]` | `…/items/[variantId]/route.ts` | `ownsOpenCart`, `setCartLine`, `getCart` | `cart_line` | channel token; qty 0 removes | `test/channels.test.ts` | T-16 | Implemented (`updateCartItem`) |
+| HTTP-11 | `POST /api/storefront/v1/carts/[cartId]/checkout-handoffs` | `…/checkout-handoffs/route.ts` | `createHandoff` (`channels.ts`); origin from `CHECKOUT_ORIGIN` → `BETTER_AUTH_URL` → request origin | `checkout_handoff` | channel token; 10-minute one-use code | `test/channels.test.ts`, `e2e/channels.spec.ts` | T-19 | Implemented (`createCheckoutHandoff`) |
+| HTTP-12 | `GET /checkout/h/[code]` | `checkout/h/[code]/route.ts` | `exchangeHandoff` (`channels.ts`); sets `bl_cart_<storeId>` and redirects to `/checkout?store=`; failure → SF-10 | `checkout_handoff`, `cart` | one-use code, consumed atomically | `test/channels.test.ts` ("consumed exactly once"), `e2e/channels.spec.ts` | T-19 | Implemented |
+| HTTP-13 | `GET /s/[store]/media/[id]` | `s/[store]/media/[id]/route.ts` | `getPublicMedia` (`content.ts`); `readMedia`, `imageResponse` (`lib/media.ts`) | `media` (files under `MEDIA_DIR`) | public for active products of the store; sandboxing CSP, `nosniff` | `test/content.test.ts`, `e2e/security-headers.spec.ts` ("served product image") | T-25 | Implemented |
+| HTTP-14 | `GET /seller/products/[id]/media/[mediaId]` | `seller/products/[id]/media/[mediaId]/route.ts` | `sellerContext`, `listProductMedia`, `mediaKey` (`content.ts`); `readMedia` | `media` | active membership (`catalog.read`) | `test/content.test.ts`, `e2e/content.spec.ts` | T-25 | Implemented |
+| HTTP-15 | `GET /feeds/…` (Meta / Google Merchant) | — (`apps/web/src/app/feeds/**` absent on `main`) | `feeds.ts` stub | `schema-feeds.ts` stub | feed token (track decision) | — | T-40 | Pending — track `feeds` |
 
-M2 status (2026-10-06): rows marked "In progress — M2" are being built on the
-named branch; they receive real locators here only after merge and executed
-checks. Not implemented in M1: AU-02, AU-03 (store switch exists as a
-header selector in `seller/layout.tsx`, no dedicated page), SA-01, SA-03..06,
-SC-01, SC-04..16, SC-18, SC-20, SC-21, SF-02, SF-03, SF-05, SF-09, BA-*, AF-01.
+Not implemented as HTTP: every `/seller/*` and `/admin/*` operation in
+`openapi.yaml` (server actions and server components only — see
+09-API-SPECIFICATION "Implemented versus proposed"), provider callbacks,
+`/session`, `/storefront/config`, collections/pages over the Storefront API,
+`getOrderOutcome`, hosted-checkout session endpoints.
 
-### M2 additional locators (2026-10-07, merged to `main`)
+### Background entry points (`packages/db/src/`)
 
-Pages and handlers without a planned Page ID: `/admin/shipping`
-(`apps/web/src/app/admin/shipping/page.tsx`, platform margin, `packages/db/src/shipping.ts`),
-`/seller/shipping` (`apps/web/src/app/seller/shipping/page.tsx`, store pickup area),
-`/dev/outbox` (`apps/web/src/app/dev/outbox/page.tsx`, dev-only mail viewer),
-`/api/ready` (DB readiness), `/checkout/h/invalid` (handoff failure page),
-media routes `apps/web/src/app/s/[store]/media/[id]/route.ts` and
-`apps/web/src/app/seller/products/[id]/media/[mediaId]/route.ts`, outbox worker
-`packages/db/src/worker.ts` (no browser page), Mengantar client
-`packages/db/src/mengantar/**`. Integration evidence on `main`: Vitest 88
-passed, Playwright 41 passed + 1 skipped (`BUILD-LOG.md`, 2026-10-07).
+| ID | Command (repo root) | Entry file | Operations and handlers | Data | Role / env | Tests | Task | Status |
+|---|---|---|---|---|---|---|---|---|
+| JOB-01 | `pnpm --filter @bukalaris/db worker [-- --once]` | `worker.ts` | `runOnce`, `claimBatch`, `completeJob`, `failJob`, `backoffMs` (`jobs.ts`; `FOR UPDATE SKIP LOCKED`, 60 s lease, 10 attempts, `pg_notify` wake-up); handlers `PAYMENT_INSTRUCTION` (`jobs.ts`), `ORDER_NOTIFY` (`notify.ts`), `SIGNAL_DELIVER` / `signal.*` (`signals.ts`) | `job`, `order`, `order_notification`, `mail_outbox`, `signal_event`, `signal_destination` | `bukalaris_platform` via `PLATFORM_DATABASE_URL`; `WORKER_POLL_MS`, `WORKER_BATCH`, `SIGNALS_LIVE`, `ORDER_LINK_SECRET`, `INTEGRATION_TOKEN_KEY`, `BETTER_AUTH_URL` | `test/jobs.test.ts`, `test/notify.test.ts`, `test/signals.test.ts`, `test/checkout.test.ts`; runs as second `webServer` in `apps/web/playwright.config.ts` | T-32, T-36, T-38 | Implemented; not yet in the deploy plan as a service (DEPLOY-COOLIFY "Worker") |
+| JOB-02 | `pnpm --filter @bukalaris/db cleanup` | `cleanup.ts` | `cleanupIdleCarts` (`checkout.ts`; open carts older than `CART_IDLE_HOURS`, default 168, counters older than a day), `purgeSignalContext` (`signals.ts`; 30 days) | `cart`, `cart_line`, `checkout_handoff` (cascade), `rate_limit`, `order_signal_context`, `signal_event` | `bukalaris_platform`; `CART_IDLE_HOURS` | `test/checkout2.test.ts` ("cleanup deletes only open carts…"), `test/signals.test.ts` ("retention") | T-30, T-38 | Implemented; no scheduler wired (cron/Coolify scheduled task pending) |
+| JOB-03 | `pnpm db:migrate` | `migrate.ts` | drizzle `migrate()` over `packages/db/drizzle/0000…0007` (`0003` and `0007` hand-written) | whole schema; roles and grants in `0007_rls.sql` | `bukalaris_owner` via `MIGRATION_DATABASE_URL` only (no fallback) | `scripts/verify-docker.sh`, Docker target `migrate`, `scripts/db-restore-rehearsal.sh` | T-18, T-27 | Implemented |
+| JOB-04 | `pnpm db:seed` | `seed.ts` | `createStore` (`platform.ts`), `createProduct`, `addVariant` (`catalog.ts`), `setPickupArea`, `setPickupAddress` (`shipping.ts`); operator grant `logs.read` | two stores, operator, owners, staff, `recovery-a@` | `bukalaris_platform`; refuses `NODE_ENV=production`; idempotent | run by `apps/web/e2e/global-setup.ts` each e2e run | T-1 | Implemented (dev only) |
+| JOB-05 | `node packages/db/src/local-roles.ts <admin url>` | `local-roles.ts` | `prepareLocalDatabase`, `wipeLocalDatabase`, `localRoleUrl` (placeholder passwords = role names) | `*_test` / `*_e2e` databases only | compose superuser; refuses production | Vitest `test/global-setup.ts`, Playwright `global-setup.ts` | T-27 | Implemented (local/test only) |
+| JOB-06 | `pnpm db:seed:demo` | `packages/db/src/demo/**` (absent on `main`) | — | — | — | — | track `demo` | Pending |
 
-### M2 wave 2 locators (2026-10-07, merged to `main`)
+### How to keep this map current
 
-- `/seller/marketing` → `apps/web/src/app/seller/marketing/page.tsx`; services
-  `packages/db/src/signals.ts`; pixels `apps/web/src/components/pixels/**`;
-  browser funnel endpoint `apps/web/src/app/api/signals/route.ts`; tests
-  `packages/db/test/signals.test.ts`, `apps/web/e2e/signals.spec.ts` (T-38).
-- `/o/:token` (buyer order status, signed) → `apps/web/src/app/o/[token]/page.tsx`;
-  `packages/db/src/notify.ts`; tests `packages/db/test/notify.test.ts`,
-  `apps/web/e2e/notify.spec.ts` (T-36).
-- Seller/Super Admin shell → `apps/web/src/components/admin-shell.tsx` and
-  shared components under `apps/web/src/components/`; per-page evidence
-  `apps/web/e2e/ui.spec.ts` (T-28).
-- Checkout shipping/COD/abuse (T-34, T-35, T-30) live in the existing SF-07
-  and SC-13 entries (`packages/db/src/{checkout,orders,shipping}.ts`).
+1. A task that adds, moves or removes a route under `apps/web/src/app/**` or an
+   entry point under `packages/db/src/` edits its row here in the same change
+   (AGENTS.md: "Each page-changing task includes map maintenance"). Keep the
+   Page ID; update the route and add a "(proposed …)" note when it differs.
+2. Verify, do not infer: every file path must exist (`test -e`), every server
+   operation must be an exported symbol (`grep -n "^export .* <name>" packages/db/src/*.ts`),
+   every test must be a real `describe`/`test` title.
+3. New unplanned pages take the next free number of their surface prefix
+   (`AU-`, `SA-`, `SC-`, `SF-`); handlers take `HTTP-nn`, background commands
+   `JOB-nn`. Never renumber.
+4. `Pending` rows name their track; the orchestrator flips them to
+   `Implemented` at merge with the test files that landed.
+5. Re-run the docs validators after editing (`cd docs && python3 check-spec.py`;
+   `check-traceability.py docs`) and note the checked revision in "Evidence".
+6. `packages/db/src/ops.ts` `MODULE_MAP` is the runtime subset of this map used
+   by the Log System; a new page that should resolve in log detail adds a
+   `ROUTE_PREFIXES` entry there and references this table, not a second route list.
 
-### Implementation locator and change rule
-
-For each implemented page, extend its row with actual file links or an anchor
-here containing: route entry; layout/components; server operations; schema and
-query files; permission contract; relevant tests; primary task; checked commit
-or working-tree evidence. Every page-changing task includes updating these
-links. A route move updates the locator while retaining the Page ID.
-
-Use a simple route-to-page registry in code only when needed for runtime log
-attribution; documentation references that registry rather than maintaining a
-second route definition. Link backend-only operations and jobs to their module,
-service entry, data owner, and tests without inventing a browser Page ID.
 Engineering navigation is: page ID or URL → code entry → service → schema/query
 → test/task. Incident navigation is: event/correlation → page/module ID → this
-map → actual code at the event's release revision. No full source code or local
-filesystem paths are exposed in the public storefront.
+map → actual code at the event's release revision (`RELEASE_REVISION`). No full
+source code or local filesystem paths are exposed in the public storefront.
 
 ## ARCH-6 — Headless modular application and future seams
 
@@ -362,8 +390,12 @@ filesystem paths are exposed in the public storefront.
   can use the documented HTTP contract with scoped credentials. Future modules
   integrate through references/projections rather than duplicate transactions.
 - Constraints: PR-14, API-7, DATA-1, TEN-1, IAM-1, ARCH-5.
-- Evidence: Architecture proposal only; no repository/framework selected.
+- Evidence: Module boundaries exist on `main` as `packages/db/src/*.ts` service
+  files behind scope objects (`scoped.ts`) with RLS (ADR-0005); HTTP adapter
+  `apps/web/src/app/api/storefront/v1/**`; first-party pages call the services
+  directly (ARCH-5). Future seams (MCP, feeds, marketplace) remain proposals.
 - Change history: 2026-09-18 — headless boundaries and deployment shape.
+  2026-10-07 — evidence updated to the implemented module layout.
 
 | Module | Authoritative data | Initial interfaces | Later seam |
 |---|---|---|---|
@@ -391,11 +423,11 @@ content, order snapshots, and documented service interfaces now. Do not create
 unused marketplace settlement tables, commission engines, plugin runtimes,
 wallets, or cross-seller carts during the initial milestone.
 
-Stack status: No repository or selected deployment is established. React is a
-candidate for the admin/editor surface because Puck requires React; relational
-storage is the current data-model direction. Evaluate actual runtime, database
-transaction/RLS support, auth integration, SSR/SEO, jobs, and operational cost
-before freezing framework versions. No stack claim is implementation evidence.
+Stack status (2026-10-07): repository established with pinned versions
+(DECISIONS D-1: Next.js 16.3.8, React 19.2.8, Drizzle 0.45.3, PostgreSQL 17,
+Better Auth 1.7.7); RLS implemented (ADR-0005); jobs via a PostgreSQL outbox
+(T-32). No deployment exists (DEPLOY-COOLIFY is a draft). React remains the
+editor candidate because Puck requires React (T-42 landing pages v1 does not use it).
 
 ## ARCH-7 — External headless channel and hosted checkout
 
@@ -410,8 +442,13 @@ before freezing framework versions. No stack claim is implementation evidence.
   hosted checkout. No storefront-controlled script, theme stylesheet, seller
   API token, or arbitrary redirect origin enters that checkout context.
 - Constraints: API-8, IAM-11, DOM-4, SEC-13, UX-12.
-- Evidence: Planning only; API and token lifecycle require implementation proof.
+- Evidence: Implemented subset on `main` (2026-10-07): channel tokens (hash
+  only), Storefront API v1, one-use 10-minute handoff into the platform-owned
+  `/checkout` layout, allowlisted return origin; `test/channels.test.ts`,
+  `e2e/channels.spec.ts`. Open: revocation of an already-exchanged checkout
+  session (IAM-11), API rate limits, separate checkout origin (D-2).
 - Change history: 2026-09-18 — incorporated independent checkout requirement.
+  2026-10-07 — evidence from the channels track.
 
 ```mermaid
 flowchart LR
@@ -439,11 +476,10 @@ is Shopify's worker-based hosting. Bukalaris borrows the responsibility split,
 not Shopify APIs, tokens, checkout, plan entitlements, or Hydrogen compatibility.
 A Bukalaris-specific SDK/runtime is not required for the first integration.
 
-Additional page map entry:
-
-| Page ID | Surface / page | Proposed route | Module/data | Requirement/task | Code |
-|---|---|---|---|---|---|
-| SC-21 | Seller / headless channels | /seller/settings/storefront-channels | Scoped grants, channel origins | PR-16 / T-19 | M2 — `apps/web/src/app/seller/channels/page.tsx` (route differs from proposed `/seller/settings/storefront-channels`); API `apps/web/src/app/api/storefront/v1/**`; handoff `apps/web/src/app/checkout/h/[code]/route.ts`; `packages/db/src/channels.ts`; `test/channels.test.ts`, `e2e/channels.spec.ts` |
+Page map entries for this requirement live in ARCH-5 only: SC-21
+(`/seller/channels`), HTTP-05..HTTP-11 (Storefront API v1), HTTP-12 (handoff
+exchange) and SF-10 (invalid handoff). Implemented on `main` 2026-10-07
+(T-16/T-19 subset); open items in TASKS.md T-19.
 
 Storefront native custom domains and external channel origins must be distinct
 in UI and data. Neither mode changes product/variant advertising identity.
@@ -493,36 +529,45 @@ claim Astro is faster solely from framework choice.
 
 ## Development function map
 
-Status: Proposed locators, 2026-09-25; no implementation files exist yet.
-This extends ARCH-5. The operation IDs below are declared in OpenAPI; they are
-HTTP contract identifiers, not claims of existing TypeScript function names.
-Core operation implementations will receive exact file/symbol links at delivery.
+Status: Verified against `main` at `13f388f` on 2026-10-07. This extends ARCH-5:
+the OpenAPI `operationId`s are HTTP contract identifiers; the TypeScript symbols
+are the functions that exist today in `packages/db/src/*.ts`. Where the two
+differ the page is served by a Next.js server component/action, not by the
+proposed HTTP route (09-API-SPECIFICATION "Implemented versus proposed").
 
-| Page / job | Application entry | Contract operations | Core owner / data | Permission and proof | Task |
-|---|---|---|---|---|---|
-| SA-02 / SA-03 tenant lifecycle | Bos `/admin/stores` and detail | `listAdminStores`, `createStore`, `getAdminStore`, `transitionStore` | Tenancy; store, membership, durable audit | Platform capability; denied seller, invalid transition, audited reason | T-3 |
-| SA-05 / SA-06 diagnostics | Bos `/admin/logs` and detail | `listSystemLogs`, `getSystemLog` | Operations; sanitized log projection, access audit | `logs.read`; denied direct URL, sink failure, redaction | T-13 |
-| SC-02 / SC-03 / SC-17 catalog | Tenant Admin product list/editor/new | `listSellerProducts`, `createProduct`, `editProduct`, `publishProduct` | Catalog; product, variant, media, revision | Store capability; foreign media, stale revision, duplicate slug | T-14 |
-| SC-04 inventory | Tenant Admin inventory | `getInventory`, `adjustInventory` | Inventory; variant stock, adjustment | Scoped stock authority; concurrent adjustments and audit | T-3 |
-| SC-07 / SC-08 / SC-09 content | Tenant Admin CMS pages and menus | `createPage`, `replacePage`, `replaceMenu` | Content; revision, menu, owned media | Content capability; invalid link, foreign reference, failed publish | T-3 |
-| SC-12 / SC-13 orders | Tenant Admin order queue/detail | `listSellerOrders`, `getSellerOrder`, `applyOrderAction`, `requestShipment` | Orders; payment/shipment attempt, outbox | Scoped order authority; duplicate request, uncertain provider result | T-6 |
-| SC-18 domains | Tenant Admin domain settings | `createDomain`, `refreshDomain`, `setPrimaryDomain`, `removeDomain` | Routing; domain, primary relation, outbox | Domain capability; ownership/TLS pending, reassignment race | T-15 |
-| SC-21 headless channel | Tenant Admin channel settings | `createStorefrontChannel`, `revokeStorefrontChannel` | IAM; scoped grant | Channel authority; one-time token, revoked access | T-19 |
-| SF-01 through SF-06 browse/cart | Astro store host | `getStorefrontConfig`, `listStorefrontProducts`, `getStorefrontProduct`, `createCart`, `addCartItem`, `updateCartItem` | Store-scoped public reads and cart | Verified host/cart capability; tenant cache separation and stale stock | T-2 |
-| SF-07 / SF-08 checkout | Next.js checkout origin | `createCheckoutHandoff`, `getHostedCheckout`, `quoteCheckout`, `submitCheckout` | Checkout; order, quote, payment intent | Channel-to-session handoff; replay, last unit, duplicate submit | T-19 |
-| Provider reconciliation | Worker, no browser Page ID | Internal operation; callback paths still require provider verification | Provider adapter; attempt, outbox, audit | Worker service authority; bounded retry, no duplicate booking/payment | T-6 |
-| Future MCP content | Tenant Admin grant/review and MCP adapter | API-9; final tool names pending | Shared content operations and revisions | IAM-12; human-approved publication, grant revocation | T-20 |
+| Page / job | Application entry on `main` | Contract operations (`openapi.yaml`) | Implemented functions (`packages/db/src/`) | Core owner / data | Permission and proof | Task |
+|---|---|---|---|---|---|---|
+| SA-02 / SA-03 tenant lifecycle | `/admin`, `/admin/stores/new`, `/admin/stores/[id]` (server actions) | `listAdminStores`, `createStore`, `getAdminStore`, `transitionStore` (proposed) | `listStores`, `setStoreStatus`, `createStore` (`platform.ts`); `createStoreForOwnerEmail`, `getStoreDetail` (`content.ts`) | Tenancy; `store`, `membership`, `audit_log` | operator + TOTP; `test/lifecycle.test.ts`, `test/content.test.ts`, `e2e/super-admin.spec.ts`, `e2e/content.spec.ts` | T-3, T-26 |
+| SA-05 / SA-06 diagnostics | `/admin/logs`, `/admin/logs/[id]` | `listSystemLogs`, `getSystemLog` (proposed as HTTP) | `listSystemLogs`, `getSystemLog`, `recordLogEvent`, `sanitizeEvent`, `moduleForRoute` (`ops.ts`); `emit`, `reportRequestError` (`apps/web/src/lib/log.ts`) | Operations; `system_log`, `operator_grant`, read audit in `audit_log` | `logs.read`; 24 h range cap, 50/200 page, denied seller/operator-without-grant, sink failure non-fatal: `test/ops.test.ts`, `e2e/ops.spec.ts` | T-23 |
+| SA-07 platform shipping margin | `/admin/shipping` | — (not in OpenAPI) | `getMarginRule`, `setMarginRule`, `applyMargin`, `quoteWithMargin`, `marginRuleAudit` (`shipping.ts`) | Shipping; `shipping_margin_rule`, `audit_log` | operator; `test/shipping.test.ts`, `e2e/shipping.spec.ts` | T-34 |
+| SC-02 / SC-03 / SC-17 catalog | `/seller/products, /seller/products/new, /seller/products/[id]` (server actions) | `listSellerProducts`, `createProduct`, `getSellerProduct`, `editProduct`, `createVariant`, `editVariant` (proposed); `changeProductSlug`, `publishProduct`, `archiveProduct`, `duplicateProduct` have no implementation | `listProducts`, `getProduct`, `createProduct`, `updateProduct`, `addVariant`, `updateVariant`, `listCatalogHistory`, `canonicalSlug`, `isCatalogId` (`catalog.ts`); media functions in `content.ts` | Catalog; `product`, `variant`, `product_slug_alias`, `catalog_audit`, `media` | `catalog.read` / `catalog.write`; cross-store denial, immutable `catalog_id`, alias without chains, audit rows: `test/tenant-isolation.test.ts`, `test/catalog.test.ts`, `test/content.test.ts` | T-14, T-25, T-31 |
+| SC-04 inventory | `/seller/inventory` | `getInventory`, `adjustInventory` (proposed) | `listInventory`, `listStockAdjustments`, `adjustStock` (`orders.ts`) | Inventory; `variant.stock`, `stock_adjustment` | `inventory.write`; never negative under concurrency: `test/orders.test.ts` | T-21 |
+| SC-05..SC-08 content | `/seller/collections/**`, `/seller/pages/**` | `listSellerCollections`, `createCollection`, `getSellerCollection`, `replaceCollection`, `listSellerPages`, `createPage`, `getSellerPage`, `replacePage` (proposed); menus (`*Menu`) have no implementation | `listCollections`, `getCollection`, `createCollection`, `updateCollection`, `listPages`, `getPage`, `createPage`, `updatePage` (`content.ts`) | Content; `collection`, `collection_product`, `page` | `catalog.read` / `catalog.write`; foreign product denied at service and FK level, reserved slugs: `test/content.test.ts` | T-25 |
+| SC-10 / SC-11 settings and theme | `/seller/settings` | `getStoreSettings`, `updateStoreSettings`, `getTheme`, `updateTheme` (proposed) | `getStoreSettings`, `updateStoreSettings` (`content.ts`; `Theme` = `responsive` \| `mobile`) | Content; `store` | owner only; `test/content.test.ts`, `e2e/content.spec.ts` (both themes at 320px) | T-24 |
+| SC-12 / SC-13 orders | `/seller/orders`, `/seller/orders/[id]` | `listSellerOrders`, `getSellerOrder`, `applyOrderAction` (proposed); `requestShipment` not implemented (T-39) | `listOrders`, `getOrder`, `transitionOrder`, `allowedActions`, `codRiskReasons`, `TRANSITIONS` (`orders.ts`) | Orders; `order`, `order_line`, `order_status_history`, restock on cancel/reject | `orders.read` / `orders.fulfill`; transition matrix, single restock under concurrency, COD states, store-scoped risk: `test/orders.test.ts`, `test/checkout2.test.ts` | T-21, T-35 |
+| SC-18 domains | — | `listDomains`, `createDomain`, `getDomain`, `refreshDomain`, `removeDomain`, `getRoutingSettings`, `setPrimaryDomain` (proposed) | none | Routing; no table | — | T-15 (Planned) |
+| SC-19 members and invitations | `/seller/members` | `/session` (proposed); no member/invitation operations in OpenAPI | `listMembers`, `changeMember` (`membership.ts`); `createInvitation`, `listInvitations`, `revokeInvitation`, `previewInvitation`, `acceptInvitation`, `revokeSessionsIfOrphaned` (`accounts.ts`) | Identity; `membership`, `store_invitation`, `session` | `members.manage`; last-owner, concurrent removal, single-use invite, orphan session revocation: `test/lifecycle.test.ts`, `test/accounts.test.ts` | T-17, T-22 |
+| SC-21 headless channel | `/seller/channels` | `listStorefrontChannels`, `createStorefrontChannel`, `revokeStorefrontChannel` (`x-implemented` as server actions) | `listChannels`, `createChannel`, `revokeChannel`, `authenticateChannel` (`channels.ts`) | IAM; `storefront_channel` | `integrations.manage`; hash-only storage, revoked/expired denied: `test/channels.test.ts`, `e2e/channels.spec.ts` | T-16, T-19 |
+| SC-22 seller pickup origin | `/seller/shipping` | — | `getPickupArea`, `searchPickupAreas`, `setPickupArea`, `setPickupAddress` (`shipping.ts`); `MengantarClient` reads (`mengantar/client.ts`) | Shipping; `store_pickup_area` | `shipping.manage`; writes refuse without `MENGANTAR_WRITE_ENABLED=1`: `test/shipping.test.ts` | T-34 |
+| SC-23 ad destinations | `/seller/marketing` | — | `listDestinations`, `saveDestination`, `clearDestinationToken`, `destinationHealth`, `sealToken`, `openToken` (`signals.ts`) | Signals; `signal_destination`, `signal_event` | `marketing.manage`; AES-GCM with AAD, staff denied: `test/signals.test.ts` | T-38 |
+| SF-01..SF-06 browse/cart (native) | `/s/[store]/**` server components + actions | `getStorefrontConfig`, `listStorefrontCollections`, `getStorefrontPage` (proposed, not over HTTP) | `storefrontScope` (`scoped.ts`); `listPublishedProducts`, `getPublishedProduct`, `setCartLine`, `getCart` (`storefront.ts`); `getStorefrontStore`, `listPublishedCollections`, `getPublishedCollection`, `listPublishedPages`, `getPublishedPage`, `searchPublishedProducts`, `coverImages`, `publishedProductImages`, `getPublicMedia` (`content.ts`); `limitCartMutation`, `assertCartHasRoom` (`checkout.ts`) | Storefront; store-scoped public reads, `cart`, `cart_line` | active store only; cross-tenant denial, cart per store, 30-line cap, 300/10 min per IP: `test/tenant-isolation.test.ts`, `test/content.test.ts`, `test/checkout2.test.ts`, `e2e/purchase.spec.ts`, `e2e/content.spec.ts` | T-2, T-24, T-25, T-30 |
+| HTTP-05..HTTP-11 Storefront API v1 | `/api/storefront/v1/**` route handlers | `listStorefrontProducts`, `getStorefrontProduct`, `createCart`, `getCart`, `addCartItem`, `updateCartItem`, `createCheckoutHandoff` (`x-implemented`) | `authenticateChannel`, `createEmptyCart`, `ownsOpenCart`, `createHandoff` (`channels.ts`) + storefront reads above | Channels; `storefront_channel`, `cart`, `checkout_handoff` | bearer channel token; channel A cannot read store B: `test/channels.test.ts`, `e2e/channels.spec.ts` (external backend via `request`) | T-16, T-19 |
+| SF-07 / SF-08 / HTTP-12 checkout | `/checkout`, `/checkout/confirmation`, `/checkout/h/[code]` | `quoteCheckout`, `submitCheckout`, `getHostedCheckout`, `getOrderOutcome` (proposed; implemented as server component/action, not as session endpoints) | `checkoutSummary`, `searchDestinationAreas`, `checkoutShippingOptions`, `placeOrder`, `getBuyerOrder`, `enforceLimits`, `LIMITS` (`checkout.ts`); `shippingOptions` (`shipping.ts`); `exchangeHandoff`, `channelReturnTarget` (`channels.ts`) | Checkout; `order`, `order_line`, stock decrement, fee snapshot `CHECK fee = cost + margin` | cart cookie + idempotency key; tampered totals ignored, no oversell (12 parallel on stock 3), whole-order rollback, replay denied, handoff consumed once: `test/checkout.test.ts`, `test/checkout2.test.ts`, `test/channels.test.ts`, `e2e/purchase.spec.ts`, `e2e/checkout2.spec.ts`, `e2e/channels.spec.ts` | T-19, T-30, T-34, T-35 |
+| SF-11 buyer order status | `/o/[token]` | — | `signOrderLink`, `verifyOrderLink`, `getOrderForLink` (`notify.ts`) | Notify; `order` projection without address/phone | signed link, 30-day TTL, constant-time check: `test/notify.test.ts`, `e2e/notify.spec.ts` | T-36 |
+| JOB-01 outbox worker | `packages/db/src/worker.ts` (no Page ID) | Internal; provider callbacks still require verification | `enqueue`, `claimBatch`, `runOnce`, `completeJob`, `failJob` (`jobs.ts`); handlers `payment.instruction`, `order.notify`, `signal.deliver` | Jobs; `job`, `order_notification`, `mail_outbox`, `signal_event` | platform role; commit-or-rollback with the business write, duplicate claim impossible, lease recovery, backoff to terminal failure: `test/jobs.test.ts`, `test/notify.test.ts`, `test/signals.test.ts` | T-32, T-36, T-38 |
+| JOB-02 cleanup | `packages/db/src/cleanup.ts` | — | `cleanupIdleCarts` (`checkout.ts`), `purgeSignalContext` (`signals.ts`) | Checkout/Signals; `cart`, `rate_limit`, `order_signal_context` | platform role; checked-out carts untouched: `test/checkout2.test.ts`, `test/signals.test.ts` | T-30, T-38 |
+| Future MCP content | — | API-9; final tool names pending | none | Shared content operations and revisions | IAM-12; human-approved publication, grant revocation | T-20 (Planned) |
 
-Engineering lookup is Page ID -> surface route -> operation ID -> core owner ->
-data/permission -> task/test. A delivered implementation adds route, function,
-schema and test file links at the checked release revision. Job operations use
-a module/operation identity and nullable Page ID; do not invent a page for them.
+Engineering lookup is Page ID -> route on `main` -> function -> core owner ->
+data/permission -> test/task. Job operations use a module/operation identity and
+nullable Page ID; do not invent a page for them.
 
-Log detail resolves `module`, `operation_id`, `page_id` and `release_revision`
-against this map and the eventual versioned implementation registry. An unknown
-mapping shows "Mapping unavailable". Never build source URLs from arbitrary
-log text, assume the current branch matches an older release, or read local
-files based on an event field. Authorized engineering links use an allowlisted
-repository origin and known revision/path from the registry. Public storefronts
-and seller accounts never receive private source links.
-
+Log detail resolves `module` and `page_id` against `MODULE_MAP` in
+`packages/db/src/ops.ts` (the runtime subset of this map: `admin.stores`,
+`admin.logs`, `admin.logs.detail`, `auth`, `seller.products`, `seller.members`,
+`seller.orders`, `storefront.catalog`, `storefront.cart`, `checkout`,
+`checkout.confirmation`, `api.health`); an unknown mapping shows "Mapping
+unavailable". `release` comes from `RELEASE_REVISION` or `SOURCE_COMMIT`.
+Never build source URLs from arbitrary log text, assume the current branch
+matches an older release, or read local files based on an event field. Public
+storefronts and seller accounts never receive private source links.

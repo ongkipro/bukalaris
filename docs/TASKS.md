@@ -5,7 +5,7 @@ approve implementation. Each task has one primary requirement; constraints do
 not create a second primary.
 
 ### T-1 — Verify Bukalaris repository and baseline
-- Status: Done (M1, 2026-10-06) — repository, pinned stack, schema, tests and docs recorded; see "M1 implementation evidence".
+- Status: Done (M1, 2026-10-06; first commits on `main` 2026-10-06/07) — repository, pinned stack (DECISIONS D-1), schema, tests and docs recorded; see "M1 implementation evidence". Route/entry inventory is maintained in 04-SYSTEM-ARCHITECTURE ARCH-5 (T-12).
 - Primary requirement: PR-1
 - Constraints: CTX-5, TD-1
 - Dependencies: None
@@ -14,7 +14,7 @@ not create a second primary.
   reconciled without overwriting repository truth.
 
 ### T-2 — Approve tenancy and host model
-- Status: Partial (M1) — store-scoped data access, host/slug resolution and negative tests exist for browser paths; worker/cache/media paths do not exist yet; RLS deferred (DECISIONS D-4).
+- Status: Partial (re-checked 2026-10-07) — store-scoped services behind scope objects, `<slug>.<STORE_ROOT_DOMAIN>` host resolution (`apps/web/src/proxy.ts`, `packages/db/src/host.ts`) and PostgreSQL RLS with three roles (T-27, ADR-0005) are implemented; negative tests exist for browser (`test/tenant-isolation.test.ts`, `test/rls.test.ts`), worker (`test/jobs.test.ts` runs as the platform role) and media (`test/content.test.ts` "product media" foreign access denied). Not done: custom domains (T-15), no public HTML cache exists to test, and the host model is not an accepted owner contract.
 - Primary requirement: PR-3
 - Constraints: TEN-1, TEN-2, TEN-3, DOM-1, SEC-1
 - Dependencies: T-1, ADR-0001
@@ -22,7 +22,7 @@ not create a second primary.
   negative test targets for browser, worker, cache, media, and root tenant data.
 
 ### T-3 — Specify seller and Super Admin workflows
-- Status: Partial (M1) — implemented: product/variant CRUD, members, store suspend/reactivate with audited reason. Not accepted as a UX contract; other Phase 1 screens pending.
+- Status: Partial (re-checked 2026-10-07) — implemented on `main`: products/variants/media, inventory, orders with COD confirmation, collections, CMS pages, settings/themes, members/invitations, channels, shipping origin, marketing destinations (SC-02..SC-08, SC-10..SC-13, SC-17, SC-19, SC-21..SC-23) and Super Admin SA-02/03/05/06/07 (ARCH-5). Still Planned: SC-09 menus, SC-18 domains; Pending in wave 4: SC-01 dashboard (T-41), SC-14..16 landing pages (T-42), SC-24 privacy (T-43). The UX contract in 17-UX-FLOWS is not yet marked accepted by the product owner.
 - Primary requirement: PR-2
 - Constraints: IAM-1, IAM-2, UX-1, UX-2
 - Dependencies: T-1
@@ -30,6 +30,7 @@ not create a second primary.
   UX contract, including suspension, publish, validation, conflict, and audit.
 
 ### T-4 — Produce versioned OpenAPI and state-machine contract
+- Status: Partial (2026-10-07) — `docs/openapi.yaml` (50 paths, 63 operations) validates with `docs/check-spec.py`; 10 operations carry `x-implemented` (Storefront API v1 + channel actions, T-16/T-19). Order state machine is implemented in code (`TRANSITIONS` in `packages/db/src/orders.ts`, matrix test in `test/orders.test.ts`) but not yet transcribed into the contract; provider callbacks, pagination and `Idempotency-Key` on the HTTP surface remain proposed. Not accepted by the owner.
 - Primary requirement: PR-5
 - Constraints: API-1, API-2, TD-3, SEC-4
 - Dependencies: T-1, T-2
@@ -38,6 +39,7 @@ not create a second primary.
   with the repository-approved validator.
 
 ### T-5 — Decide payment and shipping account ownership
+- Status: Blocked (finance owner) — Q-2 decided: Mengantar account is platform-owned (STATUS.md, Q-12 shipping margin); Q-1 AutoLaris account undecided (fake adapter only); Q-17 COD remittance to sellers undecided and blocks the first real COD shipment (T-37). No live transaction has been created.
 - Primary requirement: PR-4
 - Constraints: BILL-1, BILL-2, PRIV-3, Q-1, Q-2
 - Dependencies: Current provider account documentation and finance owner review
@@ -46,6 +48,7 @@ not create a second primary.
   unknown-result policy; no live transaction is created by this task.
 
 ### T-6 — Create provider sandbox verification plan
+- Status: Partial (2026-10-07) — Mengantar: read-only client with sanitized observed calls recorded in `docs/tracks/shipping.md` (fixtures in `test/shipping.test.ts`); writes refuse without `MENGANTAR_WRITE_ENABLED=1` and need owner approval (T-39). AutoLaris: no sandbox evidence, `fakeAutoLaris` only. Blocked on T-5 for the AutoLaris account.
 - Primary requirement: PR-5
 - Constraints: API-2, BILL-2, OBS-2, SEC-5, SEC-6
 - Dependencies: T-5
@@ -54,6 +57,7 @@ not create a second primary.
   without credentials, orders, or production writes.
 
 ### T-7 — Define marketplace listing policy
+- Status: Planned — later scope (PR-6, SA-04); no code, no track.
 - Primary requirement: PR-6
 - Constraints: DATA-3, IAM-3, BILL-3, UX-5
 - Dependencies: T-3
@@ -62,6 +66,7 @@ not create a second primary.
   marketplace checkout before finance decision Q-3.
 
 ### T-8 — Define buyer account and affiliate data boundaries
+- Status: Planned — later scope (PR-7, BA-01..03, AF-01); no buyer account exists. Related but separate: signed buyer order-status link (T-36) and buyer-data export/redaction (T-43, in progress).
 - Primary requirement: PR-7
 - Constraints: DATA-4, IAM-4, PRIV-1, PRIV-2, UX-6
 - Dependencies: T-1
@@ -69,6 +74,7 @@ not create a second primary.
   access/retention, affiliate attribution window, and no-PII affiliate view.
 
 ### T-9 — Design observability and security proof
+- Status: Partial (2026-10-07) — implemented: correlation ids, allowlisted JSON logs and `system_log` sink (T-23), security headers and nonce CSP (T-29), Postgres fixed-window rate limits (T-30), tenant-isolation negative tests under the RLS role (T-27); numbers in 16-OBSERVABILITY "Implemented". Open: external sink/alerting and named signal owners, metrics, synthetic checks at a deployed sink.
 - Primary requirement: PR-5
 - Constraints: OBS-1, OBS-2, OBS-3, SEC-1 through SEC-7, NFR-4
 - Dependencies: T-1, T-4
@@ -76,6 +82,7 @@ not create a second primary.
   owners, safe synthetic checks, and a tenant-isolation negative test plan.
 
 ### T-10 — Specify the two built-in storefront themes
+- Status: Partial (2026-10-07) — both themes exist (T-24: `responsive` default, `mobile` ≤ 480px via container queries) and `e2e/content.spec.ts` renders home/collection/product/cart/search/page in both at 320px without overflow; the purchase path is covered by `e2e/purchase.spec.ts` in the default theme. Open: keyboard-path evidence inside the storefront themes, 480px viewport fixture, theme preview before publish, owner acceptance of the design direction.
 - Primary requirement: PR-8
 - Constraints: UI-1, UI-3, UI-4, UI-5, UX-3, NFR-3
 - Dependencies: T-1, T-3
@@ -87,6 +94,7 @@ not create a second primary.
   desktop viewport, including keyboard navigation and the buyer purchase path.
 
 ### T-11 — Specify MCP-enabled storefront landing-page builder
+- Status: Planned — T-42 (track `landing`, in progress) delivers landing pages v1 with typed blocks and revisions without drag-and-drop or MCP; the builder/MCP contract here stays future scope (with T-20).
 - Primary requirement: PR-9
 - Constraints: ARCH-4, TD-4, API-3, UI-4, UI-6, UX-7, IAM-2, IAM-7, TEN-1
 - Dependencies: T-1, T-3, T-10
@@ -110,7 +118,7 @@ not create a second primary.
   do not treat a fixed section library as the accepted layout ceiling.
 
 ### T-12 — Maintain the system and page implementation map
-- Status: Partial (M1) — 11 implemented pages have real locators in 04-SYSTEM-ARCHITECTURE "M1 implementation locators"; no commit revision exists yet.
+- Status: Done for `main` at `13f388f` (docs-scan, 2026-10-07) — ARCH-5 lists every route under `apps/web/src/app/**` and every background entry point exactly once with entry files, exported server operations, tables, capability, tests, task and status; retired/merged pages carry notes (AU-03, SA-01, SC-11, SC-20); pending wave-4 pages name their track. Stays open as a maintenance rule ("How to keep this map current").
 - Primary requirement: PR-10
 - Constraints: ARCH-5, UX-8
 - Dependencies: T-1, T-3
@@ -121,7 +129,7 @@ not create a second primary.
   page-changing task includes map maintenance. No placeholder claims code exists.
 
 ### T-13 — Specify Super Admin Log System and proof
-- Status: Planned — button, function attribution and query contract expanded on 2026-09-25; runtime proof pending.
+- Status: Done via T-23 (merged 2026-10-07) — visible Log System nav entry, list/detail behind the `logs.read` grant, allowlisted filters, 24 h range cap, cursor paging, read audit, redaction before the sink, page/module mapping (`MODULE_MAP`), denied seller/operator-without-grant and DB-outage proof (`test/ops.test.ts`, `e2e/ops.spec.ts`). Open: stale/partial source states and retention (same-DB sink has no ingestion delay), external sink.
 - Primary requirement: PR-11
 - Constraints: OBS-5, UX-9, ARCH-5, IAM-1, IAM-5, NFR-4
 - Dependencies: T-1, T-9, T-12
@@ -144,8 +152,9 @@ not create a second primary.
   locators when implemented; no tracking match is claimed without provider proof.
 
 ### T-15 — Specify per-seller custom-domain lifecycle
-- Status: In progress — lifecycle and operation contracts drafted; Cloudflare
-  candidate researched, hosting compatibility/provider choice remain open.
+- Status: Planned — lifecycle and operation contracts drafted (API-6, UX-11);
+  Cloudflare candidate researched; provider/hosting choice (Q-8) open. No code:
+  SC-18 has no route, no domain table; only `<slug>.<STORE_ROOT_DOMAIN>` works.
 - Primary requirement: PR-13
 - Constraints: DOM-1, DOM-2, DOM-3, UX-11, ARCH-5, TEN-2, SEC-3
 - Dependencies: T-1, T-2
@@ -175,13 +184,12 @@ proposals until reconciled with those decisions and implementation evidence.
 - Primary requirement: PR-14
 - Constraints: API-7, ARCH-6, TEN-1, SEC-9
 - Dependencies: T-1, T-4
-- Status: In progress — proposed openapi.yaml authored; implementation conformance pending.
 - Done when: OpenAPI validates; every initial workflow has a schema or explicit
   owned gap; real route/auth adapters conform; negative access and replay checks
   pass in the repository. Headless flow uses T-19's platform checkout contract.
 
 ### T-17 — Resolve operator identity and membership
-- Status: Partial (M1) — Better Auth chosen (ADR-0004), sign-up disabled, owner/staff membership, last-owner protection (incl. concurrent) tested. Recovery, invitations, MFA, revocation proof pending.
+- Status: Partial (re-checked 2026-10-07) — Better Auth (ADR-0004, accepted for local M1), sign-up disabled, owner/staff membership, last-owner protection incl. concurrent (`test/lifecycle.test.ts`); recovery, invitations, operator TOTP and orphan-session revocation delivered by T-22 (`test/accounts.test.ts`, `e2e/accounts.spec.ts`). AU-01/02/04/05, SC-19 map to code (ARCH-5); AU-03 is the header store switcher, SC-20 merged into SC-19. Open: PR-15 policy acceptance, separate admin origin/cookie namespace (D-2), MFA disable/regenerate UI, rate-limit storage across instances.
 - Primary requirement: PR-14
 - Constraints: PR-15, IAM-8, IAM-9, TEN-1, SEC-9
 - Dependencies: T-1, T-3
@@ -212,10 +220,10 @@ proposals until reconciled with those decisions and implementation evidence.
   leakage. Link SC-21/SF-07/SF-08 to actual files and executed checks.
 
 ### T-20 — Specify and verify MCP catalog/content operations
+- Status: Planned — future milestone; documentation boundary defined (API-9, UX-13); no MCP code.
 - Primary requirement: PR-17
 - Constraints: TD-6, DATA-6, API-9, IAM-12, UX-13, TEN-1, SEC-9
 - Dependencies: T-1, T-3, T-4, T-17; T-11 before enabling LP tools
-- Status: Planned — future milestone; documentation boundary defined.
 - Done when: pin verified protocol/SDK and tool schemas; implement core-backed
   read/draft/preview/publish operations with scoped grants and revision-bound
   human approval. Prove denied foreign access, revocation, conflict, replay,

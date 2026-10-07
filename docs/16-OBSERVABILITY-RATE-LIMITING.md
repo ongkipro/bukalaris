@@ -1,8 +1,31 @@
 # Bukalaris Observability and Rate Limiting
 
 Telemetry answers operator decisions; it does not replace audit records or
-authorize a user. Sink/vendor, retention duration, and numeric limits are
-Unknown until architecture and capacity evidence exist.
+authorize a user. External sink/vendor and retention duration are still
+Unknown; the limits and the diagnostic sink that exist on `main` are listed in
+"Implemented" below, everything else in this document is a proposal.
+
+## Implemented on `main` (checked 2026-10-07)
+
+| Control | Implementation | Numbers | Proof |
+|---|---|---|---|
+| Correlation id | `apps/web/src/proxy.ts` mints `x-request-id` (UUID) per request, sets it on the response and in cookie `bl_rid` (5 min, readable by the client error boundary); an inbound id is kept only with `TRUST_PROXY_REQUEST_ID=1` and shape `^[A-Za-z0-9_-]{8,64}$` (`lib/request-id.ts`). Never identity or authorization | — | `e2e/ops.spec.ts` ("every response carries a request id"), `e2e/security-headers.spec.ts` (trust flag) |
+| Structured logs | `apps/web/src/lib/log.ts` `log()`/`emit()`: one JSON line per event on stdout from an allowlist (`LOG_FIELD_ALLOWLIST`, `scrubText` in `packages/db/src/ops.ts`); fields `level, time, msg, request_id, module, operation, page_id, store_id, code, env (APP_ENV), release (RELEASE_REVISION/SOURCE_COMMIT)`. `instrumentation.ts` `onRequestError` reports every uncaught server error with route template and method only | sink timeout 2 s, non-fatal | `test/ops.test.ts` ("drops forbidden keys and scrubs free text", "caps text, defaults unknown levels/modules") |
+| Diagnostic sink (OBS-5) | `system_log` table (`schema-ops.ts`) receives `warn`/`error`/`fatal` events via `recordLogEvent`; worker/cleanup log to stdout only | — | `test/ops.test.ts`, `e2e/ops.spec.ts` (DB-outage event visible after recovery) |
+| Log System query | `listSystemLogs`/`getSystemLog` (`ops.ts`) behind `logs.read` (`operator_grant`); filters level, module, request id, store id, from/to; cursor `(time desc, id desc)`; every list/detail read writes an `audit_log` row (`logs.list`, `logs.read`); detail returns up to 50 related events by request id and the `MODULE_MAP` page mapping or null | default range 1 h, max 24 h; page 50, max 200 | `test/ops.test.ts` ("denies operators without logs.read and sellers entirely", "lists with filters, pages by cursor, and audits every read") |
+| Sign-in / recovery limits | Better Auth built-in limiter (`lib/auth.ts`, in-memory per process, active in production builds) | `/sign-in*` 3 per 10 s per IP; password-reset request 3 per 60 s | 429 observed (BUILD-LOG 2026-10-06); `docs/tracks/accounts.md` |
+| Checkout and cart limits | Postgres fixed-window counters in `rate_limit` (`hit`, `enforceLimits`, `LIMITS` in `packages/db/src/checkout.ts`); IP from `x-forwarded-for` last hop or `x-real-ip` (`lib/storefront.ts` `clientIp`), dimension skipped when absent; retryable Indonesian message with seconds to wait | order submit: 60 / 10 min per IP, 5 / min per cart, 10 / 10 min per phone; cart add/update: 300 / 10 min per IP, 60 / 10 min per cart; cart cap 30 distinct variants, qty ≤ 99 per line | `test/checkout2.test.ts` ("abuse controls"), `e2e/checkout2.spec.ts` ("order submission is rate limited per cart") |
+| Browser funnel endpoint | `POST /api/signals` | 600 / 10 min per IP, body ≤ 8 KB | `test/signals.test.ts`, `e2e/signals.spec.ts` |
+| Storefront API v1 | no limiter yet (channel token + 256-bit one-use handoff codes) | — | open item, TASKS T-16/T-19 |
+| Outbox and jobs (OBS-3) | `job` rows with `attempts`, `next_attempt_at`, `last_error` (sanitized by `sanitizeError`); worker logs one JSON `job` outcome per claim | lease 60 s, 10 attempts with exponential backoff, payload ≤ 4 KB | `test/jobs.test.ts` |
+| Cleanup | `cleanup.ts`: idle open carts, counters older than a day, signal click context older than 30 days | `CART_IDLE_HOURS` default 168 | `test/checkout2.test.ts`, `test/signals.test.ts` |
+| Readiness | `GET /api/ready` one `select 1` with 2 s timeout → 503; `GET /api/health` liveness without DB | — | `e2e/ops.spec.ts`, `scripts/verify-docker.sh` |
+
+Not implemented: metrics/traces, external sink or alerting, retention jobs for
+`system_log`/`audit_log`/`job`, stale/partial source states in the viewer
+(same-DB sink, no ingestion delay), `log.warn/info` calls from most business
+paths (only `onRequestError` and the Log System pages emit today), Mengantar
+booking queue serialisation (T-39), per-store framing allowances.
 
 | ID | Owner | Operator question | Required terminal signal |
 |---|---|---|---|
@@ -21,13 +44,13 @@ user input. Inbound trace/baggage values are untrusted and are never identity.
 
 ## Initial rate-limit policy
 
-| Operation | Key hierarchy | Policy |
-|---|---|---|
-| Login/recovery | Trusted network + identity candidate + account | Numeric limit requires threat/capacity evidence |
-| Seller mutation | Session identity + store + operation | Serialize/conflict-detect sensitive edits |
-| Checkout/create payment | Cart/order idempotency + store + network | One logical attempt; bounded retries |
-| Provider webhook/job | Provider identity + event/reference | Verify then durable-deduplicate |
-| Mengantar order booking | Store/provider queue | No unsafe parallel creation; follow verified provider rule |
+| Operation | Key hierarchy | Policy | On `main` |
+|---|---|---|---|
+| Login/recovery | Trusted network + identity candidate + account | Numeric limit requires threat/capacity evidence | Better Auth defaults (3/10 s sign-in, 3/60 s reset) per IP, in memory |
+| Seller mutation | Session identity + store + operation | Serialize/conflict-detect sensitive edits | No limiter; slug changes serialised with `pg_advisory_xact_lock(store_id)`, order transitions row-locked |
+| Checkout/create payment | Cart/order idempotency + store + network | One logical attempt; bounded retries | Idempotency key + request hash per store; counters per IP/cart/phone (see "Implemented") |
+| Provider webhook/job | Provider identity + event/reference | Verify then durable-deduplicate | Outbox `(kind, key)` unique; no inbound webhooks exist |
+| Mengantar order booking | Store/provider queue | No unsafe parallel creation; follow verified provider rule | Not implemented (T-39); writes refuse without `MENGANTAR_WRITE_ENABLED=1` |
 
 Before a pilot, run a safe synthetic success and expected-rejection journey to
 prove terminal event, trace/log correlation, metric change, redaction, and
@@ -47,8 +70,13 @@ provider/job stage behavior at the configured sink.
   attribution. Unauthorized access is denied; synthetic sensitive canaries are
   absent. Unavailable/stale/partial results are distinguished from zero events.
 - Constraints: OBS-1, OBS-2, OBS-3, OBS-4, IAM-1, NFR-4, ARCH-5.
-- Evidence: Planned checks only; no sink or viewer exists yet.
+- Evidence: Implemented on `main` 2026-10-07 (T-23): `system_log` sink,
+  `/admin/logs` list and `/admin/logs/[id]` detail behind `logs.read`, redaction
+  before the sink, read audit, denied access and DB-outage proof
+  (`test/ops.test.ts`, `e2e/ops.spec.ts`). Not yet: external sink, retention,
+  stale/partial source states, synthetic canaries at a deployed sink.
 - Change history: 2026-09-18 — specified the log viewer and discovery links.
+  2026-10-07 — evidence from the ops track.
 
 Proposed event projection: event ID, timestamp, severity, environment,
 service/module, stable event name, safe summary/error code, request/trace/job

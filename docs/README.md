@@ -10,26 +10,38 @@ copied here on 2026-10-06. Current implementation status is owned by
 [TASKS.md](TASKS.md) and implementation decisions in [DECISIONS.md](DECISIONS.md).
 Owner: Bukalaris product and architecture team. Product decisions are in the
 PRD; architecture proposals stay proposals until reconciled with the code.
-Repository layout: `apps/web` (Next.js: Seller Admin, Super Admin, M1
-storefront, hosted checkout) and `packages/db` (PostgreSQL/Drizzle schema,
-migrations, store-scoped data access and commerce services). How to run and
-test: [`AGENTS.md`](../AGENTS.md). Astro storefront is deferred for M1
-([DECISIONS D-2](DECISIONS.md)).
+Repository layout: `apps/web` (one Next.js app: Seller Admin `/seller`, Super
+Admin `/admin`, storefront `/s/<slug>` or `<slug>.<STORE_ROOT_DOMAIN>`, hosted
+`/checkout`, buyer order status `/o/<token>`, Storefront API `/api/storefront/v1`)
+and `packages/db` (PostgreSQL/Drizzle schema, append-only SQL migrations, RLS
+roles, store-scoped services, the outbox worker `src/worker.ts`, the maintenance
+command `src/cleanup.ts`, integration tests). How to run and test:
+[`AGENTS.md`](../AGENTS.md) and [`RUNBOOK.md`](RUNBOOK.md). Astro storefront
+is deferred ([DECISIONS D-2](DECISIONS.md)). Nothing is deployed
+([DEPLOY-COOLIFY.md](DEPLOY-COOLIFY.md) is a draft).
 
 ## Start here
 
 The [PRD](02-PRD.md) owns product identity and scope. The
 [design system](10-DESIGN-SYSTEM-WHITELABEL.md) and
 [UX contracts](17-UX-FLOWS-SCREEN-CONTRACTS.md) define Bukalaris presentation
-and workflows as proposals awaiting implementation and visual verification.
+and workflows; which screens exist on `main` is recorded in the UX document's
+"Implemented screens" table and in the page map.
 
-1. Read [PRD](02-PRD.md) for initial scope, future scope and unresolved decisions.
-2. Find a page in [Architecture / page map](04-SYSTEM-ARCHITECTURE.md#arch-5--canonical-system-and-page-map).
+1. Read [`STATUS.md`](../STATUS.md) for what works on `main`, then the
+   [PRD](02-PRD.md) for scope and unresolved decisions (Q-*).
+2. Find a page, handler or job in the
+   [page map](04-SYSTEM-ARCHITECTURE.md#arch-5--canonical-system-and-page-map):
+   one row per route with entry files, service functions, tables, capability,
+   tests, task and status (Implemented / Pending / Planned / Retired).
 3. Read its [UX contract](17-UX-FLOWS-SCREEN-CONTRACTS.md), [design boundary](10-DESIGN-SYSTEM-WHITELABEL.md),
    [data owner](05-DATA-MODEL.md), and [permissions](07-IAM-RBAC-ABAC.md).
-4. Use [OpenAPI](openapi.yaml) for proposed HTTP schemas and [API notes](09-API-SPECIFICATION.md)
-   for headless/provider gaps. No endpoint in the draft is deployed.
-5. Select the corresponding task in [TASKS.md](TASKS.md). Record real code,
+4. Use [OpenAPI](openapi.yaml) for HTTP schemas: operations marked
+   `x-implemented` exist (Storefront API v1 under `/api/storefront/v1`), the
+   rest are proposals; [API notes](09-API-SPECIFICATION.md) list implemented
+   versus proposed and the provider gaps. No endpoint is deployed anywhere.
+5. Select the corresponding task in [TASKS.md](TASKS.md) (every task has a
+   `Status:` line); per-track evidence is in `tracks/*.md`. Record real code,
    tests and runtime evidence from this repository; never infer them.
 
 ## Initial product boundary
@@ -65,8 +77,12 @@ and workflows as proposals awaiting implementation and visual verification.
 | 15-DELIVERY-MIGRATIONS.md | Delivery, migration, verification and release gates |
 | 16-OBSERVABILITY-RATE-LIMITING.md | Signals, Log System and query/abuse controls |
 | 17-UX-FLOWS-SCREEN-CONTRACTS.md | Initial screen workflows, states and acceptance |
-| ADR-0001 through ADR-0003 | Existing proposed architecture decisions |
+| ADR-0001 through ADR-0005 | Architecture decisions (0001–0003 proposed; 0004 accepted for local M1; 0005 accepted, implemented) |
+| DECISIONS.md | Implementation decisions and deliberate ceilings (D-1..D-9) |
 | TASKS.md | Only execution queue; planning versus verified status |
+| DEPLOY-COOLIFY.md / RUNBOOK.md | Deployment draft (unexecuted) / local operations and release gates |
+| tracks/*.md | Per-track implementation reports (what changed, commands, open issues); read-only history |
+| evidence/ | Playwright screenshots re-rendered by every e2e run |
 
 ## Headless integration contract
 
@@ -119,6 +135,16 @@ staged copy. Page locators become real repository links in each delivery task.
 The executable check is documentation-only and intentionally does not claim
 concurrency, database policy, browser behavior or provider acceptance. Complete
 runtime proof follows 15-DELIVERY-MIGRATIONS.md after implementation.
+
+### Documentation scan on 2026-10-07 (`docs-scan`, main at `13f388f`)
+
+- `python3 check-spec.py`: PASS — 50 paths / 63 operations; refs, auth
+  boundaries and local file links.
+- `check-traceability.py docs`: PASS — files=42 declarations=218 tasks=43 findings=0.
+- The page map (ARCH-5) was rebuilt from `apps/web/src/app/**` and
+  `packages/db/src/*.ts`; every path and exported function named there was
+  checked to exist. Runtime evidence stays with `STATUS.md`, `BUILD-LOG.md`
+  and the task statuses.
 
 ### Independent product identity on 2026-09-25
 

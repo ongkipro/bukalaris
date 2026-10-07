@@ -15,9 +15,9 @@ implementation evidence. Edit docs only inside this repository.
 
 | Path | Owns |
 |---|---|
-| `apps/web` | Next.js App Router app: Seller Admin (`/seller`), Super Admin (`/admin`), storefront (`/s/<slug>`), hosted `/checkout` |
-| `packages/db` | Drizzle schema, SQL migrations, DB client, store-scoped data access, commerce services, integration tests |
-| `docs/` | Design pack, ADRs, decisions, deploy plan |
+| `apps/web` | Next.js App Router app: Seller Admin (`/seller`), Super Admin (`/admin`), storefront (`/s/<slug>` or `<slug>.<STORE_ROOT_DOMAIN>`), hosted `/checkout`, buyer order status `/o/<token>`, Storefront API `/api/storefront/v1`, `/api/{auth,health,ready,signals}` |
+| `packages/db` | Drizzle schema, append-only SQL migrations (`drizzle/`), DB client with three roles (ADR-0005), store-scoped services, outbox worker (`src/worker.ts`), maintenance command (`src/cleanup.ts`), Mengantar client (`src/mengantar/`), integration tests |
+| `docs/` | Design pack, ADRs, decisions, deploy plan, runbook, track reports (`docs/tracks/`); route-by-route map in `docs/04-SYSTEM-ARCHITECTURE.md` ARCH-5 |
 | `BUILD-LOG.md` | Append-only phase log (what changed, commands, results, open issues) |
 | `REVIEW.md` | Senior reviewer notes — read at the start of every phase; resolve open items first |
 
@@ -30,25 +30,35 @@ Requires Node >= 20.9 (24 used), pnpm (version pinned in `package.json`
 pnpm install
 docker compose up -d db          # Postgres 17 on 127.0.0.1:5442
 cp .env.example .env             # local-only dev values, never real secrets
-pnpm db:migrate                  # apply packages/db/drizzle migrations
+scripts/db-roles.sh              # only for a compose volume created before T-27 (creates the three roles, transfers ownership)
+pnpm db:migrate                  # apply packages/db/drizzle migrations as bukalaris_owner (MIGRATION_DATABASE_URL)
 pnpm db:seed                     # two demo stores + operators (local only, idempotent)
 pnpm dev                         # http://localhost:3000 ; storefront /s/toko-a or http://toko-a.localhost:3000
+pnpm --filter @bukalaris/db worker   # outbox worker (payment instruction, e-mails, ad signals); e2e starts it itself
+pnpm --filter @bukalaris/db cleanup  # one-shot idle-cart / counter / signal-context cleanup
 pnpm lint && pnpm typecheck && pnpm test && pnpm build
 pnpm e2e                         # after `pnpm build`; uses bukalaris_e2e (wiped + seeded each run)
+pnpm verify                      # lint → typecheck → test → build → e2e
+pnpm verify:docker               # builds both images, migrates a throwaway DB, smoke-tests the container
 docker build -f apps/web/Dockerfile -t bukalaris-web .
 docker build -f apps/web/Dockerfile --target migrate -t bukalaris-migrate .
 ```
 
 Databases (all in the compose container): `bukalaris` (dev), `bukalaris_test`
-(Vitest, truncated per test), `bukalaris_e2e` (Playwright). On an existing
-volume created before `bukalaris_e2e` existed, the e2e global setup creates it.
-Seed users (local only): `admin@`, `owner-a@`, `staff-a@`, `owner-b@`
-`bukalaris.local`, password `bukalaris-dev-123`. Sign-in is rate limited
+(Vitest, truncated per test), `bukalaris_e2e` (Playwright); worktrees use
+`bukalaris_<track>[_test|_e2e]`. The app connects as `bukalaris_app` (RLS),
+Super Admin/worker/cleanup as `bukalaris_platform`, the migrator as
+`bukalaris_owner`; local passwords equal the role names (`docs/RUNBOOK.md`
+"Database roles"). Seed users (local only): `admin@`, `owner-a@`, `staff-a@`,
+`recovery-a@` (reserved for the recovery e2e), `owner-b@` `bukalaris.local`,
+password `bukalaris-dev-123`; `admin@` holds the `logs.read` grant and must
+enrol TOTP on first login before `/admin` opens. Sign-in is rate limited
 (3 per 10 s per IP) when running a production build.
 
 Smoke-testing the image: Postgres listens on 127.0.0.1 only, so run containers
-on the compose network: `--network bukalaris_default` with
-`DATABASE_URL=postgres://bukalaris:bukalaris@db:5432/<db>`.
+on the compose network (`--network bukalaris_default`, host `db:5432`) with the
+role URLs from `docs/RUNBOOK.md` "Image smoke test by hand" — never the compose
+superuser as `DATABASE_URL` (it bypasses RLS).
 
 ## Rules
 

@@ -1,11 +1,33 @@
 # Bukalaris API Contract Scope
 
-[openapi.yaml](openapi.yaml) is the machine-readable proposed OpenAPI 3.1
-contract. Its paths, authentication transport, limits and schemas are design
-proposals, not implemented endpoints. Next.js Route Handlers are the proposed
-HTTP adapter; hosting and exact package versions remain open.
-HTTP schema ownership stays in that file; this document explains boundaries,
-provider gaps, and acceptance. Do not create a competing route specification.
+[openapi.yaml](openapi.yaml) is the machine-readable OpenAPI 3.1 contract.
+Every operation still carries `x-status: proposed` (the checker requires it);
+the ten operations that exist on `main` additionally carry an `x-implemented`
+note with the real route or server action. All other paths, the proposed
+`bos.`/`app.`/`checkout.bukalaris.com` origins and the `/api/v1` prefix are
+design proposals, not implemented endpoints (one app serves everything,
+DECISIONS D-2). HTTP schema ownership stays in that file; this document
+explains boundaries, provider gaps, and acceptance. Do not create a competing
+route specification.
+
+## Implemented versus proposed (checked against `main`, 2026-10-07)
+
+| Contract area | OpenAPI operations | On `main` |
+|---|---|---|
+| Storefront API v1 (headless) | `listStorefrontProducts`, `getStorefrontProduct`, `createCart`, `getCart`, `addCartItem`, `updateCartItem`, `createCheckoutHandoff` | Implemented as route handlers under `/api/storefront/v1/**` (`apps/web/src/app/api/storefront/v1/**`), bearer channel token, JSON errors `{code, message, correlation_id}`; no pagination, no `Idempotency-Key`, no rate limit (ARCH-5 HTTP-05..HTTP-11). `getStorefrontConfig`, `listStorefrontCollections`, `getStorefrontPage`, `getOrderOutcome`: not implemented |
+| Channel lifecycle | `listStorefrontChannels`, `createStorefrontChannel`, `revokeStorefrontChannel` | Implemented as Seller Admin page + server actions (`/seller/channels`), not as HTTP routes |
+| Hosted checkout | `quoteCheckout`, `submitCheckout`, `getHostedCheckout` | Behaviour exists as the `/checkout` server component and `submitCheckout` server action plus the handoff exchange `GET /checkout/h/{code}`; no checkout-session HTTP endpoints |
+| Seller catalog/inventory/content/settings/orders | `listSellerProducts` … `requestShipment`, `getStoreSettings`, `updateTheme`, … | Behaviour exists as server components/actions under `/seller/**` (functions listed in 04-SYSTEM-ARCHITECTURE "Development function map"); no HTTP routes. Not implemented at all: `changeProductSlug` (slug edit happens through `editProduct`/`updateProduct`), `publishProduct`/`archiveProduct` (status field), `duplicateProduct`, menus (`*Menu`), domains (`*Domain`, `getRoutingSettings`, `setPrimaryDomain`), `requestShipment` (T-39) |
+| Super Admin | `listAdminStores`, `createStore`, `getAdminStore`, `transitionStore`, `listSystemLogs`, `getSystemLog` | Behaviour exists as `/admin`, `/admin/stores/**`, `/admin/logs/**` server components/actions; no HTTP routes |
+| `/session` | `getSession` | Not implemented; seller context comes from `sellerContext` inside the app |
+| Operational handlers (not in OpenAPI) | — | `GET /api/health`, `GET /api/ready`, `POST /api/signals`, `GET/POST /api/auth/*` (Better Auth), media `GET /s/{store}/media/{id}` and `GET /seller/products/{id}/media/{mediaId}` (ARCH-5 HTTP-01..HTTP-04, HTTP-13, HTTP-14) |
+
+Known drift to fix in `openapi.yaml` (owner: channels/catalog tracks): the
+`StorefrontProduct`/variant schemas lack the additive `catalog_id` string
+fields that the implementation returns (docs/tracks/catalog.md), and the
+`getStorefrontProduct` `x-implemented` note still says "numeric id" where the
+URL segment is now the catalog id (D-8). The `Theme` enum is `responsive` |
+`mobile` in code versus `mobile-480` in the contract (docs/tracks/content.md).
 
 | API domain | Consumer | Contract requirements |
 |---|---|---|

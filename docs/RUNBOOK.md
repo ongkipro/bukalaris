@@ -16,8 +16,18 @@ cp .env.example .env                # first time only; dev placeholders, never r
 scripts/db-roles.sh                 # only for a compose volume created before T-27 (roles + ownership; idempotent)
 pnpm db:migrate && pnpm db:seed     # migrate as bukalaris_owner, seed through the platform role; seed is idempotent
 pnpm dev                            # http://localhost:3000 (PORT in .env for worktrees)
+pnpm --filter @bukalaris/db worker  # outbox worker (payment instruction, order e-mails, ad signals); `-- --once` for a single pass
+pnpm --filter @bukalaris/db cleanup # one-shot: idle carts (> CART_IDLE_HOURS, default 168), old rate-limit windows, signal context > 30 days
 docker compose stop db              # keeps the volume; `down -v` wipes every local database
 ```
+
+`pnpm dev` runs the web app only. Transfer orders stay `awaiting_payment`
+without a reference, no e-mail lands in `/dev/outbox` and no ad signal is
+delivered until the worker runs; the e2e config starts it automatically as a
+second `webServer`. Root scripts: `dev`, `build`, `lint`, `typecheck`, `test`,
+`e2e`, `db:generate`, `db:migrate`, `db:seed`, `db:backup`,
+`db:restore-rehearsal`, `verify`, `verify:docker` (`package.json`); worker and
+cleanup have no root alias (`packages/db/package.json`).
 
 Parallel git worktrees: each has its own `.env` with `bukalaris_<track>`
 databases and its own dev/e2e ports (AGENTS.md "Parallel tracks"). All of them
@@ -139,9 +149,17 @@ prompt. Never write a secret into docs, memory or the repository.
 - Containers: `docker logs -f <container>`; database: `docker logs -f
   bukalaris-db-1`; health history: `docker inspect -f '{{json
   .State.Health}}' <container> | jq`.
-- `/api/health` is liveness only (no DB call); a database outage shows up as
-  500s on data routes and in the container log, not in the health check.
-- Application log table and correlation ids are the `ops` track (T-23).
+- `/api/health` is liveness only (no DB call); `/api/ready` makes one bounded
+  (2 s) database round trip and answers 503 when it fails. A database outage
+  shows up as the friendly error page with a request id on data routes, as
+  `ready` 503 and in the container log, not in the health check.
+- Every response carries `x-request-id` (minted in `src/proxy.ts`; an inbound
+  id is honoured only with `TRUST_PROXY_REQUEST_ID=1`) and the same id is in
+  every JSON log line (`request_id`). `warn`/`error`/`fatal` events are also
+  stored in `system_log` and readable at `/admin/logs` by an operator with the
+  `logs.read` grant (filter by request id to follow one request; the seed
+  grants it to `admin@bukalaris.local`). The worker and cleanup log JSON lines
+  to stdout only (`event: job | poll_failed | cleanup | cleanup_failed`).
 
 ## Pre-production checklist
 
@@ -159,8 +177,12 @@ with a recorded command and result before the first live deploy.
 - [ ] Database backup schedule in place; `scripts/db-backup.sh` and
       `scripts/db-restore-rehearsal.sh` rehearsed against the target
       Postgres container (`DB_CONTAINER=…`) with the result recorded.
-- [ ] Secrets set in Coolify only (`BETTER_AUTH_SECRET` fresh per environment,
-      `BETTER_AUTH_URL` equal to the public origin, `STORE_ROOT_DOMAIN`).
+- [ ] Secrets set in Coolify only (`BETTER_AUTH_SECRET`, `ORDER_LINK_SECRET`,
+      `INTEGRATION_TOKEN_KEY` fresh per environment, `BETTER_AUTH_URL` equal to
+      the public origin, `STORE_ROOT_DOMAIN`; full table in
+      `docs/DEPLOY-COOLIFY.md` "Required environment variables").
+- [ ] Worker process deployed from the same image (`node packages/db/src/worker.ts`)
+      and cleanup scheduled (`docs/DEPLOY-COOLIFY.md` "Worker and cleanup").
 - [ ] Database roles created by hand with generated passwords and the database
       owned by `bukalaris_owner` (`docs/DEPLOY-COOLIFY.md` "Database roles");
       `DATABASE_URL` = app role, `PLATFORM_DATABASE_URL` = platform role,

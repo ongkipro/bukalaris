@@ -16,24 +16,67 @@ labels when executing.
 
 ## Required environment variables
 
-Values live only in Coolify secrets; never in the repository or image.
+Values live only in Coolify secrets; never in the repository or image. The
+table is the complete list of `process.env.*` reads in `apps/web` and
+`packages/db` on `main` (2026-10-07; grep `process\.env\.` and the
+`env.MENGANTAR_*` reads in `packages/db/src/mengantar/adapter.ts`). Three
+processes share the image: **Web** (`node server.js`), **Worker**
+(`node packages/db/src/worker.ts`) and **Cleanup** (`node packages/db/src/cleanup.ts`);
+**Migrate** is the separate `migrate` image stage.
 
-| Variable | Web | Migrate | Notes |
-|---|---|---|---|
-| `DATABASE_URL` | required | — | Postgres URL on the private network **as role `bukalaris_app`** (NOBYPASSRLS; row-level security applies to every request, ADR-0005). Never the owner or a superuser |
-| `PLATFORM_DATABASE_URL` | required (web + worker) | — | Same database **as role `bukalaris_platform`** (BYPASSRLS): Super Admin, the outbox worker/cleanup and the cross-store resolvers. The worker uses only this one |
-| `BETTER_AUTH_SECRET` | required | — | Generate per environment (`openssl rand -base64 32`); never reuse the `.env.example` placeholder |
-| `BETTER_AUTH_URL` | required | — | Exact public origin of the admin/checkout host, e.g. `https://app.bukalaris.com`; a mismatch makes sign-in return 403 (origin check) |
-| `ORDER_LINK_SECRET` | required | — | HMAC-SHA256 key for buyer order-status links in e-mails (`/o/<id>.<expiry>.<hmac>`, 30-day expiry). Generate per environment (`openssl rand -base64 32`); rotating it invalidates every link already sent. Also needed by the worker process (it renders the mails). Falls back to `BETTER_AUTH_SECRET` when unset (dev convenience) |
-| `STORE_ROOT_DOMAIN` | required | — | e.g. `bukalaris.com`; `toko-a.bukalaris.com` serves store `toko-a` |
-| `MIGRATION_DATABASE_URL` | — | required | Same database **as role `bukalaris_owner`** (schema owner). The migrator has no fallback to `DATABASE_URL`: the app role may not alter the schema |
-| `DATABASE_POOL_MAX` | optional | — | Default 10 |
-| `MEDIA_DIR` | preset | — | Image default `/data/media`; mount a persistent volume there (see "Media volume") |
-| `ENABLE_HSTS` | optional | — | `1` once TLS terminates at the reverse proxy and it forwards `x-forwarded-proto: https`. Adds `Strict-Transport-Security: max-age=31536000; includeSubDomains` (no `preload`) and `upgrade-insecure-requests`; both are sent only on requests that arrived as HTTPS, so a plain-http hit can never pin a host. Unset by default |
-| `TRUST_PROXY_REQUEST_ID` | optional | — | `1` only when the reverse proxy sets or overwrites `x-request-id` on every forwarded request (Traefik/Coolify do not by default — verify before enabling). With it, a well-formed inbound id (`^[A-Za-z0-9_-]{8,64}$`) is kept for log correlation; without it the app always mints its own, so a client cannot choose the id its log lines carry. Unset by default |
-| `INTEGRATION_TOKEN_KEY` | required (web + worker) | — | 32 bytes, base64 (`openssl rand -base64 32`) or 64 hex chars. AES-256-GCM key sealing the per-store Meta/TikTok server tokens (T-38). Rotating it makes stored tokens unreadable: sellers re-enter them. Never reuse the `.env.example` placeholder |
-| `SIGNALS_LIVE` | optional (worker) | — | `1` lets the outbox worker call Meta Conversions API / TikTok Events API for real. Unset = simulation (events recorded as `simulated`, nothing leaves the host). Enable only after the owner approves a test-event call and the provider contract is verified (docs/tracks/signals.md) |
-| `PORT`, `HOSTNAME` | preset | — | Image defaults `3000`, `0.0.0.0` |
+| Variable | Web | Worker / Cleanup | Migrate | Notes |
+|---|---|---|---|---|
+| `DATABASE_URL` | required | — | — | Postgres URL on the private network **as role `bukalaris_app`** (NOBYPASSRLS; row-level security applies to every request, ADR-0005). Never the owner or a superuser |
+| `PLATFORM_DATABASE_URL` | required | required | — | Same database **as role `bukalaris_platform`** (BYPASSRLS): Super Admin, the cross-store resolvers, the outbox worker and cleanup. Worker and cleanup use only this one |
+| `MIGRATION_DATABASE_URL` | — | — | required | Same database **as role `bukalaris_owner`** (schema owner). The migrator has no fallback to `DATABASE_URL`: the app role may not alter the schema |
+| `DATABASE_POOL_MAX` | optional | optional | — | Default 10 (per pool) |
+| `BETTER_AUTH_SECRET` | required | required | — | Session cookie signing. Generate per environment (`openssl rand -base64 32`); never reuse the `.env.example` placeholder. The worker needs it only as the `ORDER_LINK_SECRET` fallback |
+| `BETTER_AUTH_URL` | required | required | — | Exact public origin of the admin/checkout host, e.g. `https://app.bukalaris.com`; a mismatch makes sign-in return 403 (origin check). Also the base of invitation links (`seller/actions.ts`), the storefront URL preview on the product page, order-status links in mails (worker) and the checkout handoff URL when `CHECKOUT_ORIGIN` is unset |
+| `CHECKOUT_ORIGIN` | optional | — | — | Public origin of hosted checkout returned to headless channels (`/api/storefront/v1/carts/{id}/checkout-handoffs`). Falls back to `BETTER_AUTH_URL`, then the request origin (dev). Set it when checkout gets its own host (ARCH-7). Not in `.env.example` yet |
+| `ORDER_LINK_SECRET` | required | required | — | HMAC-SHA256 key for buyer order-status links in e-mails (`/o/<id>.<expiry>.<hmac>`, 30-day expiry). Generate per environment (`openssl rand -base64 32`); rotating it invalidates every link already sent. Falls back to `BETTER_AUTH_SECRET` when unset (dev convenience) |
+| `STORE_ROOT_DOMAIN` | required | — | — | e.g. `bukalaris.com`; `toko-a.bukalaris.com` serves store `toko-a` (`src/proxy.ts`). Default `localhost` |
+| `INTEGRATION_TOKEN_KEY` | required | required | — | 32 bytes, base64 (`openssl rand -base64 32`) or 64 hex chars. AES-256-GCM key sealing the per-store Meta/TikTok server tokens (T-38). Rotating it makes stored tokens unreadable: sellers re-enter them. Never reuse the `.env.example` placeholder |
+| `SIGNALS_LIVE` | optional | optional (worker) | — | `1` lets the outbox worker call Meta Conversions API / TikTok Events API for real; the web app reads it only to label delivery mode on `/seller/marketing`. Unset = simulation (events recorded as `simulated`, nothing leaves the host). Enable only after the owner approves a test-event call and the provider contract is verified (docs/tracks/signals.md) |
+| `MENGANTAR_API_KEY` | optional | — | — | When set, checkout area search and courier quotes call the real Mengantar API (read-only operations); unset = `fakeMengantar` fixture adapter. Pass only through the secret store, never files or logs |
+| `MENGANTAR_BASE_URL` | optional | — | — | Overrides the Mengantar base URL (default in `packages/db/src/mengantar/client.ts`) |
+| `MENGANTAR_WRITE_ENABLED` | never in production until approved | never | — | `1` unlocks Mengantar write operations (create order, upsert origin, …). Stays unset until the owner approves a write test (TASKS T-39); tests assert writes refuse without it |
+| `MEDIA_DIR` | preset | — | — | Image default `/data/media`; mount a persistent volume there (see "Media volume") |
+| `ENABLE_HSTS` | optional | — | — | `1` once TLS terminates at the reverse proxy and it forwards `x-forwarded-proto: https`. Adds `Strict-Transport-Security: max-age=31536000; includeSubDomains` (no `preload`) and `upgrade-insecure-requests`; both are sent only on requests that arrived as HTTPS, so a plain-http hit can never pin a host. Unset by default |
+| `TRUST_PROXY_REQUEST_ID` | optional | — | — | `1` only when the reverse proxy sets or overwrites `x-request-id` on every forwarded request (Traefik/Coolify do not by default — verify before enabling). With it, a well-formed inbound id (`^[A-Za-z0-9_-]{8,64}$`) is kept for log correlation; without it the app always mints its own, so a client cannot choose the id its log lines carry. Unset by default |
+| `APP_ENV` | optional | — | — | Environment label in every log line and `system_log` row (`lib/log.ts`); default `production` when `NODE_ENV=production`, else `development` |
+| `RELEASE_REVISION` (or `SOURCE_COMMIT`) | recommended | — | — | Release revision recorded on every log event for the Log System's attribution (`lib/log.ts`); set it to the deployed commit in the build/deploy configuration (either name is read; unset → `null`) |
+| `WORKER_POLL_MS`, `WORKER_BATCH` | — | optional (worker) | — | Poll interval (default 2000, clamped 100–30000 ms; `pg_notify` wakes it earlier) and claim batch (default 10, 1–100) |
+| `CART_IDLE_HOURS` | — | optional (cleanup) | — | Idle-cart age for `cleanup.ts` (default 168, integer ≥ 1) |
+| `DEV_OUTBOX` | never in production | — | — | `1` exposes `/dev/outbox` (stored dev mail) in a production build. Leave unset |
+| `NODE_ENV` | preset | preset | preset | `production` in the image; guards `seed.ts`, `local-roles.ts`, cookie `secure`, CSP dev allowances |
+| `PORT`, `HOSTNAME` | preset | — | — | Image defaults `3000`, `0.0.0.0` |
+
+Test-only variables (never set in a deployment): `TEST_DATABASE_URL`,
+`E2E_DATABASE_URL`, `E2E_APP_DATABASE_URL`, `E2E_PLATFORM_DATABASE_URL`,
+`E2E_OWNER_DATABASE_URL`, `E2E_PORT`, `E2E_DB`.
+
+Secrets to generate per environment (never shared between staging and
+production): three database passwords (`bukalaris_owner`, `bukalaris_app`,
+`bukalaris_platform`), `BETTER_AUTH_SECRET`, `ORDER_LINK_SECRET`,
+`INTEGRATION_TOKEN_KEY`, and `MENGANTAR_API_KEY` (issued by the provider).
+
+## Worker and cleanup (not yet planned in Coolify)
+
+The outbox worker is a long-running second process of the same image
+(`packages/db/src/worker.ts`, T-32): one Coolify application or service from
+the same Dockerfile with the command overridden to
+`node packages/db/src/worker.ts`, no domain, exactly one replica (claims use
+`FOR UPDATE SKIP LOCKED`, so more replicas are safe but unnecessary), env
+`PLATFORM_DATABASE_URL`, `BETTER_AUTH_URL`, `ORDER_LINK_SECRET`,
+`INTEGRATION_TOKEN_KEY`, optional `SIGNALS_LIVE`, `WORKER_POLL_MS`,
+`WORKER_BATCH`. It logs JSON lines, stops gracefully on SIGTERM and retries
+while the database is unreachable. Without it, transfer orders never receive a
+payment instruction, no order e-mail is sent and no ad signal is delivered.
+
+Cleanup (`node packages/db/src/cleanup.ts`, T-30/T-38) runs once and exits:
+schedule it (Coolify scheduled task or cron, e.g. daily) with
+`PLATFORM_DATABASE_URL` and optional `CART_IDLE_HOURS`. The outbox has no
+scheduler of its own. Neither process is part of `verify:docker` yet.
 
 ## Database roles (once per database, before the first migration)
 
@@ -124,16 +167,29 @@ The web image stores uploads on local disk under `MEDIA_DIR` (default
   `DB_CONTAINER=<container name>`; production restores need explicit approval
   and never go into a shared test environment (DR-1).
 
-## Pre-go-live gates (not met in M1)
+## Pre-go-live gates (status 2026-10-07)
 
-- Providers: real Mengantar/AutoLaris adapters with sandbox evidence (T-5, T-6).
-- Q-10 checkout policy; Q-11 recovery objectives and restore rehearsal.
-- Auth: recovery, invitations, MFA for operators, separate admin origin/cookie
-  namespace (ADR-0004); rate-limit storage shared across instances; confirm the
-  client-IP header the reverse proxy sets so the per-IP limit cannot be forged.
-- RLS and separate DB roles: implemented locally (ADR-0005, T-27); the production
-  roles still have to be created by hand (see "Database roles").
-- Log System, audit views, observability sink (T-9, T-13).
+- Providers: Mengantar reads verified against the real API (sanitized evidence
+  in `docs/tracks/shipping.md`); Mengantar writes locked until the owner approves
+  a write test (T-39); AutoLaris still the fake adapter (T-5, T-6). Q-17 COD
+  remittance blocks the first real COD shipment.
+- Q-10 checkout policy defaults taken (DECISIONS D-5, T-35); Q-11 recovery
+  objectives open; restore rehearsal exists locally (`scripts/db-restore-rehearsal.sh`)
+  and must be repeated against the target Postgres.
+- Auth: recovery, invitations and operator TOTP are implemented (T-22). Still
+  open: separate admin origin/cookie namespace (ADR-0004, D-2); Better Auth's
+  rate-limit storage is in memory per process (one web replica, or configure
+  `secondaryStorage`); confirm the client-IP header the reverse proxy sets so
+  the per-IP checkout limits (`x-forwarded-for` last hop / `x-real-ip`) cannot be forged.
+- RLS and separate DB roles: implemented (ADR-0005, T-27); the production roles
+  still have to be created by hand (see "Database roles").
+- Log System and audit are implemented (T-23); an external log sink/alerting
+  and retention are not (16-OBSERVABILITY "Implemented").
+- Worker and cleanup processes are not in this plan's Coolify setup yet (see
+  "Worker and cleanup"); without the worker no payment instruction, e-mail or
+  ad signal leaves the outbox.
+- E-mail: only the dev outbox exists (`mail_outbox`); a provider with
+  SPF/DKIM/DMARC is required before notifications reach buyers (T-36 open).
 
 ## Rollback
 

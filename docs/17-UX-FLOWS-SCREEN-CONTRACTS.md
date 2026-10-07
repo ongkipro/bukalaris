@@ -52,6 +52,46 @@ navigation each require accepted scope before appearing in the interface.
 | Buyer Account (later) | Orders, addresses, profile | View only owned data; controlled updates |
 | Affiliate (later) | Link and aggregate earnings | No buyer-identifying data |
 
+### Implemented screens (checked against `main`, 2026-10-07)
+
+Routes as served by the single Next.js app (DECISIONS D-2); contracts above
+and below are unchanged. Interface copy is Bahasa Indonesia with shared status
+labels (`apps/web/src/lib/status.ts`). Browser evidence is captured at 320px
+and desktop by `apps/web/e2e/*.spec.ts` into `docs/evidence/m1/` (T-28 ui pass:
+skip link, `aria-current` navigation, pending submit state, confirm dialogs on
+destructive actions, empty/loading/error states). Full locators: ARCH-5.
+
+| Pages | Route on `main` | State evidence | Not yet |
+|---|---|---|---|
+| AU-01 sign in | `/login` (password, then TOTP code or backup code) | wrong password, MFA step, redirect allowlist (`e2e/accounts.spec.ts`) | — |
+| AU-02 recovery | `/account/recovery`, `/account/recovery/reset` | identical response for unknown e-mail, expired/invalid token state | real e-mail provider |
+| AU-03 store selection | header switcher in `/seller` shell (no page) | multi-store seed account; suspended-store fallback | — |
+| AU-04 invitation | `/invite/[token]` (invalid / expired / revoked / used / pending; signed-in match or new account) | `e2e/accounts.spec.ts` | — |
+| AU-05 security / MFA | `/account/security` (enrol TOTP, backup codes; operators redirected here before `/admin`) | `e2e/accounts.spec.ts` | QR code, disable/regenerate UI |
+| SA-02 store list | `/admin` (suspend/reactivate with reason, confirm dialog) | `e2e/super-admin.spec.ts`, `e2e/ui.spec.ts` | separate overview (SA-01 retired) |
+| SA-03 store detail / create | `/admin/stores/[id]`, `/admin/stores/new` | `e2e/content.spec.ts`, `e2e/ui.spec.ts` | — |
+| SA-05 / SA-06 Log System | `/admin/logs`, `/admin/logs/[id]` (text-labelled nav entry; filters; detail with related events and map link; "Kesegaran tidak tersedia" when empty) | denied seller/operator without grant, DB outage (`e2e/ops.spec.ts`) | stale/partial source states, export |
+| SA-07 shipping margin | `/admin/shipping` (preview of the fee, audit list) | `e2e/shipping.spec.ts` | — |
+| SC-01 overview | `/seller` redirects to `/seller/products` | — | dashboard (T-41, Pending) |
+| SC-02 / SC-03 / SC-17 products | `/seller/products`, `/seller/products/[id]`, `/seller/products/new` (catalog id with copy button, slug, storefront URL, images, change history) | keyboard-only create (`e2e/ui.spec.ts`), cross-store 404, slug rename 308 (`e2e/catalog.spec.ts`) | publish as separate action (status field instead), duplicate, revision conflicts |
+| SC-04 inventory | `/seller/inventory` (signed adjustments with reason) | `e2e/orders.spec.ts` | — |
+| SC-05 / SC-06 collections | `/seller/collections`, `/new`, `/[id]` | `e2e/content.spec.ts` | cover image |
+| SC-07 / SC-08 pages | `/seller/pages`, `/new`, `/[id]` (markdown-lite, draft/published) | `e2e/content.spec.ts` | revisions, preview |
+| SC-09 menus | — (navigation derived from published collections and pages) | — | Planned |
+| SC-10 / SC-11 settings and theme | `/seller/settings` (profile, WhatsApp, theme `responsive` / `mobile`) | staff denied (`e2e/content.spec.ts`) | theme preview before publish |
+| SC-12 / SC-13 orders | `/seller/orders` (status filter, cursor), `/seller/orders/[id]` (allowed actions only; COD confirm/hold/reject with risk reasons; cancel restocks; shipping needs a tracking number) | `e2e/orders.spec.ts`, `e2e/checkout2.spec.ts` | shipment booking (T-39), returns/refunds |
+| SC-14..SC-16 landing pages | — (nav entry present, 404 on `main`) | — | T-42 Pending |
+| SC-18 domains | — | — | Planned (T-15) |
+| SC-19 / SC-20 members | `/seller/members` (roles, remove with confirm, invitations with revoke) | last owner protected, staff read-only (`e2e/ui.spec.ts`, `e2e/accounts.spec.ts`) | member detail page (SC-20 retired) |
+| SC-21 channels | `/seller/channels` (token shown once, revoke with confirm) | `e2e/channels.spec.ts` | token replacement flow |
+| SC-22 shipping origin | `/seller/shipping` (area search, pickup address; staff view-only) | `e2e/shipping.spec.ts` | — |
+| SC-23 marketing | `/seller/marketing` (Meta/TikTok/Google destinations, write-only tokens, health) | staff read-only (`e2e/signals.spec.ts`) | shell patterns of T-28, feed URLs (T-40) |
+| SC-24 buyer data | — (nav entry present, 404 on `main`) | — | T-43 Pending |
+| SF-01..SF-06 storefront | `/s/[store]` or `<slug>.<root>/`, `/collections/[slug]`, `/search`, `/products/[slug]`, `/pages/[slug]`, `/cart` | both themes at 320px, unknown/suspended store 404, two carts coexist (`e2e/content.spec.ts`, `e2e/purchase.spec.ts`) | collection filters/sorting, stale-price review in cart |
+| SF-07 / SF-08 checkout | `/checkout?store=` (area search → courier options → recipient, optional e-mail, payment → submit; works without JS), `/checkout/confirmation` | tampered total ignored, no pickup area, no-COD area, rate limit message (`e2e/purchase.spec.ts`, `e2e/checkout2.spec.ts`) | changed-quote review step, payment provider states (AutoLaris fake) |
+| SF-10 invalid handoff | `/checkout/h/invalid` | replayed handoff (`e2e/channels.spec.ts`) | — |
+| SF-11 buyer order status | `/o/[token]` (status, lines, totals, courier, tracking number; no address or phone) | tampered link 404 (`e2e/notify.spec.ts`) | tracking states (T-39) |
+
 ## Shared state rules
 
 - Every material screen defines loading, empty, success, validation error,
@@ -299,7 +339,14 @@ use Next.js and shadcn/ui. This rendering choice does not change journey states.
 
 ### Log System button and navigation detail
 
-Scope: UX-9, SA-01, SA-05 and SA-06. Status: Proposed.
+Scope: UX-9, SA-01, SA-05 and SA-06. Status: Implemented subset on `main`
+(T-23, 2026-10-07): persistent "Log System" nav entry in the Super Admin shell
+(`apps/web/src/app/admin/layout.tsx`), `/admin/logs` with level/module/request
+id/store/time filters (default last hour, max 24 h), cursor paging, detail at
+`/admin/logs/[id]` with related events and page/module mapping, denied access
+for sellers and operators without `logs.read`. Not implemented: environment
+filter and Page ID filter in the UI, partial/stale source states, copy
+feedback for assistive technology (not verified), source links.
 
 - On `bos.bukalaris.com/admin`, show the text-labelled **Log System** navigation
   link styled as a button for operators with `logs.read`. Its destination is
