@@ -10,7 +10,8 @@ export type NavItem = { href: string; label: string; external?: boolean };
  * Shared operator shell for Seller Admin (`tone="seller"`) and Super Admin (`tone="platform"`, dark header
  * so an operator always knows which console they are in). One layout: skip link → brand + account row →
  * context row (store or platform) + navigation strip → main. The strip scrolls horizontally inside the
- * header on narrow screens, so the page never overflows at 320 CSS px (NFR-3).
+ * header on narrow screens, so the page never overflows at 320 CSS px (NFR-3); from `md` up it wraps, so
+ * no item hides behind a scrollbar-less strip on desktop.
  */
 export function AdminShell({
   tone,
@@ -61,7 +62,7 @@ export function AdminShell({
             <div className="flex flex-col md:flex-row md:items-center md:gap-6">
               {context && <div className={cn("flex items-center gap-2 py-1.5 text-sm md:order-last md:ml-auto md:py-0", platform && "opacity-90")}>{context}</div>}
               {nav.length > 0 && (
-                <nav aria-label={platform ? "Super Admin" : "Seller"} className="relative -mx-4 flex min-w-0 gap-4 overflow-x-auto px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <nav aria-label={platform ? "Super Admin" : "Seller"} className="relative -mx-4 flex min-w-0 gap-x-4 overflow-x-auto px-4 [scrollbar-width:none] md:flex-wrap md:overflow-visible [&::-webkit-scrollbar]:hidden">
                   {nav.map((item) =>
                     item.external ? (
                       <a key={item.href} href={item.href} className="inline-flex h-10 shrink-0 items-center px-1 text-sm whitespace-nowrap opacity-70 outline-none hover:opacity-100 focus-visible:rounded-sm focus-visible:ring-3 focus-visible:ring-ring/50">

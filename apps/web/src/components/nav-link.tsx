@@ -14,8 +14,9 @@ import { useEffect, useRef, type ReactNode } from "react";
 export function NavLink({ href, children, className }: { href: string; children: ReactNode; className?: string }) {
   const pathname = usePathname();
   const ref = useRef<HTMLAnchorElement>(null);
-  // "/seller/products" is active for "/seller/products/12", but "/admin" only for "/admin" itself.
-  const root = href.split("/").length <= 2;
+  // "/seller/products" is active for "/seller/products/12", but "/admin" and the "/seller" overview
+  // (T-41) only for themselves: every seller page is under "/seller/".
+  const root = href.split("/").length <= 2 || href === "/seller";
   const current = pathname === href || (!root && pathname.startsWith(`${href}/`));
   useEffect(() => {
     const el = ref.current;
