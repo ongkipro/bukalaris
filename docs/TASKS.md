@@ -489,3 +489,68 @@ until an observed, sanitized call is recorded (skill `mengantar-api`).
   value excluding shipping, variant content ids, retry/permanent-failure paths
   and cross-store isolation; any real destination call uses a test-event code
   and is recorded as sanitized evidence.
+
+## M2 wave 4 — 2026-10-07 (no new provider writes or approvals needed)
+
+### T-39 — Shipment booking and tracking via the outbox
+- Status: In progress — track `fulfillment`.
+- Primary requirement: PR-5
+- Constraints: Q-2, Q-17, NFR-2, NFR-5, TEN-1, DATA-2
+- Dependencies: T-34, T-32, T-35
+- Done when: a seller books shipment for a confirmed order; booking runs as an
+  outbox job that calls the Mengantar create-order operation through the
+  existing write lock (fake adapter unless `MENGANTAR_WRITE_ENABLED=1`, which is
+  never set without owner approval), stores the provider reference and resi,
+  handles insufficient balance (unpaid) and 409 concurrency by serialising per
+  account; a read-only status job updates tracking states; the order moves to
+  shipped from a real resi; buyer status page shows tracking; COD bookings stay
+  disabled while Q-17 is open unless an explicit flag allows them; tests prove
+  exactly-once booking under retries and duplicate clicks.
+
+### T-40 — Catalog feeds for Meta and Google
+- Status: In progress — track `feeds`.
+- Primary requirement: PR-12
+- Constraints: PR-20, Q-7, DATA-5, TEN-1, SEC-9
+- Dependencies: T-14
+- Done when: each store exposes token-protected Meta catalog and Google
+  Merchant feeds whose item id is the variant catalog id string and group id
+  the product catalog id, with title, description, absolute HTTPS image link,
+  price in IDR, availability from stock, and link to the canonical product URL;
+  only active products of that store; feed tokens are revocable; tests prove
+  ids, escaping, isolation and token checks. No provider upload.
+
+### T-41 — Seller performance dashboard
+- Status: In progress — track `dashboard`.
+- Primary requirement: PR-22
+- Constraints: TEN-1, NFR-1, NFR-3
+- Dependencies: T-21, T-35, T-38
+- Done when: `/seller` shows store-scoped orders, revenue (integer IDR, goods
+  vs shipping), COD confirmed/rejected/cancelled rates, funnel from signal
+  events and top products for today / 7 / 30 days in Asia/Jakarta; numbers
+  reconcile with order rows in tests; empty periods show an explicit empty state.
+
+### T-42 — Landing pages v1 with order section
+- Status: In progress — track `landing`.
+- Primary requirement: PR-9
+- Constraints: ARCH-4, TD-4, UI-4, UI-6, TEN-1, PR-16, PR-20
+- Dependencies: T-24, T-34, T-38
+- Done when: sellers create store-owned landing pages from ordered, typed
+  blocks (hero, image, text, benefits, testimonials, FAQ, countdown-free CTA,
+  order section bound to one product's variants) with a draft revision and a
+  published revision pointer; `/lp/<slug>` renders the published revision
+  mobile-first and independent of the storefront theme; the order section adds
+  to the store cart and hands off to hosted checkout (no protected fields on the
+  LP); pixel events fire as on the storefront; switching store theme leaves the
+  LP unchanged; tests cover isolation, publish/unpublish, reserved slugs and
+  theme independence. Drag-and-drop editing and MCP stay for later (T-11, T-20).
+
+### T-43 — Buyer data export and redaction (T-33 mechanism)
+- Status: In progress — track `privacy`.
+- Primary requirement: PR-4
+- Constraints: SEC-19, PRIV-1, PRIV-2, PRIV-4
+- Dependencies: T-21
+- Done when: the buyer-data inventory is recorded in 13-COMPLIANCE-PRIVACY; an
+  owner exports one buyer's data (by phone/email within the store) as JSON and
+  redacts contact fields of selected orders while amounts and lines stay
+  intact; redaction is audited and irreversible; a retention job exists but is
+  disabled until the owner sets retention days (Q-11).

@@ -10,12 +10,15 @@ export const metadata = { title: "Seller Admin — Bukalaris" };
 
 // Owned by M2 tracks: each page is created by its track (AGENTS.md "Parallel tracks").
 const sellerNav: NavItem[] = [
+  { href: "/seller", label: "Ringkasan" }, // T-41 dashboard (track dashboard: exact-match active state)
   { href: "/seller/products", label: "Produk" },
   { href: "/seller/inventory", label: "Inventaris" },
   { href: "/seller/orders", label: "Pesanan" },
   { href: "/seller/collections", label: "Koleksi" },
   { href: "/seller/pages", label: "Halaman" },
+  { href: "/seller/landing-pages", label: "Landing page" }, // T-42 (track landing)
   { href: "/seller/members", label: "Anggota" },
+  { href: "/seller/privacy", label: "Data pembeli" }, // T-43 (track privacy)
   { href: "/seller/shipping", label: "Pengiriman" },
   { href: "/seller/channels", label: "Channel" },
   { href: "/seller/marketing", label: "Pemasaran" },

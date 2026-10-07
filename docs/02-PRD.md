@@ -510,7 +510,7 @@ docs and a test-event code before claiming it works.
 - Change history: 2026-10-06 — proposed.
 
 ### PR-22 — Seller performance dashboard
-- Status: Proposed
+- Status: Accepted for implementation — by the orchestrator under the owner's delegation "sisanya kau atur" (2026-10-07); the owner may veto
 - Owner: Bukalaris product owner
 - Source: Business gap analysis 2026-10-06.
 - Statement: The Seller Admin overview (SC-01) shall show store-scoped orders,

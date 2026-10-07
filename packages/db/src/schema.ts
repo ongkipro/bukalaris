@@ -361,3 +361,7 @@ export * from "./schema-catalog.ts";
 export * from "./schema-abuse.ts";
 export * from "./schema-notify.ts";
 export * from "./schema-signals.ts";
+export * from "./schema-fulfillment.ts";
+export * from "./schema-feeds.ts";
+export * from "./schema-landing.ts";
+export * from "./schema-privacy.ts";
