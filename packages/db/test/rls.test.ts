@@ -46,12 +46,14 @@ const APP_GRANTS: Record<string, string> = {
   checkout_handoff: "SELECT,INSERT,UPDATE",
   job: "SELECT,INSERT",
   signal_destination: "SELECT,INSERT,UPDATE",
-  signal_event: "SELECT,INSERT",
-  order_signal_context: "SELECT,INSERT",
+  signal_event: "SELECT,INSERT,UPDATE", // T-43: redaction strips the user block
+  order_signal_context: "SELECT,INSERT,DELETE", // T-43: redaction deletes the context
+  order_notification: "SELECT,UPDATE", // T-43: redaction reads recipients and overwrites the buyer address
+  order_redaction: "SELECT,INSERT",
   audit_log: "INSERT",
   rate_limit: "SELECT,INSERT,UPDATE",
   shipping_margin_rule: "SELECT",
-  mail_outbox: "SELECT,INSERT",
+  mail_outbox: "SELECT,INSERT,UPDATE", // T-43: redaction overwrites bodies
   system_log: "INSERT", // plus SELECT on the id column only (RETURNING)
 };
 
@@ -102,7 +104,7 @@ describe("row-level security surface (ADR-0005 §2)", () => {
       select c.relname as t, att.attname as c, a.privilege_type as p from pg_attribute att join pg_class c on c.oid = att.attrelid, aclexplode(att.attacl) a
       where att.attacl is not null and a.grantee = 'bukalaris_app'::regrole`)) as unknown as { t: string; c: string; p: string }[];
     expect(cols).toEqual([{ t: "system_log", c: "id", p: "SELECT" }]);
-    expect(Object.keys(APP_GRANTS).sort()).toEqual((await relations()).filter((r) => !["platform_operator", "operator_grant", "order_notification"].includes(r.name)).map((r) => r.name).sort());
+    expect(Object.keys(APP_GRANTS).sort()).toEqual((await relations()).filter((r) => !["platform_operator", "operator_grant"].includes(r.name)).map((r) => r.name).sort());
   });
 
   it("role attributes: app cannot bypass RLS, platform and owner can, none is a superuser", async () => {
@@ -167,7 +169,7 @@ describe("fail closed (TEN-3)", () => {
   it("the app role cannot read operator tables at all", async () => {
     expect(await appCount("platform_operator")).toBe("denied");
     expect(await appCount("operator_grant")).toBe("denied");
-    expect(await appCount("order_notification")).toBe("denied");
+    expect(await appCount("order_notification")).toBe(0); // T-43: readable for redaction, but only inside a store context
   });
 });
 

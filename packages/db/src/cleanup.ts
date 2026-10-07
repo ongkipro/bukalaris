@@ -4,6 +4,7 @@
 import { cleanupIdleCarts } from "./checkout.ts";
 import { platformDb } from "./client.ts";
 import { sanitizeError } from "./jobs.ts";
+import { redactStaleOrders, retentionDays } from "./privacy.ts";
 import { purgeSignalContext } from "./signals.ts";
 
 /** Default: a week. Override with CART_IDLE_HOURS (integer hours >= 1). */
@@ -12,7 +13,12 @@ const db = platformDb(); // maintenance spans every store: bukalaris_platform (B
 try {
   const result = await cleanupIdleCarts(db, { idleHours });
   const signals = await purgeSignalContext(db); // T-38: click context / match data older than 30 days
-  console.log(JSON.stringify({ ts: new Date().toISOString(), level: "info", event: "cleanup", idleHours, ...result, signalContexts: signals.contexts, signalEvents: signals.events }));
+  // T-43: buyer-data retention. Disabled until the privacy owner sets BUYER_DATA_RETENTION_DAYS (Q-11).
+  const days = retentionDays();
+  const retention = days === null ? { enabled: false } : { enabled: true, days, ...(await redactStaleOrders(db, { days })) };
+  console.log(
+    JSON.stringify({ ts: new Date().toISOString(), level: "info", event: "cleanup", idleHours, ...result, signalContexts: signals.contexts, signalEvents: signals.events, buyerRetention: retention }),
+  );
 } catch (err) {
   console.error(JSON.stringify({ ts: new Date().toISOString(), level: "error", event: "cleanup_failed", error: sanitizeError(err) }));
   process.exitCode = 1;
