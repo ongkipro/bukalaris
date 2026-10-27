@@ -1,17 +1,47 @@
 # Bukalaris — status
 
-Updated: 2026-10-07 (after the M2 wave 4 merges, `c1adf27`). Milestone: M2.
+Updated: 2026-10-28 (M3 chain A started: T-51, T-61 and T-70 implemented locally on top of `660bed1`, uncommitted; documents aligned and accepted under D-20/D-21, the rest of M3 is specification). Milestone: M2 complete locally; M3 started (T-51, T-70 done in the working tree).
 This file owns current status. Evidence: `BUILD-LOG.md`, `docs/TASKS.md`
-("M1 implementation evidence", M2 task statuses) and the track reports in
+("M1 implementation evidence", M2 task statuses, M3 planned tasks) and the track reports in
 `docs/tracks/`. The wave 4 merges are local commits on `main` (not pushed); nothing is deployed.
 
 ## In progress
 
 Nothing running in parallel: M2 waves 1–4 are merged into `main` (wave 4 on
-2026-10-07). Next work is the follow-ups under "Not done / known gaps".
+2026-10-07). On 2026-10-26, the M3 specification pass (`ADR-0006`, `PR-23`..`PR-26`,
+`BILL-4`..`BILL-5`, `DATA-7`..`DATA-8`, `UX-14`..`UX-16`, `T-37`, `T-44`..`T-47`)
+was recorded in `docs/` from the Etalashop reference pack, adapted for Mengantar.
+Subscription billing is no longer deferred: `PR-18` is Proposed at Rp175.000 per store per
+month (DPP), see `BILL-7`, `DATA-10`, `T-50`. On 2026-10-27 the owner also decided: seller money is
+credited only for delivered and reconciled parcels (D-14, replacing the H+1 rule of D-11), unified
+Bukalaris-managed shipping where Bukalaris generates a Partner Mengantar seller account per store and
+controls all shipping discounts, margin, and cashback (`ADR-0007`, D-15; no `own_key` and no two-system split),
+affiliate commission across all opted-in prepaid and COD orders only for delivered and reconciled parcels
+with a 3-day hold default (`ADR-0009`, D-16), PPN off by default and Owner-switchable with no rate in code (D-17),
+no issue-report screenshots in Phase 1 (D-18), decided 72-hour payout destination hold, self-service recovery,
+and startup SLA/DR baseline (D-19), a global buyer identity (`ADR-0010`), and
+the host map `owner` / `app` / `affiliate` / `buyer` / `logs`.bukalaris.com (`ADR-0008`; the interim `berkah` label was never deployed and is retired), the
+Owner console (formerly Super Admin / Bos) managing sellers, affiliates and accounts (`ADR-0011`),
+an online-store posture with tax and compliance relaxed for the startup phase (`ADR-0012`, D-12,
+D-13), a 'Lapor masalah' issue-report button and an Update Log host. The canonical build order is
+the header of `docs/TASKS.md` ("M3 chains"); tasks T-48..T-69 and T-71..T-75 are all Proposed specification (T-75, PPN activation readiness, is deferred), none
+implemented. **Implemented locally on 2026-10-28 (working tree, not committed, nothing deployed):** T-51 (surface route
+groups in `apps/web`, bounded contexts in `packages/db/src`; routes 64 before and after, no schema change) and T-70 (exact-host
+dispatch per DOM-5, reserved labels, one auth instance and `__Host-` cookie names per surface, per-surface link origins).
+Observed: `pnpm map:check` ok, lint and typecheck clean, `pnpm build` ok, 229 db tests (22 files) passed, Playwright 101
+passed and 2 skipped including the new `*.localhost` host-mode project; details and the recorded gaps are in `docs/TASKS.md`
+(T-51, T-70) and `BUILD-LOG.md`. Reviews: `docs/reviews/2026-10-27-code-vs-spec-gap-report.md` (code versus spec; lint,
+typecheck and 186 db tests passed at the time) and `docs/reviews/2026-10-27-doc-audit-report.md` (102 findings
+from four documentation audits, fixes applied, policy items recorded as OPEN with recommended
+defaults). Drift guards: `pnpm map:check`, `python3 docs/check-spec.py`.
+Demo: `pnpm db:seed:demo` store Batik Nusantara (seller admin + storefront run for real);
+affiliate, subscription and seller-affiliate screens are static mockups in `docs/mockups/`.
 
-Owner input still needed: Q-17 COD remittance, Mengantar write-test approval,
-ad-platform test-event approval, email provider, VPS/DNS for deployment.
+Owner input still needed before live production calls: Q-17 legal sign-off on
+holding seller COD funds (the platform advances COD cash for the unverified
+Mengantar remittance lag), Mengantar write-test approval and sandbox capture of
+tracking status codes, ad-platform test-event approval, email provider, VPS/DNS
+for deployment.
 
 Business direction (owner, 2026-10-06): revenue = shipping margin through a
 platform-owned Mengantar account; first segment = COD sellers nationwide; ad

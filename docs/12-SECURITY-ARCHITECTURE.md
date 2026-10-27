@@ -8,7 +8,7 @@
 | SEC-4 | Bukalaris security owner | Checkout/payment/shipment provider actions are idempotent and safe under replay/timeout. | Proposed |
 | SEC-5 | Bukalaris security owner | Provider keys are server-only, least-privilege, redacted, and rotated through the selected secret system. | Proposed |
 | SEC-6 | Bukalaris security owner | Webhook authenticity is verified before parsing or side effects; accepted events are durable-deduplicated. | Proposed |
-| SEC-7 | Bukalaris security owner | Super Admin, impersonation, role, suspension, financial, and marketplace-review changes produce protected audit records. | Proposed |
+| SEC-7 | Bukalaris security owner | Owner console, role and capability-grant, suspension, financial, and marketplace-review changes produce protected audit records; impersonation stays disabled (IAM-10). | Proposed |
 
 ## Threat priorities
 
@@ -17,7 +17,7 @@
 2. Money/inventory manipulation through client totals, repeated checkout,
    provider timeouts, or replayed callbacks.
 3. Account takeover and privilege escalation through weak session/recovery,
-   invitation, or impersonation flow.
+   invitation, or support-recovery flow.
 4. Provider-secret exposure through browser code, logs, diagnostics, or error
    payloads.
 5. Host-header/domain takeover and published seller content abuse.
@@ -34,6 +34,45 @@
 - Raw payment/auth payloads, cookies, tokens, keys, and unnecessary PII never
   enter ordinary logs/traces. Failures return stable safe messages.
 
+## SEC-3 and SEC-9 — Surface isolation rules (normative)
+
+- Status: Proposed
+- Owner: Bukalaris security owner
+- Source: IAM-9, IAM-15, ADR-0008; audit of 2026-10-27 (SPV-03, SPV-16).
+- Statement: After host activation (T-62), each surface is reachable only on its
+  own host and no seller-chosen third-party script shares an origin with a
+  privileged session:
+  1. `/checkout*` (handoff, checkout, confirmation) is served only on the
+     `checkout` host. Every other host (`owner`, `app`, `affiliate`, `buyer`,
+     `logs`, the apex, storefront subdomains and custom domains) answers 404.
+  2. `/api/*` follows a per-host allowlist: a host serves only the API prefixes
+     of its own surface (operator, seller, affiliate, buyer auth and handlers on
+     their hosts; storefront and custom-domain hosts only the public storefront
+     endpoints; `logs` none); any other prefix answers 404. ADR-0008 and 08 hold
+     the host × path matrix.
+  3. A surface's path prefix (`/admin`, `/seller`, `/affiliate`, `/buyer`,
+     `/updates`) answers 404 on every other host, **the apex included**. The
+     legacy apex path mode (`/admin`, `/seller`, `/s/<slug>`) is retired when hosts
+     go live and survives only for localhost development and tests, off in
+     production.
+  4. Seller-chosen pixels and scripts run only on storefront origins (and the
+     checkout origin under SEC-13 rules), never on an origin that carries the
+     session cookie of `owner`, `app`, `affiliate` or `buyer`.
+  5. Every session and CSRF cookie uses the `__Host-` prefix (Secure, `Path=/`,
+     no `Domain`) with a per-surface name: `__Host-bl_owner`, `__Host-bl_seller`,
+     `__Host-bl_aff`, `__Host-bl_buyer`, `__Host-bl_order_cart`, `__Host-bl_click`.
+     A script on a storefront subdomain can therefore not toss a parent-domain
+     cookie onto another surface.
+  6. CSRF defence is never cookie-only: mutating requests check `Origin` and
+     `Sec-Fetch-Site` and carry a token bound server-side to the session.
+  7. A separate registrable domain for storefronts is OPEN (recommended, not
+     decided; ADR-0008 owner).
+- Acceptance: T-62 slice 3 tests every cell of the host × path matrix, including
+  checkout on `owner`/`app`/apex (404), an `/api` prefix outside a host's
+  allowlist (404), `/admin` on the apex (404), and a cookie set with
+  `Domain=.bukalaris.com` by a storefront page that neither authenticates nor
+  alters any surface.
+
 ## Phase 1 trust-boundary register
 
 All following controls are proposed requirements, not findings of deployed
@@ -48,6 +87,12 @@ internal contracts; runtime/provider-specific implementation awaits T-1/T-5.
 | Domain binding | Spoofed forwarded host, duplicate/reassigned domain | Trusted proxy chain + verified binding + atomic ownership | Unknown/reassigned host cannot serve prior store |
 | Operator/log viewer | Seller login, broad query, raw sensitive event | Platform capability + safe bounded query projection | Denied access and redaction at sink and UI |
 | Jobs/webhooks | Replay, mismatched provider account, stale intent | Verified account/event + stored linkage + policy | Invalid input has no effect; duplicate is harmless |
+| Restricted tables and auth tables | SQL injection or compromise of the app or platform role | No-login owner roles, `SECURITY DEFINER` functions, resolvers on the app pool (ADR-0005 amendment) | No table privilege for `bukalaris_platform` on restricted tables; every access path is a registered function |
+| Owner console governance | Self-approval, grant escalation, staff impersonating customers, lost-staff lock-out | Capability re-read per request, four-eyes matrix, MFA, bootstrap runbook (IAM-15) | Matrix and denial tests; bootstrap refuses with two holders |
+| Buyer identity | Email/phone squatting, enumeration, OTP toll fraud, recycled numbers | One live phone per buyer, possession and binding gates, uniform responses, shared limiter (ADR-0010, 16) | Victim-phone/attacker-email and email-phone-mismatch tests; uniform responses |
+| Affiliate clicks and payouts | Cookie stuffing, click flood, self-referral, account takeover then payout | SEC-20, step-up and hold on bank changes, four-eyes before transfer (IAM-9, IAM-15) | Sec-Fetch cases; payout cannot move without a second approver |
+| Public intake and Update Log | Stored XSS, malicious link, spoofed origin, malicious takedown, reporter data | SEC-21 | Sanitiser, canonical-origin and no-auto-takedown tests |
+| Restore and backups | Grants dropped, erasure resurrected, payout re-opened | SEC-23, PRIV-4 | Rehearsal asserts grants per role and erasure replay |
 
 ## SEC-8 — Safe publishing and uploads
 
@@ -73,13 +118,16 @@ response size to prevent private-network or metadata access.
 - Owner: Bukalaris security owner
 - Source: IAM-9, API-1, DOM-3.
 - Statement: Cookie-authenticated writes use the selected framework's CSRF
-  protection; session cookies are Secure, HttpOnly, narrowly scoped, and have
-  deliberate SameSite/lifetime settings. CORS allows only required exact origins
-  and is never authorization. Public API credentials are not browser secrets.
+  protection and a server-bound token (never a cookie-only check); session
+  cookies are Secure, HttpOnly, host-only `__Host-` cookies with per-surface
+  names (rule above), and have deliberate SameSite/lifetime settings. CORS allows
+  only required exact origins and is never authorization. Public API credentials
+  are not browser secrets.
 - Acceptance: Cross-origin hostile writes fail; valid intended storefront
   operations succeed on subdomain and custom-domain paths. Test CSP, framing,
   content-type, and referrer policy on the deployed serving layers in a browser.
-  Admin cookies never reach seller-controlled unrelated domains.
+  Admin cookies never reach seller-controlled unrelated domains, and a
+  parent-domain cookie tossed from a storefront host is ignored.
 
 ## SEC-10 — Operation safety and secure errors
 
@@ -155,3 +203,127 @@ orchestrator. Observed facts only; each finding has a remediation task.
 | SEC-17 | Bukalaris security owner | Catalog and price changes (`updateProduct`, `updateVariant`, `addVariant`) write no audit record; only membership, store status and order/stock changes are audited | No accountability for price manipulation by a compromised staff account | T-31 |
 | SEC-18 | Bukalaris architecture owner | Post-commit side effects (payment instruction, future notifications/signals) run inline after the transaction with no retry or outbox | Lost side effects on crash; duplicate effects if naively retried | T-32 |
 | SEC-19 | Bukalaris privacy owner | Buyer name, phone and address are stored indefinitely with no retention, export or deletion path | PRIV-4 / UU PDP obligations unmet before pilot | T-33 |
+
+## Platform-surface controls (2026-10-27)
+
+Controls added by the 2026-10-27 documentation audit for the Owner console,
+buyer identity, affiliate programme, public intake and key management. All are
+Proposed requirements; nothing here is built.
+
+### SEC-20 — Referral click endpoint
+
+- Status: Proposed
+- Owner: Bukalaris security owner
+- Source: ADR-0009 §4 and §8, PRIV-7; ARCH-5 HTTP-27 `GET /r/[token]` (apex host, T-52).
+- Statement: Click capture records a click only for a top-level navigation:
+  method `GET`; `Sec-Fetch-Mode: navigate` and `Sec-Fetch-Dest: document`; not a
+  prefetch or prerender (`Sec-Purpose`, `Purpose`). `HEAD`, subresource loads
+  (image, script, iframe, style), and requests without Sec-Fetch headers
+  redirect but capture nothing (attribution fails closed, the buyer's redirect
+  never does). The click cookie is `__Host-bl_click`: Secure, HttpOnly,
+  `Path=/`, no `Domain`, SameSite=Lax, opaque click id only, lifetime equal to the
+  attribution window (OPEN). The redirect target comes only from the stored link
+  and a validated seller destination (no `next` parameter, no open redirect). An
+  unknown, inactive or suspended link redirects to a neutral landing with no
+  capture and no existence hint. Over-limit requests (16 RL-CLICK rows) redirect
+  without capture. A click id or code is a selector, never authentication.
+- Phase 1 fraud source: no browser fingerprint is added. The risk queue's
+  "affiliate fraud flag" (UX-22 SA-18) is derived at read time from counters:
+  self-referral suppressions, click refusals by rate limit, clicks-to-orders
+  ratio, and returned or voided commission ratio per affiliate; threshold values
+  are OPEN. Phase 1 actions are suspension (`affiliate.accounts.review`) and a
+  payout hold; dispute decisions are Phase 2.
+- Acceptance: Embedding the link as `<img>`, in a hidden iframe or via prefetch
+  captures no click; a top-level navigation captures exactly one click and sets
+  the cookie; replay and flood stay within the limits; a suspended affiliate's link
+  captures nothing.
+
+### SEC-21 — Public intake and public feeds
+
+- Status: Proposed (applies when SF-13/HTTP-20 public reports and the Update Log are activated, T-64, T-69)
+- Owner: Bukalaris security owner
+- Source: UX-22 Update Log; ADR-0011 §3; audit of 2026-10-27 (SPV-25, SPV-26).
+- Statement: **Public reports:** bot friction before accepting a report (challenge
+  provider OPEN) plus per-IP and per-target limits (16); the reporter's contact is
+  optional, minimal, kept for a finite period (OPEN, PRIV-4) and never shown to the
+  reported seller by default; reporter-supplied URLs are never fetched
+  server-side and are rendered as text; a report never triggers an automatic
+  takedown, suspension or ranking change (staff decide, so a malicious report
+  cannot remove a store); `report` is a reserved route root (ADR-0008).
+  **Update Log:** permalinks, the feed `id`/`url` and canonical links are built
+  from a configured canonical origin (`logs.bukalaris.com`), never from the
+  `Host` header; `/updates` is not served on the apex (rule 3 above). Publishing
+  four-eyes stays off by default; turning it on for category `security` is
+  recommended, not decided.
+- Acceptance: A forged `Host` header changes no feed URL; a report with a URL
+  causes no outbound request; a burst of reports against one store changes no
+  store state.
+
+### SEC-22 — Key purposes, rotation and fail-closed secrets
+
+- Status: Proposed
+- Owner: Bukalaris security owner
+- Source: SEC-5, SEC-11, ADR-0007, ADR-0012; audit of 2026-10-27 (SPV-21).
+- Statement: One key per purpose: Meta and TikTok integration tokens, per-store
+  Mengantar partner credentials (provisioned by Bukalaris via the Partner API; sellers never paste external keys), order-link signing, the identity fingerprint HMAC (keyed
+  fingerprints for search and duplicate detection), tax-identity sealing, and one
+  session secret per surface. Sealed values carry a key version; the keyring
+  decrypts with every listed version, encrypts with the newest, and a re-seal job
+  rotates stored values, so rotation never makes a stored token unreadable.
+  A required secret that is missing, too short, or equal to another purpose's
+  secret stops the process in production (fail closed); no secret silently falls
+  back to another (`ORDER_LINK_SECRET` never falls back to `BETTER_AUTH_SECRET`).
+  Rotation of an exposed secret is an entry gate before first use (for example
+  the Mengantar Partner Secret that was pasted into a chat, T-48).
+- Acceptance: Boot with a missing or duplicated secret fails in production mode;
+  a value sealed under version 1 decrypts after version 2 is added; the re-seal
+  job leaves no version-1 value; the keyed fingerprint changes only under its own key.
+
+### SEC-23 — Restore reapplies grants and erasure records
+
+- Status: Proposed
+- Owner: Bukalaris security owner with the operations owner
+- Source: ADR-0005 amendment, PRIV-4, PRIV-7, PRIV-10; audit of 2026-10-27 (SPV-23).
+- Statement: A restore is not complete until it reapplies the grant registry
+  (table owners, role grants, function `EXECUTE` grants, default privileges) and
+  every erasure and restriction record (order redactions, buyer erasure, click
+  purges, tax crypto-erasure), then verifies both. Backups must keep owners and
+  ACLs (no `--no-acl`/`--no-owner`). Payout and billing jobs stay frozen until
+  reconciled against bank and provider evidence (14-SLA-DISASTER-RECOVERY).
+- Acceptance: The restore rehearsal asserts the grants of every role against the
+  registry and replays erasure records, failing when either differs.
+
+### SEC-24 — Credential-bearing mail
+
+- Status: Proposed
+- Owner: Bukalaris security owner
+- Source: `CRSEC-04`; ADR-0010, ADR-0011; audit of 2026-10-27 (SPV-17).
+- Statement: Recovery links, invitations and buyer magic links must not be
+  stored in clear text or readable by the app role. Prerequisite for support
+  recovery links (T-63) and buyer magic links (T-58), delivered by T-73: a real
+  mailer, message bodies purged after delivery, no app-role `SELECT` on
+  `mail_outbox` bodies. Until then those two features stay disabled.
+- Acceptance: After delivery no row holds a usable link; the app role cannot
+  read bodies; a recovery link action returns not-implemented before the fix.
+
+## Threat register — Owner console, buyer identity, affiliate, payouts, intake (STRIDE)
+
+Proposed requirements, not findings of deployed vulnerabilities. Each row names
+the control that closes it.
+
+| ID | Surface | Threat (STRIDE) | Control |
+|---|---|---|---|
+| THR-1 | Owner console session | Spoofing: stolen cookie, dead-but-valid session | MFA, host-only `__Host-bl_owner`, per-request capability re-read, sign-out on removal (IAM-15) |
+| THR-2 | Staff grants | Elevation: self-grant, first-holder bypass | Matrix `grant.sensitive`, bootstrap runbook with two named people, `system_bootstrap` event |
+| THR-3 | Support actions | Elevation: support agent resets or restores a staff identity | Staff identities excluded from `accounts.*`; `staff.manage` four-eyes |
+| THR-4 | Audit trail | Repudiation: action without record | Same-transaction audit row, append-only tables, fail closed (SEC-11) |
+| THR-5 | Personal-data reveal | Information disclosure: bulk or purposeless reveal, per-store buyer breakdown | Purpose and case per reveal, masking in the data layer, break-glass allowlist and expiry (PRIV-9) |
+| THR-6 | Payouts | Tampering: bank change after takeover, single approver, replayed rejection | Step-up and hold on bank change, four-eyes before transfer, unique ledger indexes (IAM-9, IAM-15) |
+| THR-7 | Buyer identity | Spoofing/information disclosure: victim phone with attacker email, enumeration, OTP toll fraud | ADR-0010 resolution rule, binding gate, uniform responses, delivery caps (16) |
+| THR-8 | Referral clicks | Tampering: cookie stuffing, click flood | SEC-20, rate limits, no capture on subresource loads |
+| THR-9 | Affiliate storefront | Tampering/repudiation: malicious storefront content | Suspension unpublishes and deactivates links; moderation Phase 2 |
+| THR-10 | Update Log | Tampering/spoofing: injected markup, wrong origin | Sanitised restricted markdown, canonical origin, GET-only, no cookies (SEC-21) |
+| THR-11 | Issue reports | Information disclosure/denial of service: personal data in descriptions, flood | Extended `scrubText`, text nodes only, per-staff limit, no attachments in Phase 1 (UX-22) |
+| THR-12 | Public reports | Denial of service/tampering: malicious takedown, bot flood | SEC-21: friction, limits, no automatic action |
+| THR-13 | Database roles | Elevation: SQL injection reaches payouts through the public lookup path | ADR-0005 amendment: lookups off the BYPASSRLS pool, restricted tables behind functions |
+| THR-14 | Backups | Information disclosure/repudiation: unencrypted dump, grants and erasures lost on restore | SEC-23, PRIV-4; client-side encryption of offsite dumps is OPEN (14) |

@@ -21,7 +21,13 @@
 - Owner: Data owner
 - Statement: Application authorization and database-level tenant policy both
   enforce applicable tenant boundaries. Cross-tenant platform jobs use a narrow
-  privileged identity and record their reason/actor.
+  privileged identity and record their reason/actor. Public host and store
+  lookups do not run on the RLS-bypassing login: they are fixed-output
+  resolver functions on the app pool, and restricted tables (payouts, bank
+  snapshots, buyer identifiers, tax) are reachable only through registered
+  functions (ADR-0005 amendment). Every table is registered in a class
+  (`tenant`, `buyer`, `affiliate`, `platform`, `restricted`, `auth`,
+  `shared-read`) and its policy and grants are tested against that class.
 
 ## Scope matrix
 
@@ -30,7 +36,8 @@
 | Seller CMS CRUD | Authenticated membership | Tenant policy + ownership predicate | Sensitive change |
 | Storefront catalog | Validated host mapping | Scoped read path | Host resolution failure |
 | Checkout/order | Cart/store context + product records | Store-bound constraints | State transitions |
-| Super Admin | Platform role plus explicit target | Restricted service path | Every mutation/impersonation |
+| Owner console | Platform role plus explicit target | Restricted service path (registered functions; no direct table grants on restricted tables) | Every mutation (impersonation stays disabled, IAM-10) |
+| Cross-store lookup (host, slug, cart, token, handoff) | Normalized host or opaque selector | Fixed-output `SECURITY DEFINER` resolver on the app pool, returns store id and slug only | Resolution failure |
 | Provider job | Stored order/store linkage | Worker scoped record access | Request/result/outcome |
 | Export/media | Server-issued scoped resource | Tenant-aware object/database key | Export/download event |
 

@@ -1,0 +1,83 @@
+## ADR-0007: Platform-managed Mengantar Partner seller provisioning, shipping discounts, and cashback ledger
+
+- **Status:** Accepted (owner, 2026-10-28, DECISIONS D-20; accepted as a decision, not implementation evidence)
+- **Date:** 2026-10-27
+- **Revised:** 2026-10-27 (supersedes the interim hybrid/`own_key`/two-systems draft: all shipping is 100% Bukalaris-managed; Bukalaris generates a new Partner-managed Mengantar account for every store, including sellers who previously had an external Mengantar account, so shipping management, shipping discounts, margin, and shipping cashback stay in Bukalaris's hands)
+- **Author:** Architecture + finance planning
+- **Deciders:** Paduka Ongki (product + finance owner)
+- **Owner:** Bukalaris finance owner
+- **Related:** [ADR-0006](ADR-0006-net-seller-proceeds-ledger-and-mengantar-reconciliation.md), PR-5, PR-23, PR-27, Q-2, Q-12, Q-17, BILL-4, BILL-5, [BILL-6](11-BILLING-PAYMENTS.md), [DATA-7](05-DATA-MODEL.md), [DATA-9](05-DATA-MODEL.md), [UX-17](17-UX-FLOWS-SCREEN-CONTRACTS.md), T-34, T-37, T-39, T-48
+
+## Context
+
+Owner decision (2026-10-27, final): **all shipping, payment, discounts, and cashback are managed by Bukalaris ("semua dikelola kita saja")**. The earlier interim idea of letting sellers paste their own external Mengantar API key (`own_key`) or splitting money into two systems ("System A / System B") is **deleted**.
+
+Instead, because Bukalaris has a partnership with Mengantar and access to the official Mengantar Partner API (`https://sandbox.mengantar.com/docs/partner/`), **Bukalaris generates a new Mengantar seller account for every store (`POST /api/partner/v1/sellers`)**. Even if a seller previously had an older external Mengantar account, they **must** use the new Bukalaris-generated account for their Bukalaris store. That keeps 100% of shipping management, courier shipping discounts, platform margin, and shipping cashback rules in Bukalaris's hands, controlled from the **Owner console** (`owner.bukalaris.com`).
+
+Facts from the official Mengantar Partner API (`https://sandbox.mengantar.com/docs/partner/`) and Public API (`https://sandbox.mengantar.com/docs/`) read on 2026-10-27:
+
+- **Partner API authentication & endpoints.** Authenticated by `partner-id` header, `timestamp` (unix seconds within 5 minutes), and `signature = sha256(METHOD:PATH:TYPE:BODY:TIMESTAMP:PARTNER_SECRET)` over the exact serialized request body bytes. All endpoints are `POST`:
+  - `/api/partner/v1/sellers` — registers a seller account and returns `{ sellerId, email, apiKey }`; idempotent on `externalUserId` (returns HTTP 200 `alreadyRegistered: true` with the same `sellerId` and current `apiKey`).
+  - `/api/partner/v1/sellers/list` — paginated list of partner-registered sellers (`active` flag).
+  - `/api/partner/v1/sellers/api-key` — fetches the current Public API key of a partner-registered seller.
+  - `/api/partner/v1/sellers/api-key/regenerate` — rotates a partner-registered seller's key.
+  - Rate limits start at **60 requests per minute** and **1,000 seller registrations per day** per partner (honour `Retry-After`). Production enforces an egress IP allow-list.
+- **Email uniqueness on Mengantar (`409 EMAIL_ALREADY_REGISTERED`).** Because even sellers who already have a legacy external Mengantar account must use a new Bukalaris-generated Partner account (never paste an external key), `POST /api/partner/v1/sellers` must use an email address not yet registered at Mengantar: either a platform-managed per-store routing email that forwards to the verified store owner or a fresh store email dedicated to the Bukalaris Partner account.
+- **Partner custody & cashback settlement gate (`OPEN-F9`, UNVERIFIED).** The public Partner API documentation states that each registered seller account is a normal Mengantar account with its own balance and does not document partner-level cashback/discount rebate endpoints or automatic COD sweeps to the partner's master balance. Because our commercial partnership with Mengantar puts shipping management, shipping discounts, and cashback distribution in Bukalaris's hands, the exact partner settlement/rebate mechanics with Mengantar are recorded as `OPEN-F9` (UNVERIFIED live gate before enabling partner-account live dispatches; see Decision 5).
+- **Credentials.** The Partner ID and Secret supplied in chat on 2026-10-27 are **never stored in the repository**: the secret lives only in `secrets-env` / the production secret store, and must be rotated with Mengantar before the first call (`T-48` entry gate).
+
+## Decision
+
+1. **One unified Bukalaris-managed shipping & money system (no `own_key`, no System A/B split).**
+   - Every store ships under Bukalaris management. Sellers never paste an external Mengantar API key (`own_key` is removed), and there is no "System B" seller-managed ledger.
+   - Each store has a `store_shipping_account` record (`DATA-9`) provisioned and controlled by Bukalaris:
+     - `partner_managed`: a Mengantar seller account generated by Bukalaris via `POST /api/partner/v1/sellers` (`externalUserId = 'store:' || store.id`), whose Public API key is sealed and held exclusively by Bukalaris.
+     - `platform_master`: the platform's master Mengantar account, used as the Owner-configured default/fallback before partner provisioning or whenever Owner console routing selects master-account execution.
+   - Even sellers who already own an external Mengantar account outside Bukalaris are provisioned a new `partner_managed` account for their Bukalaris store. If their login email returns `409 EMAIL_ALREADY_REGISTERED`, provisioning uses a Bukalaris-controlled per-store routing address (forwarding to the verified store owner) or prompts the store owner for a fresh email dedicated to the new partner account.
+
+2. **Owner console controls all shipping discounts, margin, and cashback (`SA-07`, `SA-54`, `BILL-6`).**
+   - At `/admin/shipping` (`SA-07`) and `/admin/money/shipping-cashback` (`SA-54`), the Owner console (`shipping.manage` / `finance.read`) configures:
+     - Partner API credential health, provisioning policy, and account routing (`partner_managed` vs `platform_master`).
+     - **Courier service policy (`courier_service_policy`):** per-courier/service enablement, `cod_allowed`, and `return_free` (platform COD is locked to `return_free` services — currently SPX, data-driven, never hard-coded).
+     - **Shipping discount & margin rules:** how the gap between raw 3PL tariff (`/order/allEstimate3PL`), account discounted tariff (`/order/estimate` `estimatedSpecialPrice` / `discount`), and buyer-charged shipping fee is priced (`applyMargin`).
+     - **Shipping cashback rules (`cashback_rule`):** how shipping cashback/rebates from Mengantar are split between Bukalaris (`platform_cashback_idr`) and the seller (`seller_cashback_idr`), expressed in basis points or fixed integer IDR per courier/service (default `0` until `OPEN-F9` is verified).
+   - Seller Admin (`/seller/shipping`, `SC-22`) only sets the store's pickup area and pickup address and views active courier services and cashback tier; sellers never see raw API keys or provider credentials.
+
+3. **Immutable order snapshot & unified ledger (`order_financials` and `ledger_entry`, `DATA-7`).**
+   - Every order snapshots `order.shipping_account_id` (FK to `store_shipping_account`) and `shipping_account_kind` (`partner_managed` | `platform_master`).
+   - `order_financials` is written once at checkout creation (immutable) and includes `shipping_cashback_gross_idr`, `platform_cashback_idr`, and `seller_cashback_idr` alongside merchandise proceeds, discounts, taxes, buyer-charged shipping, COD fees, and affiliate commission. Actual booking cost and reconciled cashback are recorded in append-once `shipment_cost` (`DATA-7`).
+   - `ledger_entry` (`DATA-7`) has one unified book per store under `FORCE ROW LEVEL SECURITY` with kinds:
+     - `sale` (net merchandise proceeds after affiliate commission),
+     - `cashback` (seller's share of shipping cashback configured by Bukalaris, guarded by partial unique index `ledger_one_cashback_per_order` on `(store_id, order_id) WHERE kind = 'cashback'`),
+     - `shipping_debit` and `shipping_debit_reversal`,
+     - `return_reversal` (for prepaid orders returned in transit while `pending`),
+     - `payout`, `payout_reversal`, and `adjustment`.
+   - **Release rule (D-14):** Both `sale` and `cashback` entries become `available` **only when the parcel is delivered AND reconciled** (`reconciliation_batch` / `reconciliation_batch_item`). In-transit or returned-in-transit (`returned` / RTS) parcels never release `sale` or `cashback`, so seller balance never goes negative.
+
+4. **Affiliate commission works across all orders (`ADR-0009`, `BILL-8`).**
+   - Because all orders (prepaid via AutoLaris and COD via Bukalaris-managed Mengantar) settle through Bukalaris's unified system, **every opted-in seller order is eligible for affiliate commission**, maturing after `delivered` + seller `sale` released (reconciled) + `affiliate_hold_days` (decided default: 3 days, Owner-configurable).
+
+5. **Partner settlement & custody verification gate (`OPEN-F9`, UNVERIFIED).**
+   - The public Partner API page describes each registered seller account as holding its own Mengantar wallet/COD balance and does not document partner-level COD sweep or cashback rebate endpoints.
+   - Before enabling live `partner_managed` bookings in production, verify with Mengantar under the partnership agreement how partner-generated accounts sweep COD collections, deduct non-COD wallet postage, and credit partner shipping cashback to Bukalaris (`OPEN-F9`). Until partner-account cash sweep is verified and active, live shipments route through `platform_master` (or use `partner_managed` only where settlement to Bukalaris is active) so Bukalaris always holds the cash backing `ledger_entry`.
+
+6. **Credential custody, worker budget, and white-label boundary.**
+   - Partner API calls run **in the outbox worker only** through the shared database token bucket `partner:mengantar` (60 requests/min, 1,000 registrations/day, honouring `Retry-After`).
+   - Provisioned `partner_managed` API keys are sealed with AES-256-GCM under the purpose-separated `shipping_credentials` keyring with `key_id` versioning (`DATA-9`), never exposed to sellers or browsers, and redacted from all logs/traces. On key invalidation (`needs_key`), the worker calls `/api/partner/v1/sellers/api-key` to fetch the current key.
+   - **100% White-label (`Bukalaris Kirim` / `Bukalaris Bayar`):** Merchant and buyer surfaces, checkout, order tracking, labels, and emails display `Bukalaris Kirim` and `Bukalaris Bayar`. If Mengantar's partner agreement requires disclosing Mengantar Terms during store onboarding, that disclosure lives solely in the store onboarding terms record (`DATA-9` consent log) and confirmation email (`T-48` copy-guard allow-list).
+
+## Alternatives considered
+
+- *Let sellers paste their own Mengantar API key (`own_key`) or run a two-system split (System A / System B)* — rejected by the owner (2026-10-27): fragments control of shipping discounts, cashback, COD reconciliation, and affiliate commissions across two incompatible accounting systems.
+- *Single Mengantar account without Partner API sub-accounts* — kept as `platform_master` execution path, but Partner API account generation per store is built so Bukalaris can register every store under the Mengantar partnership agreement and track per-store partner tiers/cashback.
+
+## Consequences
+
+- **Positive:** one unified financial system and ledger for all stores and orders; 100% of shipping discounts, margin, and cashback are controlled by Bukalaris in the Owner console; all orders (prepaid and COD) support affiliate commissions; zero credential management burden on sellers.
+- **Negative:** requires handling `409 EMAIL_ALREADY_REGISTERED` via Bukalaris-controlled store routing email or fresh email during partner provisioning, and requires verifying partner settlement/cashback sweep (`OPEN-F9`) before switching live traffic from `platform_master` to `partner_managed`.
+
+## Change history
+
+- 2026-10-27: initial hybrid draft (`platform`, `partner`, `own_key`).
+- 2026-10-27 (audit pass): added `shipping_credentials` keyring (`key_id`) and worker token bucket `partner:mengantar`.
+- 2026-10-27 (owner simplification): deleted `own_key` and the System A / System B split; Bukalaris generates a new Partner Mengantar account for every store (including existing Mengantar users) and controls all shipping management, discounts, margin, and cashback (`cashback` ledger kind, `OPEN-F9`).

@@ -454,3 +454,67 @@ dummy content.
   permission settings); `shipment` not yet in the privacy inventory; dashboard
   `(store_id, created_at)` index deferred; demo content for wave-4 features;
   track open issues in `docs/tracks/*.md` and TASKS.
+
+## 2026-10-28 — T-51 restructure and T-70 exact-host dispatch (local, uncommitted)
+
+- T-51 (move-only): `apps/web/src/app` moved into surface route groups; `packages/db/src` into bounded contexts (see
+  AGENTS.md "Layout"); imports, `package.json` exports, tests and ARCH-5 locators updated (208 path tokens rewritten by a
+  script that only rewrites a token when exactly one new location exists). Route manifest 64 before and 64 after, 0 URL
+  differences; `drizzle-kit generate` → "No schema changes"; no file changed under `packages/db/drizzle`.
+- Regressions found and fixed on the way: a reserved-slug edit dropped `body` from `pageInput` (`content.spec` showed
+  `Unrecognized key: "body"`); `ops.spec` seeded through the old `src/ops.ts` path; the `ops.test.ts` route walk and the
+  `landing.test.ts` route-group case used the flat paths. Catalog: product ids and `<slug>-<catalogId>` lookups in
+  `seller/commerce/catalog.ts` with a new case in `catalog.test.ts`.
+- T-70: `platform/host.ts` (reserved labels, `resolveHostSurface`, pure `dispatchHostPath`, per-surface origins and cookie
+  names), `proxy.ts` on top of it, one Better Auth instance per surface (`lib/auth.ts`), host-selected auth route with
+  Origin / Fetch-Metadata checks, `__Host-` names for store and cart cookies, per-surface link origins (feeds, invitations,
+  order-status links, checkout handoff, product URL). Owner console renamed from "Bos" to "Owner" in titles and shell.
+- Findings while verifying: `NextResponse.rewrite` to `/_not-found` yields a real 404 (checked over HTTP); my bare
+  `/o/` and `/r/` prefix tests silently never matched (caught by the golden table); the CSRF guard rejected the e2e
+  helper `enrolTotpViaApi` because `page.request` sends no `Origin` (helper now sends it; the guard is the intended
+  behaviour); the host-mode server first used `E2E_PORT + 1`, which `ops.spec` also uses (now `+ 3`).
+- Results (working tree after the last edit): `pnpm map:check` ok (64 route files, 72 rows); `pnpm lint` and
+  `pnpm typecheck` clean; `pnpm --filter @bukalaris/db test` 22 files / 229 tests passed; `pnpm build` ok;
+  `pnpm --filter @bukalaris/web e2e` 101 passed, 2 skipped (11.3 min) including the new `host-mode` project.
+- Not run / open: `pnpm verify:docker`; session-bound CSRF tokens; custom-domain resolver cache (T-15); pre-activation
+  check for existing stores on reserved labels; narrative docs still citing pre-move flat paths; nothing committed.
+
+## 2026-10-28 — T-61 variant weight and parcel weight (local, uncommitted)
+
+- `variant.weight_grams` (migration `0010`, backfill 1000 g, default dropped), required in the seller forms and service
+  input; `parcelWeightKg` is the single weight rule for quote, order snapshot and booking (old "1 kg per cart line" rule
+  and `CartForShipping.items` removed).
+- Behaviour change on purpose: a line of 2 units now weighs 2 kg (fake JNE COD fee Rp 22.500, was 17.500). Five unit
+  tests and three e2e specs (`purchase`, `channels`, `catalog`) were moved to the new numbers after checking each
+  difference against the rule, not by copying received values.
+- Results: lint, typecheck clean; `drizzle-kit generate` no further diff; DB 22 files / 232 tests passed; Playwright full
+  run before the spec updates 93 passed / 8 failed; affected specs re-run green afterwards; `privacy.spec` had an
+  ambiguous `getByRole("alert")` (form error plus Next route announcer) that failed intermittently on mobile-320 and is now
+  scoped to `main`. The full suite was not re-run after the fixes.
+- Open: Mengantar rounding and minimum weight UNVERIFIED; Storefront API weight not exposed; nothing committed.
+
+## 2026-10-28 — Documentation gate before more code (docs only, uncommitted)
+
+- Owner confirmations recorded as DECISIONS D-20 (T-59, T-60, T-61, T-70 accepted; ADR-0006..0010 accepted, ADR-0011/0012
+  still Proposed; operator tables separate; OPEN-F4 and OPEN-B1 decided; quality bar versus Tokophi). Code backup outside the
+  repo: `~/Documents/work/notes/bukalaris-code-wip-2026-10-28/`.
+- Mechanical doc repairs (authorised): review ids `CR-<fam>-nn` → `CR<fam>-nn` (159 occurrences, 13 files), 5 malformed
+  tables, one-line `Done when:` for 20 tasks. `check-traceability.py` legacy findings 92 → 0; planning stage 114 → 22
+  (all in `CONTEXT-RECORD.md` claim metadata and `ARCH-1` review metadata). `check-spec.py` PASS, `map:check` ok.
+- Semantic review by two read-only scouts found stale text; D-20 propagation applied (billing, UX, data model, IAM, ADR-0006,
+  DEPLOY, routing, task headings). Not applied, awaiting owner approval: PR status updates, D-15 stale hybrid/System A text
+  in 02-PRD, ADR-0006:13 and ADR-0009:93, T-48 title, multi-app table in 04, SLA disclaimers, `BETTER_AUTH_URL` in RUNBOOK,
+  "Super Admin" residues, `mail_outbox` data-model entry, `CONTEXT-RECORD.md` CTX-5 (says no repository exists).
+
+## 2026-10-28 — Document alignment A-L applied, 99ribu studied (docs only, uncommitted)
+
+- Owner approved A-K and accepted ADR-0011/0012 (DECISIONS D-21). 99ribu was surveyed read-only by four scouts: it has no RLS, a
+  single-tenant consignment model and no Mengantar integration; reusable patterns (unknown-outcome state, `markDispatched`
+  fence, evidence anti-reuse, claim lease, single-use proof, session-bound MFA, retention guards) are recorded as acceptance
+  assertions on T-37, T-49, T-60, T-62 and T-74 (each needing a named test), with the do-not-copy list in D-21.
+- Ledger stays single-entry (ADR-0006) with a consistency-invariants contract (DATA-7) and a future `pnpm verify:ledger`; the
+  AutoLaris callback policy is verify-by-pull (ADR-0006 decision 6, BILL, DATA-7, T-49). Neither is implemented.
+- Two document agents edited disjoint files; I re-checked the results: `check-traceability.py` 0 findings at legacy, research,
+  planning and ready stages (was 92 at the start of the day), `check-spec.py` PASS, `map:check` ok. `mail_outbox` columns were
+  compared with `schema-accounts.ts` and migrations. No code changed in this step. Nothing committed.
+- Next: T-59 and T-60 (code), then T-74, T-62, T-49, T-37, T-48.

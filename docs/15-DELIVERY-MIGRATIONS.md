@@ -31,6 +31,16 @@ Separate application rollback from data rollback; reverting code cannot safely
 undo payments or historical orders. Prefer forward corrections for financial
 records with an audit trail. Rehearse restoration under DR-1 before a pilot.
 
+Grant changes follow the same expand/contract rule. The migrate step runs before
+the new web version (DEPLOY-COOLIFY), so a migration that revokes a grant the
+previous web version still uses breaks the old version during the swap. Add
+grants in the expand migration; apply the `REVOKE` (and any `DROP`) in a later
+contract migration that runs only after the new version serves all traffic. The
+task that changes isolation (T-59) updates in the same change the role SQL in
+DEPLOY-COOLIFY and `packages/db/docker/05-roles.sql`, the `verify:docker` policy
+count, and the restore rehearsal checks (`rls_ok`, grants per role, erasure
+replay; 14 restore rules).
+
 ## DEL-3 — Vertical delivery order
 - Owner: Bukalaris delivery owner
 - Statement: Implement an accepted vertical slice through data, permission,
@@ -41,7 +51,7 @@ records with an audit trail. Rehearse restoration under DR-1 before a pilot.
 1. Repository/stack, operator auth, store context and tenant constraints.
 2. Product creation/IDs/variants/stock → published catalog in both themes.
 3. Cart → standalone hosted checkout → authorized outcome, with provider gates.
-4. Seller order handling/content/settings/domains and Super Admin lifecycle/logs.
+4. Seller order handling/content/settings/domains and Owner console lifecycle/logs.
 5. Private storefront channel → independent client → hosted checkout handoff.
 6. Initial release evidence and recovery rehearsal. LP/MCP follows later.
 
@@ -60,10 +70,10 @@ no placeholder command is claimed runnable against a nonexistent application.
 | API | Request/response conformance, malformed input, expired/revoked credentials, stale revisions |
 | Checkout | Same cart cannot create duplicate order; provider timeout remains pending; late settlement policy |
 | Headless | Separate origins; token store binding; one-use handoff; checkout refresh; registered return |
-| Browser | Three initial surfaces plus checkout, both themes, keyboard, mobile/wide, recovery |
+| Browser | Every released surface (Owner console, Seller Admin, storefront, checkout, and each planned portal as it ships) in host mode on `*.localhost` after T-70 and path mode before it, both themes, keyboard, mobile/wide, recovery |
 | Domains | Pending TLS, primary race, removal/reassignment, cache isolation |
 | Signals | Feed/Pixel/CAPI identity fixture parity and actual provider receipt before match claims |
-| Operations | Log sink-to-UI correlation, synthetic redaction, isolated restore |
+| Operations | Log sink-to-UI correlation, synthetic redaction, isolated restore with grants per role and erasure replay, post-restore payout freeze and reconciliation |
 
 ## Release evidence and documentation maintenance
 

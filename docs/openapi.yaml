@@ -87,7 +87,7 @@ tags:
   description: Capability-protected single-store cart and checkout.
 - name: Seller
   description: Membership-scoped commerce administration.
-- name: Super Admin
+- name: Owner console
   description: Explicit platform authority and safe operational diagnostics.
 security: []
 paths:
@@ -3160,14 +3160,14 @@ paths:
               $ref: '#/components/schemas/ShipmentRequest'
   /admin/stores:
     servers:
-    - url: https://bos.bukalaris.com/api/v1
+    - url: https://owner.bukalaris.com/api/v1
     get:
       operationId: listAdminStores
       summary: List platform stores
       description: 'Requires explicit platform capability; never inferred from seller
         membership. '
       tags:
-      - Super Admin
+      - Owner console
       security:
       - sessionCookie: []
       x-status: proposed
@@ -3211,7 +3211,7 @@ paths:
         membership. Owner invitation/membership setup depends on selected identity
         adapter and is a separate gate.
       tags:
-      - Super Admin
+      - Owner console
       security:
       - sessionCookie: []
       x-status: proposed
@@ -3260,14 +3260,14 @@ paths:
               $ref: '#/components/schemas/StoreCreate'
   /admin/stores/{store_id}:
     servers:
-    - url: https://bos.bukalaris.com/api/v1
+    - url: https://owner.bukalaris.com/api/v1
     get:
       operationId: getAdminStore
       summary: Read store lifecycle
       description: 'Requires explicit platform capability; never inferred from seller
         membership. '
       tags:
-      - Super Admin
+      - Owner console
       security:
       - sessionCookie: []
       x-status: proposed
@@ -3311,7 +3311,7 @@ paths:
           maxLength: 128
   /admin/stores/{store_id}/transitions:
     servers:
-    - url: https://bos.bukalaris.com/api/v1
+    - url: https://owner.bukalaris.com/api/v1
     post:
       operationId: transitionStore
       summary: Approve suspend or reactivate store
@@ -3319,7 +3319,7 @@ paths:
         membership. Append durable actor/target/reason audit in same local transaction;
         suspension disables new checkout and queues routing/cache invalidation.
       tags:
-      - Super Admin
+      - Owner console
       security:
       - sessionCookie: []
       x-status: proposed
@@ -3375,7 +3375,7 @@ paths:
               $ref: '#/components/schemas/StoreTransition'
   /admin/logs:
     servers:
-    - url: https://bos.bukalaris.com/api/v1
+    - url: https://owner.bukalaris.com/api/v1
     get:
       operationId: listSystemLogs
       summary: Filter sanitized diagnostic logs
@@ -3385,7 +3385,7 @@ paths:
         503. Audit log access separately. Require from < to and stable timestamp/ID ordering. Bind cursor
         to filters and authorization scope. Responses are private, no-store.
       tags:
-      - Super Admin
+      - Owner console
       security:
       - sessionCookie: []
       x-status: proposed
@@ -3483,7 +3483,7 @@ paths:
         description: Omitted means the current deployment environment; never silently combine environments.
   /admin/logs/{log_id}:
     servers:
-    - url: https://bos.bukalaris.com/api/v1
+    - url: https://owner.bukalaris.com/api/v1
     get:
       operationId: getSystemLog
       summary: Read sanitized diagnostic event
@@ -3491,7 +3491,7 @@ paths:
         membership. Link module/page_id to the system map; source paths are registry
         metadata, not unrestricted filesystem reads. Audit log access separately.
       tags:
-      - Super Admin
+      - Owner console
       security:
       - sessionCookie: []
       x-status: proposed
@@ -3943,8 +3943,10 @@ components:
       type: apiKey
       in: cookie
       name: __Host-bukalaris_session
-      description: Proposed server-side browser session; actual adapter pending. Mutations
-        require CSRF and Origin checks.
+      description: Proposed server-side browser session; actual adapter pending. The
+        cookie name is per surface (08-DOMAIN-ROUTING DOM-6) - `__Host-bl_owner`,
+        `__Host-bl_seller`, `__Host-bl_aff`, `__Host-bl_buyer` - and this scheme names
+        the host-only property, not one shared cookie. Mutations require CSRF and Origin checks.
     serviceToken:
       type: http
       scheme: bearer

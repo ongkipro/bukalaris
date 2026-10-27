@@ -95,3 +95,31 @@ Still to add, through the owning services:
 The dashboard (`dashboard`) needs no extra rows: it reads the back-dated orders.
 `--reset` already deletes from every table with a `store_id` column, so new
 store-owned tables are covered without changes.
+
+## Mockups (static)
+
+The affiliate programme, the subscription screen and its Owner console counterpart
+have no code yet. They are shown as clickable static HTML mockups in
+`docs/mockups/` (plain HTML + one shared CSS, no build, no network; fictional data
+only; each page carries a "MOCKUP — data fiktif, belum diimplementasi" ribbon and
+a link to its spec).
+
+Open `docs/mockups/index.html` in a browser (`xdg-open docs/mockups/index.html`
+on Linux). It lists every page and what is real versus mockup.
+
+| Surface | Status | Where |
+|---|---|---|
+| Seller Admin, Batik Nusantara | **Real** (seeded) | `http://localhost:3001/seller` |
+| Storefront, Batik Nusantara | **Real** (seeded) | `http://localhost:3001/s/demo-batik-nusantara` |
+| Affiliate portal, @sari-picks (AF-01) | Mockup | `docs/mockups/affiliate-portal.html` |
+| Public affiliate storefront (AF-08) | Mockup | `docs/mockups/affiliate-storefront.html` |
+| Seller Admin: Affiliate (SC-30) | Mockup | `docs/mockups/seller-affiliate.html` |
+| Seller Admin: Subscription (SC-28) | Mockup | `docs/mockups/seller-subscription.html` |
+| Owner console: Affiliate (SA-11) | Mockup | `docs/mockups/admin-affiliate.html` |
+
+The demo store is **Batik Nusantara** (`demo-batik-nusantara`); the mockups reuse
+its product names and prices plus the other three demo stores. The route IDs are
+proposed ARCH-5 rows (see `docs/04-SYSTEM-ARCHITECTURE.md`, planned surfaces) and
+the mockups are not implementation evidence. Money is integer IDR; commission
+rates are shown as percent next to basis points; sample rates, bounds, hold
+periods and payout deductions are illustrative, not decided policy.

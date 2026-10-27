@@ -133,13 +133,13 @@ These are design proposals, not a claim that a library ships this appearance.
 
 - Status: Proposed; framework-neutral delivery specification.
 - Owner: Bukalaris design owner.
-- Scope: Seller Admin and Super Admin. Future marketplace, LP, buyer-account,
+- Scope: Seller Admin and the Owner console. Future marketplace, LP, buyer-account,
   and affiliate navigation is not shown as a working Phase 1 feature.
 
 Use a restrained light operator surface: a persistent current-store/platform
 context, task-oriented navigation, a page title, and the primary job. Product
 and order queues take priority over decorative metrics. The Seller overview
-links to actionable work; Super Admin prioritizes tenant governance and includes
+links to actionable work; the Owner console prioritizes tenant governance and includes
 the required Log System button. KPI definitions must name time window, timezone,
 data freshness, and drill-down destination before a metric is displayed.
 
@@ -223,13 +223,13 @@ UNVERIFIED; these are planned checks, not evidence of an implemented interface.
 Use a restrained light operational UI with persistent surface/store context,
 searchable tables, clear status labels, accessible form errors, and panels only
 where they group a task. Seller overview shows actions needing attention;
-Super Admin overview shows tenant/provider/system exceptions, not decorative
+the Owner console overview shows tenant/provider/system exceptions, not decorative
 metrics. Narrow screens keep primary actions and use explicit detail views for
 secondary columns. Next.js and shadcn/ui are selected; final brand tokens remain pending.
 
 ## Log System component mapping
 
-Proposal within the existing Bos design: use a text-labelled link with shadcn
+Proposal within the existing Owner console design: use a text-labelled link with shadcn
 button styling for the entry, semantic table for event rows, labelled fields
 for filters, text-plus-color severity badges and pagination controls. Detail
 uses grouped metadata and a safe message region; never render log strings as

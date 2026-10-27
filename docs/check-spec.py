@@ -29,7 +29,7 @@ def walk(value):
 walk(spec)
 operations = {}
 for path, item in spec['paths'].items():
-    host = 'bos' if path.startswith('/admin/') else 'checkout' if path.startswith('/checkout/') else 'app'
+    host = 'owner' if path.startswith('/admin/') else 'checkout' if path.startswith('/checkout/') else 'app'
     require(item.get('servers') == [{'url': f'https://{host}.bukalaris.com/api/v1'}],
             f'Wrong proposed API origin: {path}')
     for method, operation in item.items():

@@ -4,7 +4,7 @@
     {
       "id": "CTX-1",
       "dimension": "Product surface",
-      "statement": "Bukalaris initially delivers Seller Admin, Storefront and Super Admin, with independent platform-hosted checkout and external token-authenticated storefronts. LP/MCP, marketplace, buyer account and affiliate are phased future scope.",
+      "statement": "Bukalaris initially delivers Seller Admin, Storefront and the Owner console (formerly Super Admin), with independent platform-hosted checkout and external token-authenticated storefronts. LP/MCP, marketplace, buyer account and affiliate are phased future scope.",
       "status": "Decision",
       "confidence": "High",
       "evidence": "Product direction and headless/checkout clarification by Paduka Ongki on 2026-09-18.",
@@ -54,18 +54,18 @@
     {
       "id": "CTX-16",
       "dimension": "Stack and platform domains",
-      "statement": "Bukalaris uses bukalaris.com with tagline Buka toko langsung laris; Bos at bos.bukalaris.com and Tenant Admin at app.bukalaris.com use Next.js, TypeScript, shadcn/ui and Tailwind CSS.",
+      "statement": "Bukalaris uses bukalaris.com with tagline Buka toko langsung laris; the operator console (recorded as Bos at bos.bukalaris.com on 2026-09-25, since renamed the Owner console at owner.bukalaris.com, ADR-0008/ADR-0011) and Seller Admin at app.bukalaris.com use Next.js, TypeScript, shadcn/ui and Tailwind CSS.",
       "status": "Decision",
       "confidence": "High",
-      "evidence": "Explicit user direction on 2026-09-25.",
+      "evidence": "Explicit user direction on 2026-09-25, host and name updated by owner decision on 2026-10-27.",
       "owner": "Bukalaris architecture owner",
       "recheck_trigger": "Product or stack direction changes"
     },
     {
       "id": "CTX-17",
       "dimension": "Public rendering and persistence",
-      "statement": "Recommend Astro for marketing and on-demand tenant storefronts, Next.js checkout, and PostgreSQL/Drizzle with a shared commerce core. No implementation or performance benchmark exists.",
-      "status": "Proposal",
+      "statement": "Superseded recommendation (history): Astro for marketing and on-demand tenant storefronts, Next.js checkout, and PostgreSQL/Drizzle with a shared commerce core. Superseded by DECISIONS D-2, ADR-0008 and T-51 (implemented locally, uncommitted): one Next.js app `apps/web` with route groups serves every surface; PostgreSQL/Drizzle with a shared commerce core is unchanged. No performance benchmark exists.",
+      "status": "Superseded",
       "confidence": "Medium",
       "evidence": "Architecture fit assessment and official Next.js/Astro documentation reviewed on 2026-09-25.",
       "owner": "Bukalaris architecture owner",
@@ -79,7 +79,7 @@
         "CTX-1"
       ],
       "owner": "Bukalaris security owner",
-      "reason": "Super admins, sellers, buyers, affiliates, and service identities require separate authorization boundaries.",
+      "reason": "Owner console staff, sellers, buyers, affiliates, and service identities require separate authorization boundaries.",
       "review_gate": "IAM approval"
     },
     "persistence": true,

@@ -4,7 +4,7 @@
 Every operation still carries `x-status: proposed` (the checker requires it);
 the ten operations that exist on `main` additionally carry an `x-implemented`
 note with the real route or server action. All other paths, the proposed
-`bos.`/`app.`/`checkout.bukalaris.com` origins and the `/api/v1` prefix are
+`owner.`/`app.`/`checkout.bukalaris.com` origins and the `/api/v1` prefix are
 design proposals, not implemented endpoints (one app serves everything,
 DECISIONS D-2). HTTP schema ownership stays in that file; this document
 explains boundaries, provider gaps, and acceptance. Do not create a competing
@@ -18,7 +18,7 @@ route specification.
 | Channel lifecycle | `listStorefrontChannels`, `createStorefrontChannel`, `revokeStorefrontChannel` | Implemented as Seller Admin page + server actions (`/seller/channels`), not as HTTP routes |
 | Hosted checkout | `quoteCheckout`, `submitCheckout`, `getHostedCheckout` | Behaviour exists as the `/checkout` server component and `submitCheckout` server action plus the handoff exchange `GET /checkout/h/{code}`; no checkout-session HTTP endpoints |
 | Seller catalog/inventory/content/settings/orders | `listSellerProducts` … `requestShipment`, `getStoreSettings`, `updateTheme`, … | Behaviour exists as server components/actions under `/seller/**` (functions listed in 04-SYSTEM-ARCHITECTURE "Development function map"); no HTTP routes. Not implemented at all: `changeProductSlug` (slug edit happens through `editProduct`/`updateProduct`), `publishProduct`/`archiveProduct` (status field), `duplicateProduct`, menus (`*Menu`), domains (`*Domain`, `getRoutingSettings`, `setPrimaryDomain`), `requestShipment` (T-39) |
-| Super Admin | `listAdminStores`, `createStore`, `getAdminStore`, `transitionStore`, `listSystemLogs`, `getSystemLog` | Behaviour exists as `/admin`, `/admin/stores/**`, `/admin/logs/**` server components/actions; no HTTP routes |
+| Owner console (formerly Super Admin) | `listAdminStores`, `createStore`, `getAdminStore`, `transitionStore`, `listSystemLogs`, `getSystemLog` | Behaviour exists as `/admin`, `/admin/stores/**`, `/admin/logs/**` server components/actions; no HTTP routes |
 | `/session` | `getSession` | Not implemented; seller context comes from `sellerContext` inside the app |
 | Operational handlers (not in OpenAPI) | — | `GET /api/health`, `GET /api/ready`, `POST /api/signals`, `GET/POST /api/auth/*` (Better Auth), media `GET /s/{store}/media/{id}` and `GET /seller/products/{id}/media/{mediaId}` (ARCH-5 HTTP-01..HTTP-04, HTTP-13, HTTP-14) |
 
@@ -33,7 +33,7 @@ URL segment is now the catalog id (D-8). The `Theme` enum is `responsive` |
 |---|---|---|
 | Seller CMS | Seller browser | Membership scope, pagination, validation, optimistic conflict handling |
 | Storefront commerce | Storefront/browser | Host/store binding, public catalog, server-authoritative cart/checkout |
-| Super Admin | Platform operators | Platform role, audit reason for sensitive changes, target tenant visibility |
+| Owner console | Platform operators | Platform role, audit reason for sensitive changes, target tenant visibility |
 | Provider adapters | Trusted backend only | Timeout, idempotency, stable local/provider references, sanitized errors |
 | Webhook/callback | Provider to backend | Verified authenticity before parse/side effect, durable deduplication |
 | Future connector | Seller system | Explicit data ownership, sync cursor, conflict/delete semantics, scoped credential |
@@ -186,7 +186,7 @@ must reject removed/suspended bindings even if cleanup is still pending.
 - Owner: Bukalaris API owner
 - Source: PR-14.
 - Statement: openapi.yaml owns proposed HTTP operations and JSON schemas for
-  native/external storefronts, hosted checkout, Seller Admin and Super Admin.
+  native/external storefronts, hosted checkout, Seller Admin and the Owner console.
   Use a versioned /api/v1 boundary with consistent errors and pagination.
 - Acceptance: OpenAPI lint and local-reference checks pass; implementations
   must later pass request/response, permission, idempotency and concurrency
@@ -227,7 +227,7 @@ do not assume storefront cookies exist on the checkout origin.
 - Owner: Bukalaris API owner
 - Source: PR-17, TD-6, IAM-12.
 - Statement: Expose capability-filtered read resources, draft tools and guided
-  prompts through one future MCP adapter over the same core services as Tenant Admin.
+  prompts through one future MCP adapter over the same core services as Seller Admin.
   Resolve actor, store and revocable grant before discovery or execution. Inputs
   use validated schemas, stable object IDs and expected revisions; URLs and
   media references are constrained to authorized content.
@@ -247,15 +247,15 @@ Published HTTP contracts remain owned by `openapi.yaml`.
 ## HTTP host ownership
 
 Proposal: Path-level OpenAPI servers declare each proposed surface origin.
-Tenant Admin serves `/seller/*` and `/storefront/*`; Bos serves `/admin/*`; the
-checkout application serves `/checkout/*`. Route groups must not be mounted on
+Seller Admin serves `/seller/*` and `/storefront/*`; the Owner console serves `/admin/*`; the
+checkout surface (a route group of the one Next.js app on its own origin, ADR-0008) serves `/checkout/*`. Route groups must not be mounted on
 other hosts by a wildcard proxy rule. Same-origin cookies authenticate each
 admin surface; external storefronts use scoped server-side channel tokens on
-Tenant Admin. Native storefront cart endpoints are thin same-origin adapters, not
+Seller Admin. Native storefront cart endpoints are thin same-origin adapters, not
 an alternative commerce API. Document provider callback origins only after
 verified provider contracts establish the necessary paths and signatures.
 
 
-Proposal: `/session` belongs to Tenant Admin and returns seller memberships. Bos
+Proposal: `/session` belongs to Seller Admin and returns seller memberships. Owner console
 operator login/session lifecycle remains an auth-adapter contract to specify
 under T-17; do not reuse seller membership responses as platform authority.

@@ -31,12 +31,18 @@
 
 - Status: Proposed
 - Owner: Bukalaris integration owner
-- Decision: Create a server-only shipping adapter and payment adapter. The
-  order service persists its stable reference before calling a provider and
-  records provider references/result envelopes separately from the order state.
+- Decision: Create a server-only shipping adapter (Mengantar aggregator) and
+  payment adapter (AutoLaris H2H). The order service persists its stable
+  reference before calling a provider and records provider references/result
+  envelopes separately from the order state. Merchant-facing and shopper-facing
+  surfaces never expose raw provider brand names (`Mengantar`, `AutoLaris`); they
+  render platform white-label names (`Bukalaris Kirim` and `Bukalaris Bayar`),
+  guarded by an automated source check (ADR-0006).
 - Constraints: AutoLaris enabled channels must come from its account-specific
-  `list_payment`; physical AutoLaris flows require quote-derived `courir_id`.
-  Mengantar estimate eligibility controls offered courier/COD choices.
+  `list_payment`; prepaid checkout bills `order_payable + admin_fee` via
+  `/submit` (`alCreateOrder`) while `advice` reconciliation runs observe-only
+  until live status codes are verified. Mengantar estimate eligibility controls
+  offered courier/COD choices and snapshots platform shipping margin.
 - Consequence: No browser call holds a provider secret; unknown transport
   results are reconciled rather than blindly recreated.
 
@@ -158,6 +164,16 @@ on the buyer page. Test a physical touch device and keyboard interaction;
 viewport simulation alone is insufficient. Do not force a framework migration
 solely to adopt this recommendation.
 
+### Puck custom field overrides and shared section registry (adopted from Etalashop `THEME_EDITOR_SPEC.md`, 2026-10-26)
+
+To prevent the Landing Page Builder (`T-11`, building on `T-42`'s typed blocks and immutable `landing_page_revision` table) from shipping bare URL text boxes or drifting between editor preview and storefront rendering:
+
+1. **Single typed section registry:** Keep one canonical section schema and default-props registry shared between the `/seller/landing-pages/[id]` editor preview and the `/s/[store]/lp/[slug]` public server renderer so adding or changing a block type is a compile-time TypeScript contract.
+2. **Base-UI field overrides (`@base-ui/react`):** Because Bukalaris's shadcn setup runs on `@base-ui/react` (not Radix; triggers use `render`, not `asChild`, DECISIONS D-1), Puck's `overrides.fieldTypes` swaps default inputs for Bukalaris's Base-UI primitives and adds two rich custom field modals:
+   - **Image Picker modal (`type: "custom"`):** Replaces raw image URL inputs with a searchable dialog offering tabs for **Upload baru** (writes to store-scoped `media`), **Galeri toko** (existing store media), **Gambar produk**, **Koleksi**, and **URL eksternal tervalidasi**.
+   - **Link Picker modal (`type: "custom"`):** Replaces raw `href`/`ctaHref` text inputs with a searchable dialog for **Produk** (`/products/<slug>`), **Koleksi** (`/collections/<slug>`), **Halaman CMS** (`/pages/<slug>`), or **URL**.
+3. **Locked commerce form boundary:** The `order` section inside any landing page binds only to a store-owned `product_id` and renders the platform-controlled variant/quantity selector that hands off to `/checkout`; neither visual Puck edits nor MCP tools can inject custom form fields or bypass server-side checkout pricing.
+
 ## Headless and checkout integration correction
 
 Source: PR-16 and ARCH-7. Native themes, LP and external storefronts share
@@ -176,7 +192,7 @@ See API-8 and openapi.yaml for the current draft transport contract.
 - Decision: Provide one Bukalaris MCP gateway with capability-filtered resources,
   tools, and prompts. The gateway is an adapter over the same application
   services used by Seller Admin and the versioned HTTP boundary; it is not a
-  database proxy, a second content model, or a privileged Super Admin channel.
+  database proxy, a second content model, or a privileged Owner console channel.
 - Acceptance: UI and MCP edits produce the same validation, authorization,
   revision conflict, audit, preview, and publication outcomes. Tool inputs and
   structured outputs use explicit schemas. An MCP connection resolves exactly
@@ -194,7 +210,7 @@ See API-8 and openapi.yaml for the current draft transport contract.
 | Editorial | Articles, CMS pages, menus, media metadata and link graph | Create/edit article/page/menu drafts; attach owned media; validate links | Publish/unpublish requires content publication capability |
 | Landing pages | LP document, revisions, components, preview validation | Create/edit/reorder LP draft through the shared document service | Publish follows PR-9 form and revision controls |
 | Store context | Public profile, theme metadata, domains and channel status | Prepare proposed settings changes | Domain, credentials and checkout settings remain outside content tools |
-| Engineering/operations | Page map, OpenAPI, sanitized diagnostics and correlation links | None through seller-content grants | Privileged diagnostic tools require separate Super Admin capability |
+| Engineering/operations | Page map, OpenAPI, sanitized diagnostics and correlation links | None through seller-content grants | Privileged diagnostic tools require separate Owner console capability |
 
 Resources are passive context and never authorize mutation. Tools call named
 application operations with expected revisions and idempotency where needed.
@@ -224,11 +240,101 @@ user-invoked prompts; sensitive tools should retain human oversight. See
 [server concepts](https://modelcontextprotocol.io/docs/learn/server-concepts)
 and [tools](https://modelcontextprotocol.io/specification/2025-06-18/server/tools).
 
+## TD-7 — Surface and package structure
+
+- Status: Accepted as a decision (ADR-0008, owner 2026-10-28; first recorded 2026-10-27);
+  T-51 (one app with route groups) and T-70 (per-surface origins) are implemented locally
+  and uncommitted, nothing is deployed. TD-6 remains the separate MCP content-gateway contract.
+- Owner: Bukalaris architecture owner
+- Source: [ADR-0008](ADR-0008-platform-architecture-and-routing.md); DECISIONS
+  D-2, D-3, D-4, D-9; ADR-0005, ADR-0010; ARCH-5; PR-7, PR-18, PR-27, PR-28, PR-29.
+- Statement: Keep one Next.js App Router app, `apps/web`, with explicit route
+  groups for platform/operator, seller, storefront, checkout, affiliate portal,
+  affiliate storefront, buyer portal, the public Update Log (`(update-log)`),
+  identity, public services and a small public platform group (`(public)`: the
+  report page and the referral link). Groups organize layouts, not URLs or
+  authorization. `src/proxy.ts` dispatches exact platform hosts before
+  affiliate/store hosts: Owner console `owner` → `/admin`, seller `app` →
+  `/seller`, affiliate → `/affiliate`, buyer → `/buyer`, logs → `/updates`; `berkah`
+  and `bos` are retired/reserved-unused. `/checkout` and `/api` stay un-rewritten. The
+  existing `/admin`, `/seller`, `/s/<store>` and checkout URL/layout boundaries
+  remain unchanged during T-51; T-70 activates host dispatch and per-surface
+  sessions (08 DOM-5, DOM-6). Reserve `owner` (the active Owner console host
+  label), `app`, `affiliate`, `buyer`, `logs`, `checkout`, `cname`, the retired
+  `berkah` and `bos`, and all existing
+  infrastructure labels from store/affiliate claims.
+- Decision: Reorganize `packages/db/src` into `platform/`, `billing/`,
+  `buyer/`, `seller/commerce/`, `storefront/`, `shipping/`, `payments/`, `affiliate/`,
+  `tax/` and `ops/jobs/` (with logs in `ops/`, `worker.ts` and `cleanup.ts` kept as thin root entry points so deployment commands do not move, and minimal root infrastructure). Domain schema
+  declarations live beside their services; shared SQL names and migration
+  history do not change. Keep one package/database, explicit server-only
+  imports and the ADR-0005 owner/app/platform role separation; no generic
+  repository, new broker or per-context package is required.
+- Decision: The proposed `(buyer-portal)/buyer/` subtree and `buyer/` data context
+  own the buyer surface and platform-level buyer identity tables. ADR-0010 and
+  PR-7 alone define buyer identity behavior. Buyer, Seller Admin, Owner console
+  and Affiliate portal have separate host-only cookie scopes and session
+  audiences, never shared sessions or parent-domain session cookies. A buyer
+  session grants no admin capability; buyer services do not expose privileged
+  pools or bypass store RLS.
+- Decision: `logs.bukalaris.com` is the public, read-only product Update Log
+  (release notes), rewritten to a proposed `(update-log)/updates/…` route group.
+  It is not the internal Log System (`/admin/logs`, PR-11). Its code lives in
+  `platform/updates` (platform-owned, no store scope, operator-authored, small;
+  no new top-level context). It has no session and no cookies of its own, carries
+  no personal data, and is authored only in the Owner console on `owner`.
+  Cacheability conflicts with the current per-request nonce CSP and request-id
+  cookie in `proxy.ts`: it needs a host-specific proxy profile (static CSP, no
+  per-request cookie) owned by T-69, with freshness by time-based staleness or
+  the internal handler HTTP-30, and is UNVERIFIED until implemented.
+- Decision: Platform-owned affiliate data is not a seller tenant. Affiliate
+  discovery uses the outbox-fed `affiliate_catalog` projection of opted-in
+  seller products, with `source = bukalaris` only in Phase 1. Seller eligibility
+  settings retain store RLS; affiliate-private services scope reads to the
+  authenticated affiliate and apply bank/phone masking in the data layer.
+  Seller orders/checkout remain store-owned and one store per order (TD-5).
+- Acceptance: T-51 inventories the current 47 pages and 17 handlers plus ARCH-5
+  background entries, moves existing files/callers/configuration in mechanical
+  steps and records a one-to-one after-map with stable IDs and no changed
+  routes, behavior, layout inheritance, RLS or job payloads. No duplicate App
+  Router paths, schema-change SQL from moves, stale imports or obsolete
+  compatibility paths remain. ARCH-5 is regenerated against actual moved files;
+  lint, typecheck, test, build and e2e are green in implementation evidence.
+- Constraints: D-9 append-only migrations; transaction-local `app.store_id`,
+  forced RLS and compound store foreign keys stay intact. The platform pool
+  stays behind authorized services/resolvers, never exposed through seller or
+  public imports. Moving code does not activate new hosts or deliver affiliate,
+  billing or buyer features; T-70 (host dispatch and per-surface auth), T-50,
+  T-52 through T-55 and the implementation of ADR-0010/PR-7 own those
+  behaviors. Build order is the TASKS.md dependency graph (its header and each
+  task's `Dependencies:` line), not restated here.
+  External connectors (T-56) and multi-seller settlement (BILL-3) are deferred.
+- Consequence: The historical Astro/multi-app recommendation below is not the
+  next build target. Refine D-2's old split trigger: multiple apps wait for a
+  demonstrated deploy/runtime/security isolation need, while distinct hosts,
+  layouts and cookie audiences can be implemented in one app.
+- Evidence: Repository source inspection on 2026-10-27; target structure,
+  affiliate/buyer routes and new host dispatch are proposals. DNS/TLS, deployed
+  origin/session isolation and nested affiliate wildcard support are
+  **UNVERIFIED**. ADR-0008 owns the full target trees and move sequence.
+- Change history: 2026-10-27 — documentation audit pass: added the `tax/` context,
+  the `(update-log)` and `(public)` groups, the T-70 host-activation task and the
+  worker/cleanup entry-point rule; the build order now lives only in TASKS.md
+  (audit TRC-3, TRC-7, OPS-01, OPS-22, OPS-25).
+
 ## Rendering and cache implementation baseline
 
-Decision: Next.js owns Bos and Tenant Admin. Recommendation: Astro renders marketing
+Status: **Superseded** for the Astro and separate-checkout-app parts of this
+section (DECISIONS D-2, ADR-0008, TD-7 and T-51: one Next.js app `apps/web` with route
+groups serves every surface, including checkout, and Astro is not the build target;
+T-51 is implemented locally and uncommitted). The paragraph below is kept as history.
+The cache rules in the paragraph after it still apply.
+
+Historical decision (superseded): Next.js owns the Owner console and Seller Admin. Historical recommendation
+(superseded): Astro renders marketing
 statically and store content on demand because tenant host, published revisions
-and availability vary per request. Use Next.js for the separate checkout app.
+and availability vary per request. Use Next.js for the separate checkout app (superseded:
+checkout is a route group of the same app on its own origin).
 Marketing stays available without a database call. Hydrate only interactive
 leaves; keep the future builder/editor out of public storefront bundles.
 
