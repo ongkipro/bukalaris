@@ -14,6 +14,7 @@ test("seller creates a product with a variant and it appears on the storefront",
   await page.getByLabel("Nama varian").fill("L");
   await page.getByLabel("Harga (Rp)").fill("175000");
   await page.getByLabel("Stok").fill("7");
+  await page.getByLabel("Berat (gram)").fill("450");
   await evidence(page, info, "02-seller-new-product");
   await page.getByRole("button", { name: "Simpan produk" }).click();
 

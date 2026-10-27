@@ -3,9 +3,9 @@ import { fileURLToPath } from "node:url";
 import { and, eq, getTableColumns, getTableName, is, sql } from "drizzle-orm";
 import { PgTable } from "drizzle-orm/pg-core";
 import { beforeEach, describe, expect, it } from "vitest";
-import { placeOrder } from "../src/checkout.ts";
-import { runOnce } from "../src/jobs.ts";
-import { transitionOrder } from "../src/orders.ts";
+import { placeOrder } from "../src/seller/commerce/checkout.ts";
+import { runOnce } from "../src/ops/jobs/jobs.ts";
+import { transitionOrder } from "../src/seller/commerce/orders.ts";
 import {
   BUYER_DATA_INVENTORY,
   exportBuyerData,
@@ -17,11 +17,11 @@ import {
   redactStaleOrders,
   RETENTION_ACTOR,
   retentionDays,
-} from "../src/privacy.ts";
+} from "../src/seller/commerce/privacy.ts";
 import * as schema from "../src/schema.ts";
 import { auditLog, mailOutbox, membership, order, orderLine, orderNotification, orderRedaction, orderSignalContext, signalEvent } from "../src/schema.ts";
-import { saveDestination } from "../src/signals.ts";
-import { setCartLine } from "../src/storefront.ts";
+import { saveDestination } from "../src/storefront/signals.ts";
+import { setCartLine } from "../src/storefront/storefront.ts";
 import { buyer, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
 
 // Buyer data export and redaction (T-43, SEC-19, PRIV-4). Every service call here runs as

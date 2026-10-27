@@ -2,8 +2,8 @@
 // common Indonesian given/family names, streets are `Jl. Contoh …` (area labels are the fake
 // shipping provider's fixtures), phones are in the 0812-0000-xxxx test range, e-mails end in
 // `@demo.bukalaris.local`. Prices are integer IDR.
-import { FAKE_AREAS } from "../providers.ts";
-import type { Theme } from "../content.ts";
+import { FAKE_AREAS } from "../payments/providers.ts";
+import type { Theme } from "../storefront/content.ts";
 
 export const DEMO_EMAIL_DOMAIN = "demo.bukalaris.local";
 /** Shared local-only password for every demo login (documented in docs/DEMO.md). */
@@ -11,7 +11,7 @@ export const DEMO_PASSWORD = "bukalaris-demo-123";
 /** Every demo store slug starts with this; it is the marker the seed uses to detect and reset itself. */
 export const DEMO_SLUG_PREFIX = "demo-";
 
-export type DemoVariant = { title: string; price: number; stock: number; sku?: string };
+export type DemoVariant = { title: string; price: number; stock: number; sku?: string; weightGrams?: number };
 export type DemoProduct = {
   title: string;
   slug: string;

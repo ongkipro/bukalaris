@@ -1,4 +1,5 @@
 import { createHandoff } from "@bukalaris/db";
+import { surfaceOriginsFromEnv } from "@bukalaris/db/host";
 import { json, withChannel } from "../../../_lib";
 
 /**
@@ -9,8 +10,8 @@ export function POST(req: Request, ctx: RouteContext<"/api/storefront/v1/carts/[
   return withChannel(req, async ({ scope, channel }) => {
     const { cartId } = await ctx.params;
     const h = await createHandoff(scope, channel.id, cartId);
-    // Checkout origin is platform configuration (ARCH-7); the request origin is only a dev fallback.
-    const origin = process.env.CHECKOUT_ORIGIN ?? process.env.BETTER_AUTH_URL ?? new URL(req.url).origin;
+    // Checkout origin is platform configuration (DOM-5, `CHECKOUT_ORIGIN`); never the request's own origin.
+    const origin = surfaceOriginsFromEnv(process.env).checkoutOrigin;
     return json({ checkout_id: String(h.id), checkout_url: `${origin}/checkout/h/${h.code}`, expires_at: h.expiresAt.toISOString() }, 201);
   });
 }

@@ -86,11 +86,13 @@ export function saveTotpSecret(email: string, secret: string) {
 
 /** Enrol TOTP through the HTTP routes for an already signed-in page (fallback when a spec needs an enrolled operator). */
 export async function enrolTotpViaApi(page: Page, email: string, password = DEV_PASSWORD) {
-  const enable = await page.request.post("/api/auth/two-factor/enable", { data: { password, method: "totp" } });
+  // Cookie-authenticated writes need the surface's exact Origin (DOM-6); a browser adds it, `page.request` does not.
+  const headers = { origin: new URL(page.url()).origin };
+  const enable = await page.request.post("/api/auth/two-factor/enable", { headers, data: { password, method: "totp" } });
   expect(enable.ok(), `two-factor/enable ${enable.status()}`).toBeTruthy();
   const { totpURI } = (await enable.json()) as { totpURI: string };
   const secret = new URL(totpURI).searchParams.get("secret")!;
-  const verify = await page.request.post("/api/auth/two-factor/verify-totp", { data: { code: totp(secret) } });
+  const verify = await page.request.post("/api/auth/two-factor/verify-totp", { headers, data: { code: totp(secret) } });
   expect(verify.ok(), `two-factor/verify-totp ${verify.status()}`).toBeTruthy();
   saveTotpSecret(email, secret);
   return secret;

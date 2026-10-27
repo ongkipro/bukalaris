@@ -1,8 +1,8 @@
 import { eq, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
-import { placeOrder } from "../src/checkout.ts";
-import { MAX_ATTEMPTS, runOnce } from "../src/jobs.ts";
-import { transitionOrder } from "../src/orders.ts";
+import { placeOrder } from "../src/seller/commerce/checkout.ts";
+import { MAX_ATTEMPTS, runOnce } from "../src/ops/jobs/jobs.ts";
+import { transitionOrder } from "../src/seller/commerce/orders.ts";
 import { job, membership, orderSignalContext, product, signalEvent, variant } from "../src/schema.ts";
 import {
   browserSignals,
@@ -31,8 +31,8 @@ import {
   type SignalPayload,
   type SignalRequest,
   type SignalResponse,
-} from "../src/signals.ts";
-import { setCartLine } from "../src/storefront.ts";
+} from "../src/storefront/signals.ts";
+import { setCartLine } from "../src/storefront/storefront.ts";
 import { buyer, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
 
 /** Order creation also enqueues `order.notify` (T-36); these tests are about `signal.*` jobs only. */

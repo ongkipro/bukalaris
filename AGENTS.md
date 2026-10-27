@@ -15,8 +15,8 @@ implementation evidence. Edit docs only inside this repository.
 
 | Path | Owns |
 |---|---|
-| `apps/web` | Next.js App Router app: Seller Admin (`/seller`), Super Admin (`/admin`), storefront (`/s/<slug>` or `<slug>.<STORE_ROOT_DOMAIN>`), hosted `/checkout`, buyer order status `/o/<token>`, Storefront API `/api/storefront/v1`, `/api/{auth,health,ready,signals}` |
-| `packages/db` | Drizzle schema, append-only SQL migrations (`drizzle/`), DB client with three roles (ADR-0005), store-scoped services, outbox worker (`src/worker.ts`), maintenance command (`src/cleanup.ts`), Mengantar client (`src/mengantar/`), integration tests |
+| `apps/web` | Next.js App Router app, routes grouped by surface (`src/app/(platform)`, `(operator)` Owner console `/admin`, `(seller)` Seller Admin `/seller`, `(storefront)` `/s/<slug>` or `<slug>.<STORE_ROOT_DOMAIN>`, `(checkout)` hosted `/checkout`, `(identity)` login/account/invite, `(public-services)` buyer order status `/o/<token>` and `/dev/outbox`; route groups never appear in URLs), Storefront API `/api/storefront/v1`, `/api/{auth,health,ready,signals}`. `src/proxy.ts` applies the exact-host dispatch of `docs/08-DOMAIN-ROUTING.md` DOM-5; `src/lib/auth.ts` has one auth instance per surface (`owner`, `app`, `affiliate`, `buyer`; plain `localhost` keeps the one-host path mode) |
+| `packages/db` | Drizzle schema (`src/schema.ts` plus `src/**/schema-*.ts`), append-only SQL migrations (`drizzle/`), DB client with three roles (ADR-0005), store-scoped services in bounded contexts under `src/`: `platform/` (scopes, tenant, host dispatch and reserved labels, accounts, membership, store lifecycle), `seller/commerce/` (catalog, checkout, orders, dashboard, privacy), `storefront/` (storefront reads, content, landing, channels, signals, feeds), `shipping/` (`mengantar/` client, booking, fulfillment), `payments/` (provider adapters), `ops/` and `ops/jobs/` (Log System, outbox, notifications); thin root entry points `src/worker.ts` (outbox worker), `src/cleanup.ts`, `src/migrate.ts`, `src/seed.ts`; integration tests |
 | `docs/` | Design pack, ADRs, decisions, deploy plan, runbook, track reports (`docs/tracks/`); route-by-route map in `docs/04-SYSTEM-ARCHITECTURE.md` ARCH-5 |
 | `BUILD-LOG.md` | Append-only phase log (what changed, commands, results, open issues) |
 | `REVIEW.md` | Senior reviewer notes — read at the start of every phase; resolve open items first |
@@ -38,7 +38,8 @@ pnpm --filter @bukalaris/db worker   # outbox worker (payment instruction, e-mai
 pnpm --filter @bukalaris/db cleanup  # one-shot idle-cart / counter / signal-context cleanup
 pnpm lint && pnpm typecheck && pnpm test && pnpm build
 pnpm e2e                         # after `pnpm build`; uses bukalaris_e2e (wiped + seeded each run)
-pnpm verify                      # lint → typecheck → test → build → e2e
+pnpm map:check                   # system-map drift guard: every route file has an ARCH-5 row (docs/04), no ghost entry files
+pnpm verify                      # map:check → lint → typecheck → test → build → e2e
 pnpm verify:docker               # builds both images, migrates a throwaway DB, smoke-tests the container
 docker build -f apps/web/Dockerfile -t bukalaris-web .
 docker build -f apps/web/Dockerfile --target migrate -t bukalaris-migrate .
@@ -84,6 +85,10 @@ superuser as `DATABASE_URL` (it bypasses RLS).
   `BUILD-LOG.md` and `docs/TASKS.md`.
 
 ## Parallel tracks (M2)
+
+> Historical ownership table. File names below are the M2 flat names; since T-51 (2026-10-28) they live
+> under `packages/db/src/<context>/` and `apps/web/src/app/(<surface>)/` (see "Layout"); the ARCH-5 map
+> in `docs/04-SYSTEM-ARCHITECTURE.md` carries the real paths.
 
 Tracks run in separate git worktrees (`~/Projects/bukalaris-wt/<track>`, branch
 `m2/<track>`); the orchestrator merges them into `main` locally. No push.

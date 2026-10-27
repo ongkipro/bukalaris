@@ -6,7 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema.ts",
-    "./host": "./src/host.ts"
+    "./host": "./src/platform/host.ts"
   },
   "scripts": {
     "generate": "drizzle-kit generate",

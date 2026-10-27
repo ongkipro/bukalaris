@@ -18,21 +18,21 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { asc, eq, like, sql } from "drizzle-orm";
-import { addVariant, createProduct, getProduct } from "../catalog.ts";
-import { placeOrder } from "../checkout.ts";
+import { addVariant, createProduct, getProduct } from "../seller/commerce/catalog.ts";
+import { placeOrder } from "../seller/commerce/checkout.ts";
 import { platformDb, type Db } from "../client.ts";
-import { addProductMedia, createCollection, createPage, updateStoreSettings } from "../content.ts";
-import { runOnce } from "../jobs.ts";
-import "../notify.ts"; // registers the order e-mail handler
-import { transitionOrder, type OrderAction } from "../orders.ts";
-import { recordLogEvent } from "../ops.ts";
-import { createStore } from "../platform.ts";
-import { FAKE_AREAS, fakeProviders } from "../providers.ts";
+import { addProductMedia, createCollection, createPage, updateStoreSettings } from "../storefront/content.ts";
+import { runOnce } from "../ops/jobs/jobs.ts";
+import "../ops/jobs/notify.ts"; // registers the order e-mail handler
+import { transitionOrder, type OrderAction } from "../seller/commerce/orders.ts";
+import { recordLogEvent } from "../ops/ops.ts";
+import { createStore } from "../platform/platform.ts";
+import { FAKE_AREAS, fakeProviders } from "../payments/providers.ts";
 import { account, cart, membership, operatorGrant, order, orderStatusHistory, platformOperator, stockAdjustment, store, systemLog, user, type OrderStatus } from "../schema.ts";
-import { operatorScope, sellerContext, storefrontScope, type SellerScope } from "../scoped.ts";
-import { setPickupAddress, setPickupArea } from "../shipping.ts";
-import { saveDestination } from "../signals.ts"; // also registers the signal.deliver handler
-import { setCartLine } from "../storefront.ts";
+import { operatorScope, sellerContext, storefrontScope, type SellerScope } from "../platform/scoped.ts";
+import { setPickupAddress, setPickupArea } from "../shipping/shipping.ts";
+import { saveDestination } from "../storefront/signals.ts"; // also registers the signal.deliver handler
+import { setCartLine } from "../storefront/storefront.ts";
 import { DEMO_ADMIN, DEMO_BUYERS, DEMO_EMAIL_DOMAIN, DEMO_PASSWORD, DEMO_SLUG_PREFIX, DEMO_STORES, demoPages, INCOMPLETE_ADDRESS_BUYER, NO_COD_AREA_INDEX, type DemoStore } from "./data.ts";
 import { initialsOf, placeholderPng } from "./png.ts";
 
@@ -254,8 +254,10 @@ export async function seedDemo(db: Db, opts: SeedDemoOptions = {}): Promise<Seed
     const catalog: { productId: number; variantIds: number[]; prices: number[]; stocks: number[]; active: boolean; tags: string[] }[] = [];
     for (const [i, p] of s.products.entries()) {
       const [first, ...rest] = p.variants;
-      const productId = await createProduct(owner, { title: p.title, slug: p.slug, description: p.description, status: p.draft ? "draft" : "active", variant: first! });
-      for (const v of rest) await addVariant(owner, productId, v);
+      // Fictional catalog: no per-variant weights are listed, so every demo variant weighs 300 g.
+      const withWeight = (v: (typeof p.variants)[number]) => ({ ...v, weightGrams: v.weightGrams ?? 300 });
+      const productId = await createProduct(owner, { title: p.title, slug: p.slug, description: p.description, status: p.draft ? "draft" : "active", variant: withWeight(first!) });
+      for (const v of rest) await addVariant(owner, productId, withWeight(v));
       const variants = (await getProduct(owner, productId))!.variants;
       catalog.push({ productId, variantIds: variants.map((v) => v.id), prices: variants.map((v) => v.price), stocks: variants.map((v) => v.stock), active: !p.draft, tags: p.tags });
       if (p.draft) continue;

@@ -14,7 +14,7 @@ const DB_CWD = resolve(process.cwd(), "../../packages/db");
 function seedEvents(rid: string) {
   const script = `
     import { createDb } from "./src/client.ts";
-    import { recordLogEvent } from "./src/ops.ts";
+    import { recordLogEvent } from "./src/ops/ops.ts";
     const db = createDb(process.env.E2E_DATABASE_URL);
     await recordLogEvent(db, { level: "error", module: "checkout", environment: "e2e", release: "e2e-rev",
       message: "Checkout gagal: pembayaran ditolak untuk 081234567890 (budi@contoh.id)",

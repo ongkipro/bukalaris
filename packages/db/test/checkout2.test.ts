@@ -1,6 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { addVariant } from "../src/catalog.ts";
+import { addVariant } from "../src/seller/commerce/catalog.ts";
 import {
   CART_MAX_LINES,
   checkoutShippingOptions,
@@ -13,13 +13,13 @@ import {
   limitCartMutation,
   placeOrder,
   searchDestinationAreas,
-} from "../src/checkout.ts";
-import { MengantarError } from "../src/mengantar/client.ts";
-import { FAKE_NO_COD_AREA, fakeMengantar, fakeProviders, type Providers, type ShippingAdapter } from "../src/providers.ts";
-import { addressIncomplete, getOrder, transitionOrder } from "../src/orders.ts";
+} from "../src/seller/commerce/checkout.ts";
+import { MengantarError } from "../src/shipping/mengantar/client.ts";
+import { FAKE_NO_COD_AREA, fakeMengantar, fakeProviders, type Providers, type ShippingAdapter } from "../src/payments/providers.ts";
+import { addressIncomplete, getOrder, transitionOrder } from "../src/seller/commerce/orders.ts";
 import { cart, cartLine, membership, order, rateLimit, stockAdjustment, variant } from "../src/schema.ts";
-import { defaultShippingAdapter } from "../src/shipping.ts";
-import { getCart, setCartLine } from "../src/storefront.ts";
+import { defaultShippingAdapter } from "../src/shipping/shipping.ts";
+import { getCart, setCartLine } from "../src/storefront/storefront.ts";
 import { buyer, db, DESTINATION, makeStore, makeUser, PICKUP_AREA, platform, seller } from "./helpers.ts";
 
 const row = async (id: number) => (await platform.select().from(order).where(eq(order.id, id)))[0]!;
@@ -44,12 +44,12 @@ describe("checkout shipping wiring (T-34 phase 2, Q-12)", () => {
     });
     expect(await getBuyerOrder(db, orderId, cod)).toMatchObject({ courier: "JNE Express (simulasi)", destinationAreaLabel: DESTINATION.destinationAreaLabel, shippingFee: 17_500 });
 
-    // Prepaid uses the prepaid cost basis; a second cart line adds a kilogram.
-    const v2 = await addVariant(s.owner, s.productId, { title: "L", price: 50_000, stock: 5 });
+    // Prepaid uses the prepaid cost basis; weight is quantity × variant weight (1 + 2 units of 1 kg = 3 kg).
+    const v2 = await addVariant(s.owner, s.productId, { title: "L", price: 50_000, stock: 5, weightGrams: 1000 });
     const transfer = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 1 }, "add");
     await setCartLine(s.sf, transfer, { variantId: v2, quantity: 2 }, "add");
     const r2 = await placeOrder(db, transfer, buyer({ paymentMethod: "manual_transfer" }));
-    expect(await row(r2.orderId)).toMatchObject({ weightKg: 2, shippingProviderCost: 15_500, shippingMargin: 2_000, shippingFee: 17_500, subtotal: 200_000, total: 217_500 });
+    expect(await row(r2.orderId)).toMatchObject({ weightKg: 3, shippingProviderCost: 20_500, shippingMargin: 2_000, shippingFee: 22_500, subtotal: 200_000, total: 222_500 });
   });
 
   it("rejects an unoffered courier, COD on a courier that refuses it, and bad or unserved destinations", async () => {
@@ -62,7 +62,7 @@ describe("checkout shipping wiring (T-34 phase 2, Q-12)", () => {
     await expect(placeOrder(db, cartId, buyer({ destinationAreaId: "not-an-area" }))).rejects.toMatchObject({ name: "ZodError" });
     await expect(placeOrder(db, cartId, buyer({ destinationAreaId: undefined }))).rejects.toMatchObject({ name: "ZodError" });
     // The quote itself hides COD per courier and never carries a client amount.
-    const q = await checkoutShippingOptions(s.sf, FAKE_NO_COD_AREA, { items: 1, subtotal: 100_000 }, fakeMengantar);
+    const q = await checkoutShippingOptions(s.sf, FAKE_NO_COD_AREA, { lines: [{ quantity: 1, weightGrams: 1000 }], subtotal: 100_000 }, fakeMengantar);
     expect(q.options.map((o) => [o.courier, o.cod])).toEqual([["SiCepat", null], ["JNE", null]]);
     // SiCepat prepaid is fine: 8_000 + 2_000 → 10_000.
     const { orderId } = await placeOrder(db, cartId, buyer({ courier: "SiCepat", paymentMethod: "manual_transfer" }));
@@ -200,7 +200,7 @@ describe("COD confirmation and risk (T-35, PR-19)", () => {
     expect(r.map((x) => x.code)).toEqual(["repeat_cancelled", "repeat_unconfirmed", "address_incomplete", "high_amount"]);
     expect(r[0]!.message).toContain("2 pesanan sebelumnya");
     expect(r[1]!.message).toContain("1 pesanan lain");
-    expect(r[3]!.message).toContain("Rp 317.500"); // 300_000 + 17_500 ongkir
+    expect(r[3]!.message).toContain("Rp 327.500"); // 300_000 + 27_500 ongkir (3 units × 1 kg = 3 kg)
     expect(r[3]!.message).toContain("Rp 117.500"); // median of the store's other COD orders
 
     // A clean order shows nothing; a non-COD order has no risk block at all.
@@ -265,7 +265,7 @@ describe("abuse controls (T-30, SEC-16)", () => {
   it("a cart holds at most 30 distinct variants; existing lines still change; quantity stays capped at 99", async () => {
     const s = await makeStore("toko-a", { stock: 100 });
     const variants = [s.variantId];
-    for (let i = 0; i < CART_MAX_LINES; i++) variants.push(await addVariant(s.owner, s.productId, { title: `V${i}`, price: 1_000, stock: 100 }));
+    for (let i = 0; i < CART_MAX_LINES; i++) variants.push(await addVariant(s.owner, s.productId, { title: `V${i}`, price: 1_000, stock: 100, weightGrams: 1000 }));
     let cartId: string | undefined;
     for (const v of variants.slice(0, CART_MAX_LINES)) cartId = await setCartLine(s.sf, cartId, { variantId: v, quantity: 1 }, "add");
     await expect(setCartLine(s.sf, cartId, { variantId: variants[CART_MAX_LINES], quantity: 1 }, "add")).rejects.toMatchObject({ code: "cart_full" });

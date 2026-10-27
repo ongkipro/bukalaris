@@ -1,16 +1,20 @@
 import "server-only";
 import { db, operatorScope, platformDb, sellerContext } from "@bukalaris/db";
+import { surfaceCookieNames } from "@bukalaris/db/host";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
-import { auth } from "./auth";
+import { authForHost } from "./auth";
 
-export const STORE_COOKIE = "bl_store";
+/** Store-switch preference cookie: `__Host-bl_store` in production (DOM-6), `bl_store` over local HTTP. */
+export const STORE_COOKIE = surfaceCookieNames().sellerStore;
 
 export const currentUser = cache(async () => {
-  // headers() first: it marks the route dynamic before auth() needs runtime env (DATABASE_URL).
+  // headers() first: it marks the route dynamic before auth needs runtime env (DATABASE_URL).
   const h = await headers();
-  const s = await auth().api.getSession({ headers: h });
+  // The session is read by the instance of the request's host surface only (T-70): a host that serves no sign-in surface has no user.
+  const surface = authForHost(h.get("host"));
+  const s = surface ? await surface.auth.api.getSession({ headers: h }) : null;
   return s?.user ?? null;
 });
 

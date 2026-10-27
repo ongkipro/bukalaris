@@ -1,11 +1,11 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { placeOrder } from "../src/checkout.ts";
-import { changeMember, listMembers } from "../src/membership.ts";
-import { setStoreStatus, storeAudit } from "../src/platform.ts";
+import { placeOrder } from "../src/seller/commerce/checkout.ts";
+import { changeMember, listMembers } from "../src/platform/membership.ts";
+import { setStoreStatus, storeAudit } from "../src/platform/platform.ts";
 import { membership } from "../src/schema.ts";
-import { operatorScope, sellerContext, storefrontScope } from "../src/scoped.ts";
-import { setCartLine } from "../src/storefront.ts";
+import { operatorScope, sellerContext, storefrontScope } from "../src/platform/scoped.ts";
+import { setCartLine } from "../src/storefront/storefront.ts";
 import { buyer, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
 
 describe("store suspension (PR-1)", () => {

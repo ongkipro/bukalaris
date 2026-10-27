@@ -1,25 +1,30 @@
 import { readFileSync } from "node:fs";
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { MengantarClient, MengantarError, MengantarWriteDisabledError, redactUrl } from "../src/mengantar/client.ts";
-import { mengantarAdapter, toProviderQuote } from "../src/mengantar/adapter.ts";
-import { areaListSchema, pickupAddressListSchema, rateMapSchema } from "../src/mengantar/schemas.ts";
-import { fakeMengantar, type ProviderQuote } from "../src/providers.ts";
-import { auditLog, shippingMarginRule } from "../src/schema.ts";
+import { addVariant, updateVariant } from "../src/seller/commerce/catalog.ts";
+import { checkoutShippingOptions, checkoutSummary, placeOrder } from "../src/seller/commerce/checkout.ts";
+import { setCartLine } from "../src/storefront/storefront.ts";
+import { MengantarClient, MengantarError, MengantarWriteDisabledError, redactUrl } from "../src/shipping/mengantar/client.ts";
+import { mengantarAdapter, toProviderQuote } from "../src/shipping/mengantar/adapter.ts";
+import { areaListSchema, pickupAddressListSchema, rateMapSchema } from "../src/shipping/mengantar/schemas.ts";
+import { fakeMengantar, fakeProviders, type ProviderQuote } from "../src/payments/providers.ts";
+import { auditLog, order, shippingMarginRule, variant } from "../src/schema.ts";
 import {
   applyMargin,
   DEFAULT_MARGIN_RULE,
   getMarginRule,
   getPickupArea,
   marginRuleAudit,
+  parcelWeightKg,
   quoteWithMargin,
   searchPickupAreas,
   setMarginRule,
   setPickupAddress,
   setPickupArea,
   shippingOptions,
-} from "../src/shipping.ts";
+} from "../src/shipping/shipping.ts";
 import { membership } from "../src/schema.ts";
-import { db, makeStore, makeUser, platform, seller } from "./helpers.ts";
+import { buyer, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
 
 const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/mengantar/${name}.json`, import.meta.url), "utf8"));
 const KEY = "testkey-0123456789abcdef";
@@ -246,11 +251,11 @@ describe("margin rule and pickup origin (store-scoped)", () => {
     await platform.delete(shippingMarginRule);
     const a = await makeStore("toko-a", { pickupArea: false });
     const b = await makeStore("toko-b", { pickupArea: false });
-    await expect(shippingOptions(a.sf, "b1b1b1b1b1b1b1b1b1b1b1b1", { items: 2, subtotal: 200_000 }, fakeMengantar)).rejects.toMatchObject({ code: "no_pickup_area" });
+    await expect(shippingOptions(a.sf, "b1b1b1b1b1b1b1b1b1b1b1b1", { lines: [{ quantity: 2, weightGrams: 1000 }], subtotal: 200_000 }, fakeMengantar)).rejects.toMatchObject({ code: "no_pickup_area" });
     await setPickupArea(a.owner, { areaId: "a1a1a1a1a1a1a1a1a1a1a1a1", areaLabel: "Braga, Bandung" });
     await setMarginRule(a.op, { fixedIdr: 2000, percentBps: 0, roundTo: 500 });
 
-    const r = await shippingOptions(a.sf, "b1b1b1b1b1b1b1b1b1b1b1b1", { items: 2, subtotal: 200_000 }, fakeMengantar);
+    const r = await shippingOptions(a.sf, "b1b1b1b1b1b1b1b1b1b1b1b1", { lines: [{ quantity: 2, weightGrams: 1000 }], subtotal: 200_000 }, fakeMengantar);
     expect(r).toMatchObject({ originAreaId: "a1a1a1a1a1a1a1a1a1a1a1a1", destinationAreaId: "b1b1b1b1b1b1b1b1b1b1b1b1", weightKg: 2 });
     expect(r.options.map((o) => o.courier)).toEqual(["SiCepat", "JNE"]); // pos unsupported → hidden
     expect(r.options[0]!.cod).toBeNull(); // SiCepat refuses COD
@@ -260,7 +265,44 @@ describe("margin rule and pickup origin (store-scoped)", () => {
     for (const o of r.options) for (const f of [o.prepaid, o.cod]) if (f) expect(f.buyerFee).toBe(f.providerCost + f.margin);
 
     // Store B has no pickup area: its storefront gets the error even though A is configured.
-    await expect(shippingOptions(b.sf, "a1a1a1a1a1a1a1a1a1a1a1a1", { items: 1, subtotal: 50_000 }, fakeMengantar)).rejects.toMatchObject({ code: "no_pickup_area" });
-    await expect(shippingOptions(a.sf, "not-an-area", { items: 1, subtotal: 50_000 }, fakeMengantar)).rejects.toMatchObject({ name: "ZodError" });
+    await expect(shippingOptions(b.sf, "a1a1a1a1a1a1a1a1a1a1a1a1", { lines: [{ quantity: 1, weightGrams: 1000 }], subtotal: 50_000 }, fakeMengantar)).rejects.toMatchObject({ code: "no_pickup_area" });
+    await expect(shippingOptions(a.sf, "not-an-area", { lines: [{ quantity: 1, weightGrams: 1000 }], subtotal: 50_000 }, fakeMengantar)).rejects.toMatchObject({ name: "ZodError" });
+  });
+});
+
+describe("parcel weight (T-61)", () => {
+  it("sums quantity × variant weight, rounds up to whole kilograms and never goes below 1 kg", () => {
+    expect(parcelWeightKg([])).toBe(1);
+    expect(parcelWeightKg([{ quantity: 1, weightGrams: 1 }])).toBe(1);
+    expect(parcelWeightKg([{ quantity: 1, weightGrams: 1000 }])).toBe(1); // exact boundary stays 1 kg
+    expect(parcelWeightKg([{ quantity: 1, weightGrams: 1001 }])).toBe(2);
+    expect(parcelWeightKg([{ quantity: 3, weightGrams: 300 }, { quantity: 2, weightGrams: 50 }])).toBe(1); // 1000 g
+    expect(parcelWeightKg([{ quantity: 3, weightGrams: 300 }, { quantity: 2, weightGrams: 51 }])).toBe(2); // 1002 g
+    expect(parcelWeightKg([{ quantity: 99, weightGrams: 30_000 }])).toBe(2970); // large multi-unit line
+  });
+
+  it("the quote and the order snapshot take the weight from the variants, not from the cart line count", async () => {
+    const s = await makeStore("toko-a", { stock: 20 });
+    // 3 × 400 g in ONE cart line: the old rule said 1 kg, the parcel is 1.2 kg → 2 kg.
+    await updateVariant(s.owner, s.variantId, { title: "M", price: 100_000, stock: 20, weightGrams: 400 });
+    const cartId = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 3 }, "add");
+    const summary = (await checkoutSummary(db, cartId))!;
+    const q = await checkoutShippingOptions(s.sf, "b1b1b1b1b1b1b1b1b1b1b1b1", { lines: summary.lines, subtotal: summary.subtotal }, fakeMengantar);
+    expect(q.weightKg).toBe(2);
+    const { orderId } = await placeOrder(db, cartId, buyer({ courier: "JNE", paymentMethod: "manual_transfer" }), fakeProviders);
+    expect((await platform.select().from(order).where(eq(order.id, orderId)))[0]).toMatchObject({ weightKg: 2 });
+    // A lighter variant changes the quote: 3 × 100 g = 300 g → 1 kg.
+    await updateVariant(s.owner, s.variantId, { title: "M", price: 100_000, stock: 20, weightGrams: 100 });
+    const again = (await checkoutSummary(db, await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 3 }, "add")))!;
+    expect((await checkoutShippingOptions(s.sf, "b1b1b1b1b1b1b1b1b1b1b1b1", { lines: again.lines, subtotal: again.subtotal }, fakeMengantar)).weightKg).toBe(1);
+  });
+
+  it("rejects a variant without a positive whole-gram weight, in the service and in the database", async () => {
+    const s = await makeStore("toko-a");
+    const bad = { title: "X", price: 1000, stock: 1 };
+    await expect(addVariant(s.owner, s.productId, bad)).rejects.toMatchObject({ name: "ZodError" });
+    await expect(addVariant(s.owner, s.productId, { ...bad, weightGrams: 0 })).rejects.toMatchObject({ name: "ZodError" });
+    await expect(addVariant(s.owner, s.productId, { ...bad, weightGrams: 1.5 })).rejects.toMatchObject({ name: "ZodError" });
+    await expect(platform.insert(variant).values({ storeId: s.storeId, productId: s.productId, title: "Y", price: 1, stock: 1, weightGrams: 0 })).rejects.toMatchObject({ cause: { constraint_name: "variant_weight_chk" } });
   });
 });

@@ -76,6 +76,9 @@ test.describe("Seller Admin shell and pages", () => {
     await page.keyboard.press("Control+a");
     await page.keyboard.type("5");
     await page.keyboard.press("Tab"); // sku
+    await page.keyboard.press("Tab"); // weight (required, no default)
+    await expect(page.getByLabel("Berat (gram)")).toBeFocused();
+    await page.keyboard.type("300");
     await page.keyboard.press("Tab");
     await expect(page.getByRole("button", { name: "Simpan produk" })).toBeFocused();
     await page.keyboard.press("Enter");

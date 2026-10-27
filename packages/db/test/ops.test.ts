@@ -1,3 +1,5 @@
+import { readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { desc, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
@@ -10,9 +12,9 @@ import {
   requirePlatformCap,
   sanitizeEvent,
   scrubText,
-} from "../src/ops.ts";
+} from "../src/ops/ops.ts";
 import { auditLog, operatorGrant, systemLog } from "../src/schema.ts";
-import { operatorScope } from "../src/scoped.ts";
+import { operatorScope } from "../src/platform/scoped.ts";
 import { admin, db, makeOperator, makeStore, platform } from "./helpers.ts";
 
 // helpers.ts truncates the M1 tables; this track owns its own.
@@ -171,9 +173,7 @@ describe("Log System sink (PR-11, OBS-5)", () => {
 });
 
 describe("page/module map covers every route (ARCH-5)", () => {
-  it("maps each page.tsx/route.ts under apps/web/src/app to a known module", async () => {
-    const { readdirSync } = await import("node:fs");
-    const { fileURLToPath } = await import("node:url");
+  it("maps each page.tsx/route.ts under apps/web/src/app to a known module", () => {
     const root = fileURLToPath(new URL("../../../apps/web/src/app/", import.meta.url));
     const routes: string[] = [];
     const walk = (dir: string, rel: string) => {
@@ -184,8 +184,11 @@ describe("page/module map covers every route (ARCH-5)", () => {
     };
     walk(root, "");
     // Pages that deliberately have no Log System module: the marketing root and the dev-only outbox viewer.
-    const exempt = new Set(["/app/page", "/app/dev/outbox/page"]);
-    const unmapped = routes.filter((r) => !exempt.has(r) && moduleForRoute(r) === "unknown");
+    const exempt: Record<string, true> = {
+      "/app/(platform)/page": true,
+      "/app/(public-services)/dev/outbox/page": true,
+    };
+    const unmapped = routes.filter((r) => !exempt[r] && moduleForRoute(r) === "unknown");
     expect(routes.length).toBeGreaterThan(40);
     expect(unmapped).toEqual([]);
     for (const r of routes) {

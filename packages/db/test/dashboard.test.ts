@@ -1,12 +1,12 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { addVariant, createProduct } from "../src/catalog.ts";
-import { placeOrder } from "../src/checkout.ts";
-import { PERIODS, periodRange, sellerDashboard, startOfJakartaDay, type Period } from "../src/dashboard.ts";
-import { transitionOrder } from "../src/orders.ts";
+import { addVariant, createProduct } from "../src/seller/commerce/catalog.ts";
+import { placeOrder } from "../src/seller/commerce/checkout.ts";
+import { PERIODS, periodRange, sellerDashboard, startOfJakartaDay, type Period } from "../src/seller/commerce/dashboard.ts";
+import { transitionOrder } from "../src/seller/commerce/orders.ts";
 import { membership, order, orderLine, signalEvent } from "../src/schema.ts";
-import { collectFunnelEvent, saveDestination } from "../src/signals.ts";
-import { setCartLine } from "../src/storefront.ts";
+import { collectFunnelEvent, saveDestination } from "../src/storefront/signals.ts";
+import { setCartLine } from "../src/storefront/storefront.ts";
 import { buyer, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
 
 process.env.INTEGRATION_TOKEN_KEY ??= Buffer.alloc(32, 9).toString("base64");
@@ -119,10 +119,10 @@ describe("seller dashboard (T-41, PR-22)", () => {
     const s = await makeStore("toko-a", { price: 50_000, stock: 100 });
     const now = new Date();
     const at = new Date(startOfJakartaDay(now).getTime() + 60 * MIN);
-    const second = await addVariant(s.owner, s.productId, { title: "L", price: 60_000, stock: 100 });
+    const second = await addVariant(s.owner, s.productId, { title: "L", price: 60_000, stock: 100, weightGrams: 1000 });
     const others: number[] = [];
     for (let i = 0; i < 6; i++) {
-      const pid = await createProduct(s.owner, { title: `Produk ${i}`, status: "active", variant: { title: "U", price: 10_000 * (i + 1), stock: 100 } });
+      const pid = await createProduct(s.owner, { title: `Produk ${i}`, status: "active", variant: { title: "U", price: 10_000 * (i + 1), stock: 100, weightGrams: 1000 } });
       const [v] = await platform.query.variant.findMany({ where: (v, { eq }) => eq(v.productId, pid) });
       others.push(v!.id);
     }

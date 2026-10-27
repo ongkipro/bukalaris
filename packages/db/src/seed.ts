@@ -3,12 +3,12 @@
 import { hashPassword } from "better-auth/crypto";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
-import { addVariant, createProduct } from "./catalog.ts";
+import { addVariant, createProduct } from "./seller/commerce/catalog.ts";
 import { platformDb } from "./client.ts";
-import { createStore } from "./platform.ts";
+import { createStore } from "./platform/platform.ts";
 import { account, membership, operatorGrant, platformOperator, store, user } from "./schema.ts";
-import { operatorScope, sellerContext } from "./scoped.ts";
-import { setPickupAddress, setPickupArea } from "./shipping.ts";
+import { operatorScope, sellerContext } from "./platform/scoped.ts";
+import { setPickupAddress, setPickupArea } from "./shipping/shipping.ts";
 
 if (process.env.NODE_ENV === "production") throw new Error("seed is for local development only");
 export const DEV_PASSWORD = "bukalaris-dev-123";
@@ -56,18 +56,18 @@ const kaos = await createProduct(a, {
   slug: "kaos-katun-basic",
   description: "Kaos katun combed 30s.",
   status: "active",
-  variant: { title: "M", price: 89_000, stock: 20 },
+  variant: { title: "M", price: 89_000, stock: 20, weightGrams: 1000 },
 });
-await addVariant(a, kaos, { title: "L", price: 95_000, stock: 5 });
+await addVariant(a, kaos, { title: "L", price: 95_000, stock: 5, weightGrams: 1000 });
 // Toko A can quote shipping (fake area "Braga"); Toko B deliberately has no pickup area yet.
 await setPickupArea(a, { areaId: "a1a1a1a1a1a1a1a1a1a1a1a1", areaLabel: "Braga, Sumur Bandung, Bandung, Jawa Barat 40111" });
 await setPickupAddress(a, { addressText: "Jl. Braga No. 1, Bandung" });
-await createProduct(a, { title: "Totebag Kanvas", status: "active", variant: { title: "Natural", price: 55_000, stock: 1 } });
-await createProduct(a, { title: "Topi (draf)", status: "draft", variant: { title: "All size", price: 45_000, stock: 10 } });
+await createProduct(a, { title: "Totebag Kanvas", status: "active", variant: { title: "Natural", price: 55_000, stock: 1, weightGrams: 1000 } });
+await createProduct(a, { title: "Topi (draf)", status: "draft", variant: { title: "All size", price: 45_000, stock: 10, weightGrams: 1000 } });
 await createProduct(await scopeOf(ownerB), {
   title: "Kopi Arabika 250g",
   status: "active",
-  variant: { title: "Biji", price: 120_000, stock: 30 },
+  variant: { title: "Biji", price: 120_000, stock: 30, weightGrams: 1000 },
 });
 
 console.log(`seed: done. Users (password "${DEV_PASSWORD}"): admin@, owner-a@, staff-a@, owner-b@ bukalaris.local`);

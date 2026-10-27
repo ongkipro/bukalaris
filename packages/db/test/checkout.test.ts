@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { updateVariant } from "../src/catalog.ts";
-import { getBuyerOrder, placeOrder } from "../src/checkout.ts";
-import { runOnce } from "../src/jobs.ts";
-import { fakeProviders, type Providers } from "../src/providers.ts";
+import { updateVariant } from "../src/seller/commerce/catalog.ts";
+import { getBuyerOrder, placeOrder } from "../src/seller/commerce/checkout.ts";
+import { runOnce } from "../src/ops/jobs/jobs.ts";
+import { fakeProviders, type Providers } from "../src/payments/providers.ts";
 import { order, variant } from "../src/schema.ts";
-import { setCartLine } from "../src/storefront.ts";
+import { setCartLine } from "../src/storefront/storefront.ts";
 import { buyer, db, makeStore, platform } from "./helpers.ts";
 
 const stockOf = async (id: number) => (await platform.select().from(variant).where(eq(variant.id, id)))[0]!.stock;
@@ -22,14 +22,14 @@ describe("checkout (PR-4, DATA-2, NFR-2)", () => {
 
     const { orderId } = await placeOrder(db, cartId, buyer());
     const o = await getBuyerOrder(db, orderId, cartId);
-    // Fee comes from the server-side quote with margin (fake JNE COD 15_494 + Rp 2.006 → 17_500), not the client.
-    expect(o).toMatchObject({ subtotal: 250_000, shippingFee: 17_500, total: 267_500 });
+    // 2 units × 1 kg → 2 kg. Fee from the server-side quote with margin (fake JNE COD 15_494 + 5_000 + Rp 2.006 → 22_500), not the client.
+    expect(o).toMatchObject({ subtotal: 250_000, shippingFee: 22_500, total: 272_500 });
     expect(o!.lines[0]).toMatchObject({ unitPrice: 125_000, quantity: 2, lineTotal: 250_000 });
     expect(await stockOf(s.variantId)).toBe(8);
 
     // Later catalog edits do not rewrite the snapshot (DATA-2).
-    await updateVariant(s.owner, s.variantId, { title: "M", price: 1, stock: 8 });
-    expect((await getBuyerOrder(db, orderId, cartId))!.total).toBe(267_500);
+    await updateVariant(s.owner, s.variantId, { title: "M", price: 1, stock: 8, weightGrams: 1000 });
+    expect((await getBuyerOrder(db, orderId, cartId))!.total).toBe(272_500);
   });
 
   it("an order id alone does not reveal the order", async () => {

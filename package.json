@@ -16,7 +16,8 @@
     "db:seed:demo": "pnpm --filter @bukalaris/db seed:demo",
     "db:backup": "scripts/db-backup.sh",
     "db:restore-rehearsal": "scripts/db-restore-rehearsal.sh",
-    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm e2e",
+    "map:check": "node scripts/check-system-map.mjs",
+    "verify": "pnpm map:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm e2e",
     "verify:docker": "scripts/verify-docker.sh"
   }
 }

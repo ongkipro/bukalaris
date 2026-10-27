@@ -2,12 +2,12 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeEach } from "vitest";
 import { createDb, platformDb } from "../src/client.ts";
-import { addVariant, createProduct } from "../src/catalog.ts";
+import { addVariant, createProduct } from "../src/seller/commerce/catalog.ts";
 import { localRoleUrl } from "../src/local-roles.ts";
-import { createStore } from "../src/platform.ts";
+import { createStore } from "../src/platform/platform.ts";
 import { platformOperator, user } from "../src/schema.ts";
-import { operatorScope, sellerContext, storefrontScope, type SellerScope } from "../src/scoped.ts";
-import { setPickupArea } from "../src/shipping.ts";
+import { operatorScope, sellerContext, storefrontScope, type SellerScope } from "../src/platform/scoped.ts";
+import { setPickupArea } from "../src/shipping/shipping.ts";
 
 try {
   process.loadEnvFile(fileURLToPath(new URL("../../../.env", import.meta.url)));
@@ -67,7 +67,7 @@ export async function makeStore(slug: string, opts: { price?: number; stock?: nu
   const productId = await createProduct(owner, {
     title: `Kaos ${slug}`,
     status: "active",
-    variant: { title: "M", price: opts.price ?? 100_000, stock: opts.stock ?? 10 },
+    variant: { title: "M", price: opts.price ?? 100_000, stock: opts.stock ?? 10, weightGrams: 1000 },
   });
   const variantId = (await platform.query.variant.findFirst({ where: (v, { eq }) => eq(v.productId, productId) }))!.id;
   if (opts.pickupArea !== false) await setPickupArea(owner, PICKUP_AREA);

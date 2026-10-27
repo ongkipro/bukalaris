@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { placeOrder } from "../src/checkout.ts";
-import { runOnce } from "../src/jobs.ts";
+import { placeOrder } from "../src/seller/commerce/checkout.ts";
+import { runOnce } from "../src/ops/jobs/jobs.ts";
 import {
   adjustStock,
   allowedActions,
@@ -12,9 +12,9 @@ import {
   TRANSITIONS,
   transitionOrder,
   type OrderAction,
-} from "../src/orders.ts";
+} from "../src/seller/commerce/orders.ts";
 import { membership, order, ORDER_STATUSES, orderStatusHistory, stockAdjustment, variant, type OrderStatus } from "../src/schema.ts";
-import { setCartLine } from "../src/storefront.ts";
+import { setCartLine } from "../src/storefront/storefront.ts";
 import { buyer, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
 
 const stockOf = async (id: number) => (await platform.select().from(variant).where(eq(variant.id, id)))[0]!.stock;
@@ -67,7 +67,7 @@ describe("seller orders (SC-12/SC-13)", () => {
       paymentMethod: "manual_transfer",
       paymentReference: `FAKE-AL-${id}`,
       subtotal: 250_000,
-      total: 262_500, // 250_000 + prepaid JNE 10_500 + margin 2_000
+      total: 267_500, // 250_000 + prepaid JNE at 2 kg (2 × 1 kg: 10_500 + 5_000) + margin 2_000
       actions: ["pay", "cancel"],
     });
     expect(o.lines).toEqual([expect.objectContaining({ productTitle: "Kaos toko-a", variantTitle: "M", unitPrice: 125_000, quantity: 2 })]);

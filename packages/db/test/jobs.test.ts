@@ -1,6 +1,6 @@
 import { eq, ne, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { getBuyerOrder, placeOrder } from "../src/checkout.ts";
+import { getBuyerOrder, placeOrder } from "../src/seller/commerce/checkout.ts";
 import {
   backoffMs,
   claimBatch,
@@ -14,12 +14,12 @@ import {
   registerHandler,
   runOnce,
   sanitizeError,
-} from "../src/jobs.ts";
-import { ORDER_NOTIFY } from "../src/notify.ts";
-import { transitionOrder } from "../src/orders.ts";
-import { fakeProviders, type PaymentAdapter, type Providers } from "../src/providers.ts";
+} from "../src/ops/jobs/jobs.ts";
+import { ORDER_NOTIFY } from "../src/ops/jobs/notify.ts";
+import { transitionOrder } from "../src/seller/commerce/orders.ts";
+import { fakeProviders, type PaymentAdapter, type Providers } from "../src/payments/providers.ts";
 import { job, order } from "../src/schema.ts";
-import { setCartLine } from "../src/storefront.ts";
+import { setCartLine } from "../src/storefront/storefront.ts";
 import { buyer, db, makeStore, platform } from "./helpers.ts";
 
 // Orders also enqueue e-mail notifications (T-36); this file is about the outbox and the payment job.

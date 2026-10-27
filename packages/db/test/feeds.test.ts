@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { createProduct, updateProduct } from "../src/catalog.ts";
-import { createFeedToken, escapeXml, feedItems, feedSettings, feedUrls, FEED_FETCH_LIMIT, limitFeedFetch, renderGoogleRss, renderMetaCsv, resolveFeedToken, revokeFeedToken, storeBaseUrl } from "../src/feeds.ts";
+import { createProduct, updateProduct } from "../src/seller/commerce/catalog.ts";
+import { createFeedToken, escapeXml, feedItems, feedSettings, feedUrls, FEED_FETCH_LIMIT, limitFeedFetch, renderGoogleRss, renderMetaCsv, resolveFeedToken, revokeFeedToken, storeBaseUrl } from "../src/storefront/feeds.ts";
 import { feedToken, media, product } from "../src/schema.ts";
 import { addVariant, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
 
@@ -32,11 +32,11 @@ const tag = (block: string, name: string) => block.match(new RegExp(`<${name}>([
 describe("feed items", () => {
   it("one item per variant of an active product with a cover; ids are the catalog id strings, group = product, link canonical, image absolute", async () => {
     const a = await makeStore("toko-a", { price: 125_000, stock: 3 });
-    await addVariant(a.owner, a.productId, { title: "L", price: 130_000, stock: 0 });
+    await addVariant(a.owner, a.productId, { title: "L", price: 130_000, stock: 0, weightGrams: 1000 });
     await cover(a.storeId, a.productId);
     // Second active product with a readable slug and no image → skipped; a draft → never in the feed.
-    const noImage = await createProduct(a.owner, { title: "Totebag", slug: "totebag", status: "active", variant: { title: "Natural", price: 55_000, stock: 1 } });
-    await createProduct(a.owner, { title: "Topi (draf)", status: "draft", variant: { title: "All size", price: 45_000, stock: 10 } });
+    const noImage = await createProduct(a.owner, { title: "Totebag", slug: "totebag", status: "active", variant: { title: "Natural", price: 55_000, stock: 1, weightGrams: 1000 } });
+    await createProduct(a.owner, { title: "Topi (draf)", status: "draft", variant: { title: "All size", price: 45_000, stock: 10, weightGrams: 1000 } });
     const { items, skipped } = await feedItems(a.sf);
     expect(skipped).toBe(1);
     expect(items).toHaveLength(2);

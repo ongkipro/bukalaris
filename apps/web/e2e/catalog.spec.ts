@@ -22,6 +22,7 @@ test("catalog ids are shown and copyable, slug renames redirect without chains, 
   await page.getByLabel("Nama varian").fill("40");
   await page.getByLabel("Harga (Rp)").fill("250000");
   await page.getByLabel("Stok").fill("4");
+  await page.getByLabel("Berat (gram)").fill("800");
   await page.getByRole("button", { name: "Simpan produk" }).click();
   await expect(page.getByRole("heading", { name: title })).toBeVisible();
   const editor = page.url().split("?")[0]!; // without ?saved=1, so the rename loop below waits for its own save
@@ -73,6 +74,7 @@ test("catalog ids are shown and copyable, slug renames redirect without chains, 
   await page.getByLabel("Judul produk").fill(`Peniru ${tag}`);
   await page.getByLabel("Slug URL (opsional)").fill(`sepatu-${tag}`);
   await page.getByLabel("Harga (Rp)").fill("1000");
+  await page.getByLabel("Berat (gram)").fill("500");
   await page.getByRole("button", { name: "Simpan produk" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Slug sudah dipakai" })).toBeVisible();
 

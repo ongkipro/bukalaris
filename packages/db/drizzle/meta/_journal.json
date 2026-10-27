@@ -71,6 +71,13 @@
       "when": 1791363884440,
       "tag": "0009_wave4_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793121796525,
+      "tag": "0010_outgoing_vanisher",
+      "breakpoints": true
     }
   ]
 }

@@ -8,6 +8,8 @@ import { resolve } from "node:path";
 if (existsSync("../../.env")) process.loadEnvFile("../../.env");
 // E2E_PORT lets parallel worktrees run their suites side by side.
 const PORT = Number(process.env.E2E_PORT ?? 3100);
+// ops.spec and security-headers.spec start their own servers on PORT + 1 and PORT + 2; the host-mode server takes PORT + 3.
+const HOST_PORT = PORT + 3;
 // Per-run throwaway key for the encrypted ad-platform tokens (T-38): e2e never depends on, or
 // reuses, a developer's local secret. The disposable e2e database is wiped every run anyway.
 // Set on process.env so the web server, the worker and any server a spec spawns share it.
@@ -39,8 +41,11 @@ export default defineConfig({
   reporter: [["list"]],
   use: { baseURL: `http://localhost:${PORT}`, trace: "retain-on-failure" },
   projects: [
-    { name: "mobile-320", use: { ...devices["Desktop Chrome"], viewport: { width: 320, height: 720 }, isMobile: true, hasTouch: true } },
-    { name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } } },
+    { name: "mobile-320", testIgnore: /host-mode/, use: { ...devices["Desktop Chrome"], viewport: { width: 320, height: 720 }, isMobile: true, hasTouch: true } },
+    { name: "desktop", testIgnore: /host-mode/, use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } } },
+    // T-70: exact-host dispatch and per-surface sessions, against a second server whose per-surface origins are
+    // `<surface>.localhost:<HOST_PORT>` (Chrome resolves *.localhost to loopback). One viewport is enough: no layout is asserted.
+    { name: "host-mode", testMatch: /host-mode/, use: { ...devices["Desktop Chrome"], baseURL: `http://localhost:${HOST_PORT}` } },
   ],
   webServer: [
     {
@@ -51,6 +56,26 @@ export default defineConfig({
       env: { DATABASE_URL: APP_DB, PLATFORM_DATABASE_URL: PLATFORM_DB, BETTER_AUTH_URL: `http://localhost:${PORT}`, MEDIA_DIR: resolve("var/e2e-media") },
       url: `http://localhost:${PORT}/api/health`,
       // Never reuse a server that may point at the dev database.
+      reuseExistingServer: false,
+      timeout: 60_000,
+    },
+    {
+      // Same build, own port and per-surface origins (DOM-5 link origins). `start:standalone` copies the static assets
+      // once for the first server; this one only runs the already prepared standalone server.
+      command: `PORT=${HOST_PORT} NEXT_TELEMETRY_DISABLED=1 node .next/standalone/apps/web/server.js`,
+      env: {
+        DATABASE_URL: APP_DB,
+        PLATFORM_DATABASE_URL: PLATFORM_DB,
+        BETTER_AUTH_URL: `http://localhost:${HOST_PORT}`,
+        STORE_ROOT_DOMAIN: "localhost",
+        OWNER_ORIGIN: `http://owner.localhost:${HOST_PORT}`,
+        APP_ORIGIN: `http://app.localhost:${HOST_PORT}`,
+        CHECKOUT_ORIGIN: `http://checkout.localhost:${HOST_PORT}`,
+        AFFILIATE_ORIGIN: `http://affiliate.localhost:${HOST_PORT}`,
+        BUYER_ORIGIN: `http://buyer.localhost:${HOST_PORT}`,
+        MEDIA_DIR: resolve("var/e2e-media"),
+      },
+      url: `http://localhost:${HOST_PORT}/api/health`,
       reuseExistingServer: false,
       timeout: 60_000,
     },

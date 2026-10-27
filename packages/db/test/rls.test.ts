@@ -3,12 +3,12 @@ import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { placeOrder } from "../src/checkout.ts";
+import { placeOrder } from "../src/seller/commerce/checkout.ts";
 import { createDb } from "../src/client.ts";
 import { localRoleUrl } from "../src/local-roles.ts";
 import { product, store } from "../src/schema.ts";
-import { setCartLine } from "../src/storefront.ts";
-import { withStore } from "../src/tenant.ts";
+import { setCartLine } from "../src/storefront/storefront.ts";
+import { withStore } from "../src/platform/tenant.ts";
 import { buyer, db, makeStore, platform } from "./helpers.ts";
 
 // Database-enforced tenant isolation (T-27, ADR-0005, TEN-3/TEN-6). The rest of the suite

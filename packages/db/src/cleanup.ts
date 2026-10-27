@@ -1,11 +1,11 @@
 // Maintenance command (T-30): `node src/cleanup.ts` deletes idle open carts and old
 // rate-limit windows, then exits. Run it from cron or a scheduler (same image as the
 // worker, different command). Checked-out carts are never touched (see cleanupIdleCarts).
-import { cleanupIdleCarts } from "./checkout.ts";
+import { cleanupIdleCarts } from "./seller/commerce/checkout.ts";
 import { platformDb } from "./client.ts";
-import { sanitizeError } from "./jobs.ts";
-import { redactStaleOrders, retentionDays } from "./privacy.ts";
-import { purgeSignalContext } from "./signals.ts";
+import { sanitizeError } from "./ops/jobs/jobs.ts";
+import { redactStaleOrders, retentionDays } from "./seller/commerce/privacy.ts";
+import { purgeSignalContext } from "./storefront/signals.ts";
 
 /** Default: a week. Override with CART_IDLE_HOURS (integer hours >= 1). */
 const idleHours = Number(process.env.CART_IDLE_HOURS ?? 168);

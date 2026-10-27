@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { updateProduct } from "../src/catalog.ts";
+import { updateProduct } from "../src/seller/commerce/catalog.ts";
 import {
   addProductMedia,
   coverImages,
@@ -26,7 +26,7 @@ import {
   updatePage,
   updateStoreSettings,
   validateImage,
-} from "../src/content.ts";
+} from "../src/storefront/content.ts";
 import { collectionProduct, media, membership, user } from "../src/schema.ts";
 import { makeStore, makeUser, platform, seller } from "./helpers.ts";
 

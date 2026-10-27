@@ -1,9 +1,9 @@
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { addVariant, canonicalSlug, createProduct, getProduct, listCatalogHistory, updateProduct, updateVariant } from "../src/catalog.ts";
-import { getBuyerOrder, placeOrder } from "../src/checkout.ts";
+import { addVariant, canonicalSlug, createProduct, getProduct, listCatalogHistory, slugifyTitle, updateProduct, updateVariant } from "../src/seller/commerce/catalog.ts";
+import { getBuyerOrder, placeOrder } from "../src/seller/commerce/checkout.ts";
 import { catalogAudit, product, productSlugAlias, variant } from "../src/schema.ts";
-import { getPublishedProduct, listPublishedProducts, setCartLine } from "../src/storefront.ts";
+import { getPublishedProduct, listPublishedProducts, setCartLine } from "../src/storefront/storefront.ts";
 import { buyer, db, makeStore, platform } from "./helpers.ts";
 
 const CATALOG_ID = /^[1-9][0-9]{4,}$/;
@@ -16,9 +16,9 @@ describe("catalog ids (T-14, PR-12, DATA-5, D-8)", () => {
   it("concurrent creates get distinct, immutable, platform-wide ids ≥ 10000 as strings", async () => {
     const s = await makeStore("toko-a");
     const ids = await Promise.all(
-      Array.from({ length: 8 }, (_, i) => createProduct(s.owner, { title: `P${i}`, variant: { title: "D", price: 1000 * (i + 1), stock: 1 } })),
+      Array.from({ length: 8 }, (_, i) => createProduct(s.owner, { title: `P${i}`, variant: { title: "D", price: 1000 * (i + 1), stock: 1, weightGrams: 1000 } })),
     );
-    await addVariant(s.owner, ids[0]!, { title: "L", price: 5000, stock: 1 });
+    await addVariant(s.owner, ids[0]!, { title: "L", price: 5000, stock: 1, weightGrams: 1000 });
     const products = await platform.select({ catalogId: product.catalogId }).from(product);
     const variants = await platform.select({ catalogId: variant.catalogId }).from(variant);
     const all = [...products, ...variants].map((r) => r.catalogId);
@@ -62,7 +62,7 @@ describe("catalog ids (T-14, PR-12, DATA-5, D-8)", () => {
 
   it("resolves the catalog id, legacy database id, slug and aliases to one canonical URL without chains", async () => {
     const s = await makeStore("toko-a");
-    const id = await createProduct(s.owner, { title: "Kaos", slug: "kaos-lama", status: "active", variant: { title: "M", price: 1000, stock: 1 } });
+    const id = await createProduct(s.owner, { title: "Kaos", slug: "kaos-lama", status: "active", variant: { title: "M", price: 1000, stock: 1, weightGrams: 1000 } });
     const { catalogId } = (await getProduct(s.owner, id))!;
     expect(await resolve(s.sf, "kaos-lama")).toBe("kaos-lama");
     expect(await resolve(s.sf, catalogId)).toBe("kaos-lama"); // numeric ≥ 10000 → catalog id, page 308s to the slug
@@ -77,7 +77,7 @@ describe("catalog ids (T-14, PR-12, DATA-5, D-8)", () => {
     expect((await platform.select().from(productSlugAlias)).map((a) => a.slug).sort()).toEqual(["kaos-baru", "kaos-lama"]);
 
     // Aliases are never handed to another product of the store — on create or on update.
-    await expect(createProduct(s.owner, { title: "X", slug: "kaos-lama", variant: { title: "D", price: 1, stock: 1 } })).rejects.toMatchObject({ code: "slug_taken" });
+    await expect(createProduct(s.owner, { title: "X", slug: "kaos-lama", variant: { title: "D", price: 1, stock: 1, weightGrams: 1000 } })).rejects.toMatchObject({ code: "slug_taken" });
     await expect(updateProduct(s.owner, s.productId, { title: "Kaos toko-a", slug: "kaos-baru", status: "active" })).rejects.toMatchObject({ code: "slug_taken" });
     // The owning product can take an old slug back; it becomes current again (no self-redirect).
     await updateProduct(s.owner, id, { title: "Kaos", slug: "kaos-lama", status: "active" });
@@ -106,10 +106,10 @@ describe("catalog audit (T-31, SEC-17)", () => {
     expect(created[1]).toMatchObject({ actorName: expect.any(String), before: null, after: { title: "Kaos toko-a", status: "active", slug: null } });
     expect(created[0]).toMatchObject({ variantId: a.variantId, after: { price: 89_000, stock: 20, title: "M", sku: null } });
 
-    await updateVariant(a.owner, a.variantId, { title: "M", price: 95_000, stock: 18 });
+    await updateVariant(a.owner, a.variantId, { title: "M", price: 95_000, stock: 18, weightGrams: 1000 });
     await updateProduct(a.owner, a.productId, { title: "Kaos toko-a", status: "archived" });
     await updateProduct(a.owner, a.productId, { title: "Kaos toko-a", status: "archived" }); // no change → no row
-    const vId = await addVariant(a.owner, a.productId, { title: "L", price: 99_000, stock: 3 });
+    const vId = await addVariant(a.owner, a.productId, { title: "L", price: 99_000, stock: 3, weightGrams: 1000 });
     const rows = await listCatalogHistory(a.owner, a.productId);
     expect(rows.map((r) => r.action)).toEqual(["variant.create", "product.update", "variant.update", "variant.create", "product.create"]);
     expect(rows[2]).toMatchObject({ variantId: a.variantId, variantTitle: "M", before: { price: 89_000, stock: 20 }, after: { price: 95_000, stock: 18 } });
@@ -121,11 +121,26 @@ describe("catalog audit (T-31, SEC-17)", () => {
 
     // Cross-store: another store's owner sees no history and a denied write leaves no row.
     expect(await listCatalogHistory(b.owner, a.productId)).toEqual([]);
-    await expect(updateVariant(b.owner, a.variantId, { title: "M", price: 1, stock: 1 })).rejects.toMatchObject({ code: "not_found" });
+    await expect(updateVariant(b.owner, a.variantId, { title: "M", price: 1, stock: 1, weightGrams: 1000 })).rejects.toMatchObject({ code: "not_found" });
     expect(await listCatalogHistory(a.owner, a.productId)).toHaveLength(5);
     // The database rejects an audit row whose product belongs to another store.
     await expect(
       platform.insert(catalogAudit).values({ storeId: b.storeId, actorUserId: b.ownerId, productId: a.productId, action: "product.update" }),
     ).rejects.toMatchObject({ cause: { constraint_name: "catalog_audit_product_fk" } });
+  });
+});
+
+describe("product ID creation and SEO-friendly slug output", () => {
+  it("resolves seller product by numeric DB id or catalogId, and resolves storefront <slug>-<catalogId> URLs", async () => {
+    const s = await makeStore("toko-a");
+    const byDbId = await getProduct(s.owner, s.productId);
+    expect(byDbId).not.toBeNull();
+    const byCatalogId = await getProduct(s.owner, Number(byDbId!.catalogId));
+    expect(byCatalogId?.id).toBe(s.productId);
+
+    const seoSlug = slugifyTitle(byDbId!.title);
+    expect(seoSlug).toBe("kaos-toko-a");
+    const viaCombinedSlug = await getPublishedProduct(s.sf, `${seoSlug}-${byDbId!.catalogId}`);
+    expect(viaCombinedSlug?.id).toBe(s.productId);
   });
 });

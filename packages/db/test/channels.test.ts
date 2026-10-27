@@ -11,10 +11,10 @@ import {
   listChannels,
   ownsOpenCart,
   revokeChannel,
-} from "../src/channels.ts";
-import { placeOrder } from "../src/checkout.ts";
+} from "../src/storefront/channels.ts";
+import { placeOrder } from "../src/seller/commerce/checkout.ts";
 import { checkoutHandoff, membership, storefrontChannel } from "../src/schema.ts";
-import { getCart, listPublishedProducts, setCartLine } from "../src/storefront.ts";
+import { getCart, listPublishedProducts, setCartLine } from "../src/storefront/storefront.ts";
 import { buyer, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
 
 const channelFor = (s: Awaited<ReturnType<typeof makeStore>>, over: Record<string, unknown> = {}) =>

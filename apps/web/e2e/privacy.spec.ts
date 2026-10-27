@@ -37,7 +37,7 @@ test("owner finds a buyer by phone, exports JSON, is refused for an open order, 
   // Invalid key → inline alert, no results.
   await page.getByLabel("Nomor HP atau email pembeli").fill("bukan nomor");
   await page.getByRole("button", { name: "Cari" }).click();
-  await expect(page.getByRole("alert")).toContainText("nomor HP");
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("nomor HP");
 
   // +62 spelling finds the 0… order.
   const spelled = `+62 ${phone.slice(1, 4)}-${phone.slice(4)}`;

@@ -1,7 +1,8 @@
 import { sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { updateProduct } from "../src/catalog.ts";
-import { addProductMedia } from "../src/content.ts";
+import { moduleForRoute } from "../src/ops/ops.ts";
+import { updateProduct } from "../src/seller/commerce/catalog.ts";
+import { addProductMedia } from "../src/storefront/content.ts";
 import {
   appendBlock,
   createLandingPage,
@@ -20,7 +21,7 @@ import {
   saveDraft,
   unpublishLandingPage,
   type LandingDocument,
-} from "../src/landing.ts";
+} from "../src/storefront/landing.ts";
 import { makeStore, platform } from "./helpers.ts";
 
 // landing track (T-42, PR-9): store-owned pages with immutable revisions, draft/published
@@ -191,10 +192,10 @@ describe("landing: block helpers", () => {
 });
 
 describe("landing: storefront route group keeps Log System modules", () => {
-  it("ignores the (shop) group in Next route paths", async () => {
-    const { moduleForRoute } = await import("../src/ops.ts");
-    expect(moduleForRoute("/app/s/[store]/(shop)/cart/page")).toBe("storefront.cart");
-    expect(moduleForRoute("/app/s/[store]/(shop)/cart/page")).toBe(moduleForRoute("/app/s/[store]/cart/page"));
-    expect(moduleForRoute("/app/s/[store]/(shop)/page")).toBe("storefront.catalog");
+  it("ignores the (shop) and surface route groups in Next route paths", () => {
+    expect(moduleForRoute("/app/(storefront)/s/[store]/(shop)/cart/page")).toBe("storefront.cart");
+    expect(moduleForRoute("/app/(storefront)/s/[store]/(shop)/cart/page")).toBe(moduleForRoute("/app/s/[store]/cart/page"));
+    expect(moduleForRoute("/app/(storefront)/s/[store]/(shop)/page")).toBe("storefront.catalog");
+    expect(moduleForRoute("/app/(seller)/seller/products/page")).toBe("seller.products");
   });
 });

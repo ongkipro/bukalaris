@@ -4,10 +4,10 @@
 // flight, stops claiming and exits. Logs JSON lines; never secrets or buyer data.
 import { hostname } from "node:os";
 import { platformDb } from "./client.ts";
-import { JOB_CHANNEL, runOnce, sanitizeError } from "./jobs.ts";
-import "./notify.ts"; // registers the order e-mail handler (T-36)
-import "./signals.ts"; // registers the signal.* handlers (T-38)
-import "./fulfillment.ts"; // registers the shipment.* handlers (T-39)
+import { JOB_CHANNEL, runOnce, sanitizeError } from "./ops/jobs/jobs.ts";
+import "./ops/jobs/notify.ts"; // registers the order e-mail handler (T-36)
+import "./storefront/signals.ts"; // registers the signal.* handlers (T-38)
+import "./shipping/fulfillment.ts"; // registers the shipment.* handlers (T-39)
 
 const once = process.argv.includes("--once");
 const workerId = `${hostname()}:${process.pid}`;

@@ -12,10 +12,10 @@ import {
   listOutbox,
   previewInvitation,
   revokeInvitation,
-} from "../src/accounts.ts";
-import { changeMember } from "../src/membership.ts";
+} from "../src/platform/accounts.ts";
+import { changeMember } from "../src/platform/membership.ts";
 import { auditLog, mailOutbox, membership, platformOperator, session, storeInvitation } from "../src/schema.ts";
-import { sellerContext } from "../src/scoped.ts";
+import { sellerContext } from "../src/platform/scoped.ts";
 import { admin, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
 
 // mail_outbox has no FK to the truncated tables, so the shared helper's cascade does not reach it.

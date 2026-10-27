@@ -1,14 +1,14 @@
 import { and, eq, like } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
-import { dbMailer, type Mailer } from "../src/accounts.ts";
-import { createProduct } from "../src/catalog.ts";
-import { placeOrder } from "../src/checkout.ts";
-import { claimBatch, enqueue, getHandler, runOnce } from "../src/jobs.ts";
-import { enqueueOrderNotifications, getOrderForLink, ORDER_LINK_TTL_MS, ORDER_NOTIFY, setNotifyMailer, signOrderLink, verifyOrderLink } from "../src/notify.ts";
-import { transitionOrder } from "../src/orders.ts";
-import { fakeProviders } from "../src/providers.ts";
+import { dbMailer, type Mailer } from "../src/platform/accounts.ts";
+import { createProduct } from "../src/seller/commerce/catalog.ts";
+import { placeOrder } from "../src/seller/commerce/checkout.ts";
+import { claimBatch, enqueue, getHandler, runOnce } from "../src/ops/jobs/jobs.ts";
+import { enqueueOrderNotifications, getOrderForLink, ORDER_LINK_TTL_MS, ORDER_NOTIFY, setNotifyMailer, signOrderLink, verifyOrderLink } from "../src/ops/jobs/notify.ts";
+import { transitionOrder } from "../src/seller/commerce/orders.ts";
+import { fakeProviders } from "../src/payments/providers.ts";
 import { job, mailOutbox, membership, orderNotification, user } from "../src/schema.ts";
-import { setCartLine } from "../src/storefront.ts";
+import { setCartLine } from "../src/storefront/storefront.ts";
 import { admin, buyer, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
 
 // mail_outbox has no FK to the truncated tables, so the shared helper's cascade does not reach it.
@@ -196,7 +196,7 @@ describe("order e-mail notifications (T-36, PR-21)", () => {
   it("escapes every interpolated value in the HTML body and keeps the plain text readable", async () => {
     const s = await makeStore("toko-a");
     const nasty = `<b>Kaos & "Co"</b>`;
-    const productId = await createProduct(s.owner, { title: nasty, status: "active", variant: { title: "XL <img src=x onerror=alert(1)>", price: 50_000, stock: 5 } });
+    const productId = await createProduct(s.owner, { title: nasty, status: "active", variant: { title: "XL <img src=x onerror=alert(1)>", price: 50_000, stock: 5, weightGrams: 1000 } });
     const variantId = (await platform.query.variant.findFirst({ where: (v, { eq }) => eq(v.productId, productId) }))!.id;
     const cartId = await setCartLine(s.sf, undefined, { variantId, quantity: 1 }, "add");
     const { orderId } = await placeOrder(db, cartId, buyer({ buyerEmail: BUYER, buyerName: "Budi <script>alert(1)</script>" }));

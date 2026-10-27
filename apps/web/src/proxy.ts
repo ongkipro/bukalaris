@@ -1,4 +1,4 @@
-import { slugFromHost } from "@bukalaris/db/host";
+import { dispatchHostPath, surfaceOriginsFromEnv } from "@bukalaris/db/host";
 import { NextResponse, type NextRequest } from "next/server";
 import { HOST_STORE_HEADER } from "./lib/host-header";
 import { REQUEST_ID_COOKIE, REQUEST_ID_HEADER, validRequestId } from "./lib/request-id";
@@ -35,27 +35,43 @@ export function proxy(request: NextRequest) {
     headers.set(NONCE_HEADER, nonce);
     headers.set(CSP_HEADER, csp);
   }
+  const proto = request.headers.get("x-forwarded-proto") ?? request.nextUrl.protocol.replace(":", "");
+  const decision = dispatchHostPath({
+    host: request.headers.get("host"),
+    rootDomain: process.env.STORE_ROOT_DOMAIN ?? "localhost",
+    pathname,
+    search: request.nextUrl.search,
+    method: request.method,
+    proto,
+    devOutbox: process.env.DEV_OUTBOX === "1" && process.env.NODE_ENV !== "production",
+    checkoutOrigin: surfaceOriginsFromEnv(process.env).checkoutOrigin,
+  });
   const finish = (res: NextResponse) => {
     res.headers.set(REQUEST_ID_HEADER, requestId);
-    res.cookies.set(REQUEST_ID_COOKIE, requestId, { path: "/", sameSite: "lax", maxAge: 300 });
+    if (!decision.noCookies) {
+      res.cookies.set(REQUEST_ID_COOKIE, requestId, { path: "/", sameSite: "lax", maxAge: 300 });
+    }
     if (csp) res.headers.set(CSP_HEADER, csp);
     if (hsts) res.headers.set(HSTS_HEADER, HSTS_VALUE);
     return res;
   };
-  const slug = slugFromHost(request.headers.get("host"), process.env.STORE_ROOT_DOMAIN ?? "localhost");
-  if (!slug || pathname.startsWith("/checkout") || pathname.startsWith("/api/")) {
-    return finish(NextResponse.next({ request: { headers } }));
+  if (decision.action === "not_found") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/_not-found";
+    return finish(NextResponse.rewrite(url, { status: 404, request: { headers } }));
   }
-  // Path-style links (/s/<slug>/...) on the store's own host: drop the prefix, keep the host.
-  if (pathname === `/s/${slug}` || pathname.startsWith(`/s/${slug}/`)) {
-    const path = pathname.slice(`/s/${slug}`.length) || "/";
-    const proto = request.headers.get("x-forwarded-proto") ?? request.nextUrl.protocol.replace(":", "");
-    return finish(NextResponse.redirect(new URL(`${path}${request.nextUrl.search}`, `${proto}://${request.headers.get("host")}`)));
+  if (decision.action === "redirect") {
+    return finish(NextResponse.redirect(new URL(decision.location), decision.status));
   }
-  const url = request.nextUrl.clone();
-  headers.set(HOST_STORE_HEADER, slug);
-  url.pathname = `/s/${slug}${pathname === "/" ? "" : pathname}`;
-  return finish(NextResponse.rewrite(url, { request: { headers } }));
+  if (decision.storeSlug) {
+    headers.set(HOST_STORE_HEADER, decision.storeSlug);
+  }
+  if (decision.action === "rewrite") {
+    const url = request.nextUrl.clone();
+    url.pathname = decision.pathname;
+    return finish(NextResponse.rewrite(url, { request: { headers } }));
+  }
+  return finish(NextResponse.next({ request: { headers } }));
 }
 
 export const config = {

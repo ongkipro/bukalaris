@@ -1,6 +1,6 @@
 import { and, eq, inArray, like, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
-import { placeOrder } from "../src/checkout.ts";
+import { placeOrder } from "../src/seller/commerce/checkout.ts";
 import {
   BOOKABLE,
   bookShipment,
@@ -24,15 +24,15 @@ import {
   type BookingAdapter,
   type BookingInput,
   type TrackingResult,
-} from "../src/fulfillment.ts";
-import { runOnce } from "../src/jobs.ts";
-import { firstOrder, mengantarBooking, toBookingResult, toCreateOrderCourier, toTrackingResult } from "../src/mengantar/booking.ts";
-import { MengantarClient, MengantarError } from "../src/mengantar/client.ts";
-import { ORDER_NOTIFY, signOrderLink } from "../src/notify.ts";
-import { transitionOrder } from "../src/orders.ts";
+} from "../src/shipping/fulfillment.ts";
+import { runOnce } from "../src/ops/jobs/jobs.ts";
+import { firstOrder, mengantarBooking, toBookingResult, toCreateOrderCourier, toTrackingResult } from "../src/shipping/mengantar/booking.ts";
+import { MengantarClient, MengantarError } from "../src/shipping/mengantar/client.ts";
+import { ORDER_NOTIFY, signOrderLink } from "../src/ops/jobs/notify.ts";
+import { transitionOrder } from "../src/seller/commerce/orders.ts";
 import { job, order, orderStatusHistory, shipment } from "../src/schema.ts";
-import { setCartLine } from "../src/storefront.ts";
-import { withStore } from "../src/tenant.ts";
+import { setCartLine } from "../src/storefront/storefront.ts";
+import { withStore } from "../src/platform/tenant.ts";
 import { buyer, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
 
 // Shipment booking + tracking through the outbox (T-39). Every provider call goes to a

@@ -192,6 +192,8 @@ export const variant = pgTable(
     sku: text("sku"),
     price: idr("price").notNull(),
     stock: integer("stock").notNull().default(0),
+    /** Parcel weight of one unit in grams (T-61); the seller sets it, there is no default. */
+    weightGrams: integer("weight_grams").notNull(),
     createdAt: createdAt(),
   },
   (t) => [
@@ -200,6 +202,7 @@ export const variant = pgTable(
     index("variant_product_idx").on(t.storeId, t.productId),
     check("variant_price_chk", sql`${t.price} >= 0`),
     check("variant_stock_chk", sql`${t.stock} >= 0`),
+    check("variant_weight_chk", sql`${t.weightGrams} > 0`),
     check("variant_catalog_id_chk", sql`${t.catalogId} >= 10000`),
   ],
 );
@@ -350,18 +353,18 @@ export const auditLog = pgTable(
 );
 
 // M2 track tables live in their own files so parallel branches merge cleanly.
-export * from "./schema-orders.ts";
-export * from "./schema-accounts.ts";
-export * from "./schema-ops.ts";
-export * from "./schema-content.ts";
-export * from "./schema-channels.ts";
-export * from "./schema-jobs.ts";
-export * from "./schema-shipping.ts";
-export * from "./schema-catalog.ts";
-export * from "./schema-abuse.ts";
-export * from "./schema-notify.ts";
-export * from "./schema-signals.ts";
-export * from "./schema-fulfillment.ts";
-export * from "./schema-feeds.ts";
-export * from "./schema-landing.ts";
-export * from "./schema-privacy.ts";
+export * from "./seller/commerce/schema-orders.ts";
+export * from "./platform/schema-accounts.ts";
+export * from "./ops/schema-ops.ts";
+export * from "./storefront/schema-content.ts";
+export * from "./storefront/schema-channels.ts";
+export * from "./ops/jobs/schema-jobs.ts";
+export * from "./shipping/schema-shipping.ts";
+export * from "./seller/commerce/schema-catalog.ts";
+export * from "./seller/commerce/schema-abuse.ts";
+export * from "./ops/jobs/schema-notify.ts";
+export * from "./storefront/schema-signals.ts";
+export * from "./shipping/schema-fulfillment.ts";
+export * from "./storefront/schema-feeds.ts";
+export * from "./storefront/schema-landing.ts";
+export * from "./seller/commerce/schema-privacy.ts";

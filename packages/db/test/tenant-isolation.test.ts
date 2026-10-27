@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { addVariant, getProduct, listProducts, updateProduct, updateVariant } from "../src/catalog.ts";
+import { addVariant, getProduct, listProducts, updateProduct, updateVariant } from "../src/seller/commerce/catalog.ts";
 import { variant } from "../src/schema.ts";
-import { sellerContext, slugFromHost } from "../src/scoped.ts";
-import { getCart, getPublishedProduct, listPublishedProducts, setCartLine } from "../src/storefront.ts";
+import { sellerContext, slugFromHost } from "../src/platform/scoped.ts";
+import { getCart, getPublishedProduct, listPublishedProducts, setCartLine } from "../src/storefront/storefront.ts";
 import { db, makeStore, platform } from "./helpers.ts";
 
 describe("tenant isolation (TEN-1, TEN-2, TEN-5)", () => {
@@ -17,8 +17,8 @@ describe("tenant isolation (TEN-1, TEN-2, TEN-5)", () => {
     const a = await makeStore("toko-a");
     const b = await makeStore("toko-b", { price: 50_000, stock: 3 });
     await expect(updateProduct(a.owner, b.productId, { title: "hijacked", status: "draft" })).rejects.toMatchObject({ code: "not_found" });
-    await expect(addVariant(a.owner, b.productId, { title: "X", price: 1, stock: 1 })).rejects.toMatchObject({ code: "not_found" });
-    await expect(updateVariant(a.owner, b.variantId, { title: "X", price: 1, stock: 999 })).rejects.toMatchObject({ code: "not_found" });
+    await expect(addVariant(a.owner, b.productId, { title: "X", price: 1, stock: 1, weightGrams: 1000 })).rejects.toMatchObject({ code: "not_found" });
+    await expect(updateVariant(a.owner, b.variantId, { title: "X", price: 1, stock: 999, weightGrams: 1000 })).rejects.toMatchObject({ code: "not_found" });
     const intact = await getProduct(b.owner, b.productId);
     expect(intact).toMatchObject({ title: "Kaos toko-b", status: "active" });
     expect(intact!.variants[0]).toMatchObject({ price: 50_000, stock: 3 });
@@ -28,7 +28,7 @@ describe("tenant isolation (TEN-1, TEN-2, TEN-5)", () => {
     const a = await makeStore("toko-a");
     const b = await makeStore("toko-b");
     await expect(
-      platform.insert(variant).values({ storeId: a.storeId, productId: b.productId, title: "X", price: 1, stock: 1 }),
+      platform.insert(variant).values({ storeId: a.storeId, productId: b.productId, title: "X", price: 1, stock: 1, weightGrams: 1000 }),
     ).rejects.toMatchObject({ cause: { constraint_name: "variant_product_fk" } });
   });
 
