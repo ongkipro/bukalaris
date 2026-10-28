@@ -52,6 +52,10 @@ context (see `packages/db/src/tenant.ts`); `permission denied for table …` mea
 a code path reached a table the app role has no grant on (`docs/tracks/rls.md`
 has the grant table).
 
+**Upgrading to migration 0011 (chain A foundation).** Stop every outbox worker BEFORE migrating and start the new
+build afterwards: the previous worker still writes job status `failed`, which 0011 turns into `dead` and the new
+constraint no longer accepts. The migration also needs the five roles of `docs/DEPLOY-COOLIFY.md` "Database roles".
+
 ## Verify (release gate)
 
 | Command | What it proves | Typical duration (2026-10-06, this machine) |
@@ -138,8 +142,10 @@ rules).
 ### After any real restore (not a rehearsal)
 
 1. Keep the web application and the worker stopped, or payout, billing and
-   provider-write jobs frozen (T-37, T-50 and T-53 deliver the freeze switch;
-   until it exists keep the worker stopped), until step 4 is done.
+   provider-write jobs frozen, until step 4 is done. The payout freeze exists (T-37: `payout_control.frozen`, switch on `/admin/payouts`;
+   the database refuses payout and refund transitions and COD batch apply while it is on). A restored dump normally carries the
+   unfrozen row: set `frozen = true` as the owner role BEFORE the application starts (`update payout_control set frozen = true`);
+   T-50 has its own billing freeze (`billing_control.jobs_frozen`), T-53 will add the affiliate one.
 2. Check isolation on the restored database: grants per role and policies against
    the registry (once T-59 extends the script). The roles must exist before the
    restore.
@@ -190,7 +196,7 @@ that no envelope carries the old id, and drop the old key only after every
 retained backup that holds envelopes under it has expired. Keep the offline key
 backup in step (14, secrets and keys backup).
 
-## Console bootstrap and recovery (planned, T-60; nothing exists yet)
+## Console bootstrap and recovery (T-60: script exists; the two named people are an owner action)
 
 IAM-15 sensitive grants need an approver who already holds the capability and is
 neither the requester nor the grantee, so the first holders of `staff.manage` and
@@ -201,8 +207,8 @@ procedure is out of band by design.
 - **People.** Two named people take part in every run: the operator who runs the
   script and a witness. Names: **not assigned yet (owner action before the
   pilot)**; record them here as name and role, never with credentials.
-- **Tool.** A script delivered by T-60 (it does not exist yet) runs on the server
-  as the owner or DBA role, never from the web application. It refuses to run
+- **Tool.** `pnpm --filter @bukalaris/db bootstrap:console -- --holder <email> --runbook "<entry>" [--recovery]` (T-60) runs on the server
+  with `MIGRATION_DATABASE_URL`, never from the web application and never with the platform login. It refuses to run
   while two or more active `staff.manage` holders exist (bootstrap); for
   recovery it refuses unless both people confirm that no active holder can sign in.
   It selects exactly one existing sign-in identity by verified e-mail, creates the

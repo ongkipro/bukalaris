@@ -518,3 +518,114 @@ dummy content.
   planning and ready stages (was 92 at the start of the day), `check-spec.py` PASS, `map:check` ok. `mail_outbox` columns were
   compared with `schema-accounts.ts` and migrations. No code changed in this step. Nothing committed.
 - Next: T-59 and T-60 (code), then T-74, T-62, T-49, T-37, T-48.
+
+## 2026-10-28 — Goal Mode wave 1: T-59 expand, T-60, T-74 (uncommitted working tree)
+
+- Delivered by three isolated child tasks (T59Rls, T60Capabilities, T74Jobs), integrated one at a time by the conductor (order
+  T-59 → T-74 → T-60) into ONE migration `0011_chain_a_foundation.sql` (generated structure, then the hand-written T-59, T-74 and
+  T-60 sections; `UPDATE job SET status='dead' WHERE status='failed'` right after the constraint drop). Child reports:
+  `docs/tracks/t59-rls.md`, `t60-capabilities.md`, `t74-jobs.md`. The T-59 contract step stays in `packages/db/drizzle-pending/t59-contract.sql`
+  (not applied by any tool; proven on a scratch schema by `rls-contract.test.ts`).
+- **Independent review (separate read-only agents; the implementer never reviewed itself).** `RevRlsMigration` (security-reviewer):
+  1 P1, 5 P2, 3 P3. `RevCapabilitiesJobs` (reviewer): 6 P2, 2 P3, no capability or MFA bypass found for a seller or operator.
+  The P1: the platform login could write `retention_policy` and then call `retention_purge_audit_log`, erasing audit history.
+- **Fixed in the tree:** P1 (platform has SELECT only on `retention_policy`; periods only through the owner-side
+  `retention_set_period()` that re-checks `ops.jobs.manage` and appends `retention_policy_event`); `ops.jobs.manage` enforced in
+  `requeueDeadJob`, `resolveUnknownJob`, `rebuildProjection`, `setRetentionPeriod`; approval payload readable by the approver
+  (`approval_request.payload_canonical`, hash CHECK, immutable); last-holder counts standing grants only; `effect_absent`
+  resets `attempts`; worker uses the database clock, calls `reconcileUnknownJobs`, health reports `skewed`; approval and break-glass
+  guards are SECURITY DEFINER with a pinned search_path; break-glass approver must hold `break_glass.approve`; platform SELECT on
+  `collection`, `page`, `media` (Owner store detail would have broken at the contract step); shell registry compares search_path per
+  function kind; `getOrderForLink` uses `resolveOrderStore`; nested store contexts restore the outer setting; DEPLOY-COOLIFY role
+  bootstrap now lists the five roles; ADR-0005 states the GUC-context limit. Regression tests: `packages/db/test/review-findings.test.ts`
+  (12 cases) and a wider `rls-contract.test.ts` scenario. Vacuous assertions from the review were removed.
+- **Deferred, written into TASKS (T-59, T-60, T-74, ledger):** T-59 contract application and production role bootstrap, T-59b
+  (operator tables restricted), T-59c (audit-writer GUC and buyer identifiers as definer functions), log-table partitioning,
+  break-glass duration CHECK, four-eyes on `shipping.margin`, retention periods, a DB-level MFA-hook test.
+- **Evidence (this tree):** `pnpm lint` and `pnpm typecheck` clean; `pnpm --filter @bukalaris/db test`: 29 files, 396 passed;
+  `pnpm build` ok; `pnpm verify:docker`: 54 public tables, 31/31 policies, 0 registry differences, health 200, healthcheck healthy;
+  restore rehearsal on the earlier tree only (not rerun after the fixes).
+
+## 2026-10-28 — Goal Mode wave 2: T-62, T-49, T-65, T-73 (uncommitted working tree)
+
+- Four isolated children (T62Console, T49AutoLaris, T65Tax, T73Mailer) started from an overlay of the wave 1 tree; their
+  deltas were applied one at a time. Migration artefacts were not applied: the four structural parts were regenerated once
+  (`pnpm generate` over the combined schema) and the four hand-written `-- =====` sections appended in the order T-73, T-65,
+  T-49, T-62 (T-62 last because its `retention_set_period` replaces the wave 1 definition and keeps the audit_log/access_event
+  refusal). Every child's generated prelude was compared statement by statement with the combined output (0 differences).
+  Result: one migration `0012_chain_a_wave2.sql`; the T-59 contract file was regenerated from the registry (54 grants).
+- **Independent reviews (separate read-only agents).** `RevPayments` (T-49): 1 P1, 2 P2, 4 P3. `RevPlatformWave2` (T-62, T-65,
+  T-73): 0 P1, 3 P2, 10 P3. P1: the platform login could rename a store to `demo-*` and call `reset_demo_payments()` to erase
+  payment evidence. Fixed: no login role may execute it (the demo seed uses the owner connection), registry `execute: []`.
+- **Other fixes with named tests:** app-role inserts start pending/empty on a non-COD order of the same store (definer guards),
+  later payment events only from the worker role, no raw callback body for the app role (column grants), callbacks capped per
+  attempt, the callback route verifies the signature before rate limiting (unsigned traffic cannot fill the shared counter),
+  every transfer approval row shown is a recorded `full` access event, the database stamps the tax policy confirmation time,
+  NULL-safe bracket check, review evidence only with a status change, key-id format on reseal, wider literal scan, local mail in
+  production requires every surface origin on loopback, dev outbox needs a loopback host, recipient/subject header safety,
+  role allow-list in `mail_enqueue`, privacy export keyed by `order_id`.
+- **Deferred (in TASKS on each task):** live adapter wiring through one factory, refund obligation on cancelling a gateway-paid
+  order (T-37), DB-level lock on withholding flags until T-67, staff and access screens (need T-59b), mail provider (Q-16).
+- **Evidence:** before the fixes: DB 614 passed, build ok, `verify:docker` 70 tables / 38/38 policies / 0 registry differences,
+  Playwright 127 passed + 2 skipped. After the fixes: lint, typecheck, `map:check` clean, DB suite 39 files / 622 tests passed;
+  build, `verify:docker` and Playwright are rerun after wave 3.
+
+## 2026-10-28 — Goal Mode wave 3: T-57, T-37, T-63, T-50 (uncommitted working tree)
+
+- Four isolated children (T57Buyer, T37Ledger, T63Accounts, T50Subscription) started from an overlay of the wave 2 tree; deltas
+  applied one at a time (rejected hunks merged by hand: registry, scoped.ts, schema/index/worker exports, seed-demo, rls-contract).
+  The four structural migration parts were regenerated once and the four hand-written sections appended in the order T-57,
+  T-37, T-63, T-50 (every child's generated prelude compared statement by statement with the combined output: 0 differences) =
+  `0013_chain_a_wave3.sql`. T-37 stopped at its working budget (no pages, no mutation checks); a second isolated child
+  (T37Finish) completed it and fixed the review findings: `0014_t37_finish.sql` (replaces nine 0013 guard definitions with
+  CREATE OR REPLACE; kept as its own migration because it is a separate delta).
+- **Independent reviews (separate read-only agents).** `RevLedger` (T-37): 1 P1, 1 P2, 6 P3. `RevWave3Other` (T-50, T-57, T-63): 0 P1,
+  2 P2, 6 P3. P1: the release job only looked at the first 200 stores that had any pending row, so later stores never released
+  their sales. P2 (ledger): a payout whose transfer outcome was unknown could be claimed again after the lease and then rejected by
+  the claimant with a typed reference, re-crediting money that may have left. P2 (billing): one operator-created invoice for a far
+  future period, paid at the monthly price, moved coverage years ahead (a comp without four-eyes). P2 (accounts): the platform login
+  could insert a recovery link with a token hash it chose and call the MFA-reset function with any operator id.
+- **Fixed with named tests:** all of the above (`t37b-review.test.ts`, `review-wave3.test.ts`, `t50-invoices/payments`), plus: a lapsed
+  period cannot be paid by id, a case without a subject authorises no target, the platform login has no INSERT on
+  `support_recovery_link` (`support_recovery_create()` owns creation), `console_reset_user_mfa` needs an executed four-eyes approval
+  for owners and staff, `finance.read` stays usable while read-only, `wipeLocalDatabase` retries a deadlock (Playwright starts the
+  worker before its global setup and the scheduler transaction raced the schema drop).
+- **E2E specs changed because behaviour changed on purpose:** `orders.spec` (the seller no longer completes an order: T-37 D-14),
+  `privacy.spec` (lookup key is the canonical 62… form: T-57), `t57.spec` back-dates and cancels the Toko B orders it creates so
+  `dashboard.spec`'s empty store stays empty.
+- **Deferred (in TASKS on each task):** T-50 one unique index per (store, period) across kinds + live-instruction check in `grantComp`,
+  seller security clean-up while read-only (needs add/remove capability split), T-57 resolver flag hard-coding and platform UPDATE
+  column limit, rate-limit key spellings; owner decisions: payouts while unpaid, existing-store trial, T-37 cashback/COD fee/VAT.
+- **Evidence (final integrated tree):** `pnpm lint`, `pnpm typecheck`, `pnpm map:check` (89 routes), `check-spec.py` and the traceability
+  checker (0 findings) clean; `pnpm --filter @bukalaris/db test`: 57 files, 1005 tests passed; `pnpm build` ok; `pnpm verify:docker`:
+  107 public tables, 57/57 policies, 0 registry differences, health 200, healthcheck healthy; full Playwright: 164 passed, 1 failed
+  (dashboard.spec desktop, caused by t57's Toko B orders, fixed afterwards; `t57.spec` + `dashboard.spec` rerun: 10 passed, a full rerun
+  is not done after that one-line fix); restore rehearsal on the populated e2e database: 107 tables, counts match, policies 57/57/57,
+  0 registry differences, rls_ok=yes; `pnpm verify:ledger` clean on test, e2e and a seeded demo database (T37Finish).
+
+## 2026-10-28 — Goal Mode waves 4 and 5: T-46, T-48, T-68, T-45, T-47, T-52 (uncommitted working tree)
+
+- Wave 4 (T48Mengantar, T46Promotions, T68Issues + a read-only review of the T-37 finish build) → migration `0015_chain_a_wave4.sql`.
+  Wave 5 (T52Affiliate, T45T47, T48Fix + reviews of T-46/T-68, T-48, T-52, T-45/T-47) → `0016_chain_a_wave5.sql`. Both folded the same way
+  (generated structure once, hand-written sections appended, every child's generated prelude compared statement by statement: 0 differences).
+- **Review results:** T-37 finish 1 P2, 8 P3; T-46/T-68 1 P2, 7 P3; T-48 1 P1, 2 P2, 7 P3; T-52 2 P2, 5 P3; T-45/T-47 3 P2, 6 P3. Every P1/P2
+  fixed with a named test; cheap P3s too; the rest recorded as DEFERRED on the task.
+- **The P1 worth remembering:** migration 0015 failed on any database that already had orders (three compound foreign keys were validated
+  before the backfill). The suite never saw it because test databases are migrated empty. Fixed with `NOT VALID` + `VALIDATE` after the
+  backfill and proven on a copy of the populated dev database (64 demo orders, migrations 0011 to 0016 applied: all orders carry their
+  account, registry differences 0). Open finding from the same run: orders created before migration 0013 have no financial snapshot, so
+  `verify:ledger` reports them (`order_without_financials`); only dev data is affected (nothing is deployed), reseed or backfill is an owner call.
+- **Other fixes:** step-up code limiter counts only failed codes (slot taken atomically first, given back on success); a double submit of one
+  request returns the one order (voucher counters); free-shipping threshold never blocks a checkout; every phone spelling counts once for
+  the per-buyer cap; the issue guard covers INSERT and report identity; tracking resumes by itself after an account recovery; the platform
+  shipping discount is never paid by the seller (frozen on the snapshot, recomputed by `verify:ledger`); the checkout session clocks belong
+  to the database; a redacted order keeps no provider free text; WhatsApp only to canonical `628…` numbers; self-referral fails closed;
+  the click limiter no longer lets noise spend a link's budget.
+- **Evidence:** DB suite 73 files / 1384 tests passed (before the last review fixes, whose test files were rerun: t45, t47, t52, privacy,
+  fulfillment all green); `verify:docker` 133 tables, 75/75 policies, 0 registry differences; populated-database upgrade as above;
+  lint, typecheck, `map:check`, `check-spec.py`, traceability (0 findings) clean. Full DB suite, build and Playwright are rerun on the
+  final tree and recorded below.
+- **Final evidence on the last tree (2026-10-28):** `pnpm lint`, `pnpm typecheck`, `pnpm map:check` clean; `pnpm --filter @bukalaris/db test`
+  73 files / 1388 tests passed; `pnpm build` ok; full Playwright **207 passed, 2 skipped, 0 failed**; `verify:docker` (133 tables, 75/75
+  policies, 0 registry differences, run before the last review fixes) and the populated-database upgrade (run before them as well) are
+  not repeated on the final tree; `python3 docs/check-spec.py` and the traceability checker pass (0 findings).

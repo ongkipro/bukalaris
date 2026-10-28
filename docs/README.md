@@ -82,7 +82,7 @@ and workflows; which screens exist on `main` is recorded in the UX document's
 | 16-OBSERVABILITY-RATE-LIMITING.md | Signals, Log System and query/abuse controls |
 | 17-UX-FLOWS-SCREEN-CONTRACTS.md | Initial screen workflows, states and acceptance |
 | ADR-0001 through ADR-0012 | Architecture decisions (0001–0003 proposed; 0004 accepted for local M1; 0005 accepted and implemented, with the 2026-10-27 amendment accepted on 2026-10-28 (T-59, D-20); 0006–0012 accepted on 2026-10-28 (D-20, D-21) as decisions, not implementation evidence — 0006 platform-managed money, net seller ledger & Mengantar reconciliation; 0007 platform-managed Mengantar Partner seller provisioning, shipping discounts & cashback ledger; 0008 platform architecture and routing; 0009 platform-owned affiliate programme; 0010 global buyer identity; 0011 Owner console scope, navigation, naming rule and account governance, with the startup relaxation and the dormant Compliance center (Compliance activation); 0012 platform tax workflows: startup-off defaults (earnings statements, optional voluntary tax identity) and a dormant tax policy engine (Tax activation)) |
-| DECISIONS.md | Implementation decisions and deliberate ceilings (D-1..D-21) |
+| DECISIONS.md | Implementation decisions and deliberate ceilings (D-1..D-22) |
 | TASKS.md | Only execution queue; planning versus verified status |
 | DEPLOY-COOLIFY.md / RUNBOOK.md | Deployment draft (unexecuted) / local operations and release gates |
 | tracks/*.md | Per-track implementation reports (what changed, commands, open issues); read-only history |

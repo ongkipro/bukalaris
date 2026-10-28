@@ -1,11 +1,18 @@
 # Bukalaris — status
 
-Updated: 2026-10-28 (M3 chain A started: T-51, T-61 and T-70 implemented locally on top of `660bed1`, uncommitted; documents aligned and accepted under D-20/D-21, the rest of M3 is specification). Milestone: M2 complete locally; M3 started (T-51, T-70 done in the working tree).
+Updated: 2026-10-28 (Goal Mode, uncommitted working tree on top of `8748533`: M3 chain A foundation and the first half of chain B prerequisites are implemented locally: T-51, T-61, T-70, T-59 (expand step), T-60, T-74, T-62, T-49, T-65, T-73 (provider adapter OPEN), T-57, T-37, T-63, T-50; migrations 0011 to 0014; every provider is a fake adapter; nothing is deployed). Milestone: M2 complete locally; M3 chain A delivered locally, chain B (T-48, T-52 to T-56, T-58, T-72) and the remaining Owner screens are next.
 This file owns current status. Evidence: `BUILD-LOG.md`, `docs/TASKS.md`
 ("M1 implementation evidence", M2 task statuses, M3 planned tasks) and the track reports in
 `docs/tracks/`. The wave 4 merges are local commits on `main` (not pushed); nothing is deployed.
 
 ## In progress
+
+**Goal Mode run 2026-10-28 (owner: continue the whole queue, build what needs no decision, defer the rest).** Implemented locally and
+independently reviewed (three review rounds, every P1/P2 fixed with a named test): T-59 expand step, T-60, T-74, T-62, T-49, T-65, T-73
+(except the real mail provider), T-57, T-37, T-63, T-50. Evidence per task is in `docs/TASKS.md` and `BUILD-LOG.md`; last full gates:
+DB 73 files / 1388 tests, Playwright 207 passed / 0 failed, `verify:docker` 133 tables / 75 policies / 0 registry differences, restore rehearsal green,
+migration 0011..0016 applied to a populated copy of the dev database. Also built since: T-46, T-48, T-68, T-45, T-47, T-52. Owner-decision and external-fact items are recorded as DEFERRED on each task and in
+the ledger section of `docs/TASKS.md`; defaults taken on the orchestrator's recommendation are DECISIONS D-22 items 1 to 9.
 
 Nothing running in parallel: M2 waves 1–4 are merged into `main` (wave 4 on
 2026-10-07). On 2026-10-26, the M3 specification pass (`ADR-0006`, `PR-23`..`PR-26`,

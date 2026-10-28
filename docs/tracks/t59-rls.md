@@ -1,0 +1,82 @@
+# T-59 — RLS framework and narrow platform grants (EXPAND step) — track report `t59-rls`
+
+Isolated copy, nothing committed. Expand step only: nothing is revoked from any role. The contract migration is written, proven on a scratch schema and **not applied** by anything.
+
+## What changed
+
+New files
+- `packages/db/src/platform/isolation-registry.ts` — the isolation registry (exported through `src/index.ts`): every one of the 42 tables classified `tenant` (31, `audit_log` as the writer variant), `auth` (5), `platform` (5), `shared-read` (1); classes `buyer`, `affiliate`, `restricted` exist with their policy shape but have no table yet. Per entry: policy key, `bukalaris_app` privileges (+ column grants), `bukalaris_platform` privileges. Also `expectedPolicy()` (the `pg_get_expr` text a class must carry), `AUDIT_STORELESS_WRITERS`, `ROLES`, `DEFINER_FUNCTIONS` (owner, EXECUTE grantees, tables read). Module-load guards: canonical privilege lists, key only for policy classes, restricted grants nothing, shared-read is SELECT-only.
+- `packages/db/src/platform/resolvers.ts` — eight resolver wrappers over the SECURITY DEFINER functions.
+- `packages/db/src/isolation-print.ts` — prints the registry as SQL `VALUES` for the shell scripts.
+- `packages/db/drizzle-pending/t59-rls.sql` (expand, idempotent), `t59-rls.generated.sql` (no structural change: `generate` says "No schema changes"), `t59-contract.sql` (NOT applied, header says when it may run).
+- `scripts/_registry.sh` — `registry_problems <db>` / `registry_policy_count`, sourced by `verify-docker.sh` and `db-restore-rehearsal.sh`.
+- `packages/db/test/isolation-catalog.ts` (catalog reader + checkers), `test/rls-contract.test.ts` (contract step on a scratch schema).
+
+Changed
+- `platform/tenant.ts`: one generic context mechanism; `withStore` unchanged in behaviour, plus `withBuyer`, `withAffiliate`, `withAuditWriter`. Contexts compose and are inherited by savepoints; ids must be positive safe integers (else rejected before touching the DB); switching an already-bound context inside one transaction throws (`store|buyer|affiliate|audit writer context mismatch`). Re-exported from `platform/scoped.ts`.
+- `platform/scoped.ts`: `sellerContext` and `storefrontScope` now use the resolvers on the caller's executor (no `platformDb()` any more).
+- Callers moved off the BYPASSRLS pool onto the app-pool resolvers: `cartStore` (**signature is now `cartStore(exec, cartId)`**, 4 internal callers updated), `authenticateChannel`, `exchangeHandoff`, `channelReturnTarget` (channels.ts), `resolveFeedToken` (feeds.ts), `previewInvitation`/`acceptInvitation` (accounts.ts), `getShipmentForLink` (fulfillment.ts).
+- `docker/05-roles.sql`: `bukalaris_restricted` (NOLOGIN NOBYPASSRLS) and `bukalaris_resolver` (NOLOGIN BYPASSRLS); `bukalaris_owner` made a member of both (needed for `ALTER … OWNER TO`). `scripts/db-roles.sh`: leaves objects owned by the no-login roles alone and documents them. `src/local-roles.ts`: comments, `applySqlFile`, `applyPendingSql`, `pendingFile`, CLI `--pending`.
+- `test/global-setup.ts`: applies `drizzle-pending/*.sql` (not `*.generated.sql`, not `*-contract.sql`) after the migrations. `apps/web/e2e/global-setup.ts`: one line, same for the e2e database.
+- `scripts/verify-docker.sh`, `scripts/db-restore-rehearsal.sh`: assertions derived from the registry (see below).
+- `test/rls.test.ts` rewritten registry-driven (48 tests); old negative tests kept.
+
+## Decisions taken
+
+1. **Policy shapes** (asserted against `pg_policy` text, FORCE RLS included): tenant `tenant_isolation` on `store_id` (`id` on `store`); `buyer_isolation` on `app_buyer_id()`; `affiliate_isolation` on `app_affiliate_id()`; platform / shared-read / restricted / auth: no RLS at all.
+2. **Operator tables stay `platform` now, not `restricted`.** `platform_operator` and `operator_grant` are read by existing platform-pool code; owning them by `bukalaris_restricted` without the functions would break the running version, which expand must not do. They become restricted with the separate operator tables in **T-59b**. The auth tables are class `auth` (app SELECT/INSERT/UPDATE/DELETE as before); the registry comment documents the operator move. `lib/auth.ts` untouched.
+3. **`audit_log`**: USING `store_id = app_store_id()`, WITH CHECK adds `store_id IS NULL AND app_audit_writer() IS NOT NULL`. `app_audit_writer()` returns the transaction-local `app.audit_writer` only when it is in a fixed list inside the function (`account.security`); the list equals `AUDIT_STORELESS_WRITERS` (drift test). A writer never widens store isolation. The app role stays INSERT-only. There is **no production caller of `withAuditWriter` yet** (the one store-less writer, `password.reset` in `lib/auth.ts`, still uses the platform pool and I may not touch that file).
+4. **Resolvers** (`SECURITY DEFINER`, owner `bukalaris_resolver`, `search_path = pg_catalog, public`, schema-qualified, one fixed statement each, PUBLIC revoked): slug→active store (id, name, slug), user→member stores (store id, name, slug, status, role), cart→store, channel(prefix, hash)→store, feed(prefix, hash)→active store, handoff hash→store, invitation hash→store, order id→store. EXECUTE: app for all; platform additionally for slug, member-stores and cart (the local seeds call `storefrontScope`, `sellerContext`, `placeOrder` on the platform pool). `bukalaris_resolver` holds SELECT on exactly the union of the tables its functions read.
+   - **Security trade-off, stated:** channel and feed lookups previously fetched candidate hashes by prefix and compared with `timingSafeEqual` in TypeScript. The function now compares `(prefix, hash)` in the database and returns only the store id, so no hash leaves the function (ADR: "never row data"). The compared value is a SHA-256 of a 256-bit secret; the store-context read re-checks the hash and liveness as before.
+5. **Default privileges for `bukalaris_platform` are NOT removed in the expand step** (decision, deviates from the literal Done-when sentence). Removing them now would leave tables added by sibling tasks (T-60, T-74, …) without platform access in their own migrations. The contract file removes them; the test asserts `app` has none today and that after the contract a new table starts closed for both login roles.
+6. **Per-table platform grants** are the registry's `platform` column, derived by reading every platform-pool path (Owner console, worker handlers, cleanup, retention, IAM-9 revocation, auth audit) and then proven by `rls-contract.test.ts`, which drives those paths through the narrowed role. In expand they are granted explicitly next to the old table-wide grants (same ACL bits, so no effective change); the invariant test asserts "at least these"; after contract "exactly these".
+7. **Restricted mechanism** is proven on a scratch table owned by `bukalaris_restricted` (create as migrator → grant `CREATE` on schema to the role → `ALTER … OWNER` → revoke every other grant → definer function owned by the role, EXECUTE only to platform): app and platform get `42501` on SELECT/INSERT/UPDATE/DELETE, the registered function works for platform, the app role cannot execute it, and the checkers flag an unregistered function and a stray platform grant. Real restricted tables arrive with T-60 / T-37.
+
+## Named tests (all in `packages/db/test`, observed green)
+
+`rls.test.ts` (48): registry completeness both directions + checker negative cases + a table created without an entry is caught and unreachable for app; per-class shape (owner, enabled+FORCE, exact policy text, app table and column grants, platform ⊇ registry, no non-DML privileges); policy-count equals `pg_policy` (the number the shell scripts use); shape checker rejects wrong tables; no default privileges for app; role attributes incl. the two no-login roles; fail-closed tenant tests (registry-driven table list); buyer **and** affiliate (each 8 tests on a scratch table built from the registry's own policy text): missing context → zero rows and no writes, same-owner reads succeed, foreign id rejected on insert and on moving a row, foreign rows invisible to update/delete, store column is provenance only (a store context sees nothing), contexts of other kinds do not stand in, transaction-local on a one-connection pool, invalid ids rejected; contexts compose; `audit_log` (7: own store, foreign store, no context, store-less without writer, each named writer, unknown writer, writer + foreign store, transaction-local writer and raw `set_config` refused, app is append-only, SQL list = TS list); definer registry (owner, EXECUTE, search_path, no dynamic SQL, schema-qualified) + its negative cases; resolver role grants; EXECUTE grants; restricted-table scratch test; resolvers (slug/suspended/injection-shaped slug, member stores, cart/order/channel/feed/handoff/invitation incl. wrong prefix, wrong secret, revoked token; no extra columns); import boundary in `apps/web` and in `packages/db/src` (only named services open the platform pool).
+`rls-contract.test.ts` (5): after the contract SQL on a scratch copy — platform holds exactly the registry, app unchanged, resolver/definer checks green; no default privileges left and a new table is closed for both login roles; audit_log append-only for platform (UPDATE/DELETE/TRUNCATE denied); second application harmless; one end-to-end scenario through the narrowed platform role and the app role: operator lookup, store create / suspend / reactivate / audit, margin rule, system log write and read, seller + storefront + checkout (transfer and COD, ad destination), outbox worker (payment instruction, order mails, signal delivery), shipment booking and shipped transition, idle-cart cleanup, rate-limit cleanup, signal-context purge, buyer-data retention redaction, orphan-session revocation, store-less audit write.
+
+## Commands run (observed)
+
+- `pnpm install --frozen-lockfile` — ok.
+- `pnpm --filter @bukalaris/db generate` — "No schema changes, nothing to migrate" (no migration or snapshot produced).
+- `pnpm lint` — apps/web eslint Done (the db package has no lint script). `pnpm typecheck` — packages/db and apps/web Done.
+- `pnpm --filter @bukalaris/db test` (final run) — **23 files, 277 tests passed** (with the original `rls.test.ts` of 8 cases the suite had 232 cases in 22 files). Two earlier runs failed only because the local seed/demo test called resolvers on the platform pool; fixed by the EXECUTE grants in decision 4.
+- `bash -n` on `verify-docker.sh`, `db-restore-rehearsal.sh`, `db-roles.sh`, `_registry.sh` — ok.
+- `scripts/db-backup.sh` on my own `bukalaris_t59rls_test` then `scripts/db-restore-rehearsal.sh`: `policies=31/31/31 registry_differences=0 … rls_ok=yes` (scratch restore database dropped, dump removed; no dev data touched). Checker negative run on a scratch copy (revoked platform SELECT, extra table, resolver function re-owned, `bukalaris_app` BYPASSRLS): all four reported by `registry_problems`.
+- `scripts/db-roles.sh bukalaris_t59rls_contract_test` — leaves resolver-owned functions with the resolver (`registry_problems` empty afterwards).
+- `pnpm verify:docker` — passed (result line at the end of this file).
+- Not run: Playwright (no browser-visible change; e2e global setup edited but the e2e DB path was not exercised), `pnpm map:check` (no route or handler file added).
+
+## Lessons coverage (Tokophi / 99ribu)
+
+The repository docs carry no Tokophi lesson specific to RLS; the D-21 99ribu items that bear on this task, and what covers them:
+- catalog-driven check instead of heuristics and column-name guesses → completeness + per-class shape tests and the `isolation-catalog.ts` checkers, fed deliberately wrong input;
+- definer functions pinned to a fixed owner and fixed `search_path` (99ribu retention purge) → `definerProblems` on the live catalog (owner, search_path, no dynamic SQL, qualified names, EXECUTE grantees, PUBLIC never);
+- "shared user table for operators and buyers" (not adopted) → operator tables are not in class `auth`, the app role is denied them, the move to separate operator tables is T-59b;
+- restore must reapply grants (SEC-23, THR-14) → rehearsal and `verify:docker` compare owners, policies, per-role grants, function ACLs and roles to the registry;
+- a forgotten tenant predicate / pooled-connection leak (TEN-3) → fail-closed and transaction-local tests for store, buyer, affiliate and audit-writer contexts.
+
+## DEFERRED (with the missing input)
+
+- **Applying the contract step** — needs the new web version deployed and owner approval (D-22 item 4); `t59-contract.sql` is proven only on a scratch schema.
+- **Production bootstrap** — DEPLOY-COOLIFY role SQL must gain the two NOLOGIN roles and `GRANT bukalaris_restricted, bukalaris_resolver TO bukalaris_owner`; not written (docs not mine).
+- **Operator tables / auth-adapter split (T-59b)**; column-level grants on `two_factor` and `account.password`; the `account.security` writer has no caller until then.
+- **`data_field_class` registry** (field classification): not needed for the table registry, not built.
+- **Erasure replay in the rehearsal** (SEC-23 second half): not built; only grants/ownership are asserted.
+- **Separate worker login** (ADR OPEN): not decided or added; no fourth login role exists.
+- **`getOrderForLink` in `ops/jobs/notify.ts`** still uses `platformDb()` (T-74 owns that file). One-line change: `resolveOrderStore(exec, orderId)` from `platform/resolvers.ts`; then drop `ops/jobs/notify.ts` from the allow-list in the "import boundary" test.
+- `membership.ts` post-commit revocation stays a named platform operation (as the ADR says).
+
+## What the parent must do when integrating
+
+1. Fold `drizzle-pending/t59-rls.sql` verbatim into the next numbered migration; delete the `applyPendingSql` calls (`test/global-setup.ts`, `apps/web/e2e/global-setup.ts`, the loop in `verify-docker.sh`) or leave them (idempotent, no-op after the fold). Keep `t59-contract.sql` out of the journal.
+2. **Register the other tracks' new tables in `ISOLATION_REGISTRY`** (the completeness test fails otherwise): T-60 told me of `four_eyes_rule`, `approval_request`, `operator_grant_event`, `break_glass_grant`, `session_mfa`, `operator_step_up_proof`. Their code writes them on the platform pool today, so register them as class `platform` with the platform privileges their code needs (T-60 revokes UPDATE/DELETE/TRUNCATE on the append-only ones — mirror that) and move them to `restricted` + definer functions with T-59b. `operator_grant` will need INSERT/UPDATE/DELETE for platform once T-60's grant management exists (registry has SELECT only). T-74's tables likewise. Take my `rls.test.ts` on conflict with T-60's three-line edit.
+3. Changed shared files: `src/index.ts` (+1 export), `platform/accounts.ts`, `seller/commerce/checkout.ts` (`cartStore` signature), `storefront/channels.ts`, `storefront/feeds.ts`, `shipping/fulfillment.ts` (one hunk each, caller switch), `apps/web/e2e/global-setup.ts` (+1 line), `scripts/db-restore-rehearsal.sh` (only the `source` line and the RLS/grants block; T-74's live-cluster and artifact checks are untouched hunks).
+4. Docs: ADR-0005 amendment status → implemented (expand), decision 2/4 text (`system_log` has `store_id` and no RLS; resolver list incl. feed token; resolver EXECUTE for platform on three functions); TASKS T-59 status and the Done-when note on default privileges (decision 5); SEC-23 acceptance now implemented for grants, erasure replay open; AGENTS.md layout row (isolation registry, `drizzle-pending/`, `scripts/_registry.sh`); RUNBOOK/DEPLOY-COOLIFY "Database roles" (two NOLOGIN roles, membership grant, CREATE-on-schema hand-over pattern for restricted tables); BUILD-LOG entry.
+5. Before the contract migration is ever scheduled: re-derive `t59-contract.sql` grants from the then-current registry (the contract test fails when it is stale), check no deployed process still calls the old lookups through `bukalaris_platform`, and point the local seeds at the owner URL.
+
+## verify:docker result (observed)
+
+`pnpm verify:docker`: `migrated …: 42 public tables, 31/31 policies (registry), 0 registry differences` then `verify:docker health=200 s_nope=404 login=200 healthcheck=healthy user=app media=writable policies=31/31 total_ms=284979`. The web image ran against a database that got the pending expand SQL (resolvers) from the script; `/s/nope` answers 404 through `resolve_store_by_slug` on the app pool.

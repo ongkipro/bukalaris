@@ -490,6 +490,8 @@ the action re-checks the capability at execution.
 | `breakglass.approve` | `break_glass.approve` | Approve a break-glass elevation | P1 |
 | `payout.approve_transfer` | `payouts.process` | Seller payout requested → processing (bank snapshot shown to the approver); mark-paid then records evidence only | P1 (T-37) |
 | `refund.approve_transfer` | `refunds.process` | Buyer refund approved for transfer | P1 (T-37) |
+| `payout.reject_processing` | `payouts.process` | Rejection of a seller payout already in `processing` ("no transfer was sent", with normalised bank evidence); the requester executes; an unknown transfer outcome is only settled this way or by the reporter's evidence | P1 (T-37) |
+| `refund.fail` | `refunds.process` | A buyer refund is declared failed (the money stays owed; the amount remains visible as `refunds_failed` until a new refund is opened) | P1 (T-37) |
 | `affiliate_payout.approve_transfer` | `affiliate.payout.process` | Affiliate payout approved for transfer | P1 (T-53) |
 | `cod.manual_complete` | `payouts.process` | Manual completion of a COD order without the provider's DELIVERED status; evidence required; the seller can never complete for credit | P1 (T-37) |
 | `cod.reconcile_release` | `payouts.reconcile` | Approve a COD reconciliation batch that releases delivered, reconciled COD sales; evidence references and carrier invoice lines are shown to the approver; nothing auto-releases | P1 (T-37) |
@@ -498,7 +500,8 @@ the action re-checks the capability at execution.
 | `shipping.margin` | `shipping.manage` | Change the platform shipping margin, shipping discount or cashback split rules (SA-07) | P1 |
 | `affiliate.rate_bounds` | `affiliate.policy.manage` | Change programme rate bounds or the affiliate hold period (`affiliate_hold_days`, default 3 days) | P1 |
 | `providers.rotate` | `providers.manage` | Record a provider credential rotation | P1 |
-| `mfa.reset` | `accounts.support` (store-owner and affiliate targets) or `staff.manage` (staff targets) | Reset a second factor. A non-owner seller team member's reset is a single-approver action with case, reason and notice to the previous contact | P1 |
+| `mfa.reset` | `accounts.support` | Reset a second factor of a store-owner or affiliate account. A non-owner seller team member's reset is a single-approver action with case, reason and notice to the previous contact | P1 |
+| `staff.mfa_reset` | `staff.manage` | Reset a staff member's second factor (the staff-target variant of `mfa.reset`, added by T-63): never through `accounts.*`, the requester cannot be the target | P1 |
 | `account.close` | `accounts.suspend` | Close an account through a privacy case | P1 |
 | `merge.execute` | `accounts.identifiers.review` | Staff-executed buyer merge; **decided disabled in Phase 1** (D6; buyers merge only via self-service proof of both identifiers) | P1 (disabled) |
 | `ownership.recover` | `members.recover` | Staff-executed store ownership recovery (`support_action` kind `recover_ownership`); **decided disabled in Phase 1** (D6; self-service recovery only) | P1 (disabled) |

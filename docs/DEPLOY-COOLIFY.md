@@ -169,34 +169,36 @@ visible. Neither process is part of `verify:docker` yet.
 
 ## Database roles (once per database, before the first migration)
 
-Three roles (ADR-0005, `docs/tracks/rls.md`). `BYPASSRLS` can only be granted by a
-superuser, so this is a DBA step on the Coolify Postgres (as the `postgres` user),
-not a migration. Generate three passwords (`openssl rand -base64 32`), store them
-in Coolify secrets only, and make the application database owned by the owner role:
+Five roles (ADR-0005 and its 2026-10-28 amendment, `docs/tracks/rls.md`, `docs/tracks/t59-rls.md`). `BYPASSRLS`
+can only be granted by a superuser, so this is a DBA step on the Coolify Postgres (as the `postgres` user), not a
+migration. Generate three passwords (`openssl rand -base64 32`), store them in Coolify secrets only, and make the
+application database owned by the owner role. Only three roles can log in; the two `NOLOGIN` roles own database
+objects and never hold a connection:
 
 ```sql
 CREATE ROLE bukalaris_owner LOGIN BYPASSRLS PASSWORD '<owner secret>';
 CREATE ROLE bukalaris_app LOGIN NOBYPASSRLS PASSWORD '<app secret>';
 CREATE ROLE bukalaris_platform LOGIN BYPASSRLS PASSWORD '<platform secret>';
-ALTER DATABASE bukalaris OWNER TO bukalaris_owner;   -- or CREATE DATABASE … OWNER bukalaris_owner
+CREATE ROLE bukalaris_restricted NOLOGIN NOBYPASSRLS;   -- owns restricted tables; reached only through definer functions
+CREATE ROLE bukalaris_resolver NOLOGIN BYPASSRLS;       -- owns the narrow cross-store resolver functions (SELECT only)
+GRANT bukalaris_restricted TO bukalaris_owner;          -- the migrator must be able to create objects owned by them
+GRANT bukalaris_resolver TO bukalaris_owner;
+ALTER DATABASE bukalaris OWNER TO bukalaris_owner;      -- or CREATE DATABASE … OWNER bukalaris_owner
 ```
 
-The role names are fixed (migration `0007_rls.sql` grants to them by name and
-refuses to run when they are missing). Local development uses the same statements
-with placeholder passwords equal to the role names (`packages/db/docker/05-roles.sql`).
+`bukalaris_restricted` MUST stay `NOBYPASSRLS`: only the resolver reads across stores. Migration 0011 refuses to run
+when the roles are missing, when the owner is not a member of both, or when `bukalaris_restricted` bypasses RLS. The
+role names are fixed (migrations grant to them by name). Local development uses the same statements with
+placeholder passwords equal to the role names (`packages/db/docker/05-roles.sql`).
 
-Planned (T-59, not yet implemented): two additional `NOLOGIN` roles,
-`bukalaris_restricted` (owner of the restricted tables) and `bukalaris_resolver`
-(owner of the narrow resolver functions only), both `BYPASSRLS`, are created by
-the same DBA step and by `packages/db/docker/05-roles.sql`; no fourth `LOGIN`
-role is introduced. Public host and store lookups then run on the app pool
-through the resolver functions, so `PLATFORM_DATABASE_URL` serves only the Owner
-console and the worker. Because restricted tables are owned by
-`bukalaris_restricted`, every backup and restore keeps owners and ACLs (14
-restore rules). T-59 updates this SQL, the `verify:docker` policy count and the
-restore rehearsal checks together. A `REVOKE` that the previous web version still
-needs is a contract migration that runs after the new version is serving (15
-DEL-2).
+Public host and store lookups run on the app pool through the resolver functions, so `PLATFORM_DATABASE_URL`
+serves only the Owner console and the worker. Because restricted tables and the definer functions are owned by the
+no-login roles, every backup and restore keeps owners and ACLs (14 restore rules); `scripts/db-restore-rehearsal.sh`
+and `pnpm verify:docker` compare the result with the isolation registry. Migration 0011 is the **expand** step: it
+leaves the platform login's old table-wide grants in place so the previous web version keeps working during a rolling
+deploy. The **contract** step (`packages/db/drizzle-pending/t59-contract.sql`) is NOT part of the migrations and
+needs the owner's approval (D-22 item 4, TASKS T-59). A `REVOKE` that the previous web version still needs is always
+a contract migration that runs after the new version is serving (15 DEL-2).
 
 ## Migration step (before the new web version)
 

@@ -160,7 +160,9 @@ populated table follows expand → backfill → contract (15-DELIVERY-MIGRATIONS
 DEL-2); `0004` adds NOT NULL order columns without defaults, which is only
 acceptable because no database with orders exists yet (dev DB checked: 0 orders).
 
-## D-10 — App role may update the store-less `mail_outbox` for redaction (2026-10-07, T-43)
+## D-10 — App role may update the store-less `mail_outbox` for redaction (2026-10-07, T-43) — SUPERSEDED 2026-10-28 by T-73
+
+Superseded: migration 0012 revokes every `bukalaris_app` privilege on `mail_outbox`; the app reaches it only through the SECURITY DEFINER functions `mail_enqueue`, `mail_privacy_export`, `mail_privacy_redact` and one more (all store-bound, registered in `DEFINER_FUNCTIONS`). The text below is the historical ceiling.
 
 Decision (accepted ceiling): `0009_wave4_rls.sql` grants `UPDATE ON mail_outbox
 TO bukalaris_app` so a seller's buyer-data redaction (`redactOrders` in
@@ -348,3 +350,19 @@ Decision (owner, 2026-10-28, "A-K setuju | L accept aja"), after a study of 99ri
 
 Why acceptable now: this changes documents only; code is released for T-59 and T-60 by D-20.
 Revisit when: any accepted ADR changes, or the first live provider test shows the verify-by-pull inquiry cannot confirm a payment within the unknown-outcome window.
+
+## D-22 — Goal Mode defaults taken on the orchestrator's recommendation (2026-10-28, ADR-0006, T-37, T-48, T-49, T-59, T-60, T-74)
+
+Decision (owner instruction 2026-10-28: build what needs no further owner decision, complete it on the orchestrator's recommendation, defer the rest into the task queue). These are defaults for LOCAL implementation against fake adapters. They are not owner decisions of substance and the owner may reverse any of them; reversing one is a small change because each is a named setting or a single code path.
+1. **OPEN-F3:** a COD booking is allowed when the available balance cannot cover the shipping debit; the debit is inserted `pending` and settles with the delivered sale (ADR-0006 recommended default).
+2. **OPEN-F6:** the carried courier debit of a prepaid parcel returned or cancelled in transit is netted against the next released sale of the same store, never taking `available` below zero; a four-eyes `adjustment` handles the unrecoverable remainder.
+3. **No invented numbers:** where no owner-decided figure exists (retention periods, minimum payout, COD fee minimum, claim lease lengths beyond the 30-minute lease of the study, dunning timings) the value is a named platform setting with a conservative default and an Owner-console audit trail, never a literal in business code.
+4. **Expand before contract:** database role and grant changes ship as the expand step only (D-9, ADR-0005 amendment). The contract step that revokes the old table-wide grants waits for the new web version to be deployed and for explicit owner approval.
+5. **Live gates unchanged:** Q-17, OPEN-F7, OPEN-F8, OPEN-F9, the Mengantar write test, the Partner Secret rotation, AutoLaris sandbox evidence and ad-platform test events are not touched; every provider is a fake adapter and every live flag defaults to off.
+6. **Retention setters (T-74, T-62):** `ops.jobs.manage` sets the period of a class through the audited owner-side `retention_set_period()`. The `audit_log` and `access_event` classes have NO setter until operator identity is restricted (T-59b) and the change needs four-eyes.
+7. **Subscription (T-50):** stores that exist when the migration runs start a fresh 3-day trial; `finance.payout` is refused while the subscription is unpaid (BILL-7 read-only), and netting the debt against a payout is not built (recommended: allow payout requests, the debt is a separate receivable).
+8. **Buyer identity (T-57):** an e-mail match accepts a first phone only when it is `bound` (`EMAIL_MATCH_REQUIRES_BOUND` = true); `buyer.resolve` runs at bulk priority.
+9. **Account governance (T-63):** no invented break-glass duration maximum; the audit and access-event retention periods stay unset.
+
+Why acceptable now: all of it is local, uncommitted unless the owner asks, and behind existing gates.
+Revisit when: the owner reviews the Goal Mode report, or any item above blocks a live gate.

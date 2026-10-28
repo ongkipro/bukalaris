@@ -70,10 +70,13 @@ retention periods (Q-11) and when a request is honoured.
 | UTM parameters | `order_signal_context.utm` | attribution context | never shown | 30 days | row deleted |
 | Client IP, user agent | `order_signal_context.client_ip`, `order_signal_context.user_agent` | signal matching quality | never shown | 30 days | row deleted |
 | Signal event user block | `signal_event.payload` (`user`: hashed phone/name, raw click ids, IP, UA) | server-side ad conversion delivery | never shown (health counts only) | `user` stripped after 30 days | `user` key removed for the order's events; value/contents stay |
+| Shipment tracking text | `shipment.tracking_history` (jsonb: provider lines `{at, desc}`, last 50), `shipment.provider_status`, `shipment.last_error` (T-47) | tracking timeline and failure message of the booked parcel; the provider's free text can carry receiver names or address fragments | Seller order detail, buyer status page `/o/<token>` (timeline text) | with the order (indefinite) | each line's `desc` replaced by `[dihapus]` (the timestamp `at` stays), `last_error` replaced by `[dihapus]` when present, `provider_status` kept while it is an upper-case status code (e.g. `ON DELIVERY`) and replaced otherwise; status, resi, courier, amounts and every timestamp stay; a later tracking poll of a redacted order stores its lines already stripped |
+| Checkout session contact | `checkout_session.buyer_name`, `checkout_session.buyer_phone`, `checkout_session.buyer_email`, `checkout_session.shipping_address` (T-45, PR-25) | what the buyer typed into hosted checkout before ordering, kept for seller follow-up (WhatsApp recovery) under the notice on the checkout form; nothing is captured before a field has a value, never sent as an ad event | Seller Admin `/seller/customers/carts` (SC-26, owner and staff) | 30 days from creation (`cleanup.ts` purge); a completed order empties the session's copy | overwritten with `[dihapus]` (name, phone, address) and NULL (e-mail) by the order redaction (sessions matching the order's cart, phone or e-mail) and by the session-only redaction on `/seller/privacy`; exported by phone or e-mail match |
 | Notification recipient | `order_notification.to_email` | at-most-once mail per order/event/address | never shown | indefinite | buyer rows overwritten with `[dihapus]`; seller (owner) rows kept |
 | Mail recipient | `mail_outbox.to_email` | dev-only mail sink (no provider yet) | dev outbox viewer | indefinite | buyer copies overwritten with `[dihapus]`; owner copies keep their address |
 | Mail bodies | `mail_outbox.text_body`, `mail_outbox.html_body` | rendered order mail (names the buyer, lists the order) | dev outbox viewer | indefinite | body replaced by `[dihapus]`, HTML set to NULL, for every copy about the order |
-| Rate-limit key | `rate_limit.key` (`order:phone:<phone>`, `order:ip:<ip>`) | checkout abuse counters (T-30) | never shown | windows swept after 1 day by cleanup | not touched (expires) |
+| Rate-limit key | `rate_limit.key` (`order:phone:<keyed fingerprint>` since T-57, `order:ip:<ip>`) | checkout abuse counters (T-30) | never shown | windows swept after 1 day by cleanup | not touched (expires); the phone part is an HMAC under `KEYRING_BUYER_FINGERPRINT`, never the number |
+| Voucher buyer usage | `discount_buyer_usage.phone_fingerprint` | per-buyer voucher cap (T-46): `<key_id>.<HMAC-SHA256>` of the canonical phone under `KEYRING_BUYER_FINGERPRINT`, purpose `promotion.buyer_usage` | seller never reads it (the store sees only the voucher's total `used_count`) | with the voucher row (no purge class: an expired voucher keeps its counters so a code cannot be reused) | not touched by seller redaction; it is a keyed fingerprint, never the number, and cannot be reversed without the key ring |
 | Status note | `order_status_history.note` | tracking number / seller reason | Seller order detail | indefinite | not touched — free text; sellers must not type buyer data into reasons |
 | Stock reason | `stock_adjustment.reason` | restock/adjustment reason (`… #<order>: <reason>`) | Seller inventory | indefinite | not touched — same rule |
 | Audit reason | `audit_log.reason` | redaction/export audit (`privacy.redact`, `privacy.export`) | Owner console | indefinite | holds order ids, counts and a hashed lookup key only; never the raw phone/e-mail |
@@ -82,25 +85,19 @@ retention periods (Q-11) and when a request is honoured.
 | Store WhatsApp | `store.whatsapp` | storefront contact | storefront | store lifetime | seller data |
 | Invitation e-mail | `store_invitation.email` | member invitation | Seller members | invitation lifetime | seller data |
 | Pickup address | `store_pickup_area.address_text` | courier pickup | Seller shipping | store lifetime | seller data |
+| Global buyer primary-phone reference | `buyer.primary_phone_identifier_id` | id of the buyer's anchoring phone identifier (a reference, not a value) | never shown | with the buyer | not personal data; see the identifier row below |
+| Global buyer profile name | `buyer.display_name` | buyer-managed profile name (T-58); checkout never writes it | buyer portal only (T-58) | undecided: global deletion/closure is OPEN (ADR-0010) | not touched by seller redaction (platform data, handling `global`) |
+| Global buyer identifier | `buyer_identifier.canonical_value` | canonical phone `628…` / e-mail used to associate checkouts (T-57); sensitive restricted data, never a public lookup key | own buyer only under RLS (T-58 portal); no seller, affiliate or platform-login table access | undecided: recycling/deletion OPEN | not touched by seller redaction; a seller-redacted order snapshot is never resurrected from it |
+| Global buyer address book | `buyer_address.recipient_name`, `buyer_address.phone_canonical`, `buyer_address.address_text` | buyer-managed address book (T-58); checkout addresses stay order snapshots and are never copied here | own buyer only under RLS | undecided: deletion OPEN | not touched by seller redaction (platform data) |
 
 Not in the table because they hold no personal data by construction: `job.payload`
 (ids only, T-32), `system_log.fields` (allowlisted keys, T-23), `cart`/`cart_line`
 (no buyer fields), `order_line` (catalog snapshot and amounts).
 
-Known gap (2026-10-07, after the wave 4 merge): the `shipment` table from T-39
-(`packages/db/src/schema-fulfillment.ts`) is not yet in this table, in
-`BUYER_DATA_INVENTORY`, in the export or in redaction. No column name matches
-the schema scan (it stores area ids, courier, resi and amounts), but
-`shipment.tracking_history` (jsonb, last 50 provider lines) and
-`shipment.provider_status` / `shipment.last_error` hold provider text that may
-include receiver names or address fragments, and the booking payload sent to
-Mengantar carries the buyer's name, phone and address. Until it is added (owner:
-privacy track follow-up, T-47), a redaction leaves shipment rows untouched; the buyer
-link `/o/<token>` shows only status, resi and the timeline text.
+`shipment` (T-47) and `checkout_session` (T-45) are in the table above, in `BUYER_DATA_INVENTORY`, in the buyer export (`orders[].shipment`, `checkoutSessions`) and in redaction. The booking payload sent to
+Mengantar still carries the buyer's name, phone and address; that is the provider's copy and outside this mechanism (processor list and retention are owner decisions, Q-11).
 
 Planned inventory additions (2026-10-26 specification pass):
-- `shipment.tracking_history`, `shipment.provider_status`, `shipment.last_error` (T-47): export includes shipment status/timeline; redaction strips free-text provider descriptions in `tracking_history` and `last_error` to status codes + timestamps only while keeping resi, courier, and amounts intact.
-- `checkout_session.{buyer_name,buyer_phone,buyer_email,shipping_address}` (PR-25, T-45): included in `BUYER_DATA_INVENTORY`, exported by phone/e-mail match, overwritten with `[dihapus]` / `NULL` on manual redaction, and automatically purged by `cleanup.ts` after 30 days.
 - `payout.{bank_code,bank_account_number,bank_account_holder}` (PR-23, T-37): seller financial data (like `store_pickup_area`), retained as part of the platform financial audit record and excluded from buyer redaction.
 
 Redaction record: each redacted order gets one `order_redaction` row (store,
