@@ -17,7 +17,7 @@ async function tabTo(page: Page, target: Locator, max = 40) {
   throw new Error("focus never reached the target");
 }
 
-const nav = (page: Page, name: "Seller" | "Super Admin") => page.getByRole("navigation", { name, exact: true });
+const nav = (page: Page, name: "Seller" | "Owner console") => page.getByRole("navigation", { name, exact: true });
 
 test.describe("Seller Admin shell and pages", () => {
   test("shell: skip link, scrollable nav with active state, keyboard navigation", async ({ page }, info) => {
@@ -138,7 +138,7 @@ test.describe("Seller Admin shell and pages", () => {
     expect((await page.goto("/seller/pages/999999999"))?.status()).toBe(404);
   });
 
-  test("staff sees read-only and denied states; a seller is denied in Super Admin", async ({ page }, info) => {
+  test("staff sees read-only and denied states; a seller is denied in the Owner console", async ({ page }, info) => {
     await login(page, "staff-a@bukalaris.local");
     await expect(page.getByText("Toko Ayu · Staf")).toBeVisible();
     await page.goto("/seller/channels");
@@ -150,25 +150,26 @@ test.describe("Seller Admin shell and pages", () => {
     await evidence(page, info, "88-ui-seller-settings-readonly");
     await page.goto("/admin");
     await expect(page.getByRole("main").getByRole("alert")).toContainText("Akses ditolak.");
-    await expect(nav(page, "Super Admin")).toHaveCount(0);
+    await expect(nav(page, "Owner console")).toHaveCount(0);
     await evidence(page, info, "89-ui-admin-denied");
   });
 });
 
-test.describe("Super Admin shell and pages", () => {
+test.describe("Owner console shell and pages", () => {
   test("stores, store detail, create form, shipping margin, logs; keyboard nav; real 404", async ({ page }, info) => {
     await login(page, "admin@bukalaris.local", "/admin");
+    await page.goto("/admin/stores");
     await expect(page.getByRole("heading", { name: "Toko", level: 1 })).toBeVisible();
-    await expect(nav(page, "Super Admin").getByRole("link", { name: "Toko", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(nav(page, "Owner console").getByRole("link", { name: "Daftar toko" })).toHaveAttribute("aria-current", "page");
     await evidence(page, info, "90-ui-admin-stores");
 
     await page.goto("/admin");
     await page.keyboard.press("Tab");
     await expect(page.getByRole("link", { name: "Lewati ke konten utama" })).toBeFocused();
-    await tabTo(page, nav(page, "Super Admin").getByRole("link", { name: "Log System" }));
+    await tabTo(page, nav(page, "Owner console").getByRole("link", { name: "Operasional" }));
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/admin\/logs$/);
-    await expect(nav(page, "Super Admin").getByRole("link", { name: "Log System" })).toHaveAttribute("aria-current", "page");
+    await expect(nav(page, "Owner console").getByRole("link", { name: "Log System" })).toHaveAttribute("aria-current", "page");
     await expect(page.getByRole("heading", { name: "Log System", level: 1 })).toBeVisible(); // past the route skeleton
     await evidence(page, info, "91-ui-admin-logs");
     const event = page.getByRole("table").getByRole("link", { name: /^Detail kejadian/ }).first();
@@ -181,7 +182,7 @@ test.describe("Super Admin shell and pages", () => {
     await expect(page.getByTestId("empty")).toContainText("cocok dengan filter");
     await evidence(page, info, "93-ui-admin-logs-empty");
 
-    await page.goto("/admin");
+    await page.goto("/admin/stores");
     await page.getByRole("listitem").filter({ hasText: "/toko-a" }).getByRole("link", { name: "Toko Ayu" }).click();
     await expect(page.getByRole("heading", { name: "Toko Ayu", level: 1 })).toBeVisible();
     await expect(page.locator("header p", { hasText: /tema (Responsif|Mobile)/ })).toBeVisible(); // theme is labelled, not the raw enum

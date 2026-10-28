@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 import { updateVariant } from "../src/seller/commerce/catalog.ts";
 import { getBuyerOrder, placeOrder } from "../src/seller/commerce/checkout.ts";
 import { runOnce } from "../src/ops/jobs/jobs.ts";
-import { fakeProviders, type Providers } from "../src/payments/providers.ts";
+import { FakeAutoLaris } from "../src/payments/fake.ts";
+import { fakeProviders } from "../src/payments/providers.ts";
 import { order, variant } from "../src/schema.ts";
 import { setCartLine } from "../src/storefront/storefront.ts";
 import { buyer, db, makeStore, platform } from "./helpers.ts";
@@ -89,21 +90,23 @@ describe("checkout (PR-4, DATA-2, NFR-2)", () => {
     expect(await platform.select().from(order)).toHaveLength(0);
   });
 
-  it("transfer orders get a payment instruction from the outbox worker; a provider failure leaves an explicit pending state", async () => {
-    // T-32: the instruction is requested by the worker after commit (durable job in the
-    // order transaction), not inline. Until the worker runs, the order is pending without a reference.
+  it("transfer orders get a structured payment instruction from the outbox worker; a provider failure leaves an explicit unknown state, never a second bill", async () => {
+    // T-32/T-49: the attempt (stable reff_id, amounts) commits with the order; the worker asks the provider after commit.
     const s = await makeStore("toko-a");
     const c1 = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 1 }, "add");
-    const { orderId } = await placeOrder(db, c1, buyer({ paymentMethod: "manual_transfer" }));
-    expect(await getBuyerOrder(db, orderId, c1)).toMatchObject({ status: "awaiting_payment", paymentReference: null });
-    await runOnce(platform, { workerId: "test" });
-    expect(await getBuyerOrder(db, orderId, c1)).toMatchObject({ status: "awaiting_payment", paymentReference: `FAKE-AL-${orderId}` });
+    const { orderId } = await placeOrder(db, c1, buyer({ paymentMethod: "manual_transfer", paymentChannel: "VABCA" }));
+    expect((await getBuyerOrder(db, orderId, c1))!.payment).toMatchObject({ channelCode: "VABCA", requestState: "in_progress", status: "pending", adminFeeIdr: 6_500, instruction: null });
+    const provider = new FakeAutoLaris();
+    await runOnce(platform, { workerId: "test", providers: { ...fakeProviders, payment: provider } });
+    const paid = (await getBuyerOrder(db, orderId, c1))!;
+    expect(paid).toMatchObject({ status: "awaiting_payment", payment: { requestState: "accepted", totalIdr: paid.total + 6_500, instruction: { virtualAccount: expect.stringMatching(/^SIM-VA-/) } } });
 
-    const down: Providers = { ...fakeProviders, payment: { createInstruction: () => Promise.reject(new Error("timeout")) } };
+    const down = new FakeAutoLaris();
+    down.down = true;
     const c2 = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 1 }, "add");
-    const r2 = await placeOrder(db, c2, buyer({ paymentMethod: "manual_transfer" }), down);
-    await runOnce(platform, { workerId: "test", providers: down });
-    expect(await getBuyerOrder(db, r2.orderId, c2)).toMatchObject({ status: "awaiting_payment", paymentReference: null });
+    const r2 = await placeOrder(db, c2, buyer({ paymentMethod: "manual_transfer", paymentChannel: "VABCA" }));
+    await runOnce(platform, { workerId: "test", providers: { ...fakeProviders, payment: down } });
+    expect((await getBuyerOrder(db, r2.orderId, c2))!.payment).toMatchObject({ requestState: "unknown", status: "pending", instruction: null });
   });
 
   it("a checked-out cart is not reused for new items", async () => {

@@ -1,6 +1,6 @@
 "use server";
 
-import { redactOrders } from "@bukalaris/db";
+import { redactCheckoutSessions, redactOrders } from "@bukalaris/db";
 import { sellerScope } from "@/lib/context";
 import { run, text } from "../_run";
 
@@ -15,5 +15,20 @@ export async function redactAction(f: FormData) {
     back,
     (r) => `${back}&saved=${(r as { orders: number }).orders}`,
     () => redactOrders(scope, { orderIds: f.getAll("orderId").map(String), override: f.get("override") === "on", reason: text(f, "reason") }),
+  );
+}
+
+/** T-45: redact the typed contact of this buyer's abandoned checkout sessions (a buyer who never ordered has no order to select). */
+export async function redactSessionsAction(f: FormData) {
+  const scope = await sellerScope();
+  const q = text(f, "q");
+  const back = `${PAGE}?q=${encodeURIComponent(q)}`;
+  let redacted = 0;
+  await run(
+    back,
+    () => `${back}&saved=${redacted}&sessions=1`,
+    async () => {
+      redacted = (await redactCheckoutSessions(scope, q)).checkoutSessions;
+    },
   );
 }

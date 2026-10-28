@@ -2,7 +2,9 @@
   "name": "bukalaris",
   "private": true,
   "packageManager": "pnpm@11.22.0",
-  "engines": { "node": ">=20.9.0" },
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "scripts": {
     "dev": "pnpm --filter @bukalaris/web dev",
     "build": "pnpm --filter @bukalaris/web build",
@@ -17,6 +19,7 @@
     "db:backup": "scripts/db-backup.sh",
     "db:restore-rehearsal": "scripts/db-restore-rehearsal.sh",
     "map:check": "node scripts/check-system-map.mjs",
+    "verify:ledger": "node --env-file-if-exists=.env scripts/verify-ledger.ts",
     "verify": "pnpm map:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm e2e",
     "verify:docker": "scripts/verify-docker.sh"
   }

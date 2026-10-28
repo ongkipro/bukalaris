@@ -3,6 +3,8 @@ import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Executor } from "../client.ts";
 import { enqueue, MAX_ATTEMPTS, registerHandler } from "../ops/jobs/jobs.ts";
+import { REDACTED } from "../seller/commerce/privacy.ts";
+import { phoneLookupKey } from "../buyer/normalize.ts";
 import {
   order,
   orderLine,
@@ -87,22 +89,12 @@ export function openToken(sealed: string, storeId: number, provider: string, key
 
 export const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
-/** Indonesian phone → country-code digits `62…` (Meta `ph`); null when it is not a usable number. */
-export function phoneDigits62(raw: string): string | null {
-  let d = raw.replace(/[^0-9]/g, "");
-  if (d.startsWith("0")) d = `62${d.slice(1)}`;
-  else if (d.startsWith("620")) d = `62${d.slice(3)}`;
-  return /^[1-9][0-9]{7,14}$/.test(d) ? d : null;
-}
+/** Indonesian phone → country-code digits `62…` (Meta `ph`); null when it is not a usable number. The shared comparison key of `buyer/normalize.ts` (T-57), so a hash, a rate-limit key and a lookup agree on one spelling. */
+export const phoneDigits62 = (raw: string): string | null => phoneLookupKey(raw);
 /** `+62…` E.164 (TikTok `phone`, Google `phone_number`). */
 export const phoneE164 = (raw: string) => {
   const d = phoneDigits62(raw);
   return d ? `+${d}` : null;
-};
-/** Meta/TikTok rule: trim + lowercase. Null unless it looks like a real address. */
-export const normalizeEmail = (raw: string) => {
-  const e = raw.trim().toLowerCase();
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) ? e : null;
 };
 /** First/last name as lowercase ASCII letters (Meta `fn`/`ln`); a single word is the first name only. */
 export function nameParts(full: string): { fn: string | null; ln: string | null } {
@@ -356,8 +348,10 @@ export async function purchasePayload(exec: Executor, storeId: number, orderId: 
     .from(orderLine)
     .where(and(eq(orderLine.storeId, storeId), eq(orderLine.orderId, orderId)));
   const [ctx] = await exec.select().from(orderSignalContext).where(and(eq(orderSignalContext.storeId, storeId), eq(orderSignalContext.orderId, orderId)));
-  const ph62 = phoneDigits62(o.buyerPhone);
-  const { fn, ln } = nameParts(o.buyerName);
+  // T-47: an order redacted with an override keeps the fixed placeholder in its contact snapshot. A hash of it (`sha256("dihapus")`)
+  // would derive from no buyer at all and would match every redacted order, so a placeholder value is never hashed.
+  const ph62 = o.buyerPhone === REDACTED ? null : phoneDigits62(o.buyerPhone);
+  const { fn, ln } = o.buyerName === REDACTED ? { fn: null, ln: null } : nameParts(o.buyerName);
   const user: SignalUser = compact({
     ph62: ph62 ? sha256(ph62) : undefined,
     phE164: ph62 ? sha256(`+${ph62}`) : undefined,

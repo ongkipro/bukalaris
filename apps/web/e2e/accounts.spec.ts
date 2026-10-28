@@ -131,7 +131,7 @@ async function startAdminSignIn(page: Page, email: string) {
   throw new Error("sign-in kept being rate limited");
 }
 
-test("operator must enrol TOTP before Super Admin opens, then signs in with a code", async ({ page }, info) => {
+test("operator must enrol TOTP before the Owner console opens, then signs in with a code", async ({ page }, info) => {
   const email = "admin@bukalaris.local";
   const outcome = await startAdminSignIn(page, email);
   if (outcome === "enrol") {
@@ -151,8 +151,8 @@ test("operator must enrol TOTP before Super Admin opens, then signs in with a co
     await expect(page.getByRole("list", { name: "Kode cadangan" }).getByRole("listitem")).toHaveCount(10);
     saveTotpSecret(email, secret);
     await evidence(page, info, "52-mfa-backup-codes");
-    await page.getByRole("link", { name: "Lanjut ke Super Admin" }).click();
-    await expect(page.getByRole("heading", { name: "Toko" })).toBeVisible();
+    await page.getByRole("link", { name: "Lanjut ke Owner console" }).click();
+    await expect(page.getByRole("heading", { name: "Ringkasan" })).toBeVisible();
 
     // From now on sign-in needs the code.
     await page.getByRole("button", { name: "Keluar" }).click();
@@ -165,7 +165,9 @@ test("operator must enrol TOTP before Super Admin opens, then signs in with a co
     await submitTotp(page, secret!);
     await page.waitForURL((u) => u.pathname === "/admin");
   }
-  await expect(page.getByRole("heading", { name: "Toko" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Ringkasan" })).toBeVisible();
+  await page.goto("/admin/stores");
+  await expect(page.getByRole("heading", { name: "Toko", level: 1 })).toBeVisible();
   await expect(page.getByText("/toko-a")).toBeVisible();
 
   // A wrong code is rejected without a session.

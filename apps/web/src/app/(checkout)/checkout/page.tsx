@@ -8,10 +8,12 @@ import { SignalEvent } from "@/components/pixels/runtime";
 import { rupiah } from "@/lib/format";
 import { signalsFor } from "@/lib/signals";
 import { cartCookie } from "@/lib/storefront";
-import { checkoutShippingOptions, checkoutSummary, db, DomainError, searchDestinationAreas, storefrontScope, type Area, type ShippingOption } from "@bukalaris/db";
+import { checkoutPaymentChannels, checkoutShippingOptions, checkoutSummary, db, DomainError, feeLabel, searchDestinationAreas, storefrontScope, type Area, type PaymentChannel, type ShippingOption } from "@bukalaris/db";
 import { cookies } from "next/headers";
 import { randomUUID } from "node:crypto";
 import { submitCheckout } from "./actions";
+import { CaptureProgress } from "./capture-progress";
+import { VoucherField } from "./voucher-field";
 
 const optionClass =
   "flex cursor-pointer items-center gap-3 rounded-lg border p-3 has-checked:border-foreground has-checked:bg-muted/40 has-focus-visible:ring-3 has-focus-visible:ring-ring/50";
@@ -56,6 +58,16 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
     } catch (err) {
       if (!(err instanceof DomainError)) throw err;
       quoteError = err.message;
+    }
+  }
+  let channels: PaymentChannel[] = [];
+  let channelError: string | undefined;
+  if (area && summary.canShip) {
+    try {
+      channels = await checkoutPaymentChannels();
+    } catch (err) {
+      if (!(err instanceof DomainError)) throw err;
+      channelError = err.message;
     }
   }
   const codOffered = options.some((o) => o.cod !== null);
@@ -144,6 +156,7 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
               <input type="hidden" name="q" value={q} />
               <input type="hidden" name="destinationAreaId" value={area.id} />
               <input type="hidden" name="destinationAreaLabel" value={area.label} />
+              <CaptureProgress store={scope.storeSlug} />
               <fieldset className="grid gap-2">
                 <legend className="mb-2 font-medium">2. Kurir</legend>
                 {quoteError && <p role="alert" className="text-sm text-destructive">{quoteError}</p>}
@@ -185,6 +198,9 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
                   <Textarea id="shippingAddress" name="shippingAddress" autoComplete="street-address" required minLength={10} maxLength={500} rows={3} aria-describedby="address-help" />
                   <p id="address-help" className="text-xs text-muted-foreground">Nama jalan, nomor rumah, RT/RW dan patokan di {area.label.split(",")[0]}.</p>
                 </div>
+                <p id="capture-notice" data-testid="capture-notice" role="note" className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
+                  Nama, nomor HP, email, dan alamat yang Anda ketik di sini disimpan sementara (paling lama 30 hari) agar {summary.store.name} dapat menghubungi Anda jika pesanan belum selesai. Data ini tidak dibagikan ke platform iklan.
+                </p>
               </fieldset>
               <fieldset className="grid gap-2">
                 <legend className="mb-2 font-medium">4. Pembayaran</legend>
@@ -198,13 +214,35 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
                   </label>
                 )}
                 <label className={optionClass}>
-                  <input type="radio" name="paymentMethod" value="manual_transfer" defaultChecked={!codOffered} required />
-                  <span>Transfer bank (simulasi, tanpa transaksi nyata)</span>
+                  <input type="radio" name="paymentMethod" value="manual_transfer" defaultChecked={!codOffered && channels.length > 0} disabled={channels.length === 0} required />
+                  <span>Transfer bank / e-wallet lewat Bukalaris Bayar (simulasi, tanpa transaksi nyata)</span>
                 </label>
+                {channels.length > 0 && (
+                  <fieldset className="ml-6 grid gap-2" aria-label="Metode pembayaran online">
+                    <legend className="mb-1 text-sm text-muted-foreground">Pilih metode jika membayar online</legend>
+                    {channels.map((c, i) => (
+                      <label key={c.code} className={optionClass}>
+                        <input type="radio" name="paymentChannel" value={c.code} defaultChecked={i === 0} />
+                        <span className="min-w-0 flex-1">
+                          {c.name}
+                          <span className="block text-xs text-muted-foreground">{feeLabel(c.code)}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </fieldset>
+                )}
+                {channels.length === 0 && <p role="note" className="text-xs text-muted-foreground">{channelError ?? "Pembayaran online belum tersedia untuk toko ini."}</p>}
                 {!codOffered && options.length > 0 && <p className="text-xs text-muted-foreground">COD tidak tersedia untuk area ini.</p>}
               </fieldset>
+              <VoucherField />
+              <fieldset className="grid gap-2">
+                <legend className="mb-2 font-medium">6. Kode afiliasi</legend>
+                <Label htmlFor="affiliateCode">Kode afiliasi (opsional)</Label>
+                <Input id="affiliateCode" name="affiliateCode" autoComplete="off" autoCapitalize="characters" maxLength={64} aria-describedby="affiliate-help" />
+                <p id="affiliate-help" className="text-xs text-muted-foreground">Kode yang tidak dikenal atau sudah tidak berlaku tidak menghalangi pesanan.</p>
+              </fieldset>
               <p className="text-sm text-muted-foreground">Harga, stok dan ongkir dicek ulang oleh server saat pesanan dibuat.</p>
-              <Button type="submit" size="lg" className="h-11 text-base sm:justify-self-start sm:px-8" disabled={options.length === 0}>
+              <Button type="submit" size="lg" className="h-11 text-base sm:justify-self-start sm:px-8" disabled={options.length === 0 || (!codOffered && channels.length === 0)}>
                 Buat pesanan
               </Button>
             </form>

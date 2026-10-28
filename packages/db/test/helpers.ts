@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeEach } from "vitest";
+import { afterAll, beforeEach, vi } from "vitest";
 import { createDb, platformDb } from "../src/client.ts";
 import { addVariant, createProduct } from "../src/seller/commerce/catalog.ts";
 import { localRoleUrl } from "../src/local-roles.ts";
@@ -8,6 +8,9 @@ import { createStore } from "../src/platform/platform.ts";
 import { platformOperator, user } from "../src/schema.ts";
 import { operatorScope, sellerContext, storefrontScope, type SellerScope } from "../src/platform/scoped.ts";
 import { setPickupArea } from "../src/shipping/shipping.ts";
+import { grantAsSystem } from "../src/ops/capabilities-grants.ts";
+import { AFFILIATE_ATTRIBUTION_WINDOW_DAYS_DEFAULT, AFFILIATE_HOLD_DAYS_DEFAULT, AFFILIATE_MAX_RATE_BPS_DEFAULT, AFFILIATE_MIN_RATE_BPS_DEFAULT } from "../src/affiliate/settings.ts";
+import type { PlatformCapability } from "../src/ops/schema-ops.ts";
 
 try {
   process.loadEnvFile(fileURLToPath(new URL("../../../.env", import.meta.url)));
@@ -28,8 +31,16 @@ export const admin = createDb(adminUrl);
 
 beforeEach(async () => {
   await admin.execute(
-    `truncate "user", store, membership, platform_operator, product, variant, cart, cart_line, "order", order_line, audit_log, session, account, verification, rate_limit restart identity cascade`,
+    `truncate "user", store, membership, platform_operator, product, variant, cart, cart_line, "order", order_line, audit_log, session, account, verification, rate_limit, buyer, reconciliation_batch, transfer_evidence_artifact, transfer_evidence_registry, payout, payout_destination, store_step_up_proof restart identity cascade`,
   );
+  // `payout_control` is a singleton that must keep its row: reset it instead of truncating (a test that froze payouts or changed the hold never leaks).
+  await admin.execute(`update payout_control set frozen = false, reason = 'initial', changed_by = 'system:migration', destination_hold_hours = 72`);
+  // T-48: policy is a four-eyes singleton (its guard refuses a direct write), the partner budget and dispatch leases are process-wide counters.
+  await admin.execute(`alter table shipping_control disable trigger shipping_policy_guard; update shipping_control set prefer_partner = false, discount_idr = 0, discount_bps = 0, revision = 0, approval_request_id = null, updated_by = null; alter table shipping_control enable trigger shipping_policy_guard; truncate shipping_margin_rule, cashback_rule, shipping_partner_budget, shipping_dispatch_lease restart identity`);
+  // T-52: the programme limits are a singleton row that tests change; every test starts from the named defaults (the truncate above clears every affiliate row through the foreign keys).
+  await admin.execute(`update affiliate_policy set min_rate_bps = ${AFFILIATE_MIN_RATE_BPS_DEFAULT}, max_rate_bps = ${AFFILIATE_MAX_RATE_BPS_DEFAULT}, attribution_window_days = ${AFFILIATE_ATTRIBUTION_WINDOW_DAYS_DEFAULT}, hold_days = ${AFFILIATE_HOLD_DAYS_DEFAULT}`);
+  // The fake courier fixture (the COD-capable JNE) is data that T-48 tests edit: every test starts from the seeded values.
+  await admin.execute(`update courier_service_policy set cod_allowed = true, return_free = true, return_free_evidence_ref = 'fixture:fake-adapter', status = 'active', updated_by = 'fixture:local-seed' where courier_code = 'JNE'; delete from courier_service_policy where courier_code not in ('JNE', 'SPX')`);
 });
 afterAll(async () => {
   await Promise.all([db.$client.end(), platform.$client.end(), admin.$client.end()]);
@@ -41,9 +52,13 @@ export async function makeUser(name: string) {
   return id;
 }
 
-export async function makeOperator() {
+/** Capabilities the plain test operator holds: the powers every operator had before T-60 (`logs.read` was always a separate grant). */
+export const DEFAULT_OPERATOR_CAPABILITIES: readonly PlatformCapability[] = ["tenants.read", "tenants.manage", "shipping.manage", "audit.read"];
+
+export async function makeOperator(capabilities: readonly PlatformCapability[] = DEFAULT_OPERATOR_CAPABILITIES) {
   const id = await makeUser("operator");
   await platform.insert(platformOperator).values({ userId: id });
+  await grantAsSystem(platform, { userId: id, capabilities, source: "system_bootstrap", reason: "test fixture" });
   return (await operatorScope(platform, id))!;
 }
 
@@ -83,7 +98,14 @@ export const buyer = (over: Record<string, unknown> = {}) => ({
   ...DESTINATION,
   courier: "JNE",
   paymentMethod: "cod",
+  paymentChannel: "VABCA", // T-49: prepaid orders name a channel of the provider's list; COD ignores it
   ...over,
 });
 
 export { addVariant };
+
+/** The Mengantar entry gate is closed in every test by default (vitest.config.ts sets nothing); a test that drives a STUBBED provider client opens it for itself. Undone after each test (`unstubEnvs`). */
+export function openMengantarGate() {
+  vi.stubEnv("MENGANTAR_PARTNER_SECRET_ROTATED_AT", "2026-01-01T00:00:00Z");
+  vi.stubEnv("MENGANTAR_PARTNER_OLD_SECRET_REVOKED", "1");
+}

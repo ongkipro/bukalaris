@@ -138,8 +138,8 @@ describe("COD confirmation and risk (T-35, PR-19)", () => {
       ["awaiting_confirmation", "on_hold", "Nomor belum bisa dihubungi"],
       ["on_hold", "placed", "Pesanan COD dikonfirmasi oleh penjual"],
     ]);
-    // The database refuses a confirmation state on a transfer order.
-    await expect(platform.update(order).set({ status: "awaiting_confirmation" }).where(eq(order.id, transfer))).rejects.toMatchObject({ cause: { constraint_name: "order_cod_state_chk" } });
+    // The database refuses a confirmation state on a transfer order: the CHECK (order_cod_state_chk) and, first, the legal-move guard (T-37) both raise check_violation.
+    await expect(platform.update(order).set({ status: "awaiting_confirmation" }).where(eq(order.id, transfer))).rejects.toMatchObject({ cause: { code: "23514" } });
   });
 
   it("reject cancels and restocks exactly once, also when it races a confirm; staff may do it, another store may not", async () => {

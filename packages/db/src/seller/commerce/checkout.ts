@@ -1,14 +1,26 @@
 import { createHash } from "node:crypto";
-import { and, asc, count, eq, gte, lt, sql } from "drizzle-orm";
+import { and, asc, count, eq, gte, lt, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { platformDb, type Executor } from "../../client.ts";
-import { enqueue, PAYMENT_INSTRUCTION } from "../../ops/jobs/jobs.ts";
+import type { Executor } from "../../client.ts";
+import "../../payments/jobs.ts"; // registers the payment.* handlers, reconcilers and schedules (T-49)
 import { MengantarError } from "../../shipping/mengantar/client.ts";
 import { enqueueOrderNotifications } from "../../ops/jobs/notify.ts";
-import { type Providers, type ShippingAdapter } from "../../payments/providers.ts";
-import { normalizePhone } from "./orders.ts";
+import { type PaymentAdapter, type Providers, type ShippingAdapter } from "../../payments/providers.ts";
+import { createOrderPaymentAttempt } from "../../payments/attempts.ts";
+import { isPricedChannel, paymentFee, type PaymentChannel } from "../../payments/contract.ts";
+import { orderPaymentView } from "../../payments/view.ts";
+import { buyerFingerprint } from "../../buyer/fingerprint.ts";
+import { enqueueBuyerResolve } from "../../buyer/jobs.ts"; // registers the buyer.resolve handler and policy (T-57)
+import { phoneLookupKey } from "../../buyer/normalize.ts";
+import { checkoutPromotions, recordPromotionRedemptions, VOUCHER_REDEEM_LIMITS } from "../../promotions/checkout.ts";
+import { writeOrderFinancials } from "../../ledger/ledger.ts";
+import { CLICK_ID_RE } from "../../affiliate/code.ts";
+import { planAffiliateCommission, recordAffiliateAttribution, usableTypedCode } from "../../affiliate/referral.ts";
+import { CLICK_COOKIE_MAX_IDS } from "../../affiliate/settings.ts";
 import { recordOrderSignals, type RequestSignalContext } from "../../storefront/signals.ts";
-import { cart, cartLine, order, orderLine, product, rateLimit, store, storePickupArea, variant } from "../../schema.ts";
+import { cart, cartLine, checkoutSession, order, orderLine, product, rateLimit, store, storePickupArea, variant } from "../../schema.ts";
+import { resolveCartStore } from "../../platform/resolvers.ts";
+import { hit, type LimitRule } from "../../platform/rate-limit.ts";
 import { DomainError, storefrontScope, type StorefrontScope } from "../../platform/scoped.ts";
 import { defaultProviders, defaultShippingAdapter, shippingOptions, type CartForShipping } from "../../shipping/shipping.ts";
 import { withStore } from "../../platform/tenant.ts";
@@ -33,6 +45,11 @@ export const checkoutInput = z.strictObject({
   destinationAreaLabel: z.string().trim().min(3, "Pilih area tujuan dari hasil pencarian.").max(200),
   courier: z.string().min(1, "Pilih kurir.").max(40),
   paymentMethod: z.enum(["cod", "manual_transfer"]),
+  // Prepaid orders pay through one channel of the provider's own list; COD has none. Validated against that list in `placeOrder`.
+  paymentChannel: z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), z.string().regex(/^[A-Z0-9_-]{1,40}$/, "Pilih metode pembayaran.").optional()),
+  voucherCode: z.string().trim().max(64).optional(),
+  // T-52: an affiliate code typed by the buyer. A selector only: unknown, expired, blocked or malformed codes never fail the order (ADR-0009 section 4).
+  affiliateCode: z.string().trim().max(64).optional(),
 });
 export type CheckoutInput = z.input<typeof checkoutInput>;
 
@@ -45,7 +62,7 @@ class Replay extends Error {}
 // per-cart and per-phone keys carry the protection — a shared "unknown" bucket
 // would throttle every buyer at once.
 
-export type LimitRule = { limit: number; windowSec: number };
+export { hit, type LimitRule };
 type Hit = { key: string; rule: LimitRule };
 export const LIMITS = {
   /** Order submissions (any outcome after input validation). */
@@ -59,17 +76,6 @@ export const LIMITS = {
 /** Distinct variants per cart; quantity per line is capped at 99 by `cart_line_qty_chk`. */
 export const CART_MAX_LINES = 30;
 
-/** Count one hit on `key` in its current window; returns the count and seconds until the window ends. */
-export async function hit(exec: Executor, key: string, rule: LimitRule): Promise<{ count: number; retryAfterSec: number }> {
-  const rows = (await exec.execute(sql`
-    insert into ${rateLimit} (key, window_start, count)
-    values (${key}, to_timestamp(floor(extract(epoch from now()) / ${rule.windowSec}) * ${rule.windowSec}), 1)
-    on conflict (key, window_start) do update set count = ${rateLimit}.count + 1
-    returning count, ceil(extract(epoch from (window_start + ${rule.windowSec} * interval '1 second' - now())))::int as retry_after_sec
-  `)) as unknown as { count: number; retry_after_sec: number }[];
-  return { count: Number(rows[0]!.count), retryAfterSec: Math.max(1, Number(rows[0]!.retry_after_sec)) };
-}
-
 /** Count every key, then refuse with one retryable Indonesian message if any exceeded its limit. */
 export async function enforceLimits(exec: Executor, hits: Hit[]): Promise<void> {
   const results = await Promise.all(hits.map((h) => hit(exec, h.key, h.rule)));
@@ -79,7 +85,12 @@ export async function enforceLimits(exec: Executor, hits: Hit[]): Promise<void> 
   throw new DomainError("rate_limited", `Terlalu banyak percobaan. Coba lagi dalam ${wait} detik.`);
 }
 
-export type ClientContext = { clientIp?: string | undefined; signal?: RequestSignalContext | undefined };
+export type ClientContext = {
+  clientIp?: string | undefined;
+  signal?: RequestSignalContext | undefined;
+  /** T-52: the click ids of the `__Host-bl_click` continuity cookie (selectors; the database decides whether any is eligible for this store). */
+  referral?: { clickIds?: readonly string[] | undefined } | undefined;
+};
 const ipHit = (scope: string, ctx: ClientContext, rule: LimitRule): Hit[] => (ctx.clientIp ? [{ key: `${scope}:ip:${ctx.clientIp}`, rule }] : []);
 
 /** Rate limit for storefront cart add/update (per client IP when known, per existing cart). */
@@ -101,13 +112,20 @@ export async function assertCartHasRoom(exec: Executor, storeId: number, cartId:
 /**
  * Maintenance (`node src/cleanup.ts`): delete open carts created more than `idleHours`
  * ago (lines and handoffs cascade; a cart with an order is never touched) and counters
- * older than a day. Carts carry no activity timestamp yet, so "idle" means "old" (ceiling).
+ * older than a day. Carts carry no activity timestamp yet, so "idle" means "old" (ceiling). A cart that a checkout session (T-45) still references stays until
+ * the 30-day session purge removes the session (the resume link and the abandonment counts depend on it).
  */
 export async function cleanupIdleCarts(exec: Executor, opts: { idleHours: number }): Promise<{ carts: number; counters: number }> {
   if (!Number.isFinite(opts.idleHours) || opts.idleHours < 1) throw new DomainError("idle_hours", "idleHours must be >= 1");
   const carts = await exec
     .delete(cart)
-    .where(and(lt(cart.createdAt, sql`now() - ${opts.idleHours} * interval '1 hour'`), sql`not exists (select 1 from ${order} where ${order.cartId} = ${cart.id})`))
+    .where(
+      and(
+        lt(cart.createdAt, sql`now() - ${opts.idleHours} * interval '1 hour'`),
+        sql`not exists (select 1 from ${order} where ${order.cartId} = ${cart.id})`,
+        sql`not exists (select 1 from ${checkoutSession} where ${checkoutSession.cartId} = ${cart.id})`,
+      ),
+    )
     .returning({ id: cart.id });
   const counters = await exec
     .delete(rateLimit)
@@ -129,14 +147,35 @@ async function providerGuard<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Cross-store resolver (ADR-0005 §4): the store a cart belongs to, checked out or not, read
- * through the platform pool. The only thing it returns is the store id; the caller then
- * continues on its own executor inside that store's context.
+ * Channels the buyer may pay with: exactly the provider's own `list_payment` answer (absence = disabled, never probed
+ * through `create_payment`), narrowed to those the platform fee schedule can price; COD is a separate payment method.
  */
-export async function cartStore(cartId: string | undefined): Promise<number | null> {
+export async function checkoutPaymentChannels(adapter: PaymentAdapter = defaultProviders().payment): Promise<PaymentChannel[]> {
+  let channels: PaymentChannel[];
+  try {
+    channels = await adapter.listChannels();
+  } catch (err) {
+    const e = new DomainError("provider", "Metode pembayaran sedang tidak tersedia. Coba lagi sebentar.");
+    e.cause = err;
+    throw e;
+  }
+  return channels.filter((c) => isPricedChannel(c.code));
+}
+
+async function pickPaymentChannel(adapter: PaymentAdapter, code: string | undefined): Promise<PaymentChannel> {
+  const channel = (await checkoutPaymentChannels(adapter)).find((c) => c.code === code);
+  if (!channel) throw new DomainError("payment_channel", "Metode pembayaran tidak tersedia. Pilih metode lain.");
+  return channel;
+}
+
+/**
+ * Cross-store resolver (ADR-0005 §4): the store a cart belongs to, checked out or not, through the
+ * `resolve_cart_store` function on the caller's own pool. The only thing it returns is the store id; the
+ * caller then continues inside that store's context.
+ */
+export async function cartStore(exec: Executor, cartId: string | undefined): Promise<number | null> {
   if (!cartId || !z.uuid().safeParse(cartId).success) return null;
-  const [row] = await platformDb().select({ storeId: cart.storeId }).from(cart).where(eq(cart.id, cartId));
-  return row?.storeId ?? null;
+  return resolveCartStore(exec, cartId);
 }
 
 /** Cart id → store id, only for a cart that has not been checked out yet. In a store context it also answers "is this cart ours". */
@@ -154,6 +193,7 @@ const cartLines = (exec: Executor, storeId: number, cartId: string) =>
   exec
     .select({
       variantId: variant.id,
+      productId: product.id,
       variantCatalogId: variant.catalogId, // snapshot on order_line (T-14)
       productTitle: product.title,
       productStatus: product.status,
@@ -172,7 +212,7 @@ const sumOf = (lines: { price: number; quantity: number }[]) => lines.reduce((su
 
 /** What the hosted checkout page shows: store, current lines, subtotal and whether the store can ship at all. */
 export async function checkoutSummary(exec: Executor, cartId: string | undefined) {
-  const storeId = await cartStore(cartId);
+  const storeId = await cartStore(exec, cartId);
   if (!storeId) return null;
   return withStore(exec, storeId, async (tx) => {
     if (!(await openCartStore(tx, cartId))) return null;
@@ -208,7 +248,7 @@ export async function placeOrder(
   ctx: ClientContext = {},
 ): Promise<{ orderId: number; replayed: boolean }> {
   const input = checkoutInput.parse(raw);
-  const storeId = await cartStore(cartId);
+  const storeId = await cartStore(exec, cartId);
   if (!cartId || !storeId) throw new DomainError("no_cart", "Keranjang tidak ditemukan.");
   const { idempotencyKey, ...fields } = input;
   const requestHash = createHash("sha256").update(JSON.stringify({ cartId, ...fields })).digest("hex");
@@ -230,8 +270,13 @@ export async function placeOrder(
   await enforceLimits(exec, [
     ...ipHit("order", ctx, LIMITS.orderIp),
     { key: `order:cart:${cartId}`, rule: LIMITS.orderCart },
-    { key: `order:phone:${normalizePhone(input.buyerPhone)}`, rule: LIMITS.orderPhone },
+    // Keyed fingerprint of the comparison key: the counter row never holds the phone number, and every spelling of one number shares a bucket (T-57).
+    { key: `order:phone:${buyerFingerprint("rate.order_phone", "phone", phoneLookupKey(input.buyerPhone) ?? input.buyerPhone.replace(/^\+/, ""))}`, rule: LIMITS.orderPhone },
   ]);
+  if (input.voucherCode) await limitVoucherRedemption(exec, storeId, input.buyerPhone, ctx);
+  // T-52 RL-CODE: a typed affiliate code is validated and its invalid guesses are counted outside the order transaction; the transaction rechecks everything itself.
+  const typedCode = await usableTypedCode(exec, storeId, cartId, input.affiliateCode);
+  const clickIds = (ctx.referral?.clickIds ?? []).filter((id) => CLICK_ID_RE.test(id)).slice(0, CLICK_COOKIE_MAX_IDS);
 
   // External quote before the write transaction (no remote I/O while holding locks).
   const { preview, late, slug } = await withStore(exec, storeId, async (tx) => {
@@ -250,6 +295,7 @@ export async function placeOrder(
   if (!option) throw new DomainError("courier", "Pilihan kurir tidak tersedia untuk area tujuan ini.");
   const fee = input.paymentMethod === "cod" ? option.cod : option.prepaid;
   if (!fee) throw new DomainError("courier_cod", `${option.label} tidak melayani COD ke area tujuan ini. Pilih kurir lain atau bayar transfer.`);
+  const channel = input.paymentMethod === "manual_transfer" ? await pickPaymentChannel(providers.payment, input.paymentChannel) : null;
 
   let orderId: number;
   try {
@@ -264,6 +310,8 @@ export async function placeOrder(
       if (gone) throw new DomainError("unavailable", `${gone.productTitle} tidak lagi dijual.`);
 
       const subtotal = sumOf(lines);
+      const promotion = await checkoutPromotions(tx, storeId, lines, fee, input.voucherCode, input.buyerPhone, true);
+      const finance = promotion.finance;
       const [o] = await tx
         .insert(order)
         .values({
@@ -279,6 +327,8 @@ export async function placeOrder(
           buyerEmail: input.buyerEmail ?? null,
           shippingAddress: input.shippingAddress,
           courierCode: option.courier,
+          shippingAccountId: quote.shippingAccountId,
+          shippingAccountKind: quote.shippingAccountKind,
           courier: option.label,
           originAreaId: quote.originAreaId,
           destinationAreaId: quote.destinationAreaId,
@@ -287,8 +337,10 @@ export async function placeOrder(
           shippingProviderCost: fee.providerCost,
           shippingMargin: fee.margin,
           subtotal,
-          shippingFee: fee.buyerFee,
-          total: subtotal + fee.buyerFee,
+          shippingFee: finance.shippingCharged,
+          goodsDiscount: finance.goodsDiscount,
+          shippingDiscount: finance.shippingDiscount,
+          total: finance.payable,
         })
         .onConflictDoNothing()
         .returning({ id: order.id });
@@ -315,21 +367,51 @@ export async function placeOrder(
           lineTotal: l.price * l.quantity,
         })),
       );
+      // T-46 / BILL-4: the one allocation engine freezes goods and shipping discounts separately, including each line's exact share.
+      // T-52 / BILL-8: attribute the order (typed code, else the latest eligible click of this store) and deduct the single-floor commission from the seller's sale. The
+      // buyer's payable and every allocation line are untouched; a bad or ineligible selector earns nothing and never fails the order.
+      const referral = { code: typedCode, clickIds };
+      const plan = await planAffiliateCommission(tx, { storeId, orderId: o.id, productIds: lines.map((l) => l.productId), finance, referral });
+      await writeOrderFinancials(tx, {
+        storeId,
+        orderId: o.id,
+        finance: plan?.finance ?? finance,
+        platformShippingDiscountIdr: fee.platformDiscount,
+        variantIds: lines.map((l) => l.variantId),
+        expectedGatewayFeeIdr: channel ? paymentFee(channel.code, subtotal - finance.goodsDiscount, finance.payable) : 0,
+        affiliate: plan ? { affiliateId: plan.affiliateId, ratesBps: plan.ratesBps } : undefined,
+      });
+      if (plan) await recordAffiliateAttribution(tx, { storeId, orderId: o.id, referral });
+      await recordPromotionRedemptions(tx, storeId, o.id, promotion);
       await tx.delete(cartLine).where(and(eq(cartLine.storeId, storeId), eq(cartLine.cartId, cartId)));
-      // Post-commit side effect as durable intent in the same transaction (SEC-18): the
-      // worker asks the provider for a payment instruction; until then the order is an
-      // explicit pending state with no reference (D-5).
-      if (input.paymentMethod === "manual_transfer") {
-        await enqueue(tx, { kind: PAYMENT_INSTRUCTION, storeId, key: `order:${o.id}`, payload: { orderId: o.id } });
+      // T-45: an order from this cart completes its checkout session. `recovered_at` is stamped by the guard and `abandoned_at` is never cleared, so a
+      // session that had been swept is a rescue and a straight-through one is not. The buyer's contact now lives on the order (T-43), so the session drops its copy.
+      await tx
+        .update(checkoutSession)
+        .set({ status: "recovered", buyerName: null, buyerPhone: null, buyerEmail: null, shippingAddress: null })
+        .where(and(eq(checkoutSession.storeId, storeId), eq(checkoutSession.cartId, cartId), ne(checkoutSession.status, "recovered")));
+      // Prepaid: the payment attempt (stable reff_id, immutable amounts) and the instruction job commit with the order, as
+      // durable intent before any provider call (SEC-18, BILL-2); until the worker stores the instruction the order shows
+      // an explicit pending state (D-5). The provider's own list decided the channel; the fee schedule prices it.
+      if (channel) {
+        const total = finance.payable;
+        await createOrderPaymentAttempt(
+          { exec: tx, storeId },
+          { orderId: o.id, requestKey: idempotencyKey, channelCode: channel.code, customer: { id: String(o.id), name: input.buyerName, phone: input.buyerPhone, email: input.buyerEmail ?? null }, amountIdr: total, adminFeeIdr: paymentFee(channel.code, subtotal - finance.goodsDiscount, total) },
+        );
       }
       await enqueueOrderNotifications(tx, storeId, o.id, "created"); // T-36: buyer (if e-mail) + owners, after commit
+      await enqueueBuyerResolve(tx, storeId, o.id); // T-57 (JOB-10): ID-only association intent, committed with the order; the worker resolves the global buyer after commit
       // Ad signals (T-38): click context with the order; COD Purchase enqueued now, prepaid at settlement.
       await recordOrderSignals(tx, { storeId, orderId: o.id, paymentMethod: input.paymentMethod, request: ctx.signal });
       return o.id;
     });
   } catch (err) {
     const raced = err instanceof Replay || (err instanceof DomainError && err.code === "cart_changed");
-    if (!raced) throw err;
+    // Wave 4 review: a concurrent duplicate of the SAME request (one idempotency key, a double click) waits on the first one's voucher or flash counter
+    // and then finds it spent. That loser must get the existing order back, not a refusal; a real second buyer has no order of this cart/key and still gets the refusal.
+    const counterLoser = err instanceof DomainError && (err.code === "voucher_unavailable" || err.code === "flash_stock");
+    if (!raced && !counterLoser) throw err;
     // Lost a race on (store_id, idempotency_key) or cart_id, or the cart was emptied
     // by a committed duplicate: return that order if it is ours.
     const r = await withStore(exec, storeId, existing);
@@ -343,7 +425,7 @@ export async function placeOrder(
 
 /** Order outcome for the buyer who owns the checked-out cart (an order id alone grants nothing). */
 export async function getBuyerOrder(exec: Executor, orderId: number, cartId: string | undefined) {
-  const storeId = await cartStore(cartId);
+  const storeId = await cartStore(exec, cartId);
   if (!storeId) return null;
   return withStore(exec, storeId, async (tx) => {
     const [o] = await tx
@@ -354,7 +436,6 @@ export async function getBuyerOrder(exec: Executor, orderId: number, cartId: str
         storeSlug: store.slug,
         status: order.status,
         paymentMethod: order.paymentMethod,
-        paymentReference: order.paymentReference,
         courier: order.courier,
         destinationAreaLabel: order.destinationAreaLabel,
         // Buyer fields feed the hashed advanced-matching block of the confirmation page (T-38); never rendered.
@@ -362,6 +443,8 @@ export async function getBuyerOrder(exec: Executor, orderId: number, cartId: str
         buyerPhone: order.buyerPhone,
         subtotal: order.subtotal,
         shippingFee: order.shippingFee,
+        goodsDiscount: order.goodsDiscount,
+        shippingDiscount: order.shippingDiscount,
         total: order.total,
       })
       .from(order)
@@ -373,6 +456,34 @@ export async function getBuyerOrder(exec: Executor, orderId: number, cartId: str
       .from(orderLine)
       .where(and(eq(orderLine.storeId, o.storeId), eq(orderLine.orderId, o.id)))
       .orderBy(asc(orderLine.variantId));
-    return { ...o, lines };
+    return { ...o, lines, payment: await orderPaymentView(tx, o.storeId, o.id) };
   });
+}
+
+/** Voucher attempts are counted outside the order transaction, so a failed or rolled-back redemption still consumes the abuse budget. */
+async function limitVoucherRedemption(exec: Executor, storeId: number, phone: string, ctx: ClientContext) {
+  const canonical = phoneLookupKey(phone);
+  if (!canonical) throw new DomainError("voucher_phone", "Isi nomor HP yang valid sebelum memakai voucher.");
+  await enforceLimits(exec, [
+    ...ipHit(`voucher:${storeId}`, ctx, VOUCHER_REDEEM_LIMITS.ip),
+    { key: `voucher:${storeId}:phone:${buyerFingerprint("rate.voucher_phone", "phone", canonical)}`, rule: VOUCHER_REDEEM_LIMITS.phone },
+  ]);
+}
+
+const promotionPreviewInput = z.object({
+  buyerPhone: checkoutInput.shape.buyerPhone, voucherCode: z.string().trim().max(64).default(""), destinationAreaId: areaId,
+  courier: z.string().min(1).max(40), paymentMethod: z.enum(["cod", "manual_transfer"]),
+});
+/** Same rules and quote as submit, but no stock/quota reservation and no cart mutation. Submit always validates again atomically. */
+export async function checkoutPromotionPreview(exec: Executor, cartId: string | undefined, raw: unknown, ctx: ClientContext = {}) {
+  const input = promotionPreviewInput.parse(raw);
+  const summary = await checkoutSummary(exec, cartId);
+  if (!summary || summary.store.status !== "active") throw new DomainError("no_cart", "Keranjang tidak ditemukan.");
+  await limitVoucherRedemption(exec, summary.storeId, input.buyerPhone, ctx);
+  const scope = (await storefrontScope(exec, summary.store.slug))!;
+  const quote = await checkoutShippingOptions(scope, input.destinationAreaId, { lines: summary.lines, subtotal: summary.subtotal });
+  const option = quote.options.find((o) => o.courier === input.courier);
+  const fee = input.paymentMethod === "cod" ? option?.cod : option?.prepaid;
+  if (!fee) throw new DomainError("courier", "Pilih kurir yang tersedia.");
+  return withStore(exec, summary.storeId, async (tx) => (await checkoutPromotions(tx, summary.storeId, summary.lines, fee, input.voucherCode, input.buyerPhone, false)).finance);
 }

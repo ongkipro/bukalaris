@@ -15,6 +15,7 @@
     "seed:demo": "node --env-file-if-exists=../../.env src/demo/seed-demo.ts",
     "worker": "node --env-file-if-exists=../../.env src/worker.ts",
     "cleanup": "node --env-file-if-exists=../../.env src/cleanup.ts",
+    "bootstrap:console": "node --env-file-if-exists=../../.env src/bootstrap-console.ts",
     "typecheck": "tsc --noEmit -p .",
     "test": "vitest run"
   },

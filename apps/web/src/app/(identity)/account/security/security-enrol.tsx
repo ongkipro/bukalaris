@@ -61,7 +61,7 @@ export function SecurityEnrol({ email, next }: { email: string; next: string }) 
           ))}
         </ul>
         <Link href={next} className="text-sm font-medium underline-offset-4 hover:underline">
-          Lanjut ke {next === "/admin" ? "Super Admin" : "Seller Admin"}
+          Lanjut ke {next === "/admin" ? "Owner console" : "Seller Admin"}
         </Link>
       </div>
     );

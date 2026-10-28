@@ -179,6 +179,7 @@ test("staff cannot change settings; another store never sees the content", async
 test("operator creates a store for an existing owner and opens its detail", async ({ page }, info) => {
   const slug = `toko-${info.project.name}-${Date.now().toString(36)}`;
   await login(page, "admin@bukalaris.local", "/admin");
+  await page.goto("/admin/stores");
   await page.getByRole("link", { name: "Buat toko" }).click();
   await page.getByLabel("Nama toko").fill("Toko Baru");
   await page.getByLabel("Slug").fill(slug);
@@ -191,7 +192,8 @@ test("operator creates a store for an existing owner and opens its detail", asyn
   await page.getByRole("button", { name: "Buat toko" }).click();
   await expect(page.getByRole("heading", { name: "Toko Baru" })).toBeVisible();
   await expect(page.getByRole("status")).toHaveText("Tersimpan.");
-  await expect(page.getByText("owner-b@bukalaris.local").first()).toBeVisible();
+  await expect(page.getByText("o***@b***.local").first()).toBeVisible(); // T-63: the team summary is masked in the data layer
+  expect(await page.content()).not.toContain("owner-b@bukalaris.local");
   await expect(page.getByText("Toko dibuat")).toBeVisible(); // T-28: audit codes render as labels (store.create → "Toko dibuat")
   await evidence(page, info, "41-admin-store-detail");
   expect((await page.request.get(`/s/${slug}`)).status()).toBe(200);

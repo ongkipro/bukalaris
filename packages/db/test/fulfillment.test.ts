@@ -1,5 +1,5 @@
 import { and, eq, inArray, like, sql } from "drizzle-orm";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { placeOrder } from "../src/seller/commerce/checkout.ts";
 import {
   BOOKABLE,
@@ -29,11 +29,11 @@ import { runOnce } from "../src/ops/jobs/jobs.ts";
 import { firstOrder, mengantarBooking, toBookingResult, toCreateOrderCourier, toTrackingResult } from "../src/shipping/mengantar/booking.ts";
 import { MengantarClient, MengantarError } from "../src/shipping/mengantar/client.ts";
 import { ORDER_NOTIFY, signOrderLink } from "../src/ops/jobs/notify.ts";
-import { transitionOrder } from "../src/seller/commerce/orders.ts";
+import { PROVIDER_ACTOR, transitionOrder } from "../src/seller/commerce/orders.ts";
 import { job, order, orderStatusHistory, shipment } from "../src/schema.ts";
 import { setCartLine } from "../src/storefront/storefront.ts";
 import { withStore } from "../src/platform/tenant.ts";
-import { buyer, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
+import { buyer, db, makeStore, makeUser, openMengantarGate, platform, seller } from "./helpers.ts";
 
 // Shipment booking + tracking through the outbox (T-39). Every provider call goes to a
 // scripted adapter injected with `setBookingAdapter`; nothing reaches the network.
@@ -334,12 +334,12 @@ describe("tracking (read-only polls)", () => {
     expect(delivered).toMatchObject({ status: "delivered", providerStatus: "DELIVERED" });
     expect(delivered.deliveredAt).toBeInstanceOf(Date);
     expect(await orderRow(orderId)).toMatchObject({ status: "completed" });
-    expect((await history(orderId)).at(-1)).toMatchObject({ from: "shipped", to: "completed", actor: s.ownerId });
+    expect((await history(orderId)).at(-1)).toMatchObject({ from: "shipped", to: "completed", actor: PROVIDER_ACTOR });
     // Terminal: no further poll, manual refresh refused, nothing happens when a stale poll runs.
     expect((await shipmentJobs(orderId)).filter((j) => j.kind === SHIPMENT_TRACK)).toHaveLength(2);
     await expect(refreshTracking(s.owner, orderId)).rejects.toMatchObject({ code: "tracking_done" });
     expect(adapter.calls.track).toBe(2);
-    expect(shipmentTimeline(delivered).map((t) => t.text)).toEqual(["Booking diminta", "Resi terbit dari Mengantar", "Paket dibawa kurir", "Diterima oleh Budi", "Terkirim ke pembeli"]);
+    expect(shipmentTimeline(delivered).map((t) => t.text)).toEqual(["Booking diminta", "Resi terbit dari Bukalaris Kirim", "Paket dibawa kurir", "Diterima oleh Budi", "Terkirim ke pembeli"]);
   });
 
   it("RTS, cancellation and unknown statuses; manual refresh enqueues one bounded poll; transient read errors retry", async () => {
@@ -353,15 +353,15 @@ describe("tracking (read-only polls)", () => {
     await refreshTracking(s.owner, orderId);
     expect(await shipmentJobs(orderId)).toMatchObject([{ kind: SHIPMENT_BOOK }, { kind: SHIPMENT_TRACK, key: `track:${orderId}:0` }, { kind: SHIPMENT_TRACK, key: `track:${orderId}:m:1`, status: "pending" }]);
     expect(await run()).toMatchObject([{ kind: SHIPMENT_TRACK, status: "done" }]); // only the manual poll is due
-    // Unknown status: state kept, raw value stored and shown verbatim.
+    // Unknown status: state kept, the raw value stored on the row (operator evidence) but never shown to a seller or buyer (T-48 fix 4).
     expect(await row(orderId)).toMatchObject({ status: "booked", providerStatus: "WEIRD NEW STATE", manualPolls: 1 });
-    expect(providerStatusLabel("WEIRD NEW STATE")).toBe("WEIRD NEW STATE");
+    expect(providerStatusLabel("WEIRD NEW STATE")).toBe("Pembaruan terbaru dari kurir");
     expect((await shipmentJobs(orderId)).filter((j) => j.kind === SHIPMENT_TRACK)).toHaveLength(2); // manual polls do not chain
 
     await refreshTracking(s.owner, orderId);
     expect(await run()).toMatchObject([{ status: "done" }]);
     expect(await row(orderId)).toMatchObject({ status: "returned", providerStatus: "RTS" });
-    expect(await orderRow(orderId)).toMatchObject({ status: "shipped" }); // an RTS never completes the order
+    expect(await orderRow(orderId)).toMatchObject({ status: "returned" }); // RTS from in transit returns the order (stock restored once, ADR-0006 decision 4); it never completes it
 
     // Transient read error on another shipment: the job retries; the row is untouched.
     const failing = scripted({
@@ -413,6 +413,7 @@ describe("tracking (read-only polls)", () => {
 });
 
 describe("Mengantar booking adapter (pure mapping, UNVERIFIED provider shapes)", () => {
+  beforeEach(openMengantarGate); // a stubbed client: no provider is contacted
   it("builds the documented create-order payload and reads the documented response, including the unpaid case", async () => {
     const requests: { url: string; body: unknown }[] = [];
     const respond = (body: unknown) => async (url: string | URL | Request, init?: RequestInit) => {

@@ -1,12 +1,13 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { and, asc, count, eq, notExists, sql } from "drizzle-orm";
 import { canonicalSlug } from "../seller/commerce/catalog.ts";
 import { surfaceOriginsFromEnv } from "../platform/host.ts";
 import { hit, type LimitRule } from "../seller/commerce/checkout.ts";
-import { platformDb, type Executor } from "../client.ts";
+import type { Executor } from "../client.ts";
 import { coverImages } from "./content.ts";
 import { auditLog, feedToken, media, product, store, variant } from "../schema.ts";
 import { DomainError, requireCap, storefrontScope, type SellerScope, type StorefrontScope } from "../platform/scoped.ts";
+import { resolveFeedStore } from "../platform/resolvers.ts";
 import { inStore, withStore } from "../platform/tenant.ts";
 
 // Catalog feeds for Meta Commerce Manager and Google Merchant Center (T-40, PR-12, Q-7).
@@ -130,20 +131,16 @@ export async function revokeFeedToken(scope: SellerScope): Promise<void> {
 /**
  * Resolve a feed token from the URL to the active store it belongs to; null for a malformed,
  * unknown, revoked token or a suspended store. The caller answers 404 in every null case so the
- * response does not reveal which it was. The hash comparison is constant-time.
+ * response does not reveal which it was.
  */
 export async function resolveFeedToken(exec: Executor, token: string): Promise<StorefrontScope | null> {
   const prefix = token.match(TOKEN_RE)?.[1];
   if (!prefix) return null;
-  const given = Buffer.from(sha256(token));
-  // Cross-store resolver (ADR-0005 §4): prefix → candidate hashes through the platform pool.
-  const candidates = await platformDb()
-    .select({ storeId: feedToken.storeId, tokenHash: feedToken.tokenHash, status: feedToken.status })
-    .from(feedToken)
-    .where(eq(feedToken.tokenPrefix, prefix));
-  const hit = candidates.find((row) => timingSafeEqual(given, Buffer.from(row.tokenHash)));
-  if (!hit || hit.status !== "active") return null;
-  const [s] = await withStore(exec, hit.storeId, (tx) => tx.select({ slug: store.slug }).from(store).where(eq(store.id, hit.storeId)));
+  // Cross-store resolver (ADR-0005 §4): prefix + hash → store id of an active token through `resolve_feed_store`
+  // on the caller's own pool; the store is then read in its own context.
+  const storeId = await resolveFeedStore(exec, prefix, sha256(token));
+  if (!storeId) return null;
+  const [s] = await withStore(exec, storeId, (tx) => tx.select({ slug: store.slug }).from(store).where(eq(store.id, storeId)));
   return s ? storefrontScope(exec, s.slug) : null;
 }
 

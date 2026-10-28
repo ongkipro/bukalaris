@@ -1,7 +1,7 @@
 import { ORDER_STATUS_LABEL, type InvitationStatus, type LogLevel, type OrderAction, type OrderStatus } from "@bukalaris/db";
 
-/** Mirrors `JOB_STATUSES` in packages/db/src/schema-jobs.ts (not exported from the package root). */
-export type JobStatus = "pending" | "running" | "done" | "failed";
+/** Mirrors `JOB_STATUSES` in packages/db/src/ops/jobs/schema-jobs.ts (not exported from the package root). */
+export type JobStatus = "pending" | "running" | "done" | "dead" | "unknown";
 
 // Every enum the admin renders has exactly one Indonesian label and one badge tone here. Pages never
 // print a raw enum string; new enums get a row here first.
@@ -17,6 +17,7 @@ export const orderStatusTone: Record<OrderStatus, Tone> = {
   shipped: "outline",
   completed: "success",
   cancelled: "destructive",
+  returned: "destructive",
 };
 
 export const orderActionLabel: Record<OrderAction, string> = {
@@ -26,7 +27,6 @@ export const orderActionLabel: Record<OrderAction, string> = {
   pay: "Tandai sudah dibayar",
   process: "Proses pesanan",
   ship: "Kirim pesanan",
-  complete: "Tandai selesai",
   cancel: "Batalkan pesanan",
 };
 
@@ -55,8 +55,8 @@ export type ChannelState = "active" | "expired" | "revoked";
 export const channelStateLabel: Record<ChannelState, string> = { active: "Aktif", expired: "Kedaluwarsa", revoked: "Dicabut" };
 export const channelStateTone: Record<ChannelState, Tone> = { active: "success", expired: "warning", revoked: "outline" };
 
-export const jobStatusLabel: Record<JobStatus, string> = { pending: "Menunggu", running: "Berjalan", done: "Selesai", failed: "Gagal" };
-export const jobStatusTone: Record<JobStatus, Tone> = { pending: "warning", running: "default", done: "success", failed: "destructive" };
+export const jobStatusLabel: Record<JobStatus, string> = { pending: "Menunggu", running: "Berjalan", done: "Selesai", dead: "Gagal permanen", unknown: "Hasil belum diketahui" };
+export const jobStatusTone: Record<JobStatus, Tone> = { pending: "warning", running: "default", done: "success", dead: "destructive", unknown: "warning" };
 
 export const logLevelLabel: Record<LogLevel, string> = { debug: "Debug", info: "Info", warn: "Peringatan", error: "Error", fatal: "Fatal" };
 export const logLevelTone: Record<LogLevel, Tone> = { debug: "outline", info: "secondary", warn: "warning", error: "destructive", fatal: "destructive" };

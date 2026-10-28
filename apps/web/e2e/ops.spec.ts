@@ -33,7 +33,8 @@ test.describe("Log System (PR-11)", () => {
     const rid = `e2e-${info.project.name}-${Date.now().toString(36)}`;
     seedEvents(rid);
     await login(page, "admin@bukalaris.local", "/admin");
-    await page.getByRole("link", { name: "Log System" }).click();
+    await page.getByRole("link", { name: "Operasional" }).click(); // the group opens on its first item, Log System
+    await expect(page.getByRole("navigation", { name: "Owner console" }).getByRole("link", { name: "Log System" })).toHaveAttribute("aria-current", "page");
     await expect(page).toHaveURL(/\/admin\/logs$/);
     await expect(page.getByRole("heading", { name: "Log System" })).toBeVisible();
     await expect(page.getByTestId("freshness")).toContainText("Terakhir diamati");

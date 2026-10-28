@@ -3,17 +3,19 @@ import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { operatorOrDeny } from "@/lib/context";
+import { consoleGate } from "@/lib/console-gate";
+import { AccessDenied } from "../../access-denied";
 import { createStoreAction } from "../actions";
 
-export const metadata = { title: "Buat toko — Super Admin" };
+export const metadata = { title: "Buat toko" };
 
 export default async function NewStorePage({ searchParams }: PageProps<"/admin/stores/new">) {
+  const g = await consoleGate("/admin/stores/new");
+  if (!g.ok) return <AccessDenied capability={g.capability} />;
   const { error } = await searchParams;
-  await operatorOrDeny();
   return (
     <section className="grid max-w-xl gap-6">
-      <PageHeader back={{ href: "/admin", label: "Semua toko" }} title="Buat toko" description="Pemilik pertama dipilih dari akun yang sudah ada (undangan menyusul). Toko langsung aktif setelah dibuat." />
+      <PageHeader back={{ href: "/admin/stores", label: "Semua toko" }} title="Buat toko" description="Pemilik pertama dipilih dari akun yang sudah ada (undangan menyusul). Toko langsung aktif setelah dibuat." />
       <Notice error={error} />
       <form action={createStoreAction} className="grid gap-4">
         <div className="grid gap-2">

@@ -4,6 +4,7 @@ import { placeOrder } from "../src/seller/commerce/checkout.ts";
 import { MAX_ATTEMPTS, runOnce } from "../src/ops/jobs/jobs.ts";
 import { transitionOrder } from "../src/seller/commerce/orders.ts";
 import { job, membership, orderSignalContext, product, signalEvent, variant } from "../src/schema.ts";
+import { normalizeEmail } from "../src/buyer/normalize.ts";
 import {
   browserSignals,
   collectFunnelEvent,
@@ -13,7 +14,6 @@ import {
   metaOutcome,
   metaRequest,
   nameParts,
-  normalizeEmail,
   openToken,
   parseClickCookie,
   phoneDigits62,

@@ -1,32 +1,43 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { platformDb, type Executor } from "../client.ts";
+import type { Executor } from "../client.ts";
 import { account, auditLog, mailOutbox, membership, platformOperator, session, store, storeInvitation, user } from "../schema.ts";
 import { DomainError, requireCap, type Role, type SellerScope } from "./scoped.ts";
+import { resolveInvitationStore } from "./resolvers.ts";
 import { inStore, withStore } from "./tenant.ts";
+import { requireMailConfiguration, requireLocalMailMode } from "./mail-transport.ts";
 
-// M2 `accounts` track: dev mailer, store invitations, session lifecycle helpers (PR-15, IAM-9).
-
-// ---------------------------------------------------------------------------
-// Mailer. The only implementation in M2 stores mail in `mail_outbox` (no network);
-// a real provider implements the same interface later (see docs/tracks/accounts.md).
-// ---------------------------------------------------------------------------
-export type Mail = { to: string; subject: string; text: string; html?: string };
+// Account invitations and the durable Mailer boundary (PR-15, IAM-9, T-73).
+// Sending commits intent only. The platform mail.deliver worker owns external I/O.
+export type Mail = {
+  to: string;
+  subject: string;
+  text: string;
+  html?: string;
+  oneTime?: { purpose: "invitation" | "recovery" | "buyer_proof" | "support_recovery"; expiresAt: Date };
+  order?: { id: number; recipient: "buyer" | "seller" };
+};
 export interface Mailer {
   send(mail: Mail): Promise<void>;
 }
 
 export function dbMailer(exec: Executor): Mailer {
+  requireMailConfiguration();
   return {
-    async send(mail) {
-      await exec.insert(mailOutbox).values({ toEmail: mail.to, subject: mail.subject, textBody: mail.text, htmlBody: mail.html ?? null });
+    async send(rawMail) {
+      // Header safety before a real transport exists (wave 2 review): the subject can carry seller-controlled text, so line breaks
+      // are folded into spaces; the recipient must be one plain address (no CR/LF, no list, no display name).
+      if (!z.email().safeParse(rawMail.to).success || /[\r\n,;<>]/.test(rawMail.to)) throw new Error("mail recipient is not a single plain address");
+      const mail = { ...rawMail, subject: rawMail.subject.replace(/[\r\n]+/g, " ").trim() };
+      await exec.execute(sql`select public.mail_enqueue(${mail.to}, ${mail.subject}, ${mail.text}, ${mail.html ?? null}, ${mail.oneTime?.purpose ?? null}, ${mail.oneTime?.expiresAt.toISOString() ?? null}::timestamptz, ${mail.order?.id ?? null}::bigint, ${mail.order?.recipient ?? null})`);
     },
   };
 }
 
-/** Dev-only viewer data (the route guards NODE_ENV); newest first. */
+/** Local-only viewer; exec must be the platform pool. No app role can read bodies. */
 export async function listOutbox(exec: Executor, limit = 50) {
+  requireLocalMailMode();
   return exec.select().from(mailOutbox).orderBy(desc(mailOutbox.id)).limit(limit);
 }
 
@@ -83,6 +94,7 @@ export async function createInvitation(
   await mailer.send({
     to: input.email,
     subject: `Undangan bergabung ke ${scope.storeName} di Bukalaris`,
+    oneTime: { purpose: "invitation", expiresAt },
     text: [
       `Anda diundang menjadi ${input.role === "owner" ? "pemilik" : "staf"} toko ${scope.storeName} di Bukalaris.`,
       `Terima undangan: ${acceptUrl(token)}`,
@@ -122,15 +134,12 @@ export type InvitationPreview =
   | { status: Exclude<InvitationStatus, "pending">; storeName: string }
   | { status: "pending"; email: string; role: Role; storeName: string; hasAccount: boolean };
 
-/** Cross-store resolver (ADR-0005 §4): invitation token → the inviting store, through the platform pool; only the id leaves it. */
-async function invitationStore(token: string): Promise<number | null> {
-  const [row] = await platformDb().select({ storeId: storeInvitation.storeId }).from(storeInvitation).where(eq(storeInvitation.tokenHash, hashToken(token)));
-  return row?.storeId ?? null;
-}
+/** Cross-store resolver (ADR-0005 §4): invitation token → the inviting store through `resolve_invitation_store` on the caller's own pool; only the id leaves it. */
+const invitationStore = (exec: Executor, token: string) => resolveInvitationStore(exec, hashToken(token));
 
 /** Public lookup for the accept page (token holder only; nothing else is revealed). */
 export async function previewInvitation(exec: Executor, token: string): Promise<InvitationPreview> {
-  const storeId = await invitationStore(token);
+  const storeId = await invitationStore(exec, token);
   if (!storeId) return { status: "invalid" };
   return withStore(exec, storeId, async (tx) => {
     const [row] = await tx
@@ -157,7 +166,7 @@ const newAccount = z.object({ name: z.string().trim().min(2, "Nama minimal 2 kar
  * concurrent second accept (row lock) or a failure leaves neither behind.
  */
 export async function acceptInvitation(exec: Executor, token: string, acceptor: Acceptor) {
-  const storeId = await invitationStore(token);
+  const storeId = await invitationStore(exec, token);
   if (!storeId) throw new DomainError("invite_invalid", "Undangan tidak ditemukan.");
   return withStore(exec, storeId, async (tx) => {
     const [inv] = await tx.select().from(storeInvitation).where(eq(storeInvitation.tokenHash, hashToken(token))).for("update");

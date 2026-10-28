@@ -1,14 +1,18 @@
 import "server-only";
 import { createHmac } from "node:crypto";
-import { db, dbMailer, platformDb } from "@bukalaris/db";
+import { db, dbMailer, platformDb, recordSessionMfa, resolveUserSuspended } from "@bukalaris/db";
 import { resolveHostSurface, surfaceCookieNames, surfaceOriginsFromEnv } from "@bukalaris/db/host";
 import { account, auditLog, session, twoFactor, user, verification } from "@bukalaris/db/schema";
 import { betterAuth } from "better-auth";
+import { createAuthMiddleware, isAPIError } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 import { twoFactor as twoFactorPlugin } from "better-auth/plugins/two-factor";
 
 export const RESET_TOKEN_TTL_SEC = 60 * 60;
+
+/** Second-factor verification endpoints; a success on one of them marks the session as MFA-verified (D-21). */
+const MFA_METHOD = { "/two-factor/verify-totp": "totp", "/two-factor/verify-backup-code": "backup_code", "/two-factor/verify-otp": "otp" } as const;
 
 /**
  * One Better Auth instance per surface (T-70 slice 3, ADR-0008 §1, DOM-6): the Owner console, Seller Admin,
@@ -101,6 +105,7 @@ function createAuth(surface: AuthSurface) {
         await mailer.send({
           to: u.email,
           subject: "Atur ulang kata sandi Bukalaris",
+          oneTime: { purpose: "recovery", expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_SEC * 1000) },
           text: [
             `Halo ${u.name},`,
             `Buka tautan berikut untuk mengatur ulang kata sandi Anda (berlaku ${RESET_TOKEN_TTL_SEC / 60} menit, sekali pakai):`,
@@ -115,6 +120,18 @@ function createAuth(surface: AuthSurface) {
       },
     },
     telemetry: { enabled: false },
+    // T-63: an identity the Owner console suspended gets no new session on any surface (existing sessions are deleted at suspension).
+    databaseHooks: { session: { create: { before: async (s) => ((await resolveUserSuspended(db(), s.userId)) ? false : undefined) } } },
+    hooks: {
+      // D-21: MFA is bound to the session, not to `user.two_factor_enabled`. A verified code creates the session (sign-in)
+      // or re-confirms it (enrolment, step-up); the Owner console accepts only sessions with this record (lib/context.ts).
+      after: createAuthMiddleware(async (ctx) => {
+        const method = (MFA_METHOD as Record<string, "totp" | "backup_code" | "otp">)[ctx.path];
+        if (!method || isAPIError(ctx.context.returned)) return;
+        const s = ctx.context.newSession ?? ctx.context.session;
+        if (s) await recordSessionMfa(platformDb(), { sessionId: s.session.id, userId: s.user.id, method });
+      }),
+    },
     plugins: [
       // IAM-9: platform operators must verify TOTP before /admin (enforced in lib/context.ts).
       twoFactorPlugin({ issuer: "Bukalaris" }),

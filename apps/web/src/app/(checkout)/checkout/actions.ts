@@ -1,13 +1,43 @@
 "use server";
 
-import { db, placeOrder, storefrontScope } from "@bukalaris/db";
+import { captureCheckoutSession, checkoutPromotionPreview, db, placeOrder, storefrontScope } from "@bukalaris/db";
 import { userError, withError } from "@/lib/errors";
+import { referralContext } from "@/lib/referral";
 import { requestSignalContext } from "@/lib/signals";
 import { cartCookie, clientIp, cookieOpts, ORDER_COOKIE } from "@/lib/storefront";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-const FIELDS = ["idempotencyKey", "buyerName", "buyerPhone", "buyerEmail", "shippingAddress", "destinationAreaId", "destinationAreaLabel", "courier", "paymentMethod"] as const;
+const FIELDS = ["idempotencyKey", "buyerName", "buyerPhone", "buyerEmail", "shippingAddress", "destinationAreaId", "destinationAreaLabel", "courier", "paymentMethod", "paymentChannel", "voucherCode", "affiliateCode"] as const;
+
+export type VoucherPreview = { error: string } | { goodsDiscount: number; shippingDiscount: number; shipping: number; total: number; subtotal: number };
+/** Read-only: same rules and quote as submit, no stock or quota reservation, and the cart is never changed. */
+export async function previewVoucher(f: FormData): Promise<VoucherPreview> {
+  const scope = await storefrontScope(db(), String(f.get("store") ?? ""));
+  if (!scope) return { error: "Toko tidak tersedia." };
+  const cartId = (await cookies()).get(cartCookie(scope.storeId))?.value;
+  try {
+    const r = await checkoutPromotionPreview(db(), cartId, Object.fromEntries(["buyerPhone", "voucherCode", "destinationAreaId", "courier", "paymentMethod"].map((k) => [k, String(f.get(k) ?? "")])), { clientIp: await clientIp() });
+    return { goodsDiscount: r.goodsDiscount, shippingDiscount: r.shippingDiscount, shipping: r.shippingCharged, total: r.payable, subtotal: r.subtotal };
+  } catch (err) {
+    return { error: userError(err) };
+  }
+}
+
+/**
+ * T-45: debounced progress of the contact fields (PR-25). Best effort and silent: a refused, limited or failed capture never blocks the buyer,
+ * and nothing but the four contact fields is read from the form (price, store and cart come from the server).
+ */
+export async function captureProgress(f: FormData): Promise<void> {
+  try {
+    const scope = await storefrontScope(db(), String(f.get("store") ?? ""));
+    if (!scope) return;
+    const cartId = (await cookies()).get(cartCookie(scope.storeId))?.value;
+    await captureCheckoutSession(db(), cartId, Object.fromEntries(["buyerName", "buyerPhone", "buyerEmail", "shippingAddress"].map((k) => [k, String(f.get(k) ?? "")])), { clientIp: await clientIp() });
+  } catch {
+    // Capture is optional; the order flow does not depend on it.
+  }
+}
 
 export async function submitCheckout(f: FormData) {
   const jar = await cookies();
@@ -25,7 +55,7 @@ export async function submitCheckout(f: FormData) {
   let orderId: number | undefined;
   let error: string | undefined;
   try {
-    ({ orderId } = await placeOrder(db(), cartId, input, undefined, { clientIp: await clientIp(), signal: await requestSignalContext() }));
+    ({ orderId } = await placeOrder(db(), cartId, input, undefined, { clientIp: await clientIp(), signal: await requestSignalContext(), referral: await referralContext() }));
   } catch (err) {
     error = userError(err);
   }

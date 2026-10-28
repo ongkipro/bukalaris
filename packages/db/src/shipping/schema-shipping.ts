@@ -18,6 +18,9 @@ export const shippingMarginRule = pgTable(
     percentBps: integer("percent_bps").notNull().default(0),
     /** Buyer fee rounds up to a multiple of this (IDR). */
     roundTo: integer("round_to").notNull().default(500),
+    approvalRequestId: bigint("approval_request_id", { mode: "number" }),
+    /** Bumped by every approved change; the four-eyes approval is bound to the revision it was requested against (a stale approval can never overwrite a later one). */
+    revision: integer("revision").notNull().default(0),
     updatedBy: text("updated_by"),
     updatedAt: updatedAt(),
   },

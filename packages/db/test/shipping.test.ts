@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { eq } from "drizzle-orm";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { addVariant, updateVariant } from "../src/seller/commerce/catalog.ts";
 import { checkoutShippingOptions, checkoutSummary, placeOrder } from "../src/seller/commerce/checkout.ts";
 import { setCartLine } from "../src/storefront/storefront.ts";
@@ -24,7 +24,8 @@ import {
   shippingOptions,
 } from "../src/shipping/shipping.ts";
 import { membership } from "../src/schema.ts";
-import { buyer, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
+import { setMargin } from "./t48-fixtures.ts";
+import { admin, buyer, db, makeStore, makeUser, openMengantarGate, platform, seller } from "./helpers.ts";
 
 const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./fixtures/mengantar/${name}.json`, import.meta.url), "utf8"));
 const KEY = "testkey-0123456789abcdef";
@@ -84,6 +85,7 @@ describe("margin math (Q-12)", () => {
 });
 
 describe("Mengantar client", () => {
+  beforeEach(openMengantarGate); // stubbed fetch only: no provider is contacted
   it("redacts the key segment of a URL and any other occurrence of the key", () => {
     const url = `https://api-public.mengantar.com/api/public/${KEY}/order/estimate?origin_id=1&x=${KEY}`;
     const red = redactUrl(url, KEY);
@@ -157,6 +159,7 @@ describe("Mengantar client", () => {
 });
 
 describe("recorded fixtures (observed 2026-10-06, sanitized)", () => {
+  beforeEach(openMengantarGate); // stubbed fetch only: no provider is contacted
   it("validate against the schemas and contain no key", () => {
     for (const name of ["address-search", "address-list", "estimate-3pl", "estimate-all-cod", "receiver-score-403"]) {
       expect(JSON.stringify(fixture(name))).not.toMatch(/api\/public\/[A-Za-z0-9]{16,}/);
@@ -199,11 +202,11 @@ describe("recorded fixtures (observed 2026-10-06, sanitized)", () => {
 
 describe("margin rule and pickup origin (store-scoped)", () => {
   it("operator edits the rule with an audit row; the default applies until then", async () => {
-    await platform.delete(shippingMarginRule);
+    await admin.execute("truncate shipping_margin_rule"); // the guard refuses a row DELETE: pricing never reverts without four-eyes
     const s = await makeStore("toko-a");
     expect(await getMarginRule(db)).toEqual(DEFAULT_MARGIN_RULE);
-    await setMarginRule(s.op, { fixedIdr: "1500", percentBps: 250, roundTo: "1000" });
-    await setMarginRule(s.op, { fixedIdr: 3000, percentBps: 0, roundTo: 500 });
+    await setMargin(s.op, { fixedIdr: "1500", percentBps: 250, roundTo: "1000" });
+    await setMargin(s.op, { fixedIdr: 3000, percentBps: 0, roundTo: 500 });
     expect(await getMarginRule(db)).toEqual({ fixedIdr: 3000, percentBps: 0, roundTo: 500 });
     const audit = await marginRuleAudit(s.op);
     expect(audit.map((a) => a.reason)).toEqual(["fixed=3000 bps=0 roundTo=500", "fixed=1500 bps=250 roundTo=1000"]);
@@ -248,20 +251,20 @@ describe("margin rule and pickup origin (store-scoped)", () => {
   });
 
   it("shippingOptions: needs the store's pickup area, applies the rule and gating, is ready for the order snapshot", async () => {
-    await platform.delete(shippingMarginRule);
+    await admin.execute("truncate shipping_margin_rule"); // the guard refuses a row DELETE: pricing never reverts without four-eyes
     const a = await makeStore("toko-a", { pickupArea: false });
     const b = await makeStore("toko-b", { pickupArea: false });
     await expect(shippingOptions(a.sf, "b1b1b1b1b1b1b1b1b1b1b1b1", { lines: [{ quantity: 2, weightGrams: 1000 }], subtotal: 200_000 }, fakeMengantar)).rejects.toMatchObject({ code: "no_pickup_area" });
     await setPickupArea(a.owner, { areaId: "a1a1a1a1a1a1a1a1a1a1a1a1", areaLabel: "Braga, Bandung" });
-    await setMarginRule(a.op, { fixedIdr: 2000, percentBps: 0, roundTo: 500 });
+    await setMargin(a.op, { fixedIdr: 2000, percentBps: 0, roundTo: 500 });
 
     const r = await shippingOptions(a.sf, "b1b1b1b1b1b1b1b1b1b1b1b1", { lines: [{ quantity: 2, weightGrams: 1000 }], subtotal: 200_000 }, fakeMengantar);
     expect(r).toMatchObject({ originAreaId: "a1a1a1a1a1a1a1a1a1a1a1a1", destinationAreaId: "b1b1b1b1b1b1b1b1b1b1b1b1", weightKg: 2 });
     expect(r.options.map((o) => o.courier)).toEqual(["SiCepat", "JNE"]); // pos unsupported → hidden
     expect(r.options[0]!.cod).toBeNull(); // SiCepat refuses COD
     // JNE at 2 kg: prepaid 15_500 + 2_000 = 17_500; COD 20_494 + 2_000 = 22_494 → 22_500
-    expect(r.options[1]!.prepaid).toEqual({ providerCost: 15_500, margin: 2_000, buyerFee: 17_500 });
-    expect(r.options[1]!.cod).toEqual({ providerCost: 20_494, margin: 2_006, buyerFee: 22_500 });
+    expect(r.options[1]!.prepaid).toEqual({ providerCost: 15_500, margin: 2_000, buyerFee: 17_500, platformDiscount: 0 });
+    expect(r.options[1]!.cod).toEqual({ providerCost: 20_494, margin: 2_006, buyerFee: 22_500, platformDiscount: 0 });
     for (const o of r.options) for (const f of [o.prepaid, o.cod]) if (f) expect(f.buyerFee).toBe(f.providerCost + f.margin);
 
     // Store B has no pickup area: its storefront gets the error even though A is configured.

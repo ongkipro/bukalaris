@@ -28,7 +28,7 @@ const passwordHash = await hashPassword("Rahasia-123");
 /** Invite through the real service and pull the token back out of the dev outbox (the only place it exists). */
 async function invite(scope: Parameters<typeof createInvitation>[0], email: string, role: "owner" | "staff") {
   const id = await createInvitation(scope, mailer, { email, role }, acceptUrl);
-  const [mail] = await listOutbox(db, 1);
+  const [mail] = await listOutbox(platform, 1);
   const token = /\/invite\/([A-Za-z0-9_-]+)/.exec(mail!.textBody)![1]!;
   expect(mail!.toEmail).toBe(email.trim().toLowerCase());
   return { id, token };
@@ -101,7 +101,7 @@ describe("invitations (SC-19/SC-20, IAM-9)", () => {
     const [staffRow] = await platform.select().from(membership).where(eq(membership.userId, staffId));
     const staffEmail = (await platform.query.user.findFirst({ where: (u, { eq }) => eq(u.id, staffRow!.userId) }))!.email;
     await expect(createInvitation(s.owner, mailer, { email: staffEmail.toUpperCase(), role: "owner" }, acceptUrl)).rejects.toMatchObject({ code: "already_member" });
-    expect(await listOutbox(db)).toEqual([]);
+    expect(await listOutbox(platform)).toEqual([]);
   });
 
   it("invitations cannot cross stores: foreign owners cannot see or revoke them, acceptance grants only the invited store", async () => {

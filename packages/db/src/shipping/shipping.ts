@@ -1,11 +1,15 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import type { Executor } from "../client.ts";
 import { mengantarFromEnv } from "./mengantar/adapter.ts";
 import { fakeAutoLaris, fakeMengantar, type ProviderQuote, type Providers, type ShippingAdapter } from "../payments/providers.ts";
-import { auditLog, shippingMarginRule, storePickupArea } from "../schema.ts";
+import { auditLog, courierServicePolicy, shippingMarginRule, storePickupArea } from "../schema.ts";
 import { DomainError, requireCap, type OperatorScope, type SellerScope, type StorefrontScope } from "../platform/scoped.ts";
 import { inStore } from "../platform/tenant.ts";
+import { requirePlatformCap } from "../ops/capabilities.ts";
+import { selectShippingAccount } from "./accounts.ts";
+import { applyApprovedMargin, applyShippingDiscount, effectiveShippingDiscount } from "./policy.ts";
+import type { ShippingAccountKind } from "./schema-accounts.ts";
 
 export { MengantarClient, MengantarError, MengantarWriteDisabledError, redactUrl } from "./mengantar/client.ts";
 export { COURIER_LABELS, mengantarAdapter, mengantarFromEnv, toProviderQuote } from "./mengantar/adapter.ts";
@@ -29,14 +33,16 @@ export const marginRuleInput = z.strictObject({
 });
 
 export type FeeBreakdown = { providerCost: number; margin: number; buyerFee: number };
-export type ShippingOption = {
+/** A fee after the platform shipping discount: `platformDiscount` is what the platform funds out of its margin (frozen on the order financials). */
+export type PricedFee = FeeBreakdown & { platformDiscount: number };
+export type ShippingOption<F extends FeeBreakdown = FeeBreakdown> = {
   courier: string;
   label: string;
   etd?: string | undefined;
   /** Fee for prepaid (transfer) payment. */
-  prepaid: FeeBreakdown;
+  prepaid: F;
   /** Fee for COD, or null when the courier refuses COD on this route. */
-  cod: FeeBreakdown | null;
+  cod: F | null;
 };
 
 /** Pure: buyer fee = roundUp(cost + fixed + ceil(cost × bps / 10000), roundTo); margin = buyer fee − cost. Integer IDR only. */
@@ -66,25 +72,17 @@ export async function getMarginRule(exec: Executor): Promise<MarginRule> {
   return row ? { fixedIdr: row.fixedIdr, percentBps: row.percentBps, roundTo: row.roundTo } : DEFAULT_MARGIN_RULE;
 }
 
-/** Operator-only edit of the platform margin, audited (IAM-5). */
-export async function setMarginRule(op: OperatorScope, raw: unknown): Promise<MarginRule> {
+/** Margin changes use the same four-eyes shipping.margin contract as the discount/routing policy. */
+export async function setMarginRule(op: OperatorScope, raw: unknown, approvalId?: number): Promise<MarginRule> {
+  await requirePlatformCap(op, "shipping.manage");
   const rule = marginRuleInput.parse(raw);
-  await op.exec.transaction(async (tx) => {
-    await tx
-      .insert(shippingMarginRule)
-      .values({ key: "default", ...rule, updatedBy: op.userId })
-      .onConflictDoUpdate({ target: shippingMarginRule.key, set: { ...rule, updatedBy: op.userId, updatedAt: new Date() } });
-    await tx.insert(auditLog).values({
-      actorUserId: op.userId,
-      action: MARGIN_AUDIT_ACTION,
-      reason: `fixed=${rule.fixedIdr} bps=${rule.percentBps} roundTo=${rule.roundTo}`,
-    });
-  });
-  return rule;
+  if (!approvalId) throw new DomainError("approval_invalid", "Perubahan margin memerlukan persetujuan operator kedua.");
+  return applyApprovedMargin(op, rule, approvalId);
 }
 export const MARGIN_AUDIT_ACTION = "shipping.margin.update";
 
 export async function marginRuleAudit(op: OperatorScope) {
+  await requirePlatformCap(op, "shipping.manage");
   return op.exec.select().from(auditLog).where(eq(auditLog.action, MARGIN_AUDIT_ACTION)).orderBy(desc(auditLog.id)).limit(10);
 }
 
@@ -100,6 +98,7 @@ export const pickupAddressInput = z.strictObject({
 });
 
 export async function getPickupArea(scope: SellerScope) {
+  requireCap(scope, "shipping.read");
   return inStore(scope, async (scope) => {
     const [row] = await scope.exec
       .select({ areaId: storePickupArea.areaId, areaLabel: storePickupArea.areaLabel, addressText: storePickupArea.addressText, updatedAt: storePickupArea.updatedAt })
@@ -165,19 +164,44 @@ export async function shippingOptions(
   destinationAreaId: string,
   cart: CartForShipping,
   adapter: ShippingAdapter = defaultShippingAdapter(),
-): Promise<{ originAreaId: string; destinationAreaId: string; weightKg: number; options: ShippingOption[] }> {
+): Promise<{ originAreaId: string; destinationAreaId: string; weightKg: number; shippingAccountId: number; shippingAccountKind: ShippingAccountKind; options: ShippingOption<PricedFee>[] }> {
   const destination = areaId.parse(destinationAreaId);
   // Store context for the pickup row only; the provider call below must not run inside a transaction.
   const [origin] = await inStore(scope, (scope) =>
     scope.exec.select({ areaId: storePickupArea.areaId }).from(storePickupArea).where(eq(storePickupArea.storeId, scope.storeId)),
   );
   if (!origin) throw new DomainError("no_pickup_area", "Toko belum mengatur area pickup.");
+  const account = await selectShippingAccount(scope);
   const weightKg = parcelWeightKg(cart.lines);
-  const [rule, quotes] = await Promise.all([
+  const [rule, discount, quotes] = await Promise.all([
     getMarginRule(scope.exec),
-    adapter.estimate({ originAreaId: origin.areaId, destinationAreaId: destination, weightKg, codAmount: cart.subtotal }),
+    effectiveShippingDiscount(scope.exec),
+    adapter.estimate({ originAreaId: origin.areaId, destinationAreaId: destination, weightKg, codAmount: cart.subtotal, shippingAccountId: account.id, shippingAccountKind: account.kind }),
   ]);
-  return { originAreaId: origin.areaId, destinationAreaId: destination, weightKg, options: quoteWithMargin(quotes, rule) };
+  const codPolicy = await codAllowedCouriers(scope.exec);
+  // COD only where the data-driven allow-list says `cod_allowed AND return_free` (ADR-0006 decision 4); no courier name is hard-coded here.
+  const options = quoteWithMargin(quotes, rule).map((o): ShippingOption<PricedFee> => ({ ...o, prepaid: applyShippingDiscount(o.prepaid, discount), cod: o.cod && codPolicy.has(o.courier) ? applyShippingDiscount(o.cod, discount) : null }));
+  return { originAreaId: origin.areaId, destinationAreaId: destination, weightKg, shippingAccountId: account.id, shippingAccountKind: account.kind, options };
+}
+
+/**
+ * The COD allow-list reader, service-aware. The provider's estimate map names every service by one key (`JNE`, `SAPLite`) and that key is what the order
+ * snapshots as its courier code. A policy row whose `service_code` equals the key is the SERVICE-level row and wins; otherwise the COURIER-level row
+ * (`service_code = ''`, courier code equal to the key) decides; a key with neither is refused (fail closed). A row allows COD only when it is active
+ * with `cod_allowed AND return_free`; a disabled or refusing service row therefore also overrides an allowing courier row. A service code listed
+ * under two couriers allows COD only when both rows do.
+ */
+export type CodPolicy = { has(estimateKey: string): boolean };
+export async function codAllowedCouriers(exec: Executor): Promise<CodPolicy> {
+  const rows = await exec.select({ courier: courierServicePolicy.courierCode, service: courierServicePolicy.serviceCode, status: courierServicePolicy.status, cod: courierServicePolicy.codAllowed, free: courierServicePolicy.returnFree }).from(courierServicePolicy);
+  const services = new Map<string, boolean>();
+  const couriers = new Map<string, boolean>();
+  for (const r of rows) {
+    const allowed = r.status === "active" && r.cod && r.free;
+    if (r.service) services.set(r.service.toLowerCase(), (services.get(r.service.toLowerCase()) ?? true) && allowed);
+    else couriers.set(r.courier.toLowerCase(), allowed);
+  }
+  return { has: (key) => services.get(key.toLowerCase()) ?? couriers.get(key.toLowerCase()) ?? false };
 }
 
 let adapterInstance: ShippingAdapter | undefined;

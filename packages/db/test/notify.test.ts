@@ -10,6 +10,7 @@ import { fakeProviders } from "../src/payments/providers.ts";
 import { job, mailOutbox, membership, orderNotification, user } from "../src/schema.ts";
 import { setCartLine } from "../src/storefront/storefront.ts";
 import { admin, buyer, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
+import { deliver } from "./deliver.ts";
 
 // mail_outbox has no FK to the truncated tables, so the shared helper's cascade does not reach it.
 beforeEach(() => admin.execute("truncate mail_outbox restart identity"));
@@ -163,7 +164,7 @@ describe("order e-mail notifications (T-36, PR-21)", () => {
     expect(shipped).toMatchObject({ to: BUYER, subject: `Pesanan #${orderId} dikirim · resi JNE-0012345` });
     expect(shipped.text).toContain("Nomor resi: JNE-0012345");
     expect(shipped.html).toContain("<strong>JNE-0012345</strong>");
-    await transitionOrder(a.owner, orderId, "complete");
+    await deliver(a.storeId, orderId); // DELIVERED comes from the courier writer; it sends no e-mail
     expect(await notifyOutcomes()).toEqual([]);
     expect(await mails(orderId)).toHaveLength(5);
 

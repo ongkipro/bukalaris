@@ -1,14 +1,21 @@
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import { platformDb, type Db, type Executor } from "../client.ts";
+import type { Db, Executor } from "../client.ts";
 import { enqueue, MAX_ATTEMPTS, registerHandler, sanitizeError } from "../ops/jobs/jobs.ts";
 import { mengantarBookingFromEnv, type BookingAdapter, type BookingInput, type BookingResult, type TrackingResult } from "./mengantar/booking.ts";
 import { MengantarError } from "./mengantar/client.ts";
 import { verifyOrderLink } from "../ops/jobs/notify.ts";
-import { applyTransition } from "../seller/commerce/orders.ts";
-import { order, ORDER_STATUS_LABEL, orderLine, shipment, SHIPMENT_STATUS_LABEL, type OrderStatus, type ShipmentStatus, type TrackingEvent } from "../schema.ts";
+import { applyProviderTransition, applyTransition } from "../seller/commerce/orders.ts";
+import { requoteOrder, reserveShippingCost, reverseShippingReservation } from "../ledger/booking.ts";
+import { codAllowedCouriers } from "./shipping.ts";
+import { order, ORDER_STATUS_LABEL, orderLine, orderRedaction, shipment, SHIPMENT_STATUS_LABEL, type OrderStatus, type ShipmentStatus, type TrackingEvent } from "../schema.ts";
+import { PROVIDER_CODE_RE_SOURCE, REDACTED } from "../seller/commerce/privacy.ts";
 import { DomainError, requireCap, type SellerScope } from "../platform/scoped.ts";
+import { resolveOrderStore } from "../platform/resolvers.ts";
 import { inStore, withStore } from "../platform/tenant.ts";
+import { orderShippingAccount, type ShippingAccountView } from "./accounts.ts";
+import { withShippingDispatch } from "./dispatch.ts";
+import { PARTNER_DISPATCH_LOCKED_MESSAGE, scrubProviderText, UNKNOWN_PROVIDER_STATUS_LABEL } from "./copy.ts";
 export { SHIPMENT_STATUS_LABEL, SHIPMENT_STATUSES, type ShipmentStatus, type TrackingEvent } from "../schema.ts";
 export { CREATE_ORDER_COURIER, mengantarBooking, mengantarBookingFromEnv, type BookingAdapter, type BookingInput, type BookingResult, type TrackingResult } from "./mengantar/booking.ts";
 
@@ -37,11 +44,11 @@ export const TRACK_HISTORY_MAX = 50;
 export const BOOKABLE: readonly OrderStatus[] = ["placed", "processing"];
 /** Nothing left to poll in these states; `awaiting_balance` and `failed` accept a seller retry. */
 export const TERMINAL: readonly ShipmentStatus[] = ["delivered", "returned", "cancelled", "failed"];
-export const RETRYABLE: readonly ShipmentStatus[] = ["awaiting_balance", "failed"];
+export const RETRYABLE: readonly ShipmentStatus[] = ["awaiting_account", "awaiting_balance", "failed"];
 
 /** Q-17 (COD remittance) is open: COD bookings stay refused unless the owner sets ALLOW_COD_BOOKING=1. */
 export const codBookingAllowed = (env: NodeJS.ProcessEnv = process.env) => env.ALLOW_COD_BOOKING === "1";
-export const COD_BOOKING_MESSAGE = "Booking COD lewat Mengantar belum dibuka: kebijakan remitansi COD (Q-17) masih menunggu keputusan pemilik. Kirim dengan resi manual, atau tunggu kebijakan terbit.";
+export const COD_BOOKING_MESSAGE = "Booking COD lewat Bukalaris Kirim belum dibuka: kebijakan remitansi COD masih menunggu keputusan pemilik platform. Kirim dengan resi manual, atau tunggu kebijakan terbit.";
 
 /** Delay before automatic poll `poll` (0-based): 15 min, 30 min, 1 h, 2 h, 4 h, then 6 h. */
 export const trackDelayMs = (poll: number) => Math.min(15 * 60_000 * 2 ** Math.max(0, Math.min(poll, 5)), 6 * 3_600_000);
@@ -50,20 +57,20 @@ export const trackDelayMs = (poll: number) => Math.min(15 * 60_000 * 2 ** Math.m
 
 export const PROVIDER_STATUS: Record<string, { status: ShipmentStatus; label: string }> = {
   "PENDING PICKUP": { status: "booked", label: "Menunggu pickup kurir" },
-  "ACTIVE/WAITING NEXT PROCESS": { status: "booked", label: "Diproses Mengantar" },
+  "ACTIVE/WAITING NEXT PROCESS": { status: "booked", label: "Diproses Bukalaris Kirim" },
   "PICKED UP": { status: "in_transit", label: "Sudah diambil kurir" },
   "ON DELIVERY": { status: "in_transit", label: "Dalam pengantaran" },
   DELIVERED: { status: "delivered", label: "Terkirim ke pembeli" },
   UNDELIVERED: { status: "problem", label: "Gagal diantar, kurir akan mencoba lagi" },
   "PICKUP FAILED": { status: "problem", label: "Pickup gagal" },
   RTS: { status: "returned", label: "Dikembalikan ke pengirim (RTS)" },
-  CANCELED: { status: "cancelled", label: "Dibatalkan di Mengantar" },
-  CANCELLED: { status: "cancelled", label: "Dibatalkan di Mengantar" },
-  ERROR: { status: "problem", label: "Bermasalah di Mengantar" },
+  CANCELED: { status: "cancelled", label: "Dibatalkan di Bukalaris Kirim" },
+  CANCELLED: { status: "cancelled", label: "Dibatalkan di Bukalaris Kirim" },
+  ERROR: { status: "problem", label: "Bermasalah di Bukalaris Kirim" },
 };
 export const mapProviderStatus = (raw: string | null | undefined) => (raw ? (PROVIDER_STATUS[raw.trim().toUpperCase()] ?? null) : null);
-/** Indonesian label for a raw provider status; unknown values are shown verbatim so nothing is hidden. */
-export const providerStatusLabel = (raw: string | null | undefined) => mapProviderStatus(raw)?.label ?? raw ?? null;
+/** Indonesian label for a raw provider status. A status this product does not know is NEVER echoed (it is provider text): a neutral label stands in, the raw value stays on the shipment row for the operator. */
+export const providerStatusLabel = (raw: string | null | undefined) => (raw?.trim() ? (mapProviderStatus(raw)?.label ?? UNKNOWN_PROVIDER_STATUS_LABEL) : null);
 
 // ── Adapter (fake unless MENGANTAR_API_KEY + MENGANTAR_PICKUP_ADDRESS_ID are in the process env) ──
 
@@ -133,6 +140,7 @@ export async function bookShipment(scope: SellerScope, orderId: number): Promise
     if (existing && !RETRYABLE.includes(existing.status)) throw new DomainError("already_booked", `Pesanan ini sudah dibooking (${SHIPMENT_STATUS_LABEL[existing.status].toLowerCase()}).`);
     if (!BOOKABLE.includes(o.status)) throw new DomainError("not_bookable", `Pesanan berstatus "${ORDER_STATUS_LABEL[o.status]}" tidak bisa dibooking; booking hanya untuk pesanan Baru atau Diproses.`);
     if (o.paymentMethod === "cod" && !codBookingAllowed()) throw new DomainError("cod_booking_disabled", COD_BOOKING_MESSAGE);
+    if (o.paymentMethod === "cod" && !(await codAllowedCouriers(tx)).has(o.courierCode.toLowerCase())) throw new DomainError("cod_courier_not_allowed", COD_COURIER_MESSAGE);
 
     let shipmentId: number;
     let attempt = 0;
@@ -171,8 +179,8 @@ export async function refreshTracking(scope: SellerScope, orderId: number): Prom
   requireCap(scope, "orders.fulfill");
   return inStore(scope, async ({ exec: tx }) => {
     const [s] = await tx.select().from(shipment).where(and(eq(shipment.storeId, scope.storeId), eq(shipment.orderId, orderId))).for("update");
-    if (!s) throw new DomainError("not_found", "Pesanan ini belum dibooking lewat Mengantar.");
-    if (!s.providerOrderId) throw new DomainError("not_booked", "Belum ada order Mengantar yang bisa dilacak.");
+    if (!s) throw new DomainError("not_found", "Pesanan ini belum dibooking lewat Bukalaris Kirim.");
+    if (!s.providerOrderId) throw new DomainError("not_booked", "Belum ada order Bukalaris Kirim yang bisa dilacak.");
     if (TERMINAL.includes(s.status)) throw new DomainError("tracking_done", "Pelacakan pengiriman ini sudah selesai.");
     if (s.manualPolls >= MAX_MANUAL_POLLS) throw new DomainError("poll_limit", "Batas pembaruan manual tercapai; status tetap diperbarui otomatis.");
     const n = s.manualPolls + 1;
@@ -193,10 +201,11 @@ export async function getShipment(scope: SellerScope, orderId: number): Promise<
 export async function getShipmentForLink(exec: Executor, token: string, now = Date.now()) {
   const orderId = verifyOrderLink(token, now);
   if (!orderId) return null;
-  // Cross-store resolver (ADR-0005 §4): the signed order id → its store; then the store context.
-  const [owner] = await platformDb().select({ storeId: order.storeId }).from(order).where(eq(order.id, orderId));
-  if (!owner) return null;
-  const [s] = await withStore(exec, owner.storeId, (tx) =>
+  // Cross-store resolver (ADR-0005 §4): the signed order id → its store through `resolve_order_store` on the
+  // caller's own pool; then the store context.
+  const storeId = await resolveOrderStore(exec, orderId);
+  if (!storeId) return null;
+  const [s] = await withStore(exec, storeId, (tx) =>
     tx
       .select({
         status: shipment.status,
@@ -209,7 +218,7 @@ export async function getShipmentForLink(exec: Executor, token: string, now = Da
         lastTrackedAt: shipment.lastTrackedAt,
       })
       .from(shipment)
-      .where(and(eq(shipment.storeId, owner.storeId), eq(shipment.orderId, orderId))),
+      .where(and(eq(shipment.storeId, storeId), eq(shipment.orderId, orderId))),
   );
   return s ?? null;
 }
@@ -218,8 +227,8 @@ export type TimelineItem = { at: Date | string; text: string };
 /** Local milestones (requested, booked, delivered) followed by the provider's own history lines (WIB strings as given). */
 export function shipmentTimeline(s: { createdAt: Date; bookedAt: Date | null; deliveredAt: Date | null; trackingHistory: TrackingEvent[]; status: ShipmentStatus }): TimelineItem[] {
   const items: TimelineItem[] = [{ at: s.createdAt, text: "Booking diminta" }];
-  if (s.bookedAt) items.push({ at: s.bookedAt, text: "Resi terbit dari Mengantar" });
-  for (const h of s.trackingHistory) items.push({ at: h.at, text: h.desc });
+  if (s.bookedAt) items.push({ at: s.bookedAt, text: "Resi terbit dari Bukalaris Kirim" });
+  for (const h of s.trackingHistory) items.push({ at: h.at, text: mapProviderStatus(h.desc)?.label ?? scrubProviderText(h.desc) });
   if (s.deliveredAt) items.push({ at: s.deliveredAt, text: SHIPMENT_STATUS_LABEL.delivered });
   return items;
 }
@@ -229,17 +238,10 @@ export function shipmentTimeline(s: { createdAt: Date; bookedAt: Date | null; de
 const bookPayload = z.object({ orderId: z.number().int().positive(), attempt: z.number().int().min(0).default(0) });
 const trackPayload = z.object({ orderId: z.number().int().positive(), poll: z.number().int().min(0).optional() });
 
-const ACCOUNT_LOCK = "mengantar:order:write"; // one platform account (Q-2)
-/**
- * Serialise provider WRITES across every worker process: the partner docs reject parallel
- * `POST /order` on one account with 409. Transaction-scoped advisory lock in a transaction
- * that performs no business write (remote I/O never runs inside a business transaction).
- */
-async function withAccountLock<T>(db: Db, fn: () => Promise<T>): Promise<T> {
-  return db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${ACCOUNT_LOCK}))`);
-    return fn();
-  });
+/** Select a test/fake adapter, or the explicitly gated master transport. A partner snapshot is NEVER sent on a master credential. */
+function accountBookingAdapter(account: ShippingAccountView): BookingAdapter {
+  if (!adapterOverride && process.env.MENGANTAR_API_KEY && account.kind === "partner_managed") throw new DomainError("awaiting_account", PARTNER_DISPATCH_LOCKED_MESSAGE);
+  return bookingAdapter();
 }
 
 const loadShipment = async (db: Db, storeId: number, orderId: number) => (await db.select().from(shipment).where(and(eq(shipment.storeId, storeId), eq(shipment.orderId, orderId))))[0] ?? null;
@@ -255,16 +257,24 @@ export function isRetryableBookingError(err: unknown): boolean {
 }
 /** Outcome unknown: the request may have reached the provider. */
 const isUncertainWrite = (err: unknown) => err instanceof MengantarError && (err.code === "timeout" || err.code === "network" || (err.code === "http" && err.status >= 500));
-export const WRITE_DISABLED_MESSAGE = "Booking Mengantar dinonaktifkan di server ini (MENGANTAR_WRITE_ENABLED belum diaktifkan; perlu persetujuan pemilik).";
-export const UNPAID_MESSAGE = "Saldo akun Mengantar tidak cukup: order dibuat sebagai unpaid tanpa resi. Tambah saldo, lalu klik Coba lagi.";
-export const UNCERTAIN_MESSAGE = "Hasil booking tidak pasti (Mengantar tidak menjawab). Periksa dashboard Mengantar sebelum mencoba lagi agar tidak terbit dua order.";
-export const PAID_WAITING_MESSAGE = "Pembayaran order Mengantar terkirim; resi diambil otomatis saat terbit.";
+export const WRITE_DISABLED_MESSAGE = "Booking Bukalaris Kirim dinonaktifkan di server ini (perlu persetujuan pemilik).";
+export const UNPAID_MESSAGE = "Saldo akun Bukalaris Kirim tidak cukup: order dibuat sebagai unpaid tanpa resi. Tambah saldo, lalu klik Coba lagi.";
+export const UNCERTAIN_MESSAGE = "Hasil booking tidak pasti (Bukalaris Kirim tidak menjawab). Hubungi Bukalaris sebelum mencoba lagi agar tidak terbit dua order.";
+export const PAID_WAITING_MESSAGE = "Pembayaran order Bukalaris Kirim terkirim; resi diambil otomatis saat terbit.";
+export const COD_COURIER_MESSAGE = "Layanan kurir ini tidak masuk daftar COD Bukalaris Kirim (COD hanya untuk layanan dengan retur gratis). Pilih kurir lain atau bayar transfer.";
+export const RESERVE_MESSAGES = {
+  insufficient_balance: "Saldo tersedia toko tidak cukup menutup selisih ongkir kurir. Booking dibatalkan sebelum dikirim ke kurir; tunggu dana pesanan lain cair, lalu coba lagi.",
+  reservation_reversed: "Pemesanan kurir untuk pesanan ini sudah pernah ditolak dan potongannya dikembalikan; booking ulang belum didukung. Hubungi Bukalaris.",
+  not_bookable: "Pesanan tidak bisa dibooking dalam status ini.",
+  cod_amount_mismatch: "Nilai COD yang dikirim berbeda dari total pesanan (cod_amount_mismatch). Booking dibatalkan sebelum ke kurir.",
+  quote_unavailable: "Kurir tidak lagi melayani rute ini; booking dibatalkan sebelum ke penyedia.",
+} as const;
 const bookingErrorMessage = (err: unknown) =>
   err instanceof MengantarError && err.code === "write_disabled" ? WRITE_DISABLED_MESSAGE : isUncertainWrite(err) ? `${UNCERTAIN_MESSAGE} (${sanitizeError(err)})` : sanitizeError(err);
 
 async function bookingInput(db: Db, storeId: number, orderId: number, s: ShipmentView): Promise<(BookingInput & { status: OrderStatus; paymentMethod: string }) | null> {
   const [o] = await db
-    .select({ status: order.status, paymentMethod: order.paymentMethod, buyerName: order.buyerName, buyerPhone: order.buyerPhone, shippingAddress: order.shippingAddress, subtotal: order.subtotal, total: order.total })
+    .select({ status: order.status, paymentMethod: order.paymentMethod, buyerName: order.buyerName, buyerPhone: order.buyerPhone, shippingAddress: order.shippingAddress, subtotal: order.subtotal, total: order.total, shippingAccountId: order.shippingAccountId, shippingAccountKind: order.shippingAccountKind })
     .from(order)
     .where(and(eq(order.storeId, storeId), eq(order.id, orderId)));
   if (!o) return null;
@@ -272,6 +282,8 @@ async function bookingInput(db: Db, storeId: number, orderId: number, s: Shipmen
   return {
     orderId,
     storeId,
+    shippingAccountId: o.shippingAccountId,
+    shippingAccountKind: o.shippingAccountKind,
     status: o.status,
     paymentMethod: o.paymentMethod,
     courierCode: s.courierCode,
@@ -320,6 +332,24 @@ async function recordBooking(db: Db, s: ShipmentView, r: BookingResult): Promise
   });
 }
 
+/**
+ * Steps 1 and 2 of the booking reconciliation (ADR-0006 decision 7): a live re-quote outside any lock, then one transaction that records the
+ * append-once cost and reserves the seller's debit. Returns the seller-facing failure when the provider must NOT be called, or null.
+ * A provider outage while re-quoting throws (nothing was reserved), so the outbox retries the read.
+ */
+async function reserveBooking(db: Db, s: ShipmentView, input: BookingInput & { paymentMethod: string }): Promise<string | null> {
+  const cod = input.paymentMethod === "cod";
+  let requote;
+  try {
+    requote = await requoteOrder({ originAreaId: s.originAreaId, destinationAreaId: s.destinationAreaId, weightKg: s.weightKg, courierCode: s.courierCode, cod, payableIdr: input.codAmount, shippingAccountId: input.shippingAccountId!, shippingAccountKind: input.shippingAccountKind! });
+  } catch (err) {
+    if (err instanceof DomainError) return RESERVE_MESSAGES.quote_unavailable;
+    throw err;
+  }
+  const r = await reserveShippingCost(db, { storeId: s.storeId, orderId: s.orderId, requote, codAmountSentIdr: cod ? s.codAmount : null });
+  return r.outcome === "refused" ? RESERVE_MESSAGES[r.reason] : null;
+}
+
 registerHandler(SHIPMENT_BOOK, async ({ db }, j) => {
   const { orderId, attempt } = bookPayload.parse(j.payload);
   const s = await loadShipment(db, j.storeId, orderId);
@@ -328,7 +358,7 @@ registerHandler(SHIPMENT_BOOK, async ({ db }, j) => {
     // lazy: a worker died between the provider call and the write. `createOrder` carries no client
     // reference we could look the order up by, so never book again blindly: fail closed and let the
     // seller retry after checking the Mengantar dashboard. Upgrade path: GET /order?keyword=<ref>.
-    await setShipment(db, s.id, { status: "failed", lastError: "Booking terputus sebelum hasil tersimpan; periksa dashboard Mengantar sebelum mencoba lagi." });
+    await setShipment(db, s.id, { status: "failed", lastError: "Booking terputus sebelum hasil tersimpan; hubungi Bukalaris sebelum mencoba lagi." });
     return;
   }
   if (s.status !== "queued") return; // already handled (re-run after a lost lease)
@@ -342,21 +372,46 @@ registerHandler(SHIPMENT_BOOK, async ({ db }, j) => {
     await setShipment(db, s.id, { status: s.providerOrderId ? "awaiting_balance" : "failed", lastError: COD_BOOKING_MESSAGE });
     return;
   }
+  if (input.paymentMethod === "cod" && !(await codAllowedCouriers(db)).has(s.courierCode.toLowerCase())) {
+    await setShipment(db, s.id, { status: s.providerOrderId ? "awaiting_balance" : "failed", lastError: COD_COURIER_MESSAGE });
+    return;
+  }
+  let account: ShippingAccountView;
+  let adapter: BookingAdapter;
+  try {
+    account = await orderShippingAccount(db, s.storeId, orderId);
+    adapter = accountBookingAdapter(account);
+  } catch (err) {
+    if (!(err instanceof DomainError) || err.code !== "awaiting_account") throw err;
+    await setShipment(db, s.id, { status: "awaiting_account", lastError: err.message });
+    return;
+  }
+  if (!s.providerOrderId) {
+    // ADR-0006 decision 7: live re-quote outside any lock, then ONE transaction reserves the cost and the seller's debit, and refuses before the provider
+    // call when it cannot be covered. The provider is called only after this commits.
+    const failure = await reserveBooking(db, s, input);
+    if (failure) {
+      await setShipment(db, s.id, { status: "failed", lastError: failure });
+      return;
+    }
+  }
 
-  const adapter = bookingAdapter();
+  // account and adapter above are derived from the order snapshot, not current store routing.
   const fallback: ShipmentStatus = s.providerOrderId ? "awaiting_balance" : "failed";
   let result: BookingResult | null = null;
   try {
     if (!s.providerOrderId) {
       await setShipment(db, s.id, { status: "booking" });
-      result = await withAccountLock(db, () => adapter.createOrder(input));
+      result = await withShippingDispatch(db, account, () => adapter.createOrder(input));
     } else {
       // Unpaid order from an earlier attempt (seller topped up and retried): pay the batch.
-      await withAccountLock(db, () => adapter.payUnpaid(s.providerBatchId ?? s.providerOrderId!, s.courierCode));
+      await withShippingDispatch(db, account, () => adapter.payUnpaid(s.providerBatchId ?? s.providerOrderId!, s.courierCode));
     }
   } catch (err) {
     if (!isRetryableBookingError(err) || j.attempts >= MAX_ATTEMPTS) {
       await setShipment(db, s.id, { status: fallback, lastError: bookingErrorMessage(err) });
+      // A definite rejection created nothing, so the reserved debit is returned; an unknown outcome keeps it until the outcome is proven.
+      if (!s.providerOrderId && !isUncertainWrite(err)) await reverseShippingReservation(db, s.storeId, orderId);
       return;
     }
     await setShipment(db, s.id, { status: "queued", lastError: sanitizeError(err) });
@@ -374,6 +429,8 @@ registerHandler(SHIPMENT_BOOK, async ({ db }, j) => {
   await recordBooking(db, s, result);
 });
 
+const scrubProviderStatus = (status: string | null): string | null => (status === null || (status.length <= 40 && new RegExp(PROVIDER_CODE_RE_SOURCE).test(status)) ? status : REDACTED);
+
 /** Apply one tracking read: history, provider status, state mapping, late resi, delivery → order completed. */
 async function applyTracking(db: Db, s: ShipmentView, t: TrackingResult, nextPoll: number | undefined): Promise<void> {
   await withStore(db, s.storeId, async (tx) => {
@@ -384,21 +441,30 @@ async function applyTracking(db: Db, s: ShipmentView, t: TrackingResult, nextPol
     // Tracking states need a resi; an unpaid order stays `awaiting_balance` until one appears.
     const status: ShipmentStatus = !resi ? s.status : (mapped ?? (TERMINAL.includes(s.status) ? s.status : gotResi ? "booked" : s.status));
     const delivered = status === "delivered";
+    // T-47: an order redacted with an override may still be polled; its provider text stays stripped (timestamps and status codes are kept).
+    // Wave 5 review: take the order row first (the same row `redactOrders` locks FOR UPDATE), so a poll that started before a redaction cannot write its provider text back after it.
+    await tx.select({ id: order.id }).from(order).where(and(eq(order.storeId, s.storeId), eq(order.id, s.orderId))).for("share");
+    const [redacted] = await tx.select({ id: orderRedaction.orderId }).from(orderRedaction).where(and(eq(orderRedaction.storeId, s.storeId), eq(orderRedaction.orderId, s.orderId)));
+    const history = (t.history.length ? t.history : s.trackingHistory).slice(-TRACK_HISTORY_MAX);
     await setShipment(tx, s.id, {
       status,
       trackingNumber: resi,
       paid: s.paid || resi !== null,
       bookedAt: s.bookedAt ?? (resi ? now : null),
-      providerStatus: t.providerStatus ?? s.providerStatus,
-      trackingHistory: (t.history.length ? t.history : s.trackingHistory).slice(-TRACK_HISTORY_MAX),
+      // A redacted order keeps only a status CODE (provider free text such as "Diterima oleh <nama>" is replaced); `PROVIDER_CODE_RE` is the rule redaction itself uses.
+      providerStatus: redacted ? scrubProviderStatus(t.providerStatus ?? s.providerStatus) : (t.providerStatus ?? s.providerStatus),
+      trackingHistory: redacted ? history.map((h) => ({ ...h, desc: REDACTED })) : history,
       deliveredAt: s.deliveredAt ?? (delivered ? now : null),
       lastTrackedAt: now,
       lastError: null,
     });
     if (resi && gotResi) await shipOrder(tx, s.storeId, s.orderId, resi, s.requestedBy);
-    if (delivered) {
-      const [o] = await tx.select({ status: order.status }).from(order).where(and(eq(order.storeId, s.storeId), eq(order.id, s.orderId)));
-      if (o?.status === "shipped") await applyTransition(tx, s.storeId, s.orderId, "complete", null, s.requestedBy);
+    // Courier-driven moves go through the one writer: DELIVERED -> completed (a COD sale is booked pending only here, ADR-0006 decision 4), RTS -> returned
+    // (in transit only), a courier cancellation -> cancelled. A move the writer refuses is recorded on the shipment (and the audit log), never dropped.
+    const target = status === "delivered" ? "completed" : status === "returned" ? "returned" : status === "cancelled" ? "cancelled" : null;
+    if (target) {
+      const r = await applyProviderTransition(tx, s.storeId, s.orderId, target, { source: "provider", note: providerStatusLabel(t.providerStatus) ?? undefined });
+      if (r.outcome === "rejected") await setShipment(tx, s.id, { lastError: `Pembaruan status dari kurir ditolak penulis status pesanan; pesanan tetap "${ORDER_STATUS_LABEL[r.status]}". Hubungi Bukalaris bila status ini tidak sesuai.` });
     }
     if (nextPoll !== undefined && !TERMINAL.includes(status) && nextPoll < MAX_TRACK_POLLS) {
       await enqueue(tx, { kind: SHIPMENT_TRACK, storeId: s.storeId, key: `track:${s.orderId}:${nextPoll}`, payload: { orderId: s.orderId, poll: nextPoll }, runAt: new Date(Date.now() + trackDelayMs(nextPoll)) });
@@ -406,11 +472,25 @@ async function applyTracking(db: Db, s: ShipmentView, t: TrackingResult, nextPol
   });
 }
 
+/** Delay before tracking is retried for a shipment whose Partner account is not usable (needs_key or disabled). */
+const ACCOUNT_RETRY_MS = 15 * 60_000;
+
 registerHandler(SHIPMENT_TRACK, async ({ db }, j) => {
   const { orderId, poll } = trackPayload.parse(j.payload);
   const s = await loadShipment(db, j.storeId, orderId);
   if (!s || !s.providerOrderId || TERMINAL.includes(s.status)) return;
   // Read-only provider call outside any transaction; a failure retries through the outbox backoff.
-  const t = await bookingAdapter().track({ providerOrderId: s.providerOrderId, trackingNumber: s.trackingNumber });
+  let account: ShippingAccountView;
+  try { account = await orderShippingAccount(db, s.storeId, orderId); }
+  catch (err) {
+    if (!(err instanceof DomainError) || err.code !== "awaiting_account") throw err;
+    // Wave 4 review: a parcel that is already booked keeps its real status (the buyer page must not say "awaiting account" for a parcel in transit) and tracking is
+    // re-queued with a fixed delay, so it resumes by itself once the account is usable again; before this the chain ended here and DELIVERED -> completed waited for a manual refresh.
+    await setShipment(db, s.id, { lastError: err.message });
+    const bucket = Math.floor(Date.now() / ACCOUNT_RETRY_MS);
+    await enqueue(db, { kind: SHIPMENT_TRACK, storeId: s.storeId, key: `track:${s.orderId}:${poll ?? 0}:acct:${bucket}`, payload: { orderId: s.orderId, poll: poll ?? 0 }, runAt: new Date((bucket + 1) * ACCOUNT_RETRY_MS) });
+    return;
+  }
+  const t = await accountBookingAdapter(account).track({ providerOrderId: s.providerOrderId, trackingNumber: s.trackingNumber, shippingAccountId: account.id, shippingAccountKind: account.kind });
   await applyTracking(db, s, t, poll === undefined ? undefined : poll + 1);
 });

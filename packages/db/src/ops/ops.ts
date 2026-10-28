@@ -1,12 +1,13 @@
 // M2 track module (see AGENTS.md "Parallel tracks"): Log System sink, query
-// service and platform capability grants (PR-11, OBS-5).
+// service (PR-11, OBS-5). Platform capability checks live in capabilities.ts (T-60).
 import { and, desc, eq, gte, lt, lte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Executor } from "../client.ts";
 import { auditLog } from "../schema.ts";
-import { LOG_LEVELS, operatorGrant, systemLog, type LogLevel, type PlatformCapability } from "./schema-ops.ts";
+import { LOG_LEVELS, systemLog, type LogLevel } from "./schema-ops.ts";
+import { requirePlatformCap } from "./capabilities.ts";
 import { DomainError, type OperatorScope } from "../platform/scoped.ts";
-export { LOG_LEVELS, PLATFORM_CAPABILITIES, type LogLevel, type PlatformCapability } from "./schema-ops.ts";
+export { LOG_LEVELS, type LogLevel } from "./schema-ops.ts";
 
 // ---------------------------------------------------------------------------
 // Redaction (SEC-5, OBS signal contract). Allowlist: only these structured keys
@@ -33,17 +34,19 @@ const ALLOWED = new Set<string>(LOG_FIELD_ALLOWLIST);
 const TEXT_MAX = 500;
 
 /** Free text may still carry secrets (connection strings, phone numbers, query params); scrub known shapes and cap length. */
-export function scrubText(input: unknown): string {
+export function scrubText(input: unknown, max = TEXT_MAX): string {
   const s = typeof input === "string" ? input : input == null ? "" : String(input);
   return s
     .replace(/\bparams:[\s\S]*$/i, "") // drizzle "Failed query: … params: …" carries bound values
     .replace(/\b[a-z][a-z0-9+.-]*:\/\/[^\s"']+/gi, "[url]") // URLs may embed credentials/query strings
     .replace(/\b(bearer|basic)\s+[a-z0-9._~+/=-]+/gi, "$1 [redacted]")
+    .replace(/\b(password|passwd|secret|token|api[_-]?key|otp|cookie|authorization)\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]")
+    .replace(/\b(?=[A-Za-z0-9_-]*\d)(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{40,}\b/g, "[credential]") // long mixed letter-digit runs look like keys or tokens
     .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, "[email]")
-    .replace(/\+?\d[\d\s().-]{7,}\d/g, "[digits]") // phone numbers, card-like runs
+    .replace(/\+?\d[\d\s().-]{6,}\d/g, "[digits]") // phone numbers, NIK, NPWP, bank account numbers (8+ digit runs, PRIV-9), card-like runs
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, TEXT_MAX);
+    .slice(0, max);
 }
 /** Structured identifiers (ids, codes, route templates) are kept verbatim, only normalized and capped. */
 const clip = (v: unknown, max: number) => String(v).replace(/\s+/g, " ").trim().slice(0, max);
@@ -65,11 +68,18 @@ export function sanitizeFields(fields: LogFields): Record<string, string | numbe
 // a miss is reported as "mapping unavailable", never inferred from stack text.
 // ---------------------------------------------------------------------------
 export const MODULE_MAP: Record<string, { pageId: string; label: string }> = {
-  "admin.stores": { pageId: "SA-02", label: "Super Admin · daftar toko" },
-  "admin.store": { pageId: "SA-03", label: "Super Admin · detail toko" },
-  "admin.logs": { pageId: "SA-05", label: "Super Admin · Log System" },
-  "admin.logs.detail": { pageId: "SA-06", label: "Super Admin · detail log" },
-  "admin.shipping": { pageId: "SA-07", label: "Super Admin · margin ongkir" },
+  "admin.stores": { pageId: "SA-02", label: "Owner console · daftar toko" },
+  "admin.store": { pageId: "SA-03", label: "Owner console · detail toko" },
+  "admin.logs": { pageId: "SA-05", label: "Owner console · Log System" },
+  "admin.logs.detail": { pageId: "SA-06", label: "Owner console · detail log" },
+  "admin.shipping": { pageId: "SA-07", label: "Owner console · margin ongkir" },
+  "admin.overview": { pageId: "SA-14", label: "Owner console · ringkasan" },
+  "admin.approvals": { pageId: "SA-28", label: "Owner console · persetujuan" },
+  "admin.settings": { pageId: "SA-34", label: "Owner console · pengaturan platform" },
+  "admin.providers": { pageId: "SA-35", label: "Owner console · kesehatan provider" },
+  "admin.ops": { pageId: "SA-36", label: "Owner console · kesehatan sistem" },
+  "admin.audit": { pageId: "SA-37", label: "Owner console · audit" },
+  "admin.issues": { pageId: "SA-50", label: "Owner console · laporan masalah" },
   auth: { pageId: "AU-01", label: "Masuk" },
   "auth.recovery": { pageId: "AU-02", label: "Pemulihan kata sandi" },
   "auth.invite": { pageId: "AU-04", label: "Undangan anggota" },
@@ -102,19 +112,30 @@ export const MODULE_MAP: Record<string, { pageId: string; label: string }> = {
   "order.status": { pageId: "SF-11", label: "Status pesanan pembeli" },
   "api.storefront": { pageId: "HTTP-05", label: "Storefront API v1" },
   "api.signals": { pageId: "HTTP-04", label: "Sinyal iklan (browser)" },
+  "api.payments": { pageId: "HTTP-17", label: "Callback pembayaran" },
+  "api.referral": { pageId: "HTTP-27", label: "Tautan afiliasi (penangkap klik)" },
   feeds: { pageId: "HTTP-15", label: "Feed katalog" },
   "api.health": { pageId: "HTTP-02", label: "Health/readiness" },
 };
 // Longest prefix first: the first match wins.
 const ROUTE_PREFIXES: [string, string][] = [
   ["/admin/logs/[id]", "admin.logs.detail"],
+  ["/admin/approvals", "admin.approvals"],
+  ["/admin/settings/providers", "admin.providers"],
+  ["/admin/settings", "admin.settings"],
+  ["/admin/ops", "admin.ops"],
+  ["/admin/audit", "admin.audit"],
+  ["/admin/issues", "admin.issues"],
   ["/admin/logs", "admin.logs"],
-  ["/admin/stores", "admin.store"],
+  ["/admin/stores/[id]", "admin.store"],
+  ["/admin/stores/new", "admin.store"],
+  ["/admin/stores", "admin.stores"],
   ["/admin/shipping", "admin.shipping"],
-  ["/admin", "admin.stores"],
+  ["/admin", "admin.overview"],
   ["/login", "auth"],
   ["/api/auth", "auth"],
   ["/account/recovery", "auth.recovery"],
+  ["/account/support-recovery", "auth.recovery"],
   ["/account/security", "auth.security"],
   ["/invite", "auth.invite"],
   ["/seller/products", "seller.products"],
@@ -145,6 +166,8 @@ const ROUTE_PREFIXES: [string, string][] = [
   ["/o", "order.status"],
   ["/api/storefront", "api.storefront"],
   ["/api/signals", "api.signals"],
+  ["/api/payments", "api.payments"],
+  ["/r", "api.referral"],
   ["/feeds", "feeds"],
   ["/api/health", "api.health"],
   ["/api/ready", "api.health"],
@@ -193,20 +216,6 @@ export function sanitizeEvent(input: LogEventInput) {
 export async function recordLogEvent(exec: Executor, input: LogEventInput): Promise<number> {
   const [row] = await exec.insert(systemLog).values(sanitizeEvent(input)).returning({ id: systemLog.id });
   return row!.id;
-}
-
-// ---------------------------------------------------------------------------
-// Platform capabilities (explicit grants; a seller never has an OperatorScope).
-// ---------------------------------------------------------------------------
-export async function hasPlatformCap(op: OperatorScope, cap: PlatformCapability): Promise<boolean> {
-  const rows = await op.exec
-    .select({ c: operatorGrant.capability })
-    .from(operatorGrant)
-    .where(and(eq(operatorGrant.userId, op.userId), eq(operatorGrant.capability, cap)));
-  return rows.length > 0;
-}
-export async function requirePlatformCap(op: OperatorScope, cap: PlatformCapability): Promise<void> {
-  if (!(await hasPlatformCap(op, cap))) throw new DomainError("forbidden", "Akses ditolak: butuh izin logs.read.");
 }
 
 // ---------------------------------------------------------------------------

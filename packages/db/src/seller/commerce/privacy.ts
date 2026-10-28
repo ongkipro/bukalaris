@@ -1,17 +1,19 @@
 import { createHash } from "node:crypto";
-import { and, asc, desc, eq, inArray, isNull, lt, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import type { Executor } from "../../client.ts";
-import { normalizePhone } from "./orders.ts";
+import { normalizeEmail, phoneLookupKey } from "../../buyer/normalize.ts";
+import { phoneKeyEquals } from "../../buyer/normalize-sql.ts";
 import {
   auditLog,
-  mailOutbox,
+  checkoutSession,
   order,
   orderLine,
   orderNotification,
   orderRedaction,
   orderSignalContext,
   orderStatusHistory,
+  shipment,
   signalEvent,
   type OrderStatus,
   type RedactionSource,
@@ -41,7 +43,8 @@ export type Handling =
   | "expires" // short-lived by an existing sweep; redaction does not touch it
   | "kept" // free text that must not carry buyer data; not touched (documented)
   | "seller" // seller/operator account data, not buyer data (out of scope here)
-  | "not_personal"; // name matched the scan but the column holds no personal data
+  | "not_personal" // name matched the scan but the column holds no personal data
+  | "global"; // platform-owned global buyer identity (T-57, ADR-0010): never touched by a seller redaction or export, which stay per store
 
 /**
  * Every column whose name looks like buyer personal data, with how redaction treats it.
@@ -65,11 +68,21 @@ export const BUYER_DATA_INVENTORY: readonly { table: string; column: string; han
   { table: "order_signal_context", column: "client_ip", handling: "delete" },
   { table: "order_signal_context", column: "user_agent", handling: "delete" },
   { table: "signal_event", column: "payload", handling: "strip" },
+  // T-47: the provider's tracking text (receiver names and address fragments can appear in it). Redaction keeps the status codes, the timestamps and the resi.
+  { table: "shipment", column: "tracking_history", handling: "strip" }, // each line's `desc` is replaced by REDACTED; `at` and any other key stay
+  { table: "shipment", column: "provider_status", handling: "strip" }, // kept while it is a known provider status code, otherwise replaced by REDACTED
+  { table: "shipment", column: "last_error", handling: "redact" }, // sanitized provider/booking message; REDACTED when present
+  // T-45: what the buyer typed into hosted checkout before ordering (PR-25). Captured only from fields the buyer typed; purged 30 days after creation by cleanup.ts.
+  { table: "checkout_session", column: "buyer_name", handling: "redact" },
+  { table: "checkout_session", column: "buyer_phone", handling: "redact" },
+  { table: "checkout_session", column: "buyer_email", handling: "redact" },
+  { table: "checkout_session", column: "shipping_address", handling: "redact" },
   { table: "order_notification", column: "to_email", handling: "redact" },
   { table: "mail_outbox", column: "to_email", handling: "redact" },
   { table: "mail_outbox", column: "text_body", handling: "redact" },
   { table: "mail_outbox", column: "html_body", handling: "redact" },
   { table: "rate_limit", column: "key", handling: "expires" },
+  { table: "discount_buyer_usage", column: "phone_fingerprint", handling: "not_personal" }, // T-46: keyed HMAC of the canonical phone (purpose promotion.buyer_usage); never the number
   { table: "order_status_history", column: "note", handling: "kept" },
   { table: "stock_adjustment", column: "reason", handling: "kept" },
   { table: "audit_log", column: "reason", handling: "kept" },
@@ -80,37 +93,45 @@ export const BUYER_DATA_INVENTORY: readonly { table: string; column: string; han
   { table: "store", column: "whatsapp", handling: "seller" },
   { table: "store_invitation", column: "email", handling: "seller" },
   { table: "store_pickup_area", column: "address_text", handling: "seller" },
+  // T-57 global buyer identity (ADR-0010, PRIV-8). Platform data: a store owner redacts only the store-owned order snapshot above, and no store lookup reads these tables.
+  { table: "buyer", column: "display_name", handling: "global" },
+  { table: "buyer", column: "primary_phone_identifier_id", handling: "not_personal" }, // a reference to buyer_identifier, no value
+  { table: "buyer_identifier", column: "canonical_value", handling: "global" },
+  { table: "buyer_address", column: "recipient_name", handling: "global" },
+  { table: "buyer_address", column: "phone_canonical", handling: "global" },
+  { table: "buyer_address", column: "address_text", handling: "global" },
 ];
 
 // ── Lookup key ─────────────────────────────────────────────────────────────────────────
 
 export type BuyerKey = { kind: "phone" | "email"; value: string };
 
-/** Phone (`+62…`/`62…`/`0…`, spaces and dashes ignored) or lower-cased e-mail; anything else is rejected. */
+/** Phone (`+62…`/`62…`/`0…`/`0062…`, separators ignored) or e-mail, both through the shared normalization of `buyer/normalize.ts` (T-57); anything else is rejected. */
 export function normalizeBuyerKey(raw: unknown): BuyerKey {
   const s = typeof raw === "string" ? raw.trim() : "";
   if (s.includes("@")) {
-    const value = s.toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) || value.length > 254) throw new DomainError("invalid_query", "Alamat email tidak valid.");
+    const value = normalizeEmail(s);
+    if (value === null) throw new DomainError("invalid_query", "Alamat email tidak valid.");
     return { kind: "email", value };
   }
-  const digits = normalizePhone(s.replace(/[\s().-]/g, ""));
-  if (!/^[0-9]{8,15}$/.test(digits)) throw new DomainError("invalid_query", "Masukkan nomor HP (8–15 digit) atau alamat email pembeli.");
-  return { kind: "phone", value: digits };
+  const value = phoneLookupKey(s);
+  if (value === null) throw new DomainError("invalid_query", "Masukkan nomor HP (8–15 digit) atau alamat email pembeli.");
+  return { kind: "phone", value };
 }
 
-/** Same normalization as `normalizeBuyerKey` applied to the stored phone, so `+62`, `62` and `0` spellings match. */
-const phoneSql = sql`regexp_replace(regexp_replace(regexp_replace(${order.buyerPhone}, '[^0-9+]', '', 'g'), '^\\+', ''), '^62', '0')`;
-const matchesKey = (key: BuyerKey) => (key.kind === "phone" ? sql`${phoneSql} = ${key.value}` : sql`lower(${order.buyerEmail}) = ${key.value}`);
+/** The stored snapshot is compared through the SQL port of the same normalization, so every spelling of one number matches and a redacted one (`[dihapus]`) never does. */
+const matchesKey = (key: BuyerKey) => (key.kind === "phone" ? phoneKeyEquals(order.buyerPhone, key.value) : sql`lower(${order.buyerEmail}) = ${key.value}`);
+/** The same comparison on the checkout-session snapshot (T-45): what the buyer typed, matched through the same SQL port. */
+const sessionMatchesKey = (key: BuyerKey) => (key.kind === "phone" ? phoneKeyEquals(checkoutSession.buyerPhone, key.value) : sql`lower(${checkoutSession.buyerEmail}) = ${key.value}`);
 /** Audit rows never carry the raw key: a short SHA-256 prefix is enough to correlate requests. */
 const keyDigest = (key: BuyerKey) => `${key.kind}:${createHash("sha256").update(key.value).digest("hex").slice(0, 16)}`;
 
-/** Orders of this buyer in the store, newest first. A redacted order no longer matches: its contact fields are gone. */
+/** Orders of this buyer in the store, newest first, and the number of checkout sessions (T-45) that still hold this buyer's typed contact. A redacted order or session no longer matches: its contact fields are gone. */
 export async function findBuyerOrders(scope: SellerScope, rawKey: unknown) {
   requireCap(scope, "privacy.manage");
   const key = normalizeBuyerKey(rawKey);
-  const orders = await inStore(scope, (scope) =>
-    scope.exec
+  return inStore(scope, async (scope) => {
+    const orders = await scope.exec
       .select({
         id: order.id,
         status: order.status,
@@ -122,20 +143,23 @@ export async function findBuyerOrders(scope: SellerScope, rawKey: unknown) {
       .from(order)
       .where(and(eq(order.storeId, scope.storeId), matchesKey(key)))
       .orderBy(desc(order.id))
-      .limit(200),
-  );
-  return { key, orders };
+      .limit(200);
+    const [sessions] = await scope.exec
+      .select({ n: sql<number>`count(*)`.mapWith(Number) })
+      .from(checkoutSession)
+      .where(and(eq(checkoutSession.storeId, scope.storeId), sessionMatchesKey(key)));
+    return { key, orders, sessions: sessions?.n ?? 0 };
+  });
 }
 
 // ── Export ─────────────────────────────────────────────────────────────────────────────
 
-const mailSubjectFor = (orderId: number) => `(^|[^0-9])#${orderId}([^0-9]|$)`;
 
 /**
  * Everything this store holds about one buyer, as one JSON document: orders (contact,
  * shipping, payment, amounts), lines, status history, attribution context, signal events'
- * user blocks, notification records and the mails the dev outbox sent to the buyer. Only the
- * caller's store (RLS); the lookup is audited (`privacy.export`) with a hashed key.
+ * user blocks, notification records, the shipment (status, resi, provider status and tracking lines, T-47), the mails the dev outbox sent to the buyer and the checkout
+ * sessions (what the buyer typed before ordering, T-45). Only the caller's store (RLS); the lookup is audited (`privacy.export`) with a hashed key.
  */
 export async function exportBuyerData(scope: SellerScope, rawKey: unknown) {
   requireCap(scope, "privacy.manage");
@@ -147,7 +171,7 @@ export async function exportBuyerData(scope: SellerScope, rawKey: unknown) {
       .where(and(eq(order.storeId, scope.storeId), matchesKey(key)))
       .orderBy(asc(order.id));
     const ids = rows.map((o) => o.id);
-    const [lines, history, contexts, events, notifications, redactions] = ids.length
+    const [lines, history, contexts, events, notifications, redactions, shipments] = ids.length
       ? await Promise.all([
           tx.select().from(orderLine).where(and(eq(orderLine.storeId, scope.storeId), inArray(orderLine.orderId, ids))).orderBy(asc(orderLine.orderId), asc(orderLine.variantId)),
           tx
@@ -167,19 +191,50 @@ export async function exportBuyerData(scope: SellerScope, rawKey: unknown) {
             .where(and(eq(orderNotification.storeId, scope.storeId), inArray(orderNotification.orderId, ids)))
             .orderBy(asc(orderNotification.id)),
           tx.select().from(orderRedaction).where(and(eq(orderRedaction.storeId, scope.storeId), inArray(orderRedaction.orderId, ids))),
+          // The provider's own references (provider order and batch ids) are Bukalaris/provider internals, not the buyer's data.
+          tx
+            .select({
+              orderId: shipment.orderId,
+              status: shipment.status,
+              courierCode: shipment.courierCode,
+              trackingNumber: shipment.trackingNumber,
+              codAmount: shipment.codAmount,
+              weightKg: shipment.weightKg,
+              providerStatus: shipment.providerStatus,
+              trackingHistory: shipment.trackingHistory,
+              lastError: shipment.lastError,
+              paid: shipment.paid,
+              bookedAt: shipment.bookedAt,
+              deliveredAt: shipment.deliveredAt,
+              lastTrackedAt: shipment.lastTrackedAt,
+            })
+            .from(shipment)
+            .where(and(eq(shipment.storeId, scope.storeId), inArray(shipment.orderId, ids))),
         ])
-      : [[], [], [], [], [], []];
-    // Dev outbox mails addressed to the buyer: store-less table, so the match is the buyer's
-    // own address plus the order number in the subject (order ids are platform-wide).
-    const buyerEmails = [...new Set(rows.map((o) => o.buyerEmail).filter((e): e is string => !!e && e !== REDACTED))];
-    const mails = buyerEmails.length
-      ? await tx
-          .select({ toEmail: mailOutbox.toEmail, subject: mailOutbox.subject, textBody: mailOutbox.textBody, createdAt: mailOutbox.createdAt })
-          .from(mailOutbox)
-          .where(and(inArray(mailOutbox.toEmail, buyerEmails), sql`${mailOutbox.subject} ~ ${`#(${ids.join("|")})([^0-9]|$)`}`))
-          .orderBy(asc(mailOutbox.id))
-      : [];
-    await tx.insert(auditLog).values({ actorUserId: scope.userId, storeId: scope.storeId, action: "privacy.export", reason: `${keyDigest(key)} orders:${ids.join(",") || "-"}` });
+      : [[], [], [], [], [], [], []];
+    // Only order-linked buyer copies can leave the definer; credential mail is never selectable by app.
+    const mails = await tx.execute<{ orderId: number; toEmail: string; subject: string; textBody: string; createdAt: Date }>(
+      sql`select order_id::int as "orderId", to_email as "toEmail", subject, text_body as "textBody", created_at as "createdAt" from public.mail_privacy_export(${`{${ids.join(",")}}`}::bigint[])`,
+    );
+    // T-45: sessions are matched by the typed contact itself (an abandoned checkout may never have become an order). The resume handle and the cart id stay out.
+    const sessions = await tx
+      .select({
+        status: checkoutSession.status,
+        buyerName: checkoutSession.buyerName,
+        buyerPhone: checkoutSession.buyerPhone,
+        buyerEmail: checkoutSession.buyerEmail,
+        shippingAddress: checkoutSession.shippingAddress,
+        subtotalIdr: checkoutSession.subtotalIdr,
+        abandonedAt: checkoutSession.abandonedAt,
+        recoveredAt: checkoutSession.recoveredAt,
+        waOpenedAt: checkoutSession.waOpenedAt,
+        createdAt: checkoutSession.createdAt,
+        updatedAt: checkoutSession.updatedAt,
+      })
+      .from(checkoutSession)
+      .where(and(eq(checkoutSession.storeId, scope.storeId), sessionMatchesKey(key)))
+      .orderBy(asc(checkoutSession.id));
+    await tx.insert(auditLog).values({ actorUserId: scope.userId, storeId: scope.storeId, action: "privacy.export", reason: `${keyDigest(key)} orders:${ids.join(",") || "-"} sessions:${sessions.length}` });
     return {
       format: "bukalaris.buyer-export/1",
       exportedAt: new Date().toISOString(),
@@ -194,8 +249,10 @@ export async function exportBuyerData(scope: SellerScope, rawKey: unknown) {
         signalContext: contexts.find((c) => c.orderId === o.id) ?? null,
         signalEvents: events.filter((e) => e.orderId === o.id).map(({ orderId: _o, ...e }) => e),
         notifications: notifications.filter((n) => n.orderId === o.id).map(({ orderId: _o, ...n }) => n),
-        mails: mails.filter((m) => new RegExp(mailSubjectFor(o.id)).test(m.subject)),
+        mails: mails.filter((m) => m.orderId === o.id).map(({ orderId: _o, ...m }) => m),
+        shipment: shipments.filter((s) => s.orderId === o.id).map(({ orderId: _o, ...s }) => s)[0] ?? null,
       })),
+      checkoutSessions: sessions,
     };
   });
 }
@@ -203,8 +260,65 @@ export type BuyerExport = Awaited<ReturnType<typeof exportBuyerData>>;
 
 // ── Redaction ──────────────────────────────────────────────────────────────────────────
 
-export type RedactionCounts = { orders: number; signalContexts: number; signalEvents: number; notifications: number; mails: number };
-const zero = (): RedactionCounts => ({ orders: 0, signalContexts: 0, signalEvents: 0, notifications: 0, mails: 0 });
+export type RedactionCounts = { orders: number; signalContexts: number; signalEvents: number; notifications: number; mails: number; shipments: number; checkoutSessions: number };
+const zero = (): RedactionCounts => ({ orders: 0, signalContexts: 0, signalEvents: 0, notifications: 0, mails: 0, shipments: 0, checkoutSessions: 0 });
+
+/** A provider status category is an upper-case code such as `ON DELIVERY` or `ACTIVE/WAITING NEXT PROCESS`; anything else may be free text and is not kept (T-47). */
+export const PROVIDER_CODE_RE_SOURCE = "^[A-Z]+([ /_-][A-Z]+)*$";
+
+/**
+ * Strip the provider's free text from the shipments of these orders (T-47): every tracking line keeps its timestamp (`at`) and any other key but its
+ * `desc` becomes REDACTED; `last_error` becomes REDACTED when present; `provider_status` stays while it is a status code. Status, resi, courier, amounts and
+ * every timestamp are untouched. A row that is already stripped is not selected, so a second run changes nothing.
+ */
+async function redactShipments(tx: Executor, storeId: number, ids: number[]): Promise<number> {
+  const stripped = sql`coalesce((select jsonb_agg(case when jsonb_typeof(e) = 'object' then e || jsonb_build_object('desc', ${REDACTED}::text) else e end order by n) from jsonb_array_elements(${shipment.trackingHistory}) with ordinality as t(e, n)), '[]'::jsonb)`;
+  const rows = await tx
+    .update(shipment)
+    .set({
+      trackingHistory: stripped,
+      lastError: sql`case when ${shipment.lastError} is null then null else ${REDACTED}::text end`,
+      providerStatus: sql`case when ${shipment.providerStatus} is null or (char_length(${shipment.providerStatus}) <= 40 and ${shipment.providerStatus} ~ ${PROVIDER_CODE_RE_SOURCE}) then ${shipment.providerStatus} else ${REDACTED}::text end`,
+    })
+    .where(
+      and(
+        eq(shipment.storeId, storeId),
+        inArray(shipment.orderId, ids),
+        sql`(exists (select 1 from jsonb_array_elements(${shipment.trackingHistory}) e where e ->> 'desc' is distinct from ${REDACTED}::text)
+          or (${shipment.lastError} is not null and ${shipment.lastError} <> ${REDACTED}::text)
+          or (${shipment.providerStatus} is not null and ${shipment.providerStatus} <> ${REDACTED}::text and not (char_length(${shipment.providerStatus}) <= 40 and ${shipment.providerStatus} ~ ${PROVIDER_CODE_RE_SOURCE})))`,
+      ),
+    )
+    .returning({ id: shipment.id });
+  return rows.length;
+}
+
+/** Overwrite the typed contact of checkout sessions that match `where` (T-45): REDACTED for name, phone and address, NULL for e-mail, like the order snapshot. Already-redacted rows are skipped. */
+async function redactSessions(tx: Executor, storeId: number, matching: SQL | undefined): Promise<number> {
+  if (!matching) return 0;
+  const rows = await tx
+    .update(checkoutSession)
+    .set({
+      buyerName: sql`case when ${checkoutSession.buyerName} is null then null else ${REDACTED}::text end`,
+      buyerPhone: sql`case when ${checkoutSession.buyerPhone} is null then null else ${REDACTED}::text end`,
+      buyerEmail: null,
+      shippingAddress: sql`case when ${checkoutSession.shippingAddress} is null then null else ${REDACTED}::text end`,
+    })
+    .where(
+      and(
+        eq(checkoutSession.storeId, storeId),
+        matching,
+        or(
+          sql`${checkoutSession.buyerName} is distinct from ${REDACTED}::text and ${checkoutSession.buyerName} is not null`,
+          sql`${checkoutSession.buyerPhone} is distinct from ${REDACTED}::text and ${checkoutSession.buyerPhone} is not null`,
+          sql`${checkoutSession.shippingAddress} is distinct from ${REDACTED}::text and ${checkoutSession.shippingAddress} is not null`,
+          isNotNull(checkoutSession.buyerEmail),
+        ),
+      ),
+    )
+    .returning({ id: checkoutSession.id });
+  return rows.length;
+}
 
 /**
  * The redaction itself, for orders already verified to belong to `storeId`, to be locked
@@ -219,6 +333,15 @@ async function redactRows(
 ): Promise<RedactionCounts> {
   const counts = zero();
   if (ids.length === 0) return counts;
+  // T-45: the sessions of this buyer are found by the order's own contact and cart BEFORE the order snapshot is overwritten.
+  const contacts = await tx.select({ cartId: order.cartId, phone: order.buyerPhone, email: order.buyerEmail }).from(order).where(and(eq(order.storeId, storeId), inArray(order.id, ids)));
+  const sessionMatch = or(
+    ...contacts.map((c) => (c.cartId ? eq(checkoutSession.cartId, c.cartId) : undefined)),
+    ...[...new Set(contacts.map((c) => phoneLookupKey(c.phone)))].map((k) => (k ? phoneKeyEquals(checkoutSession.buyerPhone, k) : undefined)),
+    ...[...new Set(contacts.map((c) => normalizeEmail(c.email)))].map((e) => (e ? sql`lower(${checkoutSession.buyerEmail}) = ${e}` : undefined)),
+  );
+  counts.checkoutSessions = await redactSessions(tx, storeId, sessionMatch);
+  counts.shipments = await redactShipments(tx, storeId, ids);
   counts.orders = (
     await tx
       .update(order)
@@ -237,22 +360,9 @@ async function redactRows(
       .returning({ id: signalEvent.id })
   ).length;
 
-  // Mails: the dev outbox has no order id, so match the recipient recorded for the order
-  // plus the order number in the subject. Buyer copies lose the address too; seller copies
-  // (owner addresses) keep theirs and lose only the body that named the buyer.
-  const sent = await tx
-    .select({ orderId: orderNotification.orderId, recipient: orderNotification.recipient, toEmail: orderNotification.toEmail })
-    .from(orderNotification)
-    .where(and(eq(orderNotification.storeId, storeId), inArray(orderNotification.orderId, ids), ne(orderNotification.toEmail, REDACTED)));
-  for (const n of sent) {
-    counts.mails += (
-      await tx
-        .update(mailOutbox)
-        .set({ textBody: REDACTED, htmlBody: null, ...(n.recipient === "buyer" ? { toEmail: REDACTED } : {}) })
-        .where(and(eq(mailOutbox.toEmail, n.toEmail), sql`${mailOutbox.subject} ~ ${mailSubjectFor(n.orderId)}`, ne(mailOutbox.textBody, REDACTED)))
-        .returning({ id: mailOutbox.id })
-    ).length;
-  }
+  // Owner-side function binds order ids to app_store_id() and strips every buyer and seller copy.
+  const [mailCounts] = await tx.execute<{ n: number }>(sql`select public.mail_privacy_redact(${`{${ids.join(",")}}`}::bigint[])::int as n`);
+  counts.mails = mailCounts?.n ?? 0;
   counts.notifications = (
     await tx
       .update(orderNotification)
@@ -309,6 +419,20 @@ export async function redactOrders(scope: SellerScope, raw: unknown): Promise<Re
       { actorUserId: scope.userId, source: "seller", override: open.length > 0, reason: input.reason ?? null },
     );
     return { ...counts, skipped: done.size };
+  });
+}
+
+/**
+ * Owner redacts the checkout sessions that still hold one buyer's typed contact (T-45), for a buyer who abandoned checkout and never ordered (no order id to
+ * select on the page above). Same overwrite as the order redaction; idempotent; audited as `privacy.redact_sessions` with the count and a hashed key.
+ */
+export async function redactCheckoutSessions(scope: SellerScope, rawKey: unknown): Promise<{ checkoutSessions: number }> {
+  requireCap(scope, "privacy.manage");
+  const key = normalizeBuyerKey(rawKey);
+  return inStore(scope, async ({ exec: tx }) => {
+    const n = await redactSessions(tx, scope.storeId, sessionMatchesKey(key));
+    if (n > 0) await tx.insert(auditLog).values({ actorUserId: scope.userId, storeId: scope.storeId, action: "privacy.redact_sessions", reason: `${keyDigest(key)} sessions:${n}` });
+    return { checkoutSessions: n };
   });
 }
 

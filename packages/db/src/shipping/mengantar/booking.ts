@@ -1,4 +1,5 @@
 import { MengantarClient, MengantarError } from "./client.ts";
+import { PARTNER_DISPATCH_LOCKED_MESSAGE } from "../copy.ts";
 import { trackingInfoSchema, type CreatedOrder, type TrackingInfo } from "./schemas.ts";
 
 // Shipment booking + tracking over the platform-owned Mengantar account (T-39, PR-5, Q-2).
@@ -11,6 +12,10 @@ import { trackingInfoSchema, type CreatedOrder, type TrackingInfo } from "./sche
 export type BookingInput = {
   orderId: number;
   storeId: number;
+  shippingAccountId?: number;
+  shippingAccountKind?: "partner_managed" | "platform_master";
+  pickupAreaId?: string;
+  pickupAddress?: string;
   courierCode: string;
   destinationAreaId: string;
   weightKg: number;
@@ -47,7 +52,7 @@ export interface BookingAdapter {
   /** WRITE. Pays an unpaid batch after a top-up; the resi is then fetched with `track`. */
   payUnpaid(batchId: string, courierCode: string): Promise<void>;
   /** READ. Current provider status and history of a booked shipment. */
-  track(ref: { providerOrderId: string | null; trackingNumber: string | null }): Promise<TrackingResult>;
+  track(ref: { providerOrderId: string | null; trackingNumber: string | null; shippingAccountId?: number; shippingAccountKind?: "partner_managed" | "platform_master" }): Promise<TrackingResult>;
 }
 
 /**
@@ -116,6 +121,7 @@ export type BookingEnv = { pickupAddressId: string; pickupTimeId?: string | unde
 export function mengantarBooking(client: MengantarClient, env: BookingEnv): BookingAdapter {
   return {
     async createOrder(input) {
+      if (input.shippingAccountKind === "partner_managed") throw new MengantarError("write_disabled", PARTNER_DISPATCH_LOCKED_MESSAGE);
       const { courier, cargo } = toCreateOrderCourier(input.courierCode);
       const res = await client.createOrder({
         courier,

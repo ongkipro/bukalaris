@@ -6,15 +6,19 @@ import { eq } from "drizzle-orm";
 import { addVariant, createProduct } from "./seller/commerce/catalog.ts";
 import { platformDb } from "./client.ts";
 import { createStore } from "./platform/platform.ts";
-import { account, membership, operatorGrant, platformOperator, store, user } from "./schema.ts";
+import { account, membership, platformOperator, store, user } from "./schema.ts";
+import { grantAsSystem } from "./ops/capabilities-grants.ts";
+import { LOCAL_SEED_OPERATOR_CAPABILITIES } from "./ops/capabilities-bootstrap.ts";
 import { operatorScope, sellerContext } from "./platform/scoped.ts";
 import { setPickupAddress, setPickupArea } from "./shipping/shipping.ts";
+import { seedFakeCourierPolicy } from "./ledger/fixtures.ts";
 
 if (process.env.NODE_ENV === "production") throw new Error("seed is for local development only");
 export const DEV_PASSWORD = "bukalaris-dev-123";
 
 // Seeding creates stores and operators: platform role (BYPASSRLS). Store-scoped writes below still run in context via the scopes.
 const db = platformDb();
+await seedFakeCourierPolicy(db); // local fixture: the fake courier JNE may offer COD (the production allow-list is data: SPX only)
 if ((await db.select().from(store).where(eq(store.slug, "toko-a"))).length) {
   console.log("seed: already applied, nothing to do");
   await db.$client.end();
@@ -31,8 +35,8 @@ async function makeUser(email: string, name: string) {
 
 const adminId = await makeUser("admin@bukalaris.local", "Operator Bukalaris");
 await db.insert(platformOperator).values({ userId: adminId });
-// ops track: Log System access is an explicit platform grant (PR-11).
-await db.insert(operatorGrant).values({ userId: adminId, capability: "logs.read" });
+// Every Owner console action is an explicit capability (T-60); the demo operator holds the documented local set.
+await grantAsSystem(db, { userId: adminId, capabilities: LOCAL_SEED_OPERATOR_CAPABILITIES, source: "system_bootstrap", reason: "local seed (docs/tracks/t60-capabilities.md)" });
 const op = (await operatorScope(db, adminId))!;
 
 const ownerA = await makeUser("owner-a@bukalaris.local", "Ayu (Toko A)");

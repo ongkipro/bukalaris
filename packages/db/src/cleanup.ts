@@ -1,6 +1,8 @@
 // Maintenance command (T-30): `node src/cleanup.ts` deletes idle open carts and old
 // rate-limit windows, then exits. Run it from cron or a scheduler (same image as the
-// worker, different command). Checked-out carts are never touched (see cleanupIdleCarts).
+// worker, different command). Checked-out carts are never touched (see cleanupIdleCarts). Since T-45 it also sweeps idle
+// checkout sessions to `abandoned` (60 minutes) and purges sessions older than 30 days, so schedule it at least every 15 minutes.
+import { sweepCheckoutSessions } from "./seller/commerce/abandoned.ts";
 import { cleanupIdleCarts } from "./seller/commerce/checkout.ts";
 import { platformDb } from "./client.ts";
 import { sanitizeError } from "./ops/jobs/jobs.ts";
@@ -11,13 +13,14 @@ import { purgeSignalContext } from "./storefront/signals.ts";
 const idleHours = Number(process.env.CART_IDLE_HOURS ?? 168);
 const db = platformDb(); // maintenance spans every store: bukalaris_platform (BYPASSRLS)
 try {
+  const sessions = await sweepCheckoutSessions(db); // T-45: before the carts, so a cart whose session was just purged can go in the same run
   const result = await cleanupIdleCarts(db, { idleHours });
   const signals = await purgeSignalContext(db); // T-38: click context / match data older than 30 days
   // T-43: buyer-data retention. Disabled until the privacy owner sets BUYER_DATA_RETENTION_DAYS (Q-11).
   const days = retentionDays();
   const retention = days === null ? { enabled: false } : { enabled: true, days, ...(await redactStaleOrders(db, { days })) };
   console.log(
-    JSON.stringify({ ts: new Date().toISOString(), level: "info", event: "cleanup", idleHours, ...result, signalContexts: signals.contexts, signalEvents: signals.events, buyerRetention: retention }),
+    JSON.stringify({ ts: new Date().toISOString(), level: "info", event: "cleanup", idleHours, ...result, checkoutSessions: sessions, signalContexts: signals.contexts, signalEvents: signals.events, buyerRetention: retention }),
   );
 } catch (err) {
   console.error(JSON.stringify({ ts: new Date().toISOString(), level: "error", event: "cleanup_failed", error: sanitizeError(err) }));

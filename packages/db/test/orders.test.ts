@@ -15,7 +15,8 @@ import {
 } from "../src/seller/commerce/orders.ts";
 import { membership, order, ORDER_STATUSES, orderStatusHistory, stockAdjustment, variant, type OrderStatus } from "../src/schema.ts";
 import { setCartLine } from "../src/storefront/storefront.ts";
-import { buyer, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
+import { admin, buyer, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
+import { deliver } from "./deliver.ts";
 
 const stockOf = async (id: number) => (await platform.select().from(variant).where(eq(variant.id, id)))[0]!.stock;
 const statusOf = async (id: number) => (await platform.select().from(order).where(eq(order.id, id)))[0]!.status;
@@ -32,9 +33,15 @@ async function placed(s: Store, qty = 1, over: Record<string, unknown> = {}) {
 /** The strict input each action accepts (extra keys are rejected by the schema). */
 const inputFor = (action: OrderAction) =>
   action === "ship" ? { trackingNumber: "RESI-1" } : action === "cancel" || action === "reject" || action === "hold" ? { reason: "uji transisi pesanan" } : {};
-/** Force an order into a given status directly (the matrix test needs every start state). */
-const force = (id: number, status: OrderStatus) =>
-  platform.update(order).set({ status, trackingNumber: status === "shipped" || status === "completed" ? "X" : null }).where(eq(order.id, id));
+/** Force an order into a given status directly (the matrix test needs every start state). A fixture: the database status guard is switched off for this one write. */
+const force = async (id: number, status: OrderStatus) => {
+  await admin.execute(`alter table "order" disable trigger order_status_guard`);
+  try {
+    await platform.update(order).set({ status, trackingNumber: status === "shipped" || status === "completed" ? "X" : null }).where(eq(order.id, id));
+  } finally {
+    await admin.execute(`alter table "order" enable trigger order_status_guard`);
+  }
+};
 
 describe("seller orders (SC-12/SC-13)", () => {
   it("lists newest first with a status filter and a stable cursor", async () => {
@@ -65,7 +72,7 @@ describe("seller orders (SC-12/SC-13)", () => {
       buyerName: "Budi Santoso",
       buyerPhone: "081234567890",
       paymentMethod: "manual_transfer",
-      paymentReference: `FAKE-AL-${id}`,
+      payment: { channelCode: "VABCA", requestState: "accepted", status: "pending", amountIdr: 267_500, adminFeeIdr: 6_500, totalIdr: 274_000 }, // T-49: the structured attempt replaces the old reference
       subtotal: 250_000,
       total: 267_500, // 250_000 + prepaid JNE at 2 kg (2 × 1 kg: 10_500 + 5_000) + margin 2_000
       actions: ["pay", "cancel"],
@@ -90,14 +97,16 @@ describe("seller orders (SC-12/SC-13)", () => {
     expect(await platform.select().from(orderStatusHistory)).toHaveLength(0);
   });
 
-  it("happy path: paid → processing → shipped → completed, each step audited with the actor", async () => {
+  it("happy path: paid → processing → shipped → completed (by the courier writer, never by a seller), each step audited", async () => {
     const s = await makeStore("toko-a");
     const id = await placed(s, 1, { paymentMethod: "manual_transfer" });
     expect(await transitionOrder(s.owner, id, "pay")).toBe("placed");
     expect(await transitionOrder(s.owner, id, "process")).toBe("processing");
     await expect(transitionOrder(s.owner, id, "ship", { trackingNumber: "x" })).rejects.toMatchObject({ name: "ZodError" });
     expect(await transitionOrder(s.owner, id, "ship", { trackingNumber: "JNE-0001" })).toBe("shipped");
-    expect(await transitionOrder(s.owner, id, "complete")).toBe("completed");
+    // There is no seller `complete` action any more (ADR-0006 decision 4): the order only completes through the provider-driven writer.
+    await expect(transitionOrder(s.owner, id, "complete" as never)).rejects.toMatchObject({ code: "invalid_action" });
+    expect(await deliver(s.storeId, id)).toMatchObject({ outcome: "applied", status: "completed" });
     const o = (await getOrder(s.owner, id))!;
     expect(o.paidAt).toBeInstanceOf(Date);
     expect(o.trackingNumber).toBe("JNE-0001");
@@ -106,7 +115,7 @@ describe("seller orders (SC-12/SC-13)", () => {
       ["awaiting_payment", "placed", "toko-a-owner"],
       ["placed", "processing", "toko-a-owner"],
       ["processing", "shipped", "toko-a-owner"],
-      ["shipped", "completed", "toko-a-owner"],
+      ["shipped", "completed", null], // the system actor is not a user row
     ]);
     expect(o.history[2]!.note).toBe("JNE-0001");
     expect(await stockOf(s.variantId)).toBe(9); // completing never touches stock

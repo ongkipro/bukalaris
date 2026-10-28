@@ -1,14 +1,15 @@
 import { PageHeader } from "@/components/page-header";
 import { buttonVariants } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { operatorOrDeny } from "@/lib/context";
+import { consoleGate } from "@/lib/console-gate";
+import { AccessDenied } from "../../access-denied";
 import { log } from "@/lib/log";
 import { DomainError, getSystemLog } from "@bukalaris/db";
 import Link from "next/link";
 import { CopyButton } from "@/components/copy-button";
 import { fmtTime, LevelBadge, safeBack } from "../shared";
 
-export const metadata = { title: "Detail log — Bukalaris Owner" };
+export const metadata = { title: "Detail log" };
 
 // Keys already projected into their own rows above are not repeated here.
 const PROJECTED = new Set(["code", "route", "store_id", "operation", "request_id", "module", "page_id", "digest"]);
@@ -18,7 +19,9 @@ function extraFields(fields: Record<string, string | number | boolean>) {
 }
 
 export default async function LogDetailPage({ params, searchParams }: PageProps<"/admin/logs/[id]">) {
-  const op = await operatorOrDeny();
+  const g = await consoleGate("/admin/logs/[id]");
+  if (!g.ok) return <AccessDenied capability={g.capability} />;
+  const op = g.op;
   const { id: rawId } = await params;
   const backHref = safeBack((await searchParams).back);
   const id = /^\d{1,16}$/.test(rawId) ? Number(rawId) : -1;

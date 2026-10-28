@@ -46,7 +46,7 @@ test("owner finds a buyer by phone, exports JSON, is refused for an open order, 
   const row = page.getByTestId(`privacy-order-${orderId}`);
   await expect(row).toContainText("Privasi Uji");
   await expect(row).toContainText("Menunggu konfirmasi");
-  await expect(page.getByTestId("privacy-results")).toContainText(phone);
+  await expect(page.getByTestId("privacy-results")).toContainText(`62${phone.slice(1)}`); // T-57: the lookup key is the canonical 62… form
   await evidence(page, info, "privacy-results");
 
   // Export: a downloaded JSON with this order, never cached.

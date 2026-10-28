@@ -5,14 +5,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { operatorOrDeny } from "@/lib/context";
+import { consoleGate } from "@/lib/console-gate";
+import { AccessDenied } from "../access-denied";
 import { log } from "@/lib/log";
 import { DomainError, listSystemLogs, LOG_LEVELS, MODULE_MAP } from "@bukalaris/db";
 import Link from "next/link";
 import { ZodError } from "zod";
 import { fmtTime, LEVEL_LABEL, LevelBadge } from "./shared";
 
-export const metadata = { title: "Log System — Bukalaris Owner" };
+export const metadata = { title: "Log System" };
 
 const RANGES = { "15m": ["15 menit terakhir", 15], "1h": ["1 jam terakhir", 60], "6h": ["6 jam terakhir", 360], "24h": ["24 jam terakhir", 1440] } as const;
 type RangeKey = keyof typeof RANGES;
@@ -27,7 +28,9 @@ function timeWindow(from: string, to: string, range: RangeKey) {
 }
 
 export default async function LogsPage({ searchParams }: PageProps<"/admin/logs">) {
-  const op = await operatorOrDeny();
+  const g = await consoleGate("/admin/logs");
+  if (!g.ok) return <AccessDenied capability={g.capability} />;
+  const op = g.op;
   const sp = await searchParams;
   const q = Object.fromEntries(FILTER_KEYS.map((k) => [k, first(sp[k])])) as Record<(typeof FILTER_KEYS)[number], string>;
   const range: RangeKey = q.range in RANGES ? (q.range as RangeKey) : "1h";

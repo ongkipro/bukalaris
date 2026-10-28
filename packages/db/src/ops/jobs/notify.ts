@@ -1,9 +1,11 @@
+import "./mail.ts"; // registers the durable delivery handler used by each rendered notification
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { dbMailer, type Mail, type Mailer } from "../../platform/accounts.ts";
 import { surfaceOriginsFromEnv } from "../../platform/host.ts";
-import { platformDb, type Executor } from "../../client.ts";
+import type { Executor } from "../../client.ts";
+import { resolveOrderStore } from "../../platform/resolvers.ts";
 import { enqueue, registerHandler } from "./jobs.ts";
 import type { OrderAction } from "../../seller/commerce/orders.ts";
 import { withStore } from "../../platform/tenant.ts";
@@ -84,9 +86,9 @@ export async function getOrderForLink(exec: Executor, token: string, now = Date.
   const orderId = verifyOrderLink(token, now);
   if (!orderId) return null;
   // Cross-store resolver (ADR-0005 §4): the signed order id → its store, nothing else; then the store context.
-  const [owner] = await platformDb().select({ storeId: order.storeId }).from(order).where(eq(order.id, orderId));
-  if (!owner) return null;
-  return withStore(exec, owner.storeId, async (tx) => {
+  const storeId = await resolveOrderStore(exec, orderId);
+  if (storeId === null) return null;
+  return withStore(exec, storeId, async (tx) => {
     const [o] = await tx
       .select({
         id: order.id,
@@ -99,6 +101,8 @@ export async function getOrderForLink(exec: Executor, token: string, now = Date.
         destinationAreaLabel: order.destinationAreaLabel,
         subtotal: order.subtotal,
         shippingFee: order.shippingFee,
+        goodsDiscount: order.goodsDiscount,
+        shippingDiscount: order.shippingDiscount,
         total: order.total,
         createdAt: order.createdAt,
         updatedAt: order.updatedAt,
@@ -127,6 +131,7 @@ export const BUYER_STATUS_LABEL: Record<OrderStatus, string> = {
   shipped: "Dikirim",
   completed: "Selesai",
   cancelled: "Dibatalkan",
+  returned: "Dikembalikan ke penjual",
 };
 
 // ── Templates ──────────────────────────────────────────────────────────────
@@ -152,6 +157,8 @@ async function loadOrder(exec: Executor, storeId: number, orderId: number) {
       destinationAreaLabel: order.destinationAreaLabel,
       subtotal: order.subtotal,
       shippingFee: order.shippingFee,
+      goodsDiscount: order.goodsDiscount,
+      shippingDiscount: order.shippingDiscount,
       total: order.total,
     })
     .from(order)
@@ -219,7 +226,8 @@ export function renderMail(event: NotifyEvent, recipient: NotifyRecipient, o: Or
     `Pesanan #${o.id} · ${o.storeName}`,
     ...o.lines.map((l) => `- ${l.productTitle} · ${l.variantTitle} × ${l.quantity} = ${rupiah(l.lineTotal)}`),
     `Subtotal ${rupiah(o.subtotal)}`,
-    `Ongkir ${rupiah(o.shippingFee)}`,
+    ...(o.goodsDiscount > 0 ? [`Diskon barang -${rupiah(o.goodsDiscount)}`] : []),
+    `Ongkir ${rupiah(o.shippingFee)}${o.shippingDiscount > 0 ? ` (sudah dipotong diskon ongkir ${rupiah(o.shippingDiscount)})` : ""}`,
     `Total ${rupiah(o.total)}`,
     `Pengiriman: ${route}${o.trackingNumber ? ` · resi ${o.trackingNumber}` : ""}`,
     "",
@@ -238,7 +246,8 @@ export function renderMail(event: NotifyEvent, recipient: NotifyRecipient, o: Or
         `<tr><td style="padding:6px 0;border-bottom:1px solid #eee">${escapeHtml(l.productTitle)} · ${escapeHtml(l.variantTitle)} × ${escapeHtml(l.quantity)}</td><td style="padding:6px 0;border-bottom:1px solid #eee;text-align:right;white-space:nowrap">${escapeHtml(rupiah(l.lineTotal))}</td></tr>`,
     ),
     `<tr><td style="padding:6px 0">Subtotal</td><td style="padding:6px 0;text-align:right">${escapeHtml(rupiah(o.subtotal))}</td></tr>`,
-    `<tr><td style="padding:6px 0">Ongkir</td><td style="padding:6px 0;text-align:right">${escapeHtml(rupiah(o.shippingFee))}</td></tr>`,
+    ...(o.goodsDiscount > 0 ? [`<tr><td style="padding:6px 0">Diskon barang</td><td style="padding:6px 0;text-align:right">-${escapeHtml(rupiah(o.goodsDiscount))}</td></tr>`] : []),
+    `<tr><td style="padding:6px 0">Ongkir${o.shippingDiscount > 0 ? ` (diskon ongkir ${escapeHtml(rupiah(o.shippingDiscount))})` : ""}</td><td style="padding:6px 0;text-align:right">${escapeHtml(rupiah(o.shippingFee))}</td></tr>`,
     `<tr><td style="padding:6px 0;font-weight:600">Total</td><td style="padding:6px 0;text-align:right;font-weight:600">${escapeHtml(rupiah(o.total))}</td></tr>`,
     "</table>",
     `<p style="margin:12px 0;font-size:14px">Pengiriman: ${escapeHtml(route)}${o.trackingNumber ? ` · resi <strong>${escapeHtml(o.trackingNumber)}</strong>` : ""}</p>`,
@@ -246,14 +255,14 @@ export function renderMail(event: NotifyEvent, recipient: NotifyRecipient, o: Or
     `<p style="margin:0;font-size:12px;color:#666">Email ini dikirim otomatis oleh Bukalaris. Jangan membalas email ini.</p>`,
     "</div></body></html>",
   ].join("");
-  return { to, subject, text, html };
+  return { to, subject, text, html, order: { id: o.id, recipient } };
 }
 
 // ── Job handler ────────────────────────────────────────────────────────────
 
 const notifyPayload = z.object({ orderId: z.number().int().positive(), event: z.enum(NOTIFY_EVENTS), recipient: z.enum(NOTIFY_RECIPIENTS) });
 
-/** Mailer used by the handler, created on the handler's transaction so the dev outbox row commits with the `order_notification` row. Tests swap it. */
+/** Intent and order_notification commit together; the mail.deliver worker performs external I/O after commit. */
 let mailerFor: (exec: Executor) => Mailer = dbMailer;
 export function setNotifyMailer(factory: (exec: Executor) => Mailer): void {
   mailerFor = factory;
@@ -284,8 +293,7 @@ registerHandler(ORDER_NOTIFY, async ({ db }, j) => {
         .onConflictDoNothing()
         .returning({ id: orderNotification.id });
       if (!fresh) continue; // already notified (re-run after a lost lease)
-      // lazy: with a network provider the record and the send are not atomic (at-least-once on a
-      // crash between them); record-then-send keeps a provider error retrying through the outbox.
+      // Durable mail intent commits with the unique notification. No external I/O in this transaction.
       await mailer.send(renderMail(event, recipient, o, to));
     }
   });

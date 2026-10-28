@@ -2,10 +2,17 @@
 // and need no credentials. The real Mengantar adapter lives in ./mengantar/
 // (server-only); AutoLaris stays fake until its gate (T-6) passes.
 
+import type { AdviceInput, PaymentChannel, PaymentCreateInput, PaymentInstruction } from "./contract.ts";
+import { fakeAutoLaris } from "./fake.ts";
+export { fakeAutoLaris } from "./fake.ts";
+export type { PaymentInstruction, PaymentCreateInput, PaymentChannel } from "./contract.ts";
+
 /** A provider area (kelurahan/kecamatan level); `id` is the provider's area id used for origin/destination. */
 export type Area = { id: string; label: string };
 
 export type EstimateInput = {
+  shippingAccountId?: number;
+  shippingAccountKind?: "partner_managed" | "platform_master";
   originAreaId: string;
   destinationAreaId: string;
   /** Whole kilograms, >= 1. */
@@ -36,11 +43,14 @@ export interface ShippingAdapter {
   estimate(input: EstimateInput): Promise<ProviderQuote[]>;
 }
 
-export type PaymentInstruction = { reference: string; instructions: string };
-
-/** AutoLaris H2H: payment instruction creation, called only server-side after commit. */
+/** AutoLaris H2H server boundary. There is intentionally no live transport in this build. */
 export interface PaymentAdapter {
-  createInstruction(input: { storeId: number; orderId: number; amount: number }): Promise<PaymentInstruction>;
+  readonly mode: "fake" | "live";
+  listChannels(): Promise<PaymentChannel[]>;
+  submit(input: PaymentCreateInput): Promise<PaymentInstruction>;
+  advice(input: AdviceInput): Promise<unknown>;
+  /** Only fake adapters may recover a lost create response by local reference. No such live endpoint is assumed. */
+  recoverCreate?(input: PaymentCreateInput): Promise<PaymentInstruction | null>;
 }
 
 /** Fake areas: 24-hex ids like the provider's, so validation is identical in tests and e2e. */
@@ -77,14 +87,6 @@ export const fakeMengantar: ShippingAdapter = {
   },
 };
 
-export const fakeAutoLaris: PaymentAdapter = {
-  async createInstruction({ orderId, amount }) {
-    return {
-      reference: `FAKE-AL-${orderId}`,
-      instructions: `Simulasi: transfer Rp${amount.toLocaleString("id-ID")} dengan kode FAKE-AL-${orderId}. Bukan rekening sungguhan.`,
-    };
-  },
-};
 
 export type Providers = { shipping: ShippingAdapter; payment: PaymentAdapter };
 export const fakeProviders: Providers = { shipping: fakeMengantar, payment: fakeAutoLaris };

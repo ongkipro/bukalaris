@@ -13,7 +13,7 @@ import { rupiah, tanggal } from "@/lib/format";
 import { orderStatusLabel, orderStatusTone, paymentShortLabel } from "@/lib/status";
 import { can, CLOSED_STATUSES, DomainError, findBuyerOrders, REDACTED } from "@bukalaris/db";
 import Link from "next/link";
-import { redactAction } from "./actions";
+import { redactAction, redactSessionsAction } from "./actions";
 
 export const metadata = { title: "Data pembeli — Bukalaris" };
 
@@ -24,7 +24,7 @@ export const metadata = { title: "Data pembeli — Bukalaris" };
 type Found = Awaited<ReturnType<typeof findBuyerOrders>>;
 
 export default async function SellerPrivacyPage({ searchParams }: PageProps<"/seller/privacy">) {
-  const { error, saved, q } = await searchParams;
+  const { error, saved, q, sessions } = await searchParams;
   const scope = await sellerScope();
   const manage = can(scope, "privacy.manage");
   const keyword = typeof q === "string" ? q.trim() : "";
@@ -54,7 +54,13 @@ export default async function SellerPrivacyPage({ searchParams }: PageProps<"/se
       <Notice
         error={error}
         saved={Number.isFinite(savedCount) ? saved : undefined}
-        savedText={savedCount > 0 ? `Data kontak ${savedCount} pesanan dihapus permanen. Pesanan itu tidak lagi muncul dalam pencarian ini.` : "Tidak ada pesanan baru yang dihapus — semua sudah dihapus sebelumnya."}
+        savedText={
+          sessions === "1"
+            ? `Kontak yang diketik pembeli di ${savedCount} keranjang tertinggal dihapus permanen.`
+            : savedCount > 0
+              ? `Data kontak ${savedCount} pesanan dihapus permanen. Pesanan itu tidak lagi muncul dalam pencarian ini.`
+              : "Tidak ada pesanan baru yang dihapus — semua sudah dihapus sebelumnya."
+        }
       />
 
       {!manage && <p role="note" className="text-sm text-muted-foreground">Minta pemilik toko bila ada permintaan pembeli terkait datanya.</p>}
@@ -82,7 +88,7 @@ export default async function SellerPrivacyPage({ searchParams }: PageProps<"/se
           </form>
           {searchError && <p id="q-error" role="alert" className="text-sm text-destructive">{searchError}</p>}
 
-          {found && found.orders.length === 0 && (
+          {found && found.orders.length === 0 && found.sessions === 0 && (
             <EmptyState title={`Tidak ada pesanan untuk ${found.key.kind === "phone" ? "nomor" : "email"} ini di toko ini.`} data-testid="privacy-empty">
               Data pembeli yang sudah dihapus tidak dapat dicari lagi. Periksa penulisan nomor atau email.
             </EmptyState>
@@ -154,6 +160,25 @@ export default async function SellerPrivacyPage({ searchParams }: PageProps<"/se
                   Hapus data terpilih
                 </ConfirmSubmit>
               </fieldset>
+            </form>
+          )}
+
+          {found && found.sessions > 0 && (
+            <form action={redactSessionsAction} className="grid gap-3 rounded-lg border p-4" data-testid="privacy-sessions">
+              <input type="hidden" name="q" value={keyword} />
+              <p className="text-sm">
+                {found.sessions} keranjang tertinggal masih menyimpan {found.key.kind === "phone" ? "nomor" : "email"} ini (yang diketik pembeli di checkout sebelum memesan). Data ini ikut diekspor dan otomatis dihapus 30 hari setelah dibuat.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {found.orders.length === 0 && (
+                  <a href={`/seller/privacy/export?q=${encodeURIComponent(keyword)}`} download className={buttonVariants({ variant: "outline", size: "sm" })} data-testid="privacy-export-sessions">
+                    Unduh JSON
+                  </a>
+                )}
+                <ConfirmSubmit variant="destructive" size="sm" message="Hapus kontak di keranjang tertinggal ini secara permanen? Tindakan ini tidak bisa dibatalkan.">
+                  Hapus kontak keranjang tertinggal
+                </ConfirmSubmit>
+              </div>
             </form>
           )}
         </>

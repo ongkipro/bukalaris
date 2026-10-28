@@ -1,3 +1,4 @@
+import { MENGANTAR_ENTRY_GATE_MESSAGE, mengantarRotationRecorded } from "./gate.ts";
 import type { z } from "zod";
 import {
   areaListSchema,
@@ -33,7 +34,8 @@ export type MengantarErrorCode =
   | "http"
   | "provider" // success:false envelope
   | "invalid_shape"
-  | "write_disabled";
+  | "write_disabled"
+  | "entry_gate"; // Partner Secret rotation is not recorded (T-48 entry gate): no request of any kind leaves this process
 
 export class MengantarError extends Error {
   readonly code: MengantarErrorCode;
@@ -211,6 +213,7 @@ export class MengantarClient {
 
   /** Returns the envelope's `data` (or the whole body when there is no envelope, or when `raw`). */
   async #request(method: string, url: string, opts: { body?: unknown; attempts: number; raw?: boolean }): Promise<unknown> {
+    if (!mengantarRotationRecorded()) throw new MengantarError("entry_gate", MENGANTAR_ENTRY_GATE_MESSAGE);
     let last: MengantarError | undefined;
     for (let attempt = 1; attempt <= opts.attempts; attempt++) {
       this.#onRequest?.({ method, url: this.#redact(url), attempt });

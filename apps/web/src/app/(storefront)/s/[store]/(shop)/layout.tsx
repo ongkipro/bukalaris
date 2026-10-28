@@ -11,9 +11,10 @@ import { storeShell, waLink } from "./_lib";
  * container queries on <main>, so no page knows which theme is active.
  */
 export default async function StoreLayout({ children, params }: LayoutProps<"/s/[store]">) {
-  const { scope, base, profile, collections, pages } = await storeShell((await params).store);
+  const { scope, base, profile, collections, pages, promo } = await storeShell((await params).store);
   const home = base || "/";
   const nav = [
+    ...(promo ? [{ href: `${base}/promo`, label: "Promo" }] : []),
     ...collections.map((c) => ({ href: `${base}/collections/${c.slug}`, label: c.title })),
     ...pages.map((p) => ({ href: `${base}/pages/${p.slug}`, label: p.title })),
   ];

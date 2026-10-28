@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { sellerScope } from "@/lib/context";
 import { rupiah, tanggal } from "@/lib/format";
 import { orderActionLabel, orderStatusLabel, orderStatusTone, paymentLabel, type Tone } from "@/lib/status";
-import { BOOKABLE, can, codBookingAllowed, getOrder, getShipment, providerStatusLabel, RETRYABLE, SHIPMENT_STATUS_LABEL, shipmentTimeline, TERMINAL, type OrderStatus, type ShipmentStatus } from "@bukalaris/db";
+import { BOOKABLE, can, codBookingAllowed, getOrder, getShipment, providerStatusLabel, RETRYABLE, SHIPMENT_STATUS_LABEL, shipmentTimeline, TERMINAL, whiteLabel, type OrderStatus, type ShipmentStatus } from "@bukalaris/db";
 import { notFound } from "next/navigation";
 import { orderAction } from "../actions";
 import { parseId } from "../status";
@@ -18,6 +18,7 @@ const label = (s: string) => orderStatusLabel[s as OrderStatus] ?? s;
 const shipmentTone: Record<ShipmentStatus, Tone> = {
   queued: "warning",
   booking: "warning",
+  awaiting_account: "warning",
   awaiting_balance: "warning",
   booked: "outline",
   in_transit: "default",
@@ -43,7 +44,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
   const fulfil = can(scope, "orders.fulfill");
   const bookable = (BOOKABLE as readonly string[]).includes(o.status);
   const codLocked = o.paymentMethod === "cod" && !codBookingAllowed();
-  const simple = o.actions.filter((a) => a === "confirm" || a === "pay" || a === "process" || a === "complete");
+  const simple = o.actions.filter((a) => a === "confirm" || a === "pay" || a === "process");
   const confirming = o.status === "awaiting_confirmation" || o.status === "on_hold";
 
   return (
@@ -103,7 +104,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
               <div className="grid gap-2">
                 <Label htmlFor="trackingNumber">Nomor resi kurir</Label>
                 <Input id="trackingNumber" name="trackingNumber" required minLength={3} maxLength={80} placeholder={`Resi ${o.courier}`} aria-describedby="tracking-help" />
-                <p id="tracking-help" className="text-xs text-muted-foreground">Resi yang Anda buat sendiri di {o.courier}. Untuk resi otomatis, gunakan booking Mengantar di bawah.</p>
+                <p id="tracking-help" className="text-xs text-muted-foreground">Resi yang Anda buat sendiri di {o.courier}. Untuk resi otomatis, gunakan Bukalaris Kirim di bawah.</p>
               </div>
               <SubmitButton pendingText="Mengirim…">{orderActionLabel.ship}</SubmitButton>
             </form>
@@ -149,22 +150,22 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
       {(shipmentRow || (fulfil && bookable)) && (
         <section aria-labelledby="shipment" className="grid gap-4 rounded-lg border p-4" data-testid="shipment">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 id="shipment" className="text-lg font-semibold">Pengiriman Mengantar</h2>
+            <h2 id="shipment" className="text-lg font-semibold">Pengiriman Bukalaris Kirim</h2>
             {shipmentRow && <StatusBadge label={SHIPMENT_STATUS_LABEL[shipmentRow.status]} tone={shipmentTone[shipmentRow.status]} data-testid="shipment-status" />}
           </div>
 
           {!shipmentRow && codLocked && (
             <p className="text-sm text-muted-foreground" data-testid="cod-locked">
-              Booking COD lewat Mengantar belum dibuka: kebijakan remitansi COD (Q-17) masih menunggu keputusan pemilik platform. Kirim pesanan COD ini dengan resi manual di atas.
+              Booking COD lewat Bukalaris Kirim belum dibuka: kebijakan remitansi COD masih menunggu keputusan pemilik platform. Kirim pesanan COD ini dengan resi manual di atas.
             </p>
           )}
           {!shipmentRow && !codLocked && (
             <form action={bookShipmentAction.bind(null, o.id)} className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
               <p className="text-sm text-muted-foreground">
-                Booking {o.courier} ke {o.destinationAreaLabel} ({o.weightKg} kg{o.paymentMethod === "cod" ? `, COD ${rupiah(o.total)}` : ""}) lewat akun Mengantar platform. Resi terbit otomatis dan pesanan berpindah ke
+                Booking {o.courier} ke {o.destinationAreaLabel} ({o.weightKg} kg{o.paymentMethod === "cod" ? `, COD ${rupiah(o.total)}` : ""}) lewat Bukalaris Kirim. Resi terbit otomatis dan pesanan berpindah ke
                 &ldquo;Dikirim&rdquo;; pembeli diberi tahu sekali.
               </p>
-              <SubmitButton pendingText="Mengantre…">Kirim lewat Mengantar</SubmitButton>
+              <SubmitButton pendingText="Mengantre…">Kirim dengan Bukalaris Kirim</SubmitButton>
             </form>
           )}
 
@@ -175,14 +176,14 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
                 <dd className="font-mono break-all" data-testid="shipment-resi">{shipmentRow.trackingNumber ?? "Belum terbit"}</dd>
                 <dt className="text-muted-foreground">Status kurir</dt>
                 <dd data-testid="shipment-provider-status">{providerStatusLabel(shipmentRow.providerStatus) ?? "Belum ada pembaruan"}</dd>
-                <dt className="text-muted-foreground">Order Mengantar</dt>
+                <dt className="text-muted-foreground">Order Bukalaris Kirim</dt>
                 <dd className="font-mono break-all">{shipmentRow.providerOrderId ?? "—"}</dd>
                 <dt className="text-muted-foreground">Diperbarui</dt>
                 <dd>{shipmentRow.lastTrackedAt ? tanggal(shipmentRow.lastTrackedAt) : "—"}</dd>
               </dl>
               {shipmentRow.lastError && (
                 <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive" data-testid="shipment-error">
-                  {shipmentRow.lastError}
+                  {whiteLabel(shipmentRow.lastError)}
                 </p>
               )}
               {fulfil && ((RETRYABLE as readonly string[]).includes(shipmentRow.status) || (shipmentRow.providerOrderId && !(TERMINAL as readonly string[]).includes(shipmentRow.status))) && (
@@ -229,9 +230,14 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
         <section aria-labelledby="payment" className="grid content-start gap-1 text-sm">
           <h2 id="payment" className="text-lg font-semibold">Pembayaran</h2>
           <p>{paymentLabel[o.paymentMethod]}</p>
-          <p className="text-muted-foreground">
-            Referensi: {o.paymentReference ? <span className="font-mono break-all">{o.paymentReference}</span> : "—"}
-          </p>
+          {o.payment ? (
+            <p className="text-muted-foreground" data-testid="payment-attempt">
+              {o.payment.channelCode} · Total tagihan {rupiah(o.payment.totalIdr)} (termasuk biaya layanan {rupiah(o.payment.adminFeeIdr)}) ·{" "}
+              {o.payment.status === "paid" ? "terverifikasi" : o.payment.requestState === "failed" ? "instruksi gagal dibuat" : o.payment.requestState === "unknown" ? "menunggu pengecekan ke penyedia" : o.payment.requestState === "in_progress" ? "instruksi sedang disiapkan" : "menunggu pembayaran"}
+            </p>
+          ) : (
+            <p className="text-muted-foreground">Tagihan online: —</p>
+          )}
           {o.paidAt && <p className="text-muted-foreground">Dikonfirmasi dibayar {tanggal(o.paidAt)}</p>}
           {o.confirmedAt && <p className="text-muted-foreground">Pesanan COD dikonfirmasi {tanggal(o.confirmedAt)}</p>}
           {o.paymentMethod === "cod" && !o.paidAt && <p className="text-muted-foreground">COD: uang diterima kurir saat barang sampai, belum tercatat sebagai pembayaran.</p>}
@@ -253,7 +259,8 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
         </ul>
         <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 px-3 text-sm tabular-nums">
           <dt>Subtotal</dt><dd className="text-right">{rupiah(o.subtotal)}</dd>
-          <dt>Ongkir</dt><dd className="text-right">{rupiah(o.shippingFee)}</dd>
+          {o.goodsDiscount > 0 && <><dt>Diskon barang (dibiayai toko)</dt><dd className="text-right" data-testid="order-goods-discount">−{rupiah(o.goodsDiscount)}</dd></>}
+          <dt>Ongkir{o.shippingDiscount > 0 && <span className="font-normal text-muted-foreground"> (diskon ongkir dibiayai toko {rupiah(o.shippingDiscount)})</span>}</dt><dd className="text-right">{rupiah(o.shippingFee)}</dd>
           <dt className="font-semibold">Total</dt><dd className="text-right font-semibold" data-testid="order-total">{rupiah(o.total)}</dd>
         </dl>
       </section>

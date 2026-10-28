@@ -70,11 +70,12 @@ test("buyer places an order → seller sees it, processes, ships and completes i
   await expect(page.getByRole("button", { name: "Batalkan pesanan" })).toHaveCount(0);
   await evidence(page, info, "32-seller-order-shipped");
 
-  await page.getByRole("button", { name: "Tandai selesai" }).click();
-  await expect(page.getByTestId("order-status")).toHaveText("Selesai");
+  // T-37 (D-14): the seller can no longer mark an order completed: delivery comes from the courier (or a four-eyes manual completion in the
+  // Owner console), because completion releases the seller's money. Nothing is left for the seller to do after shipping.
+  await expect(page.getByRole("button", { name: "Tandai selesai" })).toHaveCount(0);
   const history = page.getByRole("region", { name: "Riwayat status" }).getByRole("listitem");
-  await expect(history).toHaveCount(5); // created + confirm + 3 transitions
-  await expect(history.last()).toContainText("Dikirim → Selesai oleh Ayu (Toko A)");
+  await expect(history).toHaveCount(4); // created + confirm + process + ship
+  await expect(history.last()).toContainText("Diproses → Dikirim");
   await expect(page.getByRole("button")).toHaveCount(1); // only "Keluar" remains: nothing left to do
 
   // Another store's owner cannot open this order (TEN-1, browser path).
@@ -94,7 +95,7 @@ test("seller confirms a transfer, cancels it (stock returns once) and adjusts in
 
   await page.goto(`/seller/orders/${id}`);
   await expect(page.getByTestId("order-status")).toHaveText("Menunggu pembayaran");
-  await expect(page.getByText(`FAKE-AL-${id}`)).toBeVisible();
+  await expect(page.getByTestId("payment-attempt")).toContainText("VABCA"); // T-49: the attempt replaces the old fake reference
   await page.getByRole("button", { name: "Tandai sudah dibayar" }).click();
   await expect(page.getByTestId("order-status")).toHaveText("Baru");
 

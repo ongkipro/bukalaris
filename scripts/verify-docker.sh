@@ -6,6 +6,7 @@
 # Unique names per run so parallel worktrees do not collide. Optional: VERIFY_PORT=3170 publishes
 # the container on 127.0.0.1:$VERIFY_PORT for a manual look while it runs.
 source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/_registry.sh"
 cd "$ROOT"
 
 tag="${IMAGE_TAG:-local}"
@@ -40,13 +41,16 @@ psql_in postgres -c "create database \"$db\" owner bukalaris_owner" >/dev/null
 docker run --rm --network "$DB_NETWORK" -e MIGRATION_DATABASE_URL="$owner_url" "bukalaris-migrate:$tag"
 docker run --rm --network "$DB_NETWORK" -e MIGRATION_DATABASE_URL="$owner_url" "bukalaris-migrate:$tag" >/dev/null # idempotent re-run
 tables=$(psql_in "$db" -c "select count(*) from information_schema.tables where table_schema='public'")
-policies=$(psql_in "$db" -c "select count(*) from pg_policies where policyname='tenant_isolation'")
-log "migrated $db: $tables public tables, $policies tenant_isolation policies"
+policies=$(psql_in "$db" -c "select count(*) from pg_policies where schemaname='public'")
+want_policies=$(registry_policy_count)
+registry_diff=$(registry_problems "$db")
+[ -z "$registry_diff" ] || printf 'registry differences in %s:\n%s\n' "$db" "$registry_diff" >&2
+log "migrated $db: $tables public tables, $policies/$want_policies policies (registry), $(printf '%s' "$registry_diff" | grep -c . || true) registry differences"
 
 publish=(); [ -n "${VERIFY_PORT:-}" ] && publish=(-p "127.0.0.1:$VERIFY_PORT:3000")
 docker run -d --name "$ctr" --network "$DB_NETWORK" "${publish[@]}" \
   -v "$vol:/data/media" \
-  -e DATABASE_URL="$app_url" -e PLATFORM_DATABASE_URL="$platform_url" -e BETTER_AUTH_URL="http://localhost:${VERIFY_PORT:-3000}" \
+  -e DATABASE_URL="$app_url" -e PLATFORM_DATABASE_URL="$platform_url" -e BETTER_AUTH_URL="http://localhost:${VERIFY_PORT:-3000}" -e MAIL_MODE=local \
   -e BETTER_AUTH_SECRET="verify-only-$id-not-a-real-secret-0123456789" -e STORE_ROOT_DOMAIN=localhost \
   --health-interval=2s --health-retries=5 --health-start-period=5s \
   "bukalaris-web:$tag" >/dev/null
@@ -62,6 +66,6 @@ user="$(docker exec "$ctr" id -un)"
 media="$(docker exec "$ctr" sh -c 'echo ok > "$MEDIA_DIR/.write-test" && rm "$MEDIA_DIR/.write-test" && echo writable' 2>&1 || true)"
 t2=$(now_ms)
 
-echo "verify:docker health=$health s_nope=$nope login=$login healthcheck=$hc user=$user media=$media policies=$policies total_ms=$((t2 - t0))"
-[ "$health" = 200 ] && [ "$nope" = 404 ] && [ "$login" = 200 ] && [ "$hc" = healthy ] && [ "$user" = app ] && [ "$media" = writable ] && [ "$policies" -ge 26 ] ||
+echo "verify:docker health=$health s_nope=$nope login=$login healthcheck=$hc user=$user media=$media policies=$policies/$want_policies total_ms=$((t2 - t0))"
+[ "$health" = 200 ] && [ "$nope" = 404 ] && [ "$login" = 200 ] && [ "$hc" = healthy ] && [ "$user" = app ] && [ "$media" = writable ] && [ "$policies" = "$want_policies" ] && [ -z "$registry_diff" ] ||
   { docker logs "$ctr" | tail -40 >&2; die "image smoke test failed"; }

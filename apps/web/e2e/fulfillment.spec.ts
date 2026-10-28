@@ -53,9 +53,9 @@ test("seller books a paid order through Mengantar → resi + shipped by the work
   await page.getByRole("button", { name: "Tandai sudah dibayar" }).click();
   await expect(page.getByTestId("order-status")).toHaveText("Baru");
 
-  await expect(page.getByRole("button", { name: "Kirim lewat Mengantar" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Kirim dengan Bukalaris Kirim" })).toBeVisible();
   await evidence(page, info, "100-fulfillment-book");
-  await page.getByRole("button", { name: "Kirim lewat Mengantar" }).click();
+  await page.getByRole("button", { name: "Kirim dengan Bukalaris Kirim" }).click();
   await expect(page.getByText(/Booking diminta/).first()).toBeVisible();
 
   // The worker books once, stores the resi and moves the order to shipped through the transition.
@@ -63,7 +63,7 @@ test("seller books a paid order through Mengantar → resi + shipped by the work
   const resi = `FAKE-JNE-${id}`;
   await expect(page.getByTestId("shipment-resi")).toHaveText(resi);
   await expect(page.getByTestId("shipment-status")).toHaveText("Resi terbit, menunggu pickup");
-  await expect(page.getByRole("button", { name: "Kirim lewat Mengantar" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Kirim dengan Bukalaris Kirim" })).toHaveCount(0);
   expect((await sql`select count(*)::int as n from shipment where order_id = ${id}`)[0]!.n).toBe(1);
   expect((await sql`select count(*)::int as n from job where kind = 'shipment.book' and key like ${`shipment:${id}:%`}`)[0]!.n).toBe(1);
 
@@ -102,7 +102,7 @@ test("COD orders cannot be booked through Mengantar while Q-17 is open", async (
   await page.getByRole("button", { name: "Konfirmasi pesanan" }).click();
   await expect(page.getByTestId("order-status")).toHaveText("Baru");
   await expect(page.getByTestId("cod-locked")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Kirim lewat Mengantar" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Kirim dengan Bukalaris Kirim" })).toHaveCount(0);
   await evidence(page, info, "104-fulfillment-cod-locked");
   expect((await sql`select count(*)::int as n from shipment where order_id = ${id}`)[0]!.n).toBe(0);
 });

@@ -1,9 +1,12 @@
 import { and, asc, count, desc, eq, ilike, inArray, max, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { auditLog, collection, collectionProduct, media, membership, order, page, product, store, user, variant } from "../schema.ts";
+import { accountStatusEvent, auditLog, collection, collectionProduct, media, membership, order, page, product, store, user, variant } from "../schema.ts";
 import { DomainError, requireCap, type OperatorScope, type SellerScope, type StorefrontScope } from "../platform/scoped.ts";
 import { isReservedHostLabel, RESERVED_ROUTE_ROOTS, validClaimableLabel } from "../platform/host.ts";
 import { inStore } from "../platform/tenant.ts";
+import { withPersonalDataAccess } from "../ops/console-access.ts";
+import { maskEmail, maskName } from "../ops/accounts-governance.ts";
+import { hasPlatformCap, requirePlatformCap } from "../ops/capabilities.ts";
 
 // M2 content track: store settings/theme (SC-10/11), collections (SC-05/06, SF-02),
 // CMS pages (SC-07/08, SF-05), product media (DATA-6) and storefront search (SF-03).
@@ -43,10 +46,6 @@ export const storeSettingsInput = z.strictObject({
   theme: z.enum(["responsive", "mobile"]).default("responsive"),
 });
 
-function requireOwner(scope: SellerScope): void {
-  if (scope.role !== "owner") throw new DomainError("forbidden", "Hanya pemilik toko yang dapat mengubah pengaturan.");
-}
-
 export async function getStoreSettings(scope: SellerScope) {
   return inStore(scope, async (scope) => {
     const [row] = await scope.exec
@@ -58,7 +57,7 @@ export async function getStoreSettings(scope: SellerScope) {
 }
 
 export async function updateStoreSettings(scope: SellerScope, raw: unknown): Promise<void> {
-  requireOwner(scope);
+  requireCap(scope, "settings.manage"); // owner only; refused while the subscription is past due (T-50), like every Seller Admin write
   const input = storeSettingsInput.parse(raw);
   await inStore(scope, async ({ exec: tx }) => {
     await tx.update(store).set(input).where(eq(store.id, scope.storeId));
@@ -535,6 +534,7 @@ export const storeCreateInput = z.strictObject({
 
 /** Create a store whose first owner is an existing user chosen by email (invitations are another track). */
 export async function createStoreForOwnerEmail(op: OperatorScope, raw: unknown): Promise<number> {
+  await requirePlatformCap(op, "tenants.manage");
   const input = storeCreateInput.parse(raw);
   const [owner] = await op.exec.select({ id: user.id }).from(user).where(eq(user.email, input.ownerEmail));
   if (!owner) throw new DomainError("owner_not_found", "Tidak ada pengguna dengan email itu.");
@@ -542,7 +542,8 @@ export async function createStoreForOwnerEmail(op: OperatorScope, raw: unknown):
     return await op.exec.transaction(async (tx) => {
       const [s] = await tx.insert(store).values({ slug: input.slug, name: input.name }).returning({ id: store.id });
       await tx.insert(membership).values({ storeId: s!.id, userId: owner.id, role: "owner" });
-      await tx.insert(auditLog).values({ actorUserId: op.userId, storeId: s!.id, action: "store.create", reason: `owner ${input.ownerEmail}` });
+      await tx.insert(auditLog).values({ actorUserId: op.userId, storeId: s!.id, action: "store.create", reason: `owner ${maskEmail(input.ownerEmail)}` }); // PRIV-9: an audit reason never carries a raw contact
+      await tx.insert(accountStatusEvent).values({ subjectKind: "store", subjectId: String(s!.id), fromStatus: null, toStatus: "active", reasonCode: "store_created", actorUserId: op.userId });
       return s!.id;
     });
   } catch (err) {
@@ -551,7 +552,9 @@ export async function createStoreForOwnerEmail(op: OperatorScope, raw: unknown):
   }
 }
 
+/** Needs `tenants.read`; the audit rows are included only for an operator who also holds `audit.read` (otherwise `audit` is null). */
 export async function getStoreDetail(op: OperatorScope, storeId: number) {
+  await requirePlatformCap(op, "tenants.read");
   const [s] = await op.exec.select().from(store).where(eq(store.id, storeId));
   if (!s) return null;
   const n = async (table: typeof product | typeof order | typeof membership | typeof collection | typeof page | typeof media) => {
@@ -559,12 +562,16 @@ export async function getStoreDetail(op: OperatorScope, storeId: number) {
     return c;
   };
   const [products, orders, members, collections, pages, images] = await Promise.all([n(product), n(order), n(membership), n(collection), n(page), n(media)]);
-  const owners = await op.exec
-    .select({ email: user.email, name: user.name, role: membership.role })
-    .from(membership)
-    .innerJoin(user, eq(user.id, membership.userId))
-    .where(eq(membership.storeId, storeId))
-    .orderBy(asc(membership.role), asc(user.email));
-  const audit = await op.exec.select().from(auditLog).where(eq(auditLog.storeId, storeId)).orderBy(desc(auditLog.id)).limit(20);
+  // PRIV-9: the team summary carries masked contact only (masked in the data layer), and the read is recorded as a masked access event.
+  const owners = await withPersonalDataAccess(op, { capability: "tenants.read", targetKind: "store", targetId: String(storeId), fieldClass: "email", purposeCode: "support_case", reason: "ringkasan tim di detail toko", accessLevel: "masked" }, async (tx) => {
+    const rows = await tx
+      .select({ userId: user.id, email: user.email, name: user.name, role: membership.role })
+      .from(membership)
+      .innerJoin(user, eq(user.id, membership.userId))
+      .where(eq(membership.storeId, storeId))
+      .orderBy(asc(membership.role), asc(user.email));
+    return rows.map((r) => ({ userId: r.userId, email: maskEmail(r.email), name: maskName(r.name), role: r.role }));
+  });
+  const audit = (await hasPlatformCap(op, "audit.read")) ? await op.exec.select().from(auditLog).where(eq(auditLog.storeId, storeId)).orderBy(desc(auditLog.id)).limit(20) : null;
   return { ...s, counts: { products, orders, members, collections, pages, images }, members: owners, audit };
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
+import { maskEmail } from "../src/ops/accounts-governance.ts";
 import { updateProduct } from "../src/seller/commerce/catalog.ts";
 import {
   addProductMedia,
@@ -199,8 +200,8 @@ describe("content: Super Admin store detail and creation (SA-03)", () => {
     const id = await createStoreForOwnerEmail(a.op, { slug: "toko-c", name: "Toko C", ownerEmail: email.toUpperCase() });
     const detail = await getStoreDetail(a.op, id);
     expect(detail).toMatchObject({ slug: "toko-c", status: "active", theme: "responsive", counts: { products: 0, members: 1, orders: 0 } });
-    expect(detail?.members).toMatchObject([{ email, role: "owner" }]);
-    expect(detail?.audit[0]).toMatchObject({ action: "store.create" });
+    expect(detail?.members).toMatchObject([{ email: maskEmail(email), role: "owner" }]); // T-63: the team summary is masked in the data layer
+    expect(detail?.audit?.[0]).toMatchObject({ action: "store.create" });
     expect((await getStoreDetail(a.op, a.storeId))?.counts.products).toBe(1);
     expect(await getStoreDetail(a.op, 999_999)).toBeNull();
   });

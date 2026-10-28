@@ -17,21 +17,28 @@ import { randomUUID } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { asc, eq, like, sql } from "drizzle-orm";
+import { and, asc, eq, like, sql } from "drizzle-orm";
 import { addVariant, createProduct, getProduct } from "../seller/commerce/catalog.ts";
 import { placeOrder } from "../seller/commerce/checkout.ts";
-import { platformDb, type Db } from "../client.ts";
+import { createDb, platformDb, type Db } from "../client.ts";
 import { addProductMedia, createCollection, createPage, updateStoreSettings } from "../storefront/content.ts";
 import { runOnce } from "../ops/jobs/jobs.ts";
 import "../ops/jobs/notify.ts"; // registers the order e-mail handler
-import { transitionOrder, type OrderAction } from "../seller/commerce/orders.ts";
+import { applyProviderTransition, transitionOrder, type OrderAction } from "../seller/commerce/orders.ts";
+import { withStore } from "../platform/tenant.ts";
+import { seedFakeCourierPolicy } from "../ledger/fixtures.ts";
 import { recordLogEvent } from "../ops/ops.ts";
 import { createStore } from "../platform/platform.ts";
 import { FAKE_AREAS, fakeProviders } from "../payments/providers.ts";
-import { account, cart, membership, operatorGrant, order, orderStatusHistory, platformOperator, stockAdjustment, store, systemLog, user, type OrderStatus } from "../schema.ts";
+import { account, cart, membership, order, orderStatusHistory, platformOperator, stockAdjustment, store, systemLog, user, type OrderStatus } from "../schema.ts";
 import { operatorScope, sellerContext, storefrontScope, type SellerScope } from "../platform/scoped.ts";
+import { grantAsSystem } from "../ops/capabilities-grants.ts";
+import { LOCAL_SEED_OPERATOR_CAPABILITIES } from "../ops/capabilities-bootstrap.ts";
 import { setPickupAddress, setPickupArea } from "../shipping/shipping.ts";
 import { saveDestination } from "../storefront/signals.ts"; // also registers the signal.deliver handler
+import { bookShipment, fakeMengantarBooking, refreshTracking, setBookingAdapter } from "../shipping/fulfillment.ts"; // also registers the shipment.* handlers
+import { createFeedToken } from "../storefront/feeds.ts";
+import { createLandingPage, getLandingPage, newBlock, publishLandingPage, saveDraft, type LandingBlock } from "../storefront/landing.ts";
 import { setCartLine } from "../storefront/storefront.ts";
 import { DEMO_ADMIN, DEMO_BUYERS, DEMO_EMAIL_DOMAIN, DEMO_PASSWORD, DEMO_SLUG_PREFIX, DEMO_STORES, demoPages, INCOMPLETE_ADDRESS_BUYER, NO_COD_AREA_INDEX, type DemoStore } from "./data.ts";
 import { initialsOf, placeholderPng } from "./png.ts";
@@ -46,6 +53,8 @@ export type SeedDemoOptions = {
   /** Subset of `DEMO_STORES` to seed (tests use one to stay fast). */
   stores?: DemoStore[];
   log?: (line: string) => void;
+  /** Owner-role connection used for the one erase the platform login may not do (payment evidence). Defaults to `db` (tests). */
+  ownerDb?: Db;
 };
 export type SeedDemoCounts = {
   stores: number;
@@ -62,6 +71,9 @@ export type SeedDemoCounts = {
   signalEvents: number;
   mails: number;
   logs: number;
+  landingPages: number;
+  shipments: number;
+  feedTokens: number;
 };
 export type SeedDemoResult = { skipped: boolean; counts: SeedDemoCounts; mediaDir: string };
 
@@ -92,7 +104,9 @@ function wib(daysAgo: number, hour: number, minute: number, now = Date.now()): D
 const plusHours = (d: Date, h: number, now = Date.now()) => new Date(Math.min(d.getTime() + h * 3_600_000, now - 60_000));
 
 // ── Order plan: what each store ends up with (16 orders, every status at least once) ───
-type Target = OrderStatus | "rejected";
+type Target = Exclude<OrderStatus, "returned"> | "rejected";
+/** A seller action, or the courier's DELIVERED (no seller can complete an order: ADR-0006 decision 4). */
+type DemoStep = OrderAction | "complete";
 const ORDER_PLAN: { target: Target; pay: "cod" | "transfer" | "mix"; days: [number, number] }[] = [
   { target: "completed", pay: "mix", days: [8, 29] },
   { target: "completed", pay: "cod", days: [8, 29] },
@@ -111,7 +125,7 @@ const ORDER_PLAN: { target: Target; pay: "cod" | "transfer" | "mix"; days: [numb
   { target: "cancelled", pay: "transfer", days: [3, 20] },
   { target: "awaiting_payment", pay: "transfer", days: [0, 1] },
 ];
-const COD_STEPS: Record<Target, OrderAction[]> = {
+const COD_STEPS: Record<Target, DemoStep[]> = {
   awaiting_confirmation: [],
   on_hold: ["hold"],
   placed: ["confirm"],
@@ -122,7 +136,7 @@ const COD_STEPS: Record<Target, OrderAction[]> = {
   cancelled: ["confirm", "cancel"],
   awaiting_payment: [],
 };
-const TRANSFER_STEPS: Record<Target, OrderAction[]> = {
+const TRANSFER_STEPS: Record<Target, DemoStep[]> = {
   awaiting_payment: [],
   placed: ["pay"],
   processing: ["pay", "process"],
@@ -144,12 +158,26 @@ const REASONS: Record<string, string[]> = {
 const isFkViolation = (err: unknown) => (err as { cause?: { code?: string } })?.cause?.code === "23503";
 
 /** Delete demo rows: every table with `store_id` for the demo stores (FK-ordered by retrying), then stores, users, mails, logs and image files. */
-async function resetDemo(db: Db, storeIds: number[], mediaRoot: string, log: (s: string) => void) {
+async function resetDemo(db: Db, ownerDb: Db, storeIds: number[], mediaRoot: string, log: (s: string) => void) {
   const ids = sql.join(storeIds.map((id) => sql`${id}`), sql`, `);
   const demoUsers = sql`select id from "user" where email like ${`%@${DEMO_EMAIL_DOMAIN}`}`;
+  // Payment evidence (T-49) is append-only and the platform role cannot delete it: an owner-side function removes the demo stores' rows.
+  // Subscription billing evidence (T-50) is append-only too: its own owner-side reset removes the demo stores' rows (invoices, attempts, events, notices, subscription).
+  const PAYMENT_TABLES = ["payment_attempt", "payment_attempt_event", "payment_callback", "payment_observation", "late_payment_obligation", "store_subscription", "subscription_invoice", "subscription_payment_attempt", "subscription_payment_callback", "subscription_event", "subscription_notice"];
+  // The ledger tables (T-37) refuse DELETE for every login role; the same owner-side pattern removes the demo stores' rows (before the payment rows: refunds reference attempts).
+  const LEDGER_TABLES = ["order_financials", "order_line_financials", "shipment_cost", "ledger_entry", "reconciliation_batch_item", "payout_destination", "payout", "refund", "store_step_up_proof"];
+  // Affiliate attributions reference the frozen order financials and are never deleted by a login role (T-52): an owner-side reset removes the demo stores' rows first.
+  const AFFILIATE_TABLES = ["affiliate_attribution", "affiliate_click", "affiliate_link", "affiliate_catalog", "affiliate_block", "affiliate_offer", "affiliate_seller_policy"];
+  await ownerDb.execute(sql`select reset_demo_affiliate(array[${ids}]::bigint[])`);
+  await ownerDb.execute(sql`select reset_demo_ledger(array[${ids}]::bigint[])`);
+  await ownerDb.execute(sql`select reset_demo_payments(array[${ids}]::bigint[])`); // owner connection only: no login role may call it (wave 2 review)
+  await ownerDb.execute(sql`select reset_demo_billing(array[${ids}]::bigint[])`); // owner connection only, same pattern (T-50)
+  await ownerDb.execute(sql`select reset_demo_promotions(array[${ids}]::bigint[])`); // promotion counters and redemption evidence refuse DELETE for every login role (T-46); same rule
+  const PROMOTION_TABLES = ["discount", "discount_buyer_usage", "discount_redemption", "flash_sale", "flash_sale_item", "flash_sale_redemption", "promo_hub", "promo_hub_collection"];
+  await ownerDb.execute(sql`select reset_demo_buyers(array[${ids}]::bigint[])`); // buyer links and events reference the demo orders; same rule (T-57)
   let pending = rows<{ table_name: string }>(
-    await db.execute(sql`select distinct table_name from information_schema.columns where table_schema = 'public' and column_name = 'store_id'`),
-  ).map((r) => r.table_name);
+    await db.execute(sql`select distinct c.table_name from information_schema.columns c join information_schema.tables t on t.table_schema = c.table_schema and t.table_name = c.table_name and t.table_type = 'BASE TABLE' where c.table_schema = 'public' and c.column_name = 'store_id' and c.table_name not like 'tax\\_%' and c.table_name not in ('buyer_order_link', 'buyer_identity_event', 'store_shipping_account')`), // base tables only (T-37 added views with a store_id); tax records are platform data kept under PRIV-10 retention, never deleted with a store; shipping accounts are deleted last by reset_demo_shipping (orders reference them)
+  ).map((r) => r.table_name).filter((t) => !PAYMENT_TABLES.includes(t) && !LEDGER_TABLES.includes(t) && !PROMOTION_TABLES.includes(t) && !AFFILIATE_TABLES.includes(t));
   // Per-cart checkout counters (T-30) are keyed by cart id, not store: clear them while the carts still exist.
   await db.execute(sql`delete from rate_limit where key in (select 'order:cart:' || id from cart where store_id in (${ids}))`);
   // No ownership-free order is known up front (tracks add tables): delete what the FKs allow, retry the rest.
@@ -166,6 +194,7 @@ async function resetDemo(db: Db, storeIds: number[], mediaRoot: string, log: (s:
     pending = blocked;
   }
   if (pending.length > 0) throw new Error(`seed-demo: reset could not clear ${pending.join(", ")}`);
+  await ownerDb.execute(sql`select reset_demo_shipping(array[${ids}]::bigint[])`); // owner connection only; the orders that referenced the accounts are gone (T-48)
   await db.execute(sql`delete from audit_log where actor_user_id in (${demoUsers})`);
   await db.execute(sql`delete from store where id in (${ids})`);
   await db.execute(sql`delete from "user" where email like ${`%@${DEMO_EMAIL_DOMAIN}`}`); // account/session/operator rows cascade
@@ -193,6 +222,7 @@ export async function seedDemo(db: Db, opts: SeedDemoOptions = {}): Promise<Seed
   const mediaRoot = opts.mediaDir ?? resolve(APPS_WEB, process.env.MEDIA_DIR ?? "var/media");
   const imageSize = opts.imageSize ?? 640;
   const stores = opts.stores ?? DEMO_STORES;
+  await seedFakeCourierPolicy(db); // the fake courier JNE is a COD-capable fixture; SiCepat is not (ADR-0006 decision 4, ledger/fixtures.ts)
 
   const existing = await db.select({ id: store.id }).from(store).where(like(store.slug, `${DEMO_SLUG_PREFIX}%`));
   // The demo log events are written last: without them (or with fewer stores) an earlier run
@@ -204,12 +234,13 @@ export async function seedDemo(db: Db, opts: SeedDemoOptions = {}): Promise<Seed
       log(`seed-demo: ${existing.length} demo stores already exist, nothing to do (use --reset to rebuild)`);
       return { skipped: true, counts: await counts(db), mediaDir: mediaRoot };
     }
-    await resetDemo(db, existing.map((s) => s.id), mediaRoot, log);
+    await resetDemo(db, opts.ownerDb ?? db, existing.map((s) => s.id), mediaRoot, log);
   }
   // Checkout counts orders per buyer phone (T-30); the demo phones are a fixed test range, so a
   // re-seed inside the 10-minute window would otherwise be refused. Dev-only counters, no service.
-  await db.execute(sql`delete from rate_limit where key like ${"order:phone:08120000%"}`);
+  await db.execute(sql`delete from rate_limit where key like ${"order:phone:%"}`); // the key is a keyed fingerprint since T-57: no prefix of the demo range remains, so every phone counter of this local database goes
   const tokens = !!process.env.INTEGRATION_TOKEN_KEY;
+  setBookingAdapter(fakeMengantarBooking); // T-47: demo shipments are always the in-process fake courier, even when real Mengantar variables are set in the environment
   if (!tokens) log("seed-demo: INTEGRATION_TOKEN_KEY is not set; ad destinations get no server token (browser pixel only, no simulated delivery)");
 
   // Users: Better Auth owns sign-up; a credential user is a `user` + `account` row (as in seed.ts).
@@ -233,11 +264,12 @@ export async function seedDemo(db: Db, opts: SeedDemoOptions = {}): Promise<Seed
 
   const adminId = await makeUser(DEMO_ADMIN.email, DEMO_ADMIN.name);
   await db.insert(platformOperator).values({ userId: adminId });
-  await db.insert(operatorGrant).values({ userId: adminId, capability: "logs.read" });
+  await grantAsSystem(db, { userId: adminId, capabilities: LOCAL_SEED_OPERATOR_CAPABILITIES, source: "system_bootstrap", reason: "local demo seed (docs/tracks/t60-capabilities.md)" });
   const op = (await operatorScope(db, adminId))!;
 
   const phoneUse = new Map<string, number>(); // checkout rate limit: 10 orders per phone per 10 minutes
   let storeIndex = 0;
+  const trackTargets: { owner: SellerScope; orderId: number }[] = [];
   for (const s of stores) {
     const rng = prng(1000 + storeIndex++);
     const ownerId = await makeUser(s.owner.email, s.owner.name);
@@ -271,6 +303,18 @@ export async function seedDemo(db: Db, opts: SeedDemoOptions = {}): Promise<Seed
       await createCollection(owner, { title: c.title, slug: c.slug, description: c.description, status: c.status ?? "published", productIds });
     }
     for (const pg of demoPages(s)) await createPage(owner, { ...pg, status: "published" });
+    // T-47: a published landing page selling the first active product, and the store's feed token (the URLs show on /seller/marketing).
+    const lpProduct = catalog.find((p) => p.active)!;
+    const lpId = await createLandingPage(owner, { title: `Promo ${s.name}`, slug: "promo-pekan-ini" });
+    const lpBlocks: LandingBlock[] = [
+      { ...(newBlock("hero", "demohero") as Extract<LandingBlock, { type: "hero" }>), headline: `Promo pekan ini dari ${s.name}`, subheadline: "Stok terbatas, harga khusus untuk pesanan minggu ini.", ctaLabel: "Pesan sekarang" },
+      { ...(newBlock("benefits", "demoben1") as Extract<LandingBlock, { type: "benefits" }>), title: "Kenapa pilih kami", items: [{ title: "Dibuat dengan rapi", body: "Dikerjakan pengrajin lokal." }, { title: "Bisa COD", body: "Bayar di tempat untuk area yang didukung kurir." }] },
+      { ...(newBlock("order", "demoord1") as Extract<LandingBlock, { type: "order" }>), productId: lpProduct.productId, title: "Pesan di sini", note: "Harga dan stok dicek ulang saat pesanan dibuat." },
+    ];
+    const lp = (await getLandingPage(owner, lpId))!;
+    const lpRevision = await saveDraft(owner, lpId, lp.draft.id, { version: 1, design: { accent: "teal", fontScale: "regular" }, blocks: lpBlocks });
+    await publishLandingPage(owner, lpId, lpRevision);
+    await createFeedToken(owner);
     if (s.signals) {
       const token = (provider: string) => (tokens ? `demo-${provider}-token-not-real` : undefined);
       if (s.signals.meta) await saveDestination(owner, "meta", { pixelId: s.signals.meta, token: token("meta"), testEventCode: "TEST_DEMO", enabled: true });
@@ -323,13 +367,14 @@ export async function seedDemo(db: Db, opts: SeedDemoOptions = {}): Promise<Seed
           destinationAreaLabel: area.label,
           courier,
           paymentMethod: isCod ? "cod" : "manual_transfer",
+          paymentChannel: "VABCA",
         },
         fakeProviders,
       );
 
       const steps = (isCod ? COD_STEPS : TRANSFER_STEPS)[plan.target];
       let at = createdAt;
-      const stepTimes: { action: OrderAction; at: Date }[] = [];
+      const stepTimes: { action: DemoStep; at: Date }[] = [];
       for (const action of steps) {
         const actor = action === "confirm" || action === "pay" || action === "reject" || action === "cancel" ? owner : rng() < 0.5 ? owner : staff;
         const input =
@@ -338,29 +383,42 @@ export async function seedDemo(db: Db, opts: SeedDemoOptions = {}): Promise<Seed
             : REASONS[action]
               ? { reason: pick(rng, REASONS[action]!) }
               : {};
-        await transitionOrder(actor, orderId, action, input);
+        if (action === "complete") await withStore(db, storeId, (tx) => applyProviderTransition(tx, storeId, orderId, "completed", { source: "provider", note: "Terkirim (data demo)" }));
+        else await transitionOrder(actor, orderId, action, input);
         at = plusHours(at, between(rng, 1, 18) + rng());
         stepTimes.push({ action, at });
       }
       await backdate(db, orderId, cartId!, createdAt, stepTimes);
     }
+    // T-47: one booked fake shipment per store: the paid `placed` transfer order of the plan goes through the real booking path (fake courier); tracking is read after the settle below.
+    const [shippable] = await db.select({ id: order.id }).from(order).where(and(eq(order.storeId, storeId), eq(order.status, "placed"), eq(order.paymentMethod, "manual_transfer"))).orderBy(asc(order.id)).limit(1);
+    if (shippable) {
+      await bookShipment(owner, shippable.id);
+      trackTargets.push({ owner, orderId: shippable.id });
+    }
     log(`seed-demo: ${s.name} (${s.slug}) ready — ${catalog.length} products, ${ORDER_PLAN.length} orders`);
   }
 
-  // Settle the outbox like the worker would: payment references, e-mails (dev outbox), simulated ad signals.
+  // Settle the outbox like the worker would: payment references, e-mails (dev outbox), simulated ad signals, shipment bookings.
   let jobsDone = 0;
   let jobsFailed = 0;
-  for (;;) {
-    const out = await runOnce(db, { workerId: "seed-demo", batch: 100, providers: fakeProviders });
-    if (out.length === 0) break;
-    for (const o of out) {
-      if (o.status === "done") jobsDone++;
-      else {
-        jobsFailed++;
-        log(`seed-demo: job ${o.id} (${o.kind}) ${o.status}: ${o.error ?? ""}`);
+  const settle = async () => {
+    for (;;) {
+      const out = await runOnce(db, { workerId: "seed-demo", batch: 100, providers: fakeProviders });
+      if (out.length === 0) break;
+      for (const o of out) {
+        if (o.status === "done") jobsDone++;
+        else {
+          jobsFailed++;
+          log(`seed-demo: job ${o.id} (${o.kind}) ${o.status}: ${o.error ?? ""}`);
+        }
       }
     }
-  }
+  };
+  await settle();
+  for (const t of trackTargets) await refreshTracking(t.owner, t.orderId); // the fake courier answers ON DELIVERY with the first tracking lines
+  await settle();
+  setBookingAdapter(null);
   await demoLogs(db);
   const c = await counts(db);
   log(`seed-demo: done — ${c.stores} stores, ${c.users} users, ${c.products} products, ${c.media} images, ${c.orders} orders (${c.statuses.length} statuses), ${jobsDone} jobs settled${jobsFailed ? `, ${jobsFailed} failed` : ""}`);
@@ -368,7 +426,7 @@ export async function seedDemo(db: Db, opts: SeedDemoOptions = {}): Promise<Seed
 }
 
 /** Spread one order over time: created_at, each history row, confirmed/paid markers, restock rows and the cart. No service owns timestamps. */
-async function backdate(db: Db, orderId: number, cartId: string, createdAt: Date, steps: { action: OrderAction; at: Date }[]) {
+async function backdate(db: Db, orderId: number, cartId: string, createdAt: Date, steps: { action: DemoStep; at: Date }[]) {
   const last = steps.at(-1)?.at ?? createdAt;
   const confirmedAt = steps.find((s) => s.action === "confirm")?.at ?? null;
   const paidAt = steps.find((s) => s.action === "pay")?.at ?? null;
@@ -419,7 +477,10 @@ async function counts(db: Db): Promise<SeedDemoCounts> {
         (select count(*) from job where store_id in (select id from s) and status <> 'done') as jobs_failed,
         (select count(*) from signal_event where store_id in (select id from s)) as signal_events,
         (select count(*) from mail_outbox where to_email like ${`%@${DEMO_EMAIL_DOMAIN}`}) as mails,
-        (select count(*) from system_log where message like ${"demo: %"}) as logs
+        (select count(*) from system_log where message like ${"demo: %"}) as logs,
+        (select count(*) from landing_page where store_id in (select id from s) and status = 'published') as landing_pages,
+        (select count(*) from shipment where store_id in (select id from s) and tracking_number is not null and booked_at is not null and jsonb_array_length(tracking_history) >= 1) as shipments,
+        (select count(*) from feed_token where store_id in (select id from s) and status = 'active') as feed_tokens
     `),
   );
   const n = (k: string) => Number(c![k] ?? 0);
@@ -438,14 +499,18 @@ async function counts(db: Db): Promise<SeedDemoCounts> {
     signalEvents: n("signal_events"),
     mails: n("mails"),
     logs: n("logs"),
+    landingPages: n("landing_pages"),
+    shipments: n("shipments"),
+    feedTokens: n("feed_tokens"),
   };
 }
 
 // ── CLI: `node src/demo/seed-demo.ts [--reset]` (package script `seed:demo`) ──────────
 if (process.argv[1] && /seed-demo\.ts$/.test(process.argv[1])) {
   const db = platformDb();
+  const ownerDb = createDb(process.env.MIGRATION_DATABASE_URL, "MIGRATION_DATABASE_URL"); // payment evidence is erased only by the owner role
   try {
-    const r = await seedDemo(db, { reset: process.argv.includes("--reset"), log: console.log });
+    const r = await seedDemo(db, { reset: process.argv.includes("--reset"), log: console.log, ownerDb });
     const { statuses, ...c } = r.counts;
     console.log(`seed-demo: rows ${JSON.stringify(c)} statuses=${statuses.length}`);
     if (!r.skipped) {
@@ -453,6 +518,6 @@ if (process.argv[1] && /seed-demo\.ts$/.test(process.argv[1])) {
       console.log(`seed-demo: logins (password "${DEMO_PASSWORD}"): ${DEMO_ADMIN.email}, ${DEMO_STORES.map((s) => `${s.owner.email}, ${s.staff.email}`).join(", ")}`);
     }
   } finally {
-    await db.$client.end();
+    await Promise.all([db.$client.end(), ownerDb.$client.end()]);
   }
 }

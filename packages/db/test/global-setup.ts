@@ -1,6 +1,7 @@
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { fileURLToPath } from "node:url";
 import { createDb } from "../src/client.ts";
+import { seedFakeCourierPolicy } from "../src/ledger/fixtures.ts";
 import { prepareLocalDatabase, wipeLocalDatabase } from "../src/local-roles.ts";
 
 /**
@@ -19,5 +20,6 @@ export async function setup() {
   await wipeLocalDatabase(url);
   const db = createDb(roles.owner);
   await migrate(db, { migrationsFolder: fileURLToPath(new URL("../drizzle", import.meta.url)) });
+  await seedFakeCourierPolicy(db); // the fake courier JNE is a COD-capable fixture (the migration seeds SPX only)
   await db.$client.end();
 }

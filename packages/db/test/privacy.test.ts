@@ -23,6 +23,7 @@ import { auditLog, mailOutbox, membership, order, orderLine, orderNotification, 
 import { saveDestination } from "../src/storefront/signals.ts";
 import { setCartLine } from "../src/storefront/storefront.ts";
 import { buyer, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
+import { deliver } from "./deliver.ts";
 
 // Buyer data export and redaction (T-43, SEC-19, PRIV-4). Every service call here runs as
 // bukalaris_app inside the store's RLS context; `platform` only inspects rows across stores.
@@ -46,7 +47,8 @@ async function placed(s: Store, over: Record<string, unknown> = {}, withContext 
 /** COD lifecycle to `completed` through the real transitions (history rows, notifications, Purchase signal). */
 async function completed(s: Store, over: Record<string, unknown> = {}, withContext = false) {
   const id = await placed(s, over, withContext);
-  for (const [action, input] of [["confirm", {}], ["process", {}], ["ship", { trackingNumber: "RESI-PRIV-1" }], ["complete", {}]] as const) await transitionOrder(s.owner, id, action, input);
+  for (const [action, input] of [["confirm", {}], ["process", {}], ["ship", { trackingNumber: "RESI-PRIV-1" }]] as const) await transitionOrder(s.owner, id, action, input);
+  await deliver(s.storeId, id); // DELIVERED comes from the courier writer; a seller cannot complete an order
   return id;
 }
 const orderRow = async (id: number) => (await platform.select().from(order).where(eq(order.id, id)))[0]!;
@@ -71,7 +73,11 @@ describe("inventory (PRIV-1)", () => {
 
   it("every column named like buyer personal data is handled in BUYER_DATA_INVENTORY (a new phone/email/address/ip column fails here until it is)", () => {
     const handled = new Set(BUYER_DATA_INVENTORY.map((e) => `${e.table}.${e.column}`));
-    const unhandled = columns.filter((c) => PII_COLUMN_RE.test(c.split(".")[1]!) && !handled.has(c));
+    // tax_entity_profile is the platform's own taxpayer profile (PRIV-10), not buyer data: it is inventoried there, not in the buyer redaction table.
+    const unhandled = columns.filter((c) => PII_COLUMN_RE.test(c.split(".")[1]!) && !handled.has(c) && !c.startsWith("tax_entity_profile.") && !c.startsWith("account_verification.") && !c.startsWith("store_shipping_account.") && !c.startsWith("affiliate."));
+    // affiliate.contact_phone (T-52) is the affiliate's OWN canonical contact (ADR-0009, PRIV-6): protected platform data compared only for the self-referral guard, never a buyer's number; its own-affiliate RLS and column rules are in packages/db/test/t52-schema.test.ts.
+    // account_verification (T-63) is the optional staff-held record of a SELLER's own business contact (DATA-14): masked in the data layer, revealed only under PRIV-9; not buyer data.
+    // store_shipping_account.registered_email (T-48) is the platform's own per-store routing address used to register the Partner account, never a buyer's e-mail; the app role has no grant on it and no console view selects it.
     expect(unhandled, "add each to BUYER_DATA_INVENTORY and to docs/13-COMPLIANCE-PRIVACY.md").toEqual([]);
     expect(columns.length).toBeGreaterThan(100);
   });
@@ -86,8 +92,8 @@ describe("inventory (PRIV-1)", () => {
 });
 
 describe("lookup key", () => {
-  it("normalizes phone spellings to 0… digits and e-mails to lower case; rejects anything else", () => {
-    for (const p of ["081234567890", "+62 812-3456-7890", "6281234567890", "(0812) 3456 7890"]) expect(normalizeBuyerKey(p), p).toEqual({ kind: "phone", value: "081234567890" });
+  it("normalizes phone spellings to the shared 62… key (T-57; it was the local 0… form) and e-mails to lower case; rejects anything else", () => {
+    for (const p of ["081234567890", "+62 812-3456-7890", "6281234567890", "(0812) 3456 7890", "0062 812 3456 7890"]) expect(normalizeBuyerKey(p), p).toEqual({ kind: "phone", value: "6281234567890" });
     expect(normalizeBuyerKey("  Budi@Example.COM ")).toEqual({ kind: "email", value: "budi@example.com" });
     for (const bad of ["", "12", "budi", "budi@", "a@b", "0812abc"]) expect(() => normalizeBuyerKey(bad), bad).toThrow(/HP|email/);
   });
@@ -105,7 +111,7 @@ describe("export (PRIV-4 locate + hand over)", () => {
 
     const out = await exportBuyerData(a.owner, "+62 812 3456 7890");
     expect(out.store).toEqual({ id: a.storeId, slug: "priv-a", name: "Toko priv-a" });
-    expect(out.query).toEqual({ kind: "phone", value: PHONE });
+    expect(out.query).toEqual({ kind: "phone", value: "6281234567890" }); // the shared 62… lookup key (T-57), whatever spelling was typed
     expect(out.orders.map((o) => o.id)).toEqual([withMail, plain]);
     expect(out.orders.map((o) => o.id)).not.toContain(other);
     expect(out.orders.map((o) => o.id)).not.toContain(foreign);
@@ -161,7 +167,7 @@ describe("redaction (SEC-19)", () => {
     expect(ev!.payload).toHaveProperty("user");
 
     const counts = await redactOrders(s.owner, { orderIds: [String(id)] });
-    expect(counts).toEqual({ orders: 1, signalContexts: 1, signalEvents: 1, notifications: 3, mails: 4, skipped: 0 });
+    expect(counts).toEqual({ orders: 1, signalContexts: 1, signalEvents: 1, notifications: 3, mails: 4, shipments: 0, checkoutSessions: 0, skipped: 0 });
 
     const after = await orderRow(id);
     expect(after).toMatchObject({ buyerName: REDACTED, buyerPhone: REDACTED, buyerEmail: null, shippingAddress: REDACTED });
@@ -191,7 +197,7 @@ describe("redaction (SEC-19)", () => {
       expect.objectContaining({ storeId: s.storeId, actorUserId: s.ownerId, source: "seller", override: false, reason: null }),
     ]);
     const [log] = await audits(s.storeId, "privacy.redact");
-    expect(JSON.parse(log!.reason!)).toEqual({ source: "seller", orderIds: [id], counts: { orders: 1, signalContexts: 1, signalEvents: 1, notifications: 3, mails: 4 }, override: false, reason: null });
+    expect(JSON.parse(log!.reason!)).toEqual({ source: "seller", orderIds: [id], counts: { orders: 1, signalContexts: 1, signalEvents: 1, notifications: 3, mails: 4, shipments: 0, checkoutSessions: 0 }, override: false, reason: null });
     expect(log!.actorUserId).toBe(s.ownerId);
     expect((await findBuyerOrders(s.owner, PHONE)).orders).toEqual([]); // the phone is gone
   });
@@ -201,7 +207,7 @@ describe("redaction (SEC-19)", () => {
     const id = await completed(s);
     expect((await redactOrders(s.owner, { orderIds: [id] })).orders).toBe(1);
     const snapshot = await orderRow(id);
-    expect(await redactOrders(s.owner, { orderIds: [id] })).toEqual({ orders: 0, signalContexts: 0, signalEvents: 0, notifications: 0, mails: 0, skipped: 1 });
+    expect(await redactOrders(s.owner, { orderIds: [id] })).toEqual({ orders: 0, signalContexts: 0, signalEvents: 0, notifications: 0, mails: 0, shipments: 0, checkoutSessions: 0, skipped: 1 });
     expect(await orderRow(id)).toEqual(snapshot);
     expect((await audits(s.storeId, "privacy.redact")).length).toBe(1);
     expect((await platform.select().from(orderRedaction).where(eq(orderRedaction.orderId, id))).length).toBe(1);
@@ -261,7 +267,7 @@ describe("retention job (Q-11, disabled by default)", () => {
     await age(recentClosed, 29);
 
     const result = await redactStaleOrders(platform, { days: 30 });
-    expect(result).toEqual({ stores: 2, orders: 2, counts: { orders: 2, signalContexts: 1, signalEvents: 0, notifications: 0, mails: 0 } });
+    expect(result).toEqual({ stores: 2, orders: 2, counts: { orders: 2, signalContexts: 1, signalEvents: 0, notifications: 0, mails: 0, shipments: 0, checkoutSessions: 0 } });
     expect((await orderRow(oldClosed)).buyerName).toBe(REDACTED);
     expect((await orderRow(oldForeign)).buyerName).toBe(REDACTED);
     expect((await orderRow(oldOpen)).buyerName).toBe("Budi Santoso");
@@ -272,7 +278,7 @@ describe("retention job (Q-11, disabled by default)", () => {
     expect(JSON.parse(logA!.reason!)).toMatchObject({ source: "retention", orderIds: [oldClosed] });
     expect((await audits(b.storeId, "privacy.redact")).length).toBe(1);
 
-    expect(await redactStaleOrders(platform, { days: 30 })).toEqual({ stores: 0, orders: 0, counts: { orders: 0, signalContexts: 0, signalEvents: 0, notifications: 0, mails: 0 } });
+    expect(await redactStaleOrders(platform, { days: 30 })).toEqual({ stores: 0, orders: 0, counts: { orders: 0, signalContexts: 0, signalEvents: 0, notifications: 0, mails: 0, shipments: 0, checkoutSessions: 0 } });
     await expect(redactStaleOrders(platform, { days: 0 })).rejects.toThrow(">= 1");
   });
 });

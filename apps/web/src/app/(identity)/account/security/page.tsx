@@ -22,7 +22,7 @@ export default async function SecurityPage({ searchParams }: PageProps<"/account
       </div>
       <p className="text-sm text-muted-foreground">
         {user.email}
-        {isOperator && !user.twoFactorEnabled && " · Operator platform wajib mengaktifkan verifikasi dua langkah sebelum membuka Super Admin."}
+        {isOperator && !user.twoFactorEnabled && " · Staf Owner console wajib mengaktifkan verifikasi dua langkah sebelum membuka Owner console."}
       </p>
       {user.twoFactorEnabled ? (
         <>
@@ -31,7 +31,7 @@ export default async function SecurityPage({ searchParams }: PageProps<"/account
             aplikasi tidak tersedia.
           </p>
           <Link href={target} className="text-sm underline-offset-4 hover:underline">
-            Lanjut ke {target === "/admin" ? "Super Admin" : "Seller Admin"}
+            Lanjut ke {target === "/admin" ? "Owner console" : "Seller Admin"}
           </Link>
         </>
       ) : (

@@ -15,6 +15,7 @@ import {
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
+import { storeShippingAccount } from "./shipping/schema-accounts.ts";
 
 // Numeric identities are Postgres identity columns (never MAX+1, never reused).
 // lazy: mode "number" is exact up to 2^53; switch to mode "bigint"/string transport before any id or IDR amount nears that.
@@ -46,6 +47,8 @@ export const user = pgTable("user", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   // two-factor plugin: set to true only after a TOTP code has been verified.
   twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
+  /** T-63: platform-wide suspension of this identity (set only through `console_set_user_suspension`); NULL = active. Every seller scope, session creation and the sessions themselves check it. */
+  suspendedAt: timestamp("suspended_at", { withTimezone: true }),
 });
 
 export const session = pgTable(
@@ -117,6 +120,9 @@ export const store = pgTable(
     slug: text("slug").notNull().unique(),
     name: text("name").notNull(),
     status: text("status", { enum: ["active", "suspended"] }).notNull().default("active"),
+    // DATA-10 (T-50): the independent operator restriction. Set and cleared only with `status` (trigger `store_suspension_sync`, migration 0013),
+    // never by billing, payment or a comp: the subscription state is another table.
+    suspendedAt: timestamp("suspended_at", { withTimezone: true }),
     // Store profile and presentation (SC-10/SC-11, PR-8). The theme changes presentation only.
     description: text("description").notNull().default(""),
     whatsapp: text("whatsapp"),
@@ -135,6 +141,8 @@ export const store = pgTable(
 export const platformOperator = pgTable("platform_operator", {
   userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
   createdAt: createdAt(),
+  /** T-63 (SA-38): a deactivated operator has no scope at all (`operatorScope` returns null); the row stays so the identity remains staff (never an `accounts.*` target). */
+  deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
 });
 
 export const membership = pgTable(
@@ -239,7 +247,7 @@ export const cartLine = pgTable(
 // ---------------------------------------------------------------------------
 // Orders: immutable commercial snapshot (DATA-2).
 // ---------------------------------------------------------------------------
-export const ORDER_STATUSES = ["awaiting_confirmation", "on_hold", "awaiting_payment", "placed", "processing", "shipped", "completed", "cancelled"] as const;
+export const ORDER_STATUSES = ["awaiting_confirmation", "on_hold", "awaiting_payment", "placed", "processing", "shipped", "completed", "cancelled", "returned"] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 /** Indonesian label per status; the one place both the admin UI and user-facing messages read from. */
 export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
@@ -251,6 +259,7 @@ export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   shipped: "Dikirim",
   completed: "Selesai",
   cancelled: "Dibatalkan",
+  returned: "Dikembalikan (RTS)",
 };
 
 export const order = pgTable(
@@ -267,7 +276,6 @@ export const order = pgTable(
     // awaiting_payment/placed/processing → cancelled. Every cancellation restocks once. Transitions only via orders.ts.
     status: text("status", { enum: ORDER_STATUSES }).notNull(),
     paymentMethod: text("payment_method", { enum: ["cod", "manual_transfer"] }).notNull(),
-    paymentReference: text("payment_reference"),
     paidAt: timestamp("paid_at", { withTimezone: true }),
     /** Seller confirmed the COD order (T-35); null for transfer orders and unconfirmed ones. */
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
@@ -279,6 +287,8 @@ export const order = pgTable(
     shippingAddress: text("shipping_address").notNull(),
     // Shipping snapshot (T-34, Q-12): provider courier key + label, route area ids, and the
     // fee split. `shipping_fee` is what the buyer pays = provider cost + platform margin.
+    shippingAccountId: bigint("shipping_account_id", { mode: "number" }).notNull().default(0),
+    shippingAccountKind: text("shipping_account_kind", { enum: ["partner_managed", "platform_master"] }).notNull().default("platform_master"),
     courierCode: text("courier_code").notNull(),
     courier: text("courier").notNull(),
     originAreaId: text("origin_area_id").notNull(),
@@ -288,7 +298,11 @@ export const order = pgTable(
     shippingProviderCost: idr("shipping_provider_cost").notNull(),
     shippingMargin: idr("shipping_margin").notNull(),
     subtotal: idr("subtotal").notNull(),
+    /** What the buyer pays for shipping AFTER a store-funded shipping discount (T-46): `shipping_fee + shipping_discount = provider cost + margin`. */
     shippingFee: idr("shipping_fee").notNull(),
+    /** Store-funded goods discount (vouchers, flash-sale price overrides) and shipping discount, copied from the immutable financial snapshot (T-46, BILL-4). */
+    goodsDiscount: idr("goods_discount").notNull().default(0),
+    shippingDiscount: idr("shipping_discount").notNull().default(0),
     total: idr("total").notNull(),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -297,15 +311,17 @@ export const order = pgTable(
     unique("order_store_id_uq").on(t.storeId, t.id),
     index("order_store_status_idx").on(t.storeId, t.status, t.id),
     unique("order_idempotency_uq").on(t.storeId, t.idempotencyKey),
-    check("order_total_chk", sql`${t.total} = ${t.subtotal} + ${t.shippingFee} and ${t.subtotal} >= 0 and ${t.shippingFee} >= 0`),
+    foreignKey({ name: "order_shipping_account_fk", columns: [t.storeId, t.shippingAccountId, t.shippingAccountKind], foreignColumns: [storeShippingAccount.storeId, storeShippingAccount.id, storeShippingAccount.kind] }),
+    // The immutable financial snapshot (`order_financials`) re-checks these figures against the exact BILL-4 allocation identity.
+    check("order_total_chk", sql`${t.total} = ${t.subtotal} - ${t.goodsDiscount} + ${t.shippingFee} and ${t.subtotal} >= 0 and ${t.shippingFee} >= 0 and ${t.goodsDiscount} >= 0 and ${t.goodsDiscount} <= ${t.subtotal}`),
     check(
       "order_shipping_fee_chk",
-      sql`${t.shippingFee} = ${t.shippingProviderCost} + ${t.shippingMargin} and ${t.shippingProviderCost} >= 0 and ${t.shippingMargin} >= 0 and ${t.weightKg} >= 1`,
+      sql`${t.shippingFee} + ${t.shippingDiscount} = ${t.shippingProviderCost} + ${t.shippingMargin} and ${t.shippingDiscount} >= 0 and ${t.shippingDiscount} <= ${t.shippingProviderCost} and ${t.shippingProviderCost} >= 0 and ${t.shippingMargin} >= 0 and ${t.weightKg} >= 1`,
     ),
     check("order_area_chk", sql`${t.originAreaId} ~ '^[a-f0-9]{24}$' and ${t.destinationAreaId} ~ '^[a-f0-9]{24}$'`),
     check(
       "order_status_chk",
-      sql`${t.status} in ('awaiting_confirmation', 'on_hold', 'awaiting_payment', 'placed', 'processing', 'shipped', 'completed', 'cancelled')`,
+      sql`${t.status} in ('awaiting_confirmation', 'on_hold', 'awaiting_payment', 'placed', 'processing', 'shipped', 'completed', 'cancelled', 'returned')`,
     ),
     // Confirmation states belong to COD only.
     check("order_cod_state_chk", sql`${t.paymentMethod} = 'cod' or ${t.status} not in ('awaiting_confirmation', 'on_hold')`),
@@ -347,9 +363,22 @@ export const auditLog = pgTable(
     storeId: bigint("store_id", { mode: "number" }),
     action: text("action").notNull(),
     reason: text("reason"),
+    actorCapability: text("actor_capability"),
+    purposeCode: text("purpose_code"),
+    caseId: text("case_id"),
+    subjectKind: text("subject_kind"),
+    subjectId: text("subject_id"),
+    accessLevel: text("access_level", { enum: ["masked", "full", "export", "write"] }),
+    outcome: text("outcome", { enum: ["allowed", "denied"] }),
     createdAt: createdAt(),
   },
-  (t) => [index("audit_store_idx").on(t.storeId, t.createdAt)],
+  (t) => [
+    index("audit_store_idx").on(t.storeId, t.createdAt),
+    index("audit_actor_idx").on(t.actorUserId, t.createdAt),
+    index("audit_subject_idx").on(t.subjectKind, t.subjectId, t.createdAt),
+    check("audit_access_level_chk", sql`${t.accessLevel} is null or ${t.accessLevel} in ('masked', 'full', 'export', 'write')`),
+    check("audit_outcome_chk", sql`${t.outcome} is null or ${t.outcome} in ('allowed', 'denied')`),
+  ],
 );
 
 // M2 track tables live in their own files so parallel branches merge cleanly.
@@ -368,3 +397,14 @@ export * from "./shipping/schema-fulfillment.ts";
 export * from "./storefront/schema-feeds.ts";
 export * from "./storefront/schema-landing.ts";
 export * from "./seller/commerce/schema-privacy.ts";
+export * from "./seller/commerce/schema-abandoned.ts";
+export * from "./payments/schema-payments.ts";
+export * from "./ops/schema-console.ts";
+export * from "./ops/schema-governance.ts";
+export * from "./tax/schema-tax.ts";
+export * from "./ledger/schema-ledger.ts";
+export * from "./billing/schema-billing.ts";
+export * from "./buyer/schema-buyer.ts";
+export * from "./promotions/schema-promotions.ts";
+export * from "./shipping/schema-accounts.ts";
+export * from "./affiliate/schema-affiliate.ts";

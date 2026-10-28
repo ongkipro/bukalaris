@@ -1,4 +1,4 @@
-import { eq, ne, sql } from "drizzle-orm";
+import { eq, notInArray, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getBuyerOrder, placeOrder } from "../src/seller/commerce/checkout.ts";
 import {
@@ -10,21 +10,27 @@ import {
   getHandler,
   type JobOutcome,
   MAX_ATTEMPTS,
-  PAYMENT_INSTRUCTION,
   registerHandler,
   runOnce,
   sanitizeError,
 } from "../src/ops/jobs/jobs.ts";
+import { BUYER_RESOLVE } from "../src/buyer/jobs.ts";
+import { MAIL_DELIVER } from "../src/ops/jobs/mail.ts";
+import { reconcileUnknownJobs } from "../src/ops/jobs/manage.ts";
 import { ORDER_NOTIFY } from "../src/ops/jobs/notify.ts";
 import { transitionOrder } from "../src/seller/commerce/orders.ts";
-import { fakeProviders, type PaymentAdapter, type Providers } from "../src/payments/providers.ts";
+import { PAYMENT_INSTRUCTION } from "../src/payments/attempts.ts";
+import { FakeAutoLaris } from "../src/payments/fake.ts";
+import { setPaymentAdapter } from "../src/payments/jobs.ts";
+import { fakeProviders, type Providers } from "../src/payments/providers.ts";
 import { job, order } from "../src/schema.ts";
 import { setCartLine } from "../src/storefront/storefront.ts";
 import { buyer, db, makeStore, platform } from "./helpers.ts";
 
-// Orders also enqueue e-mail notifications (T-36); this file is about the outbox and the payment job.
-const jobs = () => platform.select().from(job).where(ne(job.kind, ORDER_NOTIFY)).orderBy(job.id);
-const payments = (out: JobOutcome[]) => out.filter((o) => o.kind !== ORDER_NOTIFY);
+// Orders also enqueue e-mail notifications, their delivery intents (T-36, T-73) and the buyer association (T-57); this file is about the outbox and the payment job.
+const DERIVED = [ORDER_NOTIFY, MAIL_DELIVER, BUYER_RESOLVE];
+const jobs = () => platform.select().from(job).where(notInArray(job.kind, DERIVED)).orderBy(job.id);
+const payments = (out: JobOutcome[]) => out.filter((o) => !DERIVED.includes(o.kind));
 const jobById = async (id: number) => (await platform.select().from(job).where(eq(job.id, id)))[0]!;
 /** Time travel: make a job due (and its lease stale) without waiting. */
 const makeDue = (id: number) =>
@@ -33,19 +39,6 @@ const makeDue = (id: number) =>
     .set({ nextAttemptAt: sql`now() - interval '1 second'`, lockedUntil: sql`case when ${job.lockedUntil} is null then null else now() - interval '1 second' end` })
     .where(eq(job.id, id));
 const secondsFromNow = (d: Date) => (d.getTime() - Date.now()) / 1000;
-
-/** Payment adapter that counts calls and can be switched off. */
-function countingPayment(): PaymentAdapter & { calls: number; down: boolean } {
-  return {
-    calls: 0,
-    down: false,
-    async createInstruction(input) {
-      this.calls++;
-      if (this.down) throw new Error("Error: provider timeout token=abc123 (Authorization: Bearer xyz)");
-      return fakeProviders.payment.createInstruction(input);
-    },
-  };
-}
 
 registerHandler("test.fail", async () => {
   throw new Error("boom");
@@ -98,35 +91,36 @@ describe("outbox (T-32, SEC-18, ARCH-6)", () => {
     expect(await claimBatch(platform, "D", 8)).toHaveLength(0);
   });
 
-  it("a worker that crashes mid-job loses its lease; the job is reclaimed and its effect happens once", async () => {
+  it("a worker that crashes mid-job loses its lease; the job is reclaimed and the provider bill is created once", async () => {
     const s = await makeStore("toko-a");
-    const payment = countingPayment();
+    const payment = new FakeAutoLaris();
     const providers: Providers = { ...fakeProviders, payment };
     const cartId = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 1 }, "add");
-    const { orderId } = await placeOrder(db, cartId, buyer({ paymentMethod: "manual_transfer" }));
+    const { orderId } = await placeOrder(db, cartId, buyer({ paymentMethod: "manual_transfer", paymentChannel: "VABCA" }));
 
-    // Worker A claims, runs the handler (provider called, reference stored) and dies before completeJob.
+    // Worker A claims, runs the handler (provider called, instruction stored) and dies before completeJob.
     const [a] = await claimBatch(platform, "A", 1);
     expect(a).toMatchObject({ kind: PAYMENT_INSTRUCTION, key: `order:${orderId}`, payload: { orderId } });
     await getHandler(PAYMENT_INSTRUCTION)!({ db: platform, providers }, a!);
-    expect(payment.calls).toBe(1);
-    expect((await getBuyerOrder(db, orderId, cartId))!.paymentReference).toBe(`FAKE-AL-${orderId}`);
+    expect(payment.createCalls).toHaveLength(1);
+    expect((await getBuyerOrder(db, orderId, cartId))!.payment).toMatchObject({ requestState: "accepted" });
+    // The fence was set before the call, so the stale lease makes the job `unknown` for the reconciler, not a re-run.
     expect(await jobById(a!.id)).toMatchObject({ status: "running", lockedBy: "A" });
 
-    // Lease still valid: worker B sees nothing. Lease expired: B reclaims and the idempotent handler skips the provider.
+    // Lease still valid: worker B sees nothing. Lease expired: the job is `unknown`, never re-dispatched.
     expect(payments(await runOnce(platform, { workerId: "B", providers }))).toEqual([]);
     await makeDue(a!.id);
-    expect(payments(await runOnce(platform, { workerId: "B", providers }))).toMatchObject([{ id: a!.id, status: "done", attempts: 2 }]);
-    expect(payment.calls).toBe(1);
-    expect(await jobById(a!.id)).toMatchObject({ status: "done", lockedBy: null, lockedUntil: null });
+    expect(payments(await runOnce(platform, { workerId: "B", providers }))).toEqual([]);
+    expect(await jobById(a!.id)).toMatchObject({ status: "unknown" });
+    expect(payment.createCalls).toHaveLength(1);
 
     // A comes back late: its complete/fail find no lease and change nothing.
     expect(await completeJob(platform, a!)).toBe(false);
     expect(await failJob(platform, a!, new Error("late"))).toBe("lost");
-    expect(await jobById(a!.id)).toMatchObject({ status: "done", lastError: null });
+    expect(await jobById(a!.id)).toMatchObject({ status: "unknown" });
   });
 
-  it("retries with exponential backoff and becomes terminally failed after the attempt ceiling", async () => {
+  it("retries with exponential backoff and becomes terminally dead after the attempt ceiling", async () => {
     const s = await makeStore("toko-a");
     const { id } = await enqueue(platform, { kind: "test.fail", storeId: s.storeId, key: "f" });
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -140,8 +134,8 @@ describe("outbox (T-32, SEC-18, ARCH-6)", () => {
         expect(secondsFromNow(j.nextAttemptAt)).toBeGreaterThan(expected - 2);
         expect(secondsFromNow(j.nextAttemptAt)).toBeLessThanOrEqual(expected);
       } else {
-        expect(o).toMatchObject({ id, attempts: MAX_ATTEMPTS, status: "failed" });
-        expect(j).toMatchObject({ status: "failed", attempts: MAX_ATTEMPTS, lockedBy: null });
+        expect(o).toMatchObject({ id, attempts: MAX_ATTEMPTS, status: "dead" });
+        expect(j).toMatchObject({ status: "dead", attempts: MAX_ATTEMPTS, lockedBy: null });
       }
     }
     expect([backoffMs(1), backoffMs(2), backoffMs(3), backoffMs(20)]).toEqual([5_000, 10_000, 20_000, 900_000]);
@@ -160,44 +154,51 @@ describe("outbox (T-32, SEC-18, ARCH-6)", () => {
     expect(sanitizeError(42)).toBe("42");
   });
 
-  it("payment instruction end to end: COD enqueues nothing; transfer survives a provider outage and succeeds on retry", async () => {
+  it("payment instruction end to end: COD enqueues nothing; a transfer attempt survives a provider outage as unknown and is recovered with the same reference", async () => {
     const s = await makeStore("toko-a");
-    const payment = countingPayment();
+    const payment = new FakeAutoLaris();
     const providers: Providers = { ...fakeProviders, payment };
+    setPaymentAdapter(payment);
 
     const cod = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 1 }, "add");
     await placeOrder(db, cod, buyer());
     expect(await jobs()).toHaveLength(0);
 
     const cartId = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 1 }, "add");
-    const { orderId } = await placeOrder(db, cartId, buyer({ paymentMethod: "manual_transfer" }));
-    expect(await getBuyerOrder(db, orderId, cartId)).toMatchObject({ status: "awaiting_payment", paymentReference: null });
+    const { orderId } = await placeOrder(db, cartId, buyer({ paymentMethod: "manual_transfer", paymentChannel: "VABCA" }));
+    expect(await getBuyerOrder(db, orderId, cartId)).toMatchObject({ status: "awaiting_payment", payment: { requestState: "in_progress", instruction: null } });
     expect(await jobs()).toMatchObject([{ kind: PAYMENT_INSTRUCTION, key: `order:${orderId}`, status: "pending" }]);
 
     payment.down = true;
     const [first] = payments(await runOnce(platform, { workerId: "W", providers }));
-    expect(first).toMatchObject({ status: "pending", attempts: 1, error: "Error: Error: provider timeout token=[redacted] (Authorization: [redacted] xyz)" });
-    expect((await getBuyerOrder(db, orderId, cartId))!.paymentReference).toBeNull(); // explicit pending, no reference (D-5)
-    expect(payments(await runOnce(platform, { workerId: "W", providers }))).toEqual([]); // not due until the backoff elapses
-
-    payment.down = false;
+    // The provider call was dispatched and the answer is unknown: the job is NOT retried (it could create a second bill).
+    expect(first).toMatchObject({ status: "unknown", attempts: 1, error: "Error: simulated provider timeout" });
+    expect(await jobById(first!.id)).toMatchObject({ status: "unknown", lastError: "Error: simulated provider timeout" });
+    expect((await getBuyerOrder(db, orderId, cartId))!.payment).toMatchObject({ requestState: "unknown", instruction: null });
     await makeDue(first!.id);
-    expect(await runOnce(platform, { workerId: "W", providers })).toMatchObject([{ id: first!.id, status: "done", attempts: 2 }]);
-    expect((await getBuyerOrder(db, orderId, cartId))!.paymentReference).toBe(`FAKE-AL-${orderId}`);
-    expect(payment.calls).toBe(2);
+    expect(payments(await runOnce(platform, { workerId: "W", providers }))).toEqual([]); // never claimed again
+    expect(payment.createCalls).toHaveLength(1);
+
+    // The provider never saw the request: reconciliation proves "no bill" and the job runs again with the SAME reff_id.
+    payment.down = false;
+    expect(await reconcileUnknownJobs(platform)).toMatchObject({ settled: 1 });
+    expect(payments(await runOnce(platform, { workerId: "W", providers }))).toMatchObject([{ id: first!.id, status: "done" }]);
+    const done = (await getBuyerOrder(db, orderId, cartId))!.payment!;
+    expect(done).toMatchObject({ requestState: "accepted" });
+    expect(payment.createCalls.map((c) => c.reffId)).toEqual([payment.createCalls[0]!.reffId, payment.createCalls[0]!.reffId]);
     // Re-running the worker changes nothing.
     expect(await runOnce(platform, { workerId: "W", providers })).toEqual([]);
-    expect(await jobById(first!.id)).toMatchObject({ status: "done", lastError: null });
+    setPaymentAdapter(null);
   });
 
   it("does not request an instruction for an order that stopped awaiting payment before the worker ran", async () => {
     const s = await makeStore("toko-a");
-    const payment = countingPayment();
+    const payment = new FakeAutoLaris();
     const cartId = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 1 }, "add");
-    const { orderId } = await placeOrder(db, cartId, buyer({ paymentMethod: "manual_transfer" }));
+    const { orderId } = await placeOrder(db, cartId, buyer({ paymentMethod: "manual_transfer", paymentChannel: "VABCA" }));
     await transitionOrder(s.owner, orderId, "cancel", { reason: "Pembeli berubah pikiran" });
     expect(payments(await runOnce(platform, { workerId: "W", providers: { ...fakeProviders, payment } }))).toMatchObject([{ status: "done" }]);
-    expect(payment.calls).toBe(0);
-    expect((await getBuyerOrder(db, orderId, cartId))!.paymentReference).toBeNull();
+    expect(payment.createCalls).toHaveLength(0);
+    expect((await getBuyerOrder(db, orderId, cartId))!.payment).toMatchObject({ requestState: "failed", instruction: null });
   });
 });

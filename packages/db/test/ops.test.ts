@@ -2,17 +2,8 @@ import { readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { desc, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
-import {
-  getSystemLog,
-  hasPlatformCap,
-  listSystemLogs,
-  MODULE_MAP,
-  moduleForRoute,
-  recordLogEvent,
-  requirePlatformCap,
-  sanitizeEvent,
-  scrubText,
-} from "../src/ops/ops.ts";
+import { getSystemLog, listSystemLogs, MODULE_MAP, moduleForRoute, recordLogEvent, sanitizeEvent, scrubText } from "../src/ops/ops.ts";
+import { hasPlatformCap, requirePlatformCap } from "../src/ops/capabilities.ts";
 import { auditLog, operatorGrant, systemLog } from "../src/schema.ts";
 import { operatorScope } from "../src/platform/scoped.ts";
 import { admin, db, makeOperator, makeStore, platform } from "./helpers.ts";
@@ -22,11 +13,7 @@ beforeEach(async () => {
   await admin.execute("truncate system_log, operator_grant restart identity cascade");
 });
 
-async function reader() {
-  const op = await makeOperator();
-  await platform.insert(operatorGrant).values({ userId: op.userId, capability: "logs.read" });
-  return op;
-}
+const reader = () => makeOperator(["logs.read"]);
 const event = (over: Record<string, unknown> = {}, fields: Record<string, unknown> = {}) =>
   recordLogEvent(db, {
     level: "error",
@@ -87,7 +74,8 @@ describe("Log System sink (PR-11, OBS-5)", () => {
     expect(moduleForRoute("/app/checkout/h/invalid/page")).toBe("checkout.handoff.invalid");
     expect(moduleForRoute("/app/checkout/h/[code]/route")).toBe("checkout.handoff");
     expect(moduleForRoute("/app/admin/logs/[id]/page")).toBe("admin.logs.detail");
-    expect(moduleForRoute("/admin")).toBe("admin.stores");
+    expect(moduleForRoute("/admin")).toBe("admin.overview"); // T-62: /admin is the dashboard (SA-14); the store list is /admin/stores
+    expect(moduleForRoute("/admin/stores")).toBe("admin.stores");
     expect(moduleForRoute("/app/whatever/page")).toBe("unknown");
     expect(moduleForRoute(undefined)).toBe("unknown");
   });

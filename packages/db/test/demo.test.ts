@@ -5,7 +5,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { ORDER_STATUSES } from "../src/schema.ts";
 import { DEMO_STORES } from "../src/demo/data.ts";
 import { seedDemo } from "../src/demo/seed-demo.ts";
-import { platform } from "./helpers.ts";
+import { admin, platform } from "./helpers.ts";
 
 const stores = DEMO_STORES.slice(0, 1);
 const mediaDir = await mkdtemp(join(tmpdir(), "bukalaris-demo-"));
@@ -20,7 +20,7 @@ describe("demo seed", () => {
     expect(c.users).toBe(1 + 2 * stores.length);
     expect(c.products).toBe(stores.reduce((n, s) => n + s.products.length, 0));
     expect(c.orders).toBe(16 * stores.length);
-    expect([...c.statuses].sort()).toEqual([...ORDER_STATUSES].sort());
+    expect([...c.statuses].sort()).toEqual(ORDER_STATUSES.filter((s) => s !== "returned").sort()); // the demo plan has no RTS order (returned is reached through the courier writer; ledger tests cover it)
     expect(c.jobsFailed).toBe(0);
     // Every media row has its PNG on disk (the seed writes through addProductMedia's persist hook).
     const files = (await readdir(mediaDir, { recursive: true, withFileTypes: true })).filter((f) => f.isFile());
@@ -32,7 +32,7 @@ describe("demo seed", () => {
     expect(second.skipped).toBe(true);
     expect(second.counts.orders).toBe(c.orders);
 
-    const third = await seedDemo(platform, { mediaDir, imageSize: 32, stores, reset: true });
+    const third = await seedDemo(platform, { mediaDir, imageSize: 32, stores, reset: true, ownerDb: admin });
     expect(third.skipped).toBe(false);
     expect(third.counts.stores).toBe(c.stores);
     expect(third.counts.orders).toBe(c.orders);

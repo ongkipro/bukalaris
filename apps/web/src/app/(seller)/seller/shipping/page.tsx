@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { sellerScope } from "@/lib/context";
-import { can, DomainError, getPickupArea, searchPickupAreas, type Area } from "@bukalaris/db";
+import { can, DomainError, getPickupArea, searchPickupAreas, sellerShippingAccounts, type Area } from "@bukalaris/db";
 import { setPickupAddressAction, setPickupAreaAction } from "./actions";
 
 export const metadata = { title: "Pengiriman — Bukalaris" };
@@ -17,6 +17,7 @@ export default async function SellerShippingPage({ searchParams }: PageProps<"/s
   const manage = can(scope, "shipping.manage");
   const keyword = typeof q === "string" ? q : "";
   const current = await getPickupArea(scope);
+  const shipping = await sellerShippingAccounts(scope);
   let results: Area[] = [];
   let searchError: string | undefined;
   if (manage && keyword) {
@@ -45,6 +46,19 @@ export default async function SellerShippingPage({ searchParams }: PageProps<"/s
         ) : (
           <p className="mt-1 text-sm" role="note">Belum diatur — pembeli belum bisa melihat ongkir.</p>
         )}
+      </div>
+
+      <div className="rounded-lg border p-4" data-testid="shipping-account">
+        <h2 className="text-sm font-medium text-muted-foreground">Akun Bukalaris Kirim yang dipakai</h2>
+        {shipping.selected ? (
+          <>
+            <p className="mt-1 font-medium" data-testid="shipping-account-kind">{shipping.selected.kind === "partner_managed" ? "Akun khusus toko Anda" : "Akun induk Bukalaris Kirim (sementara)"}</p>
+            <p className="text-sm text-muted-foreground">{shipping.selected.kind === "partner_managed" ? "Dibuat dan dikelola otomatis oleh Bukalaris. Anda tidak perlu mengisi kunci apa pun." : "Akun khusus toko Anda sedang disiapkan. Pesanan tetap dikirim lewat akun induk; Anda tidak perlu melakukan apa pun."}</p>
+          </>
+        ) : (
+          <p className="mt-1 text-sm" role="note" data-testid="shipping-account-waiting">Akun pengiriman sedang dipulihkan oleh Bukalaris. Pesanan baru menunggu sampai akun siap; tidak ada tindakan dari Anda.</p>
+        )}
+        <p className="mt-2 text-xs text-muted-foreground">COD ditawarkan hanya untuk layanan: {shipping.services.filter((s) => s.codAllowed && s.returnFree).map((s) => s.courierCode).join(", ") || "belum ada"}.</p>
       </div>
 
       {manage && (

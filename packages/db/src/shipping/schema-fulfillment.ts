@@ -8,19 +8,20 @@ import { order, store } from "../schema.ts";
  * tracking states the provider status category maps to. `delivered`, `returned`, `cancelled`
  * and `failed` are terminal for polling; `awaiting_balance` and `failed` accept a seller retry.
  */
-export const SHIPMENT_STATUSES = ["queued", "booking", "awaiting_balance", "booked", "in_transit", "delivered", "returned", "problem", "cancelled", "failed"] as const;
+export const SHIPMENT_STATUSES = ["queued", "booking", "awaiting_account", "awaiting_balance", "booked", "in_transit", "delivered", "returned", "problem", "cancelled", "failed"] as const;
 export type ShipmentStatus = (typeof SHIPMENT_STATUSES)[number];
 
 export const SHIPMENT_STATUS_LABEL: Record<ShipmentStatus, string> = {
   queued: "Menunggu booking",
   booking: "Sedang booking",
-  awaiting_balance: "Menunggu saldo Mengantar",
+  awaiting_account: "Menunggu pemulihan akun Bukalaris Kirim",
+  awaiting_balance: "Menunggu saldo Bukalaris Kirim",
   booked: "Resi terbit, menunggu pickup",
   in_transit: "Dalam pengiriman",
   delivered: "Terkirim ke pembeli",
   returned: "Dikembalikan ke pengirim (RTS)",
   problem: "Perlu perhatian",
-  cancelled: "Dibatalkan di Mengantar",
+  cancelled: "Dibatalkan di Bukalaris Kirim",
   failed: "Booking gagal",
 };
 
@@ -73,10 +74,10 @@ export const shipment = pgTable(
     foreignKey({ name: "shipment_order_fk", columns: [t.storeId, t.orderId], foreignColumns: [order.storeId, order.id] }),
     unique("shipment_order_uq").on(t.storeId, t.orderId),
     index("shipment_store_status_idx").on(t.storeId, t.status),
-    check("shipment_status_chk", sql`${t.status} in ('queued', 'booking', 'awaiting_balance', 'booked', 'in_transit', 'delivered', 'returned', 'problem', 'cancelled', 'failed')`),
+    check("shipment_status_chk", sql`${t.status} in ('queued', 'booking', 'awaiting_account', 'awaiting_balance', 'booked', 'in_transit', 'delivered', 'returned', 'problem', 'cancelled', 'failed')`),
     check("shipment_amounts_chk", sql`${t.codAmount} >= 0 and ${t.weightKg} >= 1 and ${t.bookingAttempts} >= 0 and ${t.manualPolls} >= 0`),
     // A shipment past booking carries its provider reference; a resi implies a paid order.
-    check("shipment_booked_chk", sql`${t.status} in ('queued', 'booking', 'failed') or ${t.providerOrderId} is not null`),
+    check("shipment_booked_chk", sql`${t.status} in ('queued', 'booking', 'awaiting_account', 'failed') or ${t.providerOrderId} is not null`),
     check("shipment_resi_chk", sql`${t.trackingNumber} is null or ${t.paid}`),
     check("shipment_history_chk", sql`octet_length(${t.trackingHistory}::text) <= 16384`),
   ],

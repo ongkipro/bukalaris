@@ -1,13 +1,19 @@
-import { db, listOutbox } from "@bukalaris/db";
+import { platformDb, listOutbox } from "@bukalaris/db";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 
 export const metadata = { title: "Dev outbox — Bukalaris" };
 export const dynamic = "force-dynamic";
 
-/** Local mail viewer. Hidden in production unless DEV_OUTBOX=1 is set explicitly (the links carry tokens). */
+/** Local mail viewer. In production only with DEV_OUTBOX=1 AND a loopback request host (the links carry tokens; wave 2 review). */
 export default async function DevOutboxPage() {
-  if (process.env.NODE_ENV === "production" && process.env.DEV_OUTBOX !== "1") notFound();
-  const mails = await listOutbox(db());
+  if (process.env.NODE_ENV === "production") {
+    let host = "";
+    try { host = new URL(`http://${(await headers()).get("host") ?? ""}`).hostname; } catch { /* unparsable host: refused below */ }
+    const loopback = host === "localhost" || host.endsWith(".localhost") || host === "127.0.0.1" || host === "[::1]";
+    if (process.env.DEV_OUTBOX !== "1" || !loopback) notFound();
+  }
+  const mails = await listOutbox(platformDb());
   return (
     <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6">
       <h1 className="text-2xl font-semibold">Dev outbox</h1>

@@ -14,6 +14,17 @@ const HOST_PORT = PORT + 3;
 // reuses, a developer's local secret. The disposable e2e database is wiped every run anyway.
 // Set on process.env so the web server, the worker and any server a spec spawns share it.
 process.env.INTEGRATION_TOKEN_KEY = randomBytes(32).toString("base64");
+// Callback HMAC of the AutoLaris contract (T-49). Fixed (not random) because specs sign callbacks with it too; the e2e database is
+// disposable and the value is a placeholder, never a real secret.
+process.env.AUTOLARIS_CALLBACK_SECRET = "e2e-only-autolaris-callback-secret-0123456789abcdef";
+// Buyer contact fingerprint ring (T-57): a fixed e2e-only placeholder so checkout never depends on a developer's local secret.
+process.env.KEYRING_BUYER_FINGERPRINT = "e2e1:ZTJlLW9ubHktYnV5ZXItZmluZ2VycHJpbnQta2V5ISE=";
+process.env.KEYRING_SHIPPING_CREDENTIALS = "e2eship:ZTJlLW9ubHktc2hpcHBpbmcta2V5LXNlcGFyYXRlISE=";
+// Signed checkout resume links (T-45): a fixed e2e-only placeholder ring; specs sign and tamper with links using the same key.
+process.env.KEYRING_CHECKOUT_RESUME = "e2er1:ZTJlLW9ubHktY2hlY2tvdXQtcmVzdW1lLWtleS0wMSE=";
+// T-73: the production build the suite runs against has no mail provider; local mode is allowed only on a loopback origin.
+// Set on process.env so every server a spec spawns inherits it.
+process.env.MAIL_MODE = "local";
 // Three database roles as in production (ADR-0005): the web app runs as bukalaris_app with
 // RLS applied, operators and the worker as bukalaris_platform, the global setup migrates as
 // bukalaris_owner; the superuser URL only creates roles/database. Same local placeholder

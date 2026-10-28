@@ -2,40 +2,32 @@ import { expect, test } from "@playwright/test";
 import { evidence, login } from "./helpers";
 
 // Shipping track (T-34). The e2e server has no MENGANTAR_* env, so the pages run
-// on the fake adapter: no network call leaves the test.
+// on the fake adapter: no network call leaves the test. Since T-48 a margin change needs a second operator's approval
+// (four-eyes `shipping.margin`); the full request, approve, apply cycle is `t48.spec.ts`.
 
-test("operator edits the platform margin rule; preview and audit follow", async ({ page }, info) => {
+test("operator form: the preview follows the stored rule, a save without an approval and invalid input are refused and the rule stays", async ({ page }, info) => {
   await login(page, "admin@bukalaris.local", "/admin");
   await page.goto("/admin/shipping");
   await expect(page.getByRole("heading", { name: "Margin ongkir" })).toBeVisible();
+  const row = page.getByTestId("margin-preview").filter({ hasText: "Rp 22.320" });
+  await expect(row).toContainText("Rp 2.180"); // default Rp 2.000 flat, rounded up to Rp 500: 22.320 -> 24.500
+  await expect(row).toContainText("Rp 24.500");
   await evidence(page, info, "40-admin-shipping");
 
-  // Rp 1.500 + 2,5 %, rounded up to Rp 1.000: 22_320 → 22_320 + 1_500 + 558 = 24_378 → 25_000
   await page.getByLabel("Margin tetap (Rp)").fill("1500");
   await page.getByLabel("Margin persen (%)").fill("2.5");
   await page.getByLabel("Pembulatan ke atas").selectOption("1000");
   await page.getByRole("button", { name: "Simpan aturan" }).click();
-  await expect(page.getByRole("status")).toHaveText("Tersimpan.");
-  const row = page.getByTestId("margin-preview").filter({ hasText: "Rp 22.320" });
-  await expect(row).toContainText("Rp 2.680");
-  await expect(row).toContainText("Rp 25.000");
-  await expect(page.getByRole("region", { name: "Riwayat perubahan" }).getByRole("listitem").first()).toContainText("fixed=1500 bps=250 roundTo=1000");
-  await evidence(page, info, "41-admin-shipping-saved");
+  // Scope to main: Next's route announcer is also role=alert.
+  await expect(page.getByRole("main").getByRole("alert")).toContainText("ID persetujuan");
+  await expect(row).toContainText("Rp 24.500");
 
-  // Invalid input is rejected server-side and the rule stays.
   await page.getByLabel("Margin tetap (Rp)").fill("-5");
   await page.getByLabel("Margin tetap (Rp)").evaluate((el: HTMLInputElement) => el.removeAttribute("min"));
-  await page.getByRole("button", { name: "Simpan aturan" }).click();
-  // Scope to main: Next's route announcer is also role=alert, and matching it let the restore below race the redirect.
+  await page.getByRole("button", { name: "Ajukan perubahan" }).first().click();
   await expect(page.getByRole("main").getByRole("alert")).toBeVisible();
-  await expect(page.getByTestId("margin-preview").filter({ hasText: "Rp 22.320" })).toContainText("Rp 25.000");
-
-  // Restore the default so the other project / later tests start from it.
-  await page.getByLabel("Margin tetap (Rp)").fill("2000");
-  await page.getByLabel("Margin persen (%)").fill("0");
-  await page.getByLabel("Pembulatan ke atas").selectOption("500");
-  await page.getByRole("button", { name: "Simpan aturan" }).click();
-  await expect(page.getByRole("status")).toHaveText("Tersimpan.");
+  await expect(row).toContainText("Rp 24.500");
+  await expect(page.getByRole("region", { name: "Riwayat perubahan" })).toBeVisible();
 });
 
 test("owner searches an area, picks it, saves the pickup address; staff can only view", async ({ page }, info) => {

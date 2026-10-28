@@ -1,5 +1,7 @@
 import type { ProviderQuote, ShippingAdapter } from "../../payments/providers.ts";
 import { MengantarClient } from "./client.ts";
+import { DomainError } from "../../platform/scoped.ts";
+import { PARTNER_DISPATCH_LOCKED_MESSAGE } from "../copy.ts";
 import type { CourierRate } from "./schemas.ts";
 
 // Real ShippingAdapter over the platform-owned Mengantar account (Q-12/Q-2).
@@ -60,6 +62,7 @@ export function mengantarAdapter(client: MengantarClient): ShippingAdapter {
       }));
     },
     async estimate(input) {
+      if (input.shippingAccountKind === "partner_managed") throw new DomainError("awaiting_account", PARTNER_DISPATCH_LOCKED_MESSAGE);
       const map = await client.estimateAll(input);
       return Object.entries(map)
         .map(([key, rate]) => toProviderQuote(key, rate, input.weightKg))
