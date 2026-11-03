@@ -10,10 +10,21 @@ registry_values() { node "$ROOT/packages/db/src/isolation-print.ts" "$1"; }
 # grantees, fixed search_path) and the five roles. Empty output = in line. bukalaris_platform may hold MORE than
 # the registry until the contract step ran (drizzle-pending/t59-contract.sql); STRICT_PLATFORM=1 demands exactly the registry.
 registry_problems() {
-  local db="$1" tables fns roles strict="${STRICT_PLATFORM:-0}"
+  local db="$1" tables columns fns roles strict="${STRICT_PLATFORM:-0}"
   tables="$(registry_values tables)"; fns="$(registry_values functions)"; roles="$(registry_values roles)"
+  # Keep the existing CLI/table format stable; read the column map from the same registry.
+  columns="$(node --input-type=module - "$ROOT/packages/db/src/platform/isolation-registry.ts" <<'JS'
+import { pathToFileURL } from 'node:url';
+const { ISOLATION_REGISTRY } = await import(pathToFileURL(process.argv[2]).href);
+console.log(JSON.stringify(Object.fromEntries(Object.entries(ISOLATION_REGISTRY).map(([table, entry]) => [table, entry.appColumns ?? {}]))).replaceAll("'", "''"));
+JS
+)"
   psql_in "$db" <<SQL
 with reg(t, class, app, platform, policy, resolver) as (values $tables),
+reg_columns as (
+  select t.key as t, c.key as col, unnest(string_to_array(c.value, ',')) as p
+  from jsonb_each('$columns'::jsonb) t cross join lateral jsonb_each_text(t.value) c
+),
 dml(p) as (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE')),
 cat as (
   select c.oid, c.relname as t, pg_get_userbyid(c.relowner) as owner, c.relrowsecurity as rls, c.relforcerowsecurity as forced,
@@ -41,6 +52,16 @@ where reg.t is null or cat.t is null or cat.owner <> case reg.class when 'restri
   or ($strict = 1 and cat.platform <> reg.platform) or not (string_to_array(reg.platform, ',') <@ string_to_array(cat.platform, ','))
   or cat.resolver <> reg.resolver or (reg.policy = '' and (cat.rls or cat.forced or cat.npol > 0))
   or (reg.policy <> '' and not (cat.rls and cat.forced and cat.npol = 1 and exists (select 1 from pg_policy p where p.polrelid = cat.oid and p.polname = reg.policy)))
+union all
+-- Effective privileges include table grants, role membership and PUBLIC, not just attacl.
+select 'column ' || reg.t || '.' || a.attname || ': bukalaris_app ' || cp.p || ' differs from registry'
+from reg join cat on cat.t = reg.t
+join pg_attribute a on a.attrelid = cat.oid and a.attnum > 0 and not a.attisdropped
+cross join (values ('SELECT'), ('INSERT'), ('UPDATE'), ('REFERENCES')) cp(p)
+where has_column_privilege('bukalaris_app', cat.oid, a.attnum, cp.p) <>
+  (cp.p = any(string_to_array(reg.app, ',')) or exists (
+    select 1 from reg_columns rc where rc.t = reg.t and rc.col = a.attname and rc.p = cp.p
+  ))
 union all
 select 'function ' || coalesce(reg.id, cat.id) || ': ' || case
   when reg.id is null then 'SECURITY DEFINER function is not in the registry'

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,6 +31,15 @@ const rlsViolation = { cause: { code: "42501" } }; // "new row violates row-leve
 /** Raw SQL on any executor; `T` names the columns the caller reads (the driver does not check them). */
 const run = async <T extends object = Record<string, unknown>>(exec: { execute: typeof db.execute }, query: string): Promise<T[]> => (await exec.execute(sql.raw(query))) as unknown as T[];
 const pgCode = (err: unknown) => (err instanceof Error && err.cause && typeof err.cause === "object" && "code" in err.cause ? String(err.cause.code) : undefined);
+
+/** Exercise the real Docker/restore SQL on this isolated DB, without requiring Docker in CI. */
+async function shellRegistryProblems(): Promise<string[]> {
+  const root = fileURLToPath(new URL("../../../", import.meta.url));
+  const query = execFileSync("bash", ["-eu", "-c", 'ROOT="$1"; source "$ROOT/scripts/_registry.sh"; psql_in() { cat; }; registry_problems unused', "registry-check", root], {
+    encoding: "utf8", env: { ...process.env, STRICT_PLATFORM: "0" },
+  });
+  return (await run(platform, query)).map((row) => String(Object.values(row)[0]));
+}
 
 async function dropScratch() {
   const left = await run<{ relname: string }>(owner, `select relname from pg_class where relname like 'scratch\\_%' and relkind = 'r' and relnamespace = 'public'::regnamespace`);
@@ -84,6 +94,23 @@ describe("isolation registry: completeness and shape per class (ADR-0005 amendme
     expect(problems).toEqual([]);
   });
 
+  it("the Docker/restore registry SQL detects protected and missing column UPDATE grants (T-81)", async () => {
+    expect(await shellRegistryProblems()).toEqual([]);
+    try {
+      await run(owner, "grant update (status) on public.store to bukalaris_app");
+      expect(await shellRegistryProblems()).toContain("column store.status: bukalaris_app UPDATE differs from registry");
+    } finally {
+      await run(owner, "revoke update (status) on public.store from bukalaris_app");
+    }
+    try {
+      await run(owner, "revoke update (name) on public.store from bukalaris_app");
+      expect(await shellRegistryProblems()).toContain("column store.name: bukalaris_app UPDATE differs from registry");
+    } finally {
+      await run(owner, "grant update (name) on public.store to bukalaris_app");
+    }
+    expect(await shellRegistryProblems()).toEqual([]);
+  });
+
   it("every class in the registry maps to the policy shape of ADR-0005: tenant and buyer and affiliate carry one policy, the other classes none", () => {
     const policies = Object.fromEntries(
       (["tenant", "buyer", "affiliate", "platform", "shared-read", "restricted", "auth"] as const).map((c) => [c, expectedPolicy({ class: c, key: ["tenant", "buyer", "affiliate"].includes(c) ? "k" : undefined, app: "", platform: "" })?.name ?? null]),
@@ -111,6 +138,9 @@ describe("isolation registry: completeness and shape per class (ADR-0005 amendme
       };
     };
     expect(tableProblems(good("product"), ISOLATION_REGISTRY.product!, "expand")).toEqual([]);
+    expect(tableProblems(good("store"), ISOLATION_REGISTRY.store!, "expand")).toEqual([]);
+    expect(tableProblems(good("store", { appColumns: [] }), ISOLATION_REGISTRY.store!, "expand")[0]).toMatch(/column grants/);
+    expect(tableProblems(good("store", { appColumns: [...good("store").appColumns, "status:UPDATE"] }), ISOLATION_REGISTRY.store!, "expand")[0]).toMatch(/column grants/);
     expect(tableProblems(good("product", { forced: false }), ISOLATION_REGISTRY.product!, "expand")).toEqual(["product: row-level security is not FORCEd"]);
     expect(tableProblems(good("product", { policies: [] }), ISOLATION_REGISTRY.product!, "expand")[0]).toMatch(/policies \[\] differ/);
     expect(tableProblems(good("product", { policies: [{ ...good("product").policies[0]!, using: "true", check: "true" }] }), ISOLATION_REGISTRY.product!, "expand")[0]).toMatch(/differ/);
@@ -178,6 +208,31 @@ describe("fail closed (TEN-3)", () => {
     expect((await platform.select().from(product).where(eq(product.id, b.productId)))[0]!.title).toBe("Kaos toko-b");
     // The platform pool sees both stores.
     expect((await platform.select({ id: store.id }).from(store)).map((s) => s.id).sort()).toEqual([a.storeId, b.storeId].sort());
+  });
+
+  it.each([
+    ["created_at", sql`now()`],
+    ["id", sql`default`], // GENERATED ALWAYS rejects id = id before checking column privileges.
+    ["slug", sql`'forbidden-rename'`],
+    ["status", sql`'suspended'`],
+    ["suspended_at", sql`now()`],
+  ] as const)("app cannot UPDATE protected store column %s on its own or another store (T-81)", async (column, value) => {
+    const a = await makeStore("toko-a");
+    const b = await makeStore("toko-b");
+    const before = await platform.select().from(store).orderBy(store.id);
+    for (const target of [a.storeId, b.storeId]) {
+      await expect(withStore(db, a.storeId, (tx) => tx.execute(sql`update public.store set ${sql.identifier(column)} = ${value} where id = ${target}`))).rejects.toMatchObject(rlsViolation);
+    }
+    expect(await platform.select().from(store).orderBy(store.id)).toEqual(before);
+  });
+
+  it("store metadata UPDATE grants retain RLS: foreign and missing contexts change nothing (T-81)", async () => {
+    const a = await makeStore("toko-a");
+    const b = await makeStore("toko-b");
+    const before = await platform.select().from(store).orderBy(store.id);
+    expect(await withStore(db, a.storeId, (tx) => tx.update(store).set({ name: "Foreign edit" }).where(eq(store.id, b.storeId)).returning({ id: store.id }))).toEqual([]);
+    expect(await db.update(store).set({ name: "Missing context" }).where(eq(store.id, a.storeId)).returning({ id: store.id })).toEqual([]);
+    expect(await platform.select().from(store).orderBy(store.id)).toEqual(before);
   });
 
   it("the context is transaction-local: the same connection sees nothing again right after the transaction", async () => {

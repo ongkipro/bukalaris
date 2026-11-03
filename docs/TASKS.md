@@ -1270,7 +1270,7 @@ Common contract for T-80 to T-94: Allowed Paths are scope ceilings, not instruct
 - Visual Contract: Existing variants expose a clear inventory path; creation still accepts initial stock.
 
 ### T-81 — Restrict application updates on the tenant-root store row
-- Status: Planned (Technical hardening accepted in D-24; U65, not a demonstrated browser exploit)
+- Status: Done (2026-11-04, local `task/t81-store-column-grants` over `dd7511e`; report: `docs/tracks/t81-store-column-grants.md`). Four-column app UPDATE allowlist; protected own/foreign SQL denials, valid settings and platform lifecycle verified. Full DB 74 files/1400 tests, restored focused 4 files/82 tests, lint/typecheck, fresh Docker and populated migration/parity/idempotence PASS. Deliberate broad-grant mutation failed the named status denial; exact six-file restoration and restored pass verified. Independent R4/closure reviews clear. Technical hardening accepted in D-24/U65, not a demonstrated browser exploit; no production contract/deploy/push.
 - Primary requirement: PR-1
 - Constraints: D-24; TEN-1, DEL-3; existing live/approval gates stay unchanged
 - Dependencies: T-59

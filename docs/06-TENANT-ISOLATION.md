@@ -28,6 +28,13 @@
   functions (ADR-0005 amendment). Every table is registered in a class
   (`tenant`, `buyer`, `affiliate`, `platform`, `restricted`, `auth`,
   `shared-read`) and its policy and grants are tested against that class.
+- Tenant-root writable fields (T-81): `bukalaris_app` may UPDATE only the store
+  profile columns `description`, `name`, `theme` and `whatsapp`, within tenant
+  RLS. It has no UPDATE on `created_at`, `id`, `slug`, `status` or `suspended_at`.
+  Lifecycle writes remain governed platform-pool operations. Registry proof must
+  cover effective column privileges as well as table grants; a table-level
+  UPDATE grant cannot be narrowed by revoking a single column. This does not
+  authenticate the transaction-local GUCs or remove ADR-0005's residual risks.
 
 ## Scope matrix
 

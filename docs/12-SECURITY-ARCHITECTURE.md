@@ -81,7 +81,7 @@ internal contracts; runtime/provider-specific implementation awaits T-1/T-5.
 
 | Asset / boundary | Adversarial or failed input | Authoritative control | Minimum proof |
 |---|---|---|---|
-| Seller records | Foreign numeric ID, role field, stale membership | Tenant + object + writable-field policy | Authorized success; foreign write has no effect |
+| Seller records | Foreign numeric ID, role field, stale membership | Tenant + object + writable-field policy; app-role store UPDATE only on the four profile columns (T-81, TEN-3) | Authorized settings success; foreign write has no effect; direct app-role SQL cannot update store identity/lifecycle columns |
 | Public content | Draft ID, hostile HTML/link, shared cache entry | Published projection + safe rendering + store cache partition | Draft absent; injected content inert; no cross-store response |
 | Order/payment | Changed total, repeated request, unknown provider result | Server calculation + durable operation identity + reconciliation | Repeated logical action has one commercial effect |
 | Domain binding | Spoofed forwarded host, duplicate/reassigned domain | Trusted proxy chain + verified binding + atomic ownership | Unknown/reassigned host cannot serve prior store |
@@ -285,7 +285,8 @@ Proposed requirements; nothing here is built.
 - Owner: Bukalaris security owner with the operations owner
 - Source: ADR-0005 amendment, PRIV-4, PRIV-7, PRIV-10; audit of 2026-10-27 (SPV-23).
 - Statement: A restore is not complete until it reapplies the grant registry
-  (table owners, role grants, function `EXECUTE` grants, default privileges) and
+  (table owners, role grants, effective column privileges, function `EXECUTE`
+  grants, default privileges) and
   every erasure and restriction record (order redactions, buyer erasure, click
   purges, tax crypto-erasure), then verifies both. Backups must keep owners and
   ACLs (no `--no-acl`/`--no-owner`). Payout and billing jobs stay frozen until
@@ -341,5 +342,5 @@ the control that closes it.
 | THR-10 | Update Log | Tampering/spoofing: injected markup, wrong origin | Sanitised restricted markdown, canonical origin, GET-only, no cookies (SEC-21) |
 | THR-11 | Issue reports | Information disclosure/denial of service: personal data in descriptions, flood | Extended `scrubText`, text nodes only, per-staff limit, no attachments in Phase 1 (UX-22) |
 | THR-12 | Public reports | Denial of service/tampering: malicious takedown, bot flood | SEC-21: friction, limits, no automatic action |
-| THR-13 | Database roles | Elevation: SQL injection reaches payouts through the public lookup path | ADR-0005 amendment: lookups off the BYPASSRLS pool, restricted tables behind functions |
+| THR-13 | Database roles | Elevation: SQL injection reaches payouts through the public lookup path or directly changes store lifecycle | ADR-0005 amendment: lookups off the BYPASSRLS pool, restricted tables behind functions; T-81 app store-column UPDATE allowlist, verified independently of GUC context. Shared auth/platform-pool residual risks remain. |
 | THR-14 | Backups | Information disclosure/repudiation: unencrypted dump, grants and erasures lost on restore | SEC-23, PRIV-4; client-side encryption of offsite dumps is OPEN (14) |

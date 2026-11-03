@@ -38,7 +38,7 @@ export interface TableEntry {
   policy?: "audit-writers";
   /** Privileges `bukalaris_app` holds on the table. */
   app: Privileges;
-  /** Column-level SELECT/INSERT grants of `bukalaris_app` beyond the table-level ones. */
+  /** Column-level grants of `bukalaris_app` beyond the table-level ones. */
   appColumns?: Record<string, Privileges>;
   /**
    * Privileges `bukalaris_platform` needs for the production paths that run on the platform pool
@@ -52,7 +52,8 @@ const tenant = (app: Privileges, platform: Privileges, key = "store_id"): TableE
 
 export const ISOLATION_REGISTRY: Record<string, TableEntry> = {
   // ── tenant: store policy ──────────────────────────────────────────────────────────────────
-  store: tenant("SELECT,UPDATE", "SELECT,INSERT,UPDATE", "id"),
+  // T-81: settings only; identity and lifecycle belong to the platform writer, not a tenant UPDATE.
+  store: { ...tenant("SELECT", "SELECT,INSERT,UPDATE", "id"), appColumns: Object.fromEntries(["description", "name", "theme", "whatsapp"].map((column) => [column, "UPDATE"])) },
   membership: tenant("SELECT,INSERT,UPDATE,DELETE", "SELECT,INSERT"),
   store_invitation: tenant("SELECT,INSERT,UPDATE", ""),
   product: tenant("SELECT,INSERT,UPDATE", "SELECT"),
