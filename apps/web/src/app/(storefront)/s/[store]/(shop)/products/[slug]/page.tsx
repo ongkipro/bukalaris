@@ -1,5 +1,5 @@
 import { fieldClass, Notice } from "@/components/notice";
-import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/submit-button";
 import { Label } from "@/components/ui/label";
 import { SignalEvent } from "@/components/pixels/runtime";
 import { rupiah } from "@/lib/format";
@@ -102,22 +102,22 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
                   <input type="radio" name="variantId" value={v.id} defaultChecked={v.id === sellable[0]!.id} disabled={v.stock === 0} required className="accent-foreground" />
                   <span className="flex-1 font-medium">{v.title}</span>
                   <span className="text-sm tabular-nums">{rupiah(v.price)}</span>
-                  <span className="text-xs text-muted-foreground">{v.stock > 0 ? `stok ${v.stock}` : "habis"}</span>
+                  <span className="text-xs tabular-nums text-muted-foreground">{v.stock > 0 ? `stok ${v.stock}` : "habis"}</span>
                 </label>
               ))}
             </fieldset>
             <div className="flex flex-wrap items-end gap-3">
               <div className="grid w-24 gap-2">
                 <Label htmlFor="quantity">Jumlah</Label>
-                <input id="quantity" name="quantity" type="number" inputMode="numeric" min={1} max={99} defaultValue={1} required className={`${fieldClass} h-11 text-base`} />
+                <input id="quantity" name="quantity" type="number" inputMode="numeric" min={1} max={99} defaultValue={1} required className={`${fieldClass} h-11 text-base tabular-nums`} />
               </div>
-              <Button type="submit" size="lg" className="h-11 flex-1 px-6 text-base">Tambah ke keranjang</Button>
+              <SubmitButton pendingText="Menambahkan…" size="lg" className="h-11 flex-1 px-6 text-base">Tambah ke keranjang</SubmitButton>
             </div>
           </form>
         )}
         {p.description && (
           <section aria-labelledby="deskripsi" className="grid gap-2 border-t pt-5">
-            <h2 id="deskripsi" className="text-sm font-medium tracking-wide text-muted-foreground uppercase">Deskripsi</h2>
+            <h2 id="deskripsi" className="text-base font-semibold">Deskripsi</h2>
             <p className="whitespace-pre-line text-pretty leading-relaxed">{p.description}</p>
           </section>
         )}

@@ -1,6 +1,7 @@
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
+import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,12 +11,20 @@ import { allowed } from "@/lib/context";
 import { tanggal } from "@/lib/format";
 import { savedText } from "@/lib/governance";
 import { CASE_TRANSITIONS, getCase, hasPlatformCap, type CaseStatus } from "@bukalaris/db";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AccessDenied } from "../../access-denied";
 import { addNoteAction, moveCaseAction } from "../actions";
 
 const STATUS_LABEL: Record<string, string> = { open: "Terbuka", in_progress: "Dikerjakan", waiting: "Menunggu", resolved: "Selesai", closed: "Ditutup" };
 const MOVE_LABEL: Record<string, string> = { in_progress: "Kerjakan", waiting: "Tandai menunggu", resolved: "Selesaikan", closed: "Tutup kasus", open: "Buka kembali" };
+const STATUS_TONE: Record<string, "default" | "secondary" | "outline" | "destructive" | "success" | "warning"> = {
+  open: "warning",
+  in_progress: "default",
+  waiting: "secondary",
+  resolved: "success",
+  closed: "outline",
+};
 
 export default async function CaseDetailPage({ params, searchParams }: PageProps<"/admin/cases/[id]">) {
   const g = await consoleGate("/admin/cases/[id]");
@@ -30,8 +39,17 @@ export default async function CaseDetailPage({ params, searchParams }: PageProps
   const moves = CASE_TRANSITIONS[c.status as CaseStatus];
   return (
     <section className="grid gap-6">
-      <PageHeader back={{ href: "/admin/cases", label: "Semua kasus" }} title={<span><span className="font-mono">{c.caseNumber}</span> · {c.title}</span>} badge={<Badge variant="outline">{STATUS_LABEL[c.status] ?? c.status}</Badge>}
-        description={<>Dibuka <time dateTime={c.createdAt.toISOString()}>{tanggal(c.createdAt)}</time>{c.subjectKind ? <> · subjek {c.subjectKind} <span className="font-mono">{c.subjectId}</span></> : null}{c.overdue ? " · lewat tenggat" : ""}</>} />
+      <PageHeader
+        back={{ href: "/admin/cases", label: "Semua kasus" }}
+        title={<span><span className="font-mono">{c.caseNumber}</span> · {c.title}</span>}
+        badge={
+          <span className="inline-flex flex-wrap items-center gap-1.5">
+            <StatusBadge label={STATUS_LABEL[c.status] ?? c.status} tone={STATUS_TONE[c.status] ?? "outline"} />
+            {c.overdue && <Badge variant="destructive">Lewat tenggat</Badge>}
+          </span>
+        }
+        description={<>Dibuka <time dateTime={c.createdAt.toISOString()}>{tanggal(c.createdAt)}</time>{c.subjectKind ? <> · subjek {c.subjectKind} {c.subjectKind === "store" && c.subjectId ? <Link href={`/admin/stores/${c.subjectId}`} className="font-mono underline underline-offset-4">{c.subjectId}</Link> : c.subjectKind === "user" && c.subjectId ? <Link href={`/admin/accounts/seller/${c.subjectId}`} className="font-mono underline underline-offset-4">{c.subjectId}</Link> : <span className="font-mono">{c.subjectId}</span>}</> : null}{c.overdue ? " · lewat tenggat" : ""}</>}
+      />
       <Notice error={error} saved={saved} savedText={savedText(saved)} />
       {canWrite && moves.length > 0 && (
         <form className="grid gap-3 rounded-lg border p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end" aria-label="Ubah status kasus">

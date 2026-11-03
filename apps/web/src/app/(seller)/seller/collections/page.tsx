@@ -45,8 +45,8 @@ export default async function CollectionsPage() {
                   <StatusBadge label={publishStatusLabel[c.status]} tone={publishStatusTone[c.status]} />
                 </TableCell>
                 <TableCell numeric>{c.products}</TableCell>
-                <TableCell className="font-mono text-xs text-muted-foreground max-sm:hidden">
-                  {c.status === "published" ? <a href={`/s/${scope.storeSlug}/collections/${c.slug}`} className="underline underline-offset-4">/collections/{c.slug}</a> : `/collections/${c.slug}`}
+                <TableCell className="text-muted-foreground max-sm:hidden">
+                  <span className="font-mono text-xs">{c.status === "published" ? <a href={`/s/${scope.storeSlug}/collections/${c.slug}`} className="underline underline-offset-4">/collections/{c.slug}</a> : `/collections/${c.slug}`}</span>
                 </TableCell>
               </TableRow>
             ))}

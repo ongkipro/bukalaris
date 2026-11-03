@@ -16,6 +16,21 @@ import { failUnknownAttemptAction, markPaidAction, requestMarkPaidAction, voidIn
 
 export const metadata = { title: "Tagihan" };
 
+const EVENT_LABEL: Record<string, string> = {
+  invoice_created: "Tagihan dibuat",
+  attempt_created: "Instruksi pembayaran dibuat",
+  payment_settled: "Pembayaran terverifikasi lunas",
+  coverage_applied: "Masa aktif diberikan",
+  invoice_voided: "Tagihan dibatalkan",
+  marked_paid_bookkeeping: "Dicatat lunas manual (pencatatan saja)",
+  comp_granted: "Comp diberikan",
+};
+const SOURCE_LABEL: Record<string, string> = {
+  seller: "penjual (seller)",
+  operator: "staf konsol (operator)",
+  cron: "penjadwal otomatis (cron)",
+};
+
 export default async function AdminInvoicePage({ params, searchParams }: PageProps<"/admin/billing/invoices/[id]">) {
   const g = await consoleGate("/admin/billing/invoices/[id]");
   if (!g.ok) return <AccessDenied capability={g.capability} />;
@@ -35,16 +50,16 @@ export default async function AdminInvoicePage({ params, searchParams }: PagePro
       <PageHeader
         title={<span className="break-all font-mono text-lg sm:text-xl">{i.number}</span>}
         badge={<StatusBadge label={invoiceStatusLabel[i.status]} tone={invoiceStatusTone[i.status]} />}
-        description={`${d.store.name} · ${invoiceKindLabel[i.kind]} · periode ${i.periodStart} sampai ${i.periodEnd} (tanggal akhir tidak termasuk) · dibuat oleh ${i.source}`}
+        description={`${d.store.name} · ${invoiceKindLabel[i.kind]} · periode ${i.periodStart} sampai ${i.periodEnd} (tanggal akhir tidak termasuk) · dibuat oleh ${SOURCE_LABEL[i.source] ?? i.source}`}
         back={{ href: "/admin/billing", label: "Kembali ke langganan" }}
       />
       <Notice error={error} saved={saved} />
       {typeof requested === "string" && <p role="note" className="rounded-lg border px-3 py-2.5 text-sm">Permintaan persetujuan #{requested} dikirim; setelah orang kedua menyetujuinya di <Link href="/admin/approvals" className="underline underline-offset-4">Persetujuan</Link>, jalankan di bawah.</p>}
 
       <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 rounded-lg border p-4 text-sm tabular-nums" data-testid="admin-invoice-amounts">
-        <dt>DPP</dt><dd>{rupiah(i.dppIdr)}</dd>
-        <dt>PPN{i.ppnRateBps !== null ? ` (${bpsPercent(i.ppnRateBps)}, kebijakan pajak #${i.taxPolicyVersionId})` : ""}</dt><dd>{i.ppnEnabled ? rupiah(i.ppnIdr) : "Rp0 (PPN mati saat tagihan dibuat)"}</dd>
-        <dt className="font-medium">Total</dt><dd className="font-medium">{rupiah(i.totalIdr)}</dd>
+        <dt className="text-muted-foreground">DPP</dt><dd className="text-right">{rupiah(i.dppIdr)}</dd>
+        <dt className="text-muted-foreground">PPN{i.ppnRateBps !== null ? ` (${bpsPercent(i.ppnRateBps)}, kebijakan pajak #${i.taxPolicyVersionId})` : ""}</dt><dd className="text-right">{i.ppnEnabled ? rupiah(i.ppnIdr) : "Rp0 (PPN mati saat tagihan dibuat)"}</dd>
+        <dt className="font-medium">Total</dt><dd className="text-right font-medium">{rupiah(i.totalIdr)}</dd>
       </dl>
 
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
@@ -106,7 +121,7 @@ export default async function AdminInvoicePage({ params, searchParams }: PagePro
           {d.events.map((e) => (
             <li key={e.id} className="grid gap-0.5 p-3 sm:grid-cols-[12rem_minmax(0,1fr)] sm:gap-4">
               <time dateTime={e.createdAt.toISOString()} className="text-muted-foreground">{tanggal(e.createdAt)}</time>
-              <span className="break-all"><code>{e.kind}</code> · {e.actor}</span>
+              <span className="break-all">{EVENT_LABEL[e.kind] ? `${EVENT_LABEL[e.kind]} · ` : ""}<code>{e.kind}</code> · {e.actor}</span>
             </li>
           ))}
         </ol>

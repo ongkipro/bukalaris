@@ -39,7 +39,7 @@ export function ResetForm({ token }: { token: string }) {
         <p role="status" className="rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-800 dark:text-emerald-300">
           Kata sandi berhasil diubah. Semua sesi lama telah dikeluarkan.
         </p>
-        <Link href="/login" className="text-sm underline-offset-4 hover:underline">Masuk dengan kata sandi baru</Link>
+        <Link href="/login" className="inline-flex min-h-6 w-fit items-center rounded-sm py-1 text-sm underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50">Masuk dengan kata sandi baru</Link>
       </>
     );
   if (state === "expired")
@@ -48,7 +48,7 @@ export function ResetForm({ token }: { token: string }) {
         <p role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
           Tautan sudah kedaluwarsa atau sudah dipakai.
         </p>
-        <Link href="/account/recovery" className="text-sm underline-offset-4 hover:underline">Minta tautan baru</Link>
+        <Link href="/account/recovery" className="inline-flex min-h-6 w-fit items-center rounded-sm py-1 text-sm underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50">Minta tautan baru</Link>
       </>
     );
 

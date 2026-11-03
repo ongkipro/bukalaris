@@ -37,7 +37,7 @@
 .lp-sm { font-size: 0.875em; }
 .lp-xs { font-size: 0.75em; }
 .lp-muted { color: oklch(0.5 0 0); }
-.lp-eyebrow { font-size: 0.75em; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--lp-accent); }
+.lp-eyebrow { font-size: 0.75em; font-weight: 600; color: var(--lp-accent); font-variant-numeric: tabular-nums; }
 @media (min-width: 48rem) {
   .lp-h1 { font-size: 2.75em; }
   .lp-h2 { font-size: 1.625em; }
@@ -64,6 +64,7 @@
 .lp-field:focus-visible,
 .lp-link:focus-visible,
 .lp-faq summary:focus-visible { outline: 3px solid color-mix(in oklch, var(--lp-accent) 45%, transparent); outline-offset: 2px; }
+#lp-main:focus { outline: none; }
 .lp-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .lp-card { border: 1px solid oklch(0.9 0 0); border-radius: 1rem; background: oklch(1 0 0); }

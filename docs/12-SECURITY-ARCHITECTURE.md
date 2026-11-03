@@ -293,6 +293,22 @@ Proposed requirements; nothing here is built.
 - Acceptance: The restore rehearsal asserts the grants of every role against the
   registry and replays erasure records, failing when either differs.
 
+### SEC-25 — Runtime database identity proof at boot
+
+- Status: Proposed (portfolio scan 2026-11, G1; task T-76)
+- Owner: Bukalaris security owner
+- Source: ADR-0005, SEC-1; TokoΦ incident: a pool labelled "restricted" ran as superuser with
+  BYPASSRLS for months because the restricted URL silently fell back to the owner URL.
+- Statement: The web process and the worker each prove, once per process and before the first
+  query, that the connected role is the expected one (`bukalaris_app` for `DATABASE_URL`,
+  `bukalaris_platform` for `PLATFORM_DATABASE_URL`) and that it is neither superuser nor
+  `BYPASSRLS` (`pg_roles` of `current_user`). A failed proof stops the process; the message names
+  the variable, never the connection string. `/api/ready` reports not ready until the proof passed.
+  Today `createDb` only refuses a missing URL (no fallback exists), and role attributes are checked
+  offline by `scripts/_registry.sh` and `verify:docker`, not at runtime.
+- Acceptance: a test starts the pool with the owner URL and with a `BYPASSRLS` role and both refuse
+  to serve; the correct roles pass; `/api/ready` is 503 before the proof.
+
 ### SEC-24 — Credential-bearing mail
 
 - Status: Proposed

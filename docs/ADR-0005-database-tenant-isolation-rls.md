@@ -75,9 +75,9 @@ order-status links and handoff exchange.
   config gains `PLATFORM_DATABASE_URL` and `MIGRATION_DATABASE_URL`.
 - **Neutral:** application-level scoping (D-4) stays; RLS is the second wall.
 
-## Amendment (Accepted 2026-10-28, not yet implemented; proposed 2026-10-27): platform-owned tables and narrow platform grants
+## Amendment (Accepted 2026-10-28; expand step implemented locally 2026-10-28, contract step open; proposed 2026-10-27): platform-owned tables and narrow platform grants
 
-Status: Accepted (owner, 2026-10-28, DECISIONS D-20, task T-59); not implemented yet. The original decision above stays in force until T-59 delivers the amendment.
+Status: Accepted (owner, 2026-10-28, DECISIONS D-20, task T-59). The expand step is implemented locally (working tree on 2026-10-28: isolation registry, platform role and grants, migration 0011; `docs/tracks/t59-rls.md`); the contract step (revokes, T-59b/T-59c) is open. Until it lands, the original decision above and the expand-step grants are both in force.
 
 Why: ADR-0008, ADR-0009 and ADR-0010 add tables that belong to no seller (buyer identity, affiliate, subscription). The code review of 2026-10-27 (`docs/reviews/2026-10-27-code-vs-spec-gap-report.md`, `CRSEC-03`, `CRSEC-08`, `CRSEC-13`) found that the policy model and its test only know `app.store_id`, that `bukalaris_platform` holds every grant including future tables and serves public storefront lookups, and that decision 2 above describes `system_log` wrongly: it has a `store_id` column and deliberately no RLS because it is written before a store context exists. `CRSEC-02` adds that the app role can read and write the shared auth tables. The documentation audit of 2026-10-27 (audit SPV-01, SPV-02) found that "restricted tables reachable only by named functions" cannot be enforced while one BYPASSRLS login serves public lookups: PostgreSQL grants attach to roles, not to code.
 

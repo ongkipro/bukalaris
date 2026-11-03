@@ -28,7 +28,14 @@ const SAVED: Record<string, string> = {
 };
 const REJECT_ACTION = { payout: "payout.reject_processing", refund: "refund.fail" } as const;
 const APPROVE_ACTION = { payout: "payout.approve_transfer", refund: "refund.approve_transfer" } as const;
-
+const APPROVAL_STATUS_LABEL: Record<string, string> = {
+  pending: "Menunggu orang kedua",
+  approved: "Disetujui",
+  executed: "Sudah dijalankan",
+  rejected: "Ditolak",
+  expired: "Kedaluwarsa",
+  cancelled: "Dibatalkan",
+};
 export default async function TransferDetailPage({ params, searchParams }: PageProps<"/admin/payouts/[kind]/[id]">) {
   const g = await consoleGate("/admin/payouts/[kind]/[id]");
   if (!g.ok) return <AccessDenied capability={g.capability} />;
@@ -74,7 +81,7 @@ export default async function TransferDetailPage({ params, searchParams }: PageP
         <dt className="text-muted-foreground">Nomor rekening</dt><dd className="font-mono" data-testid="snap-account">{d.account ?? "belum diisi"}</dd>
         <dt className="text-muted-foreground">Nama pemilik</dt><dd data-testid="snap-holder">{d.holder ?? "belum diisi"}</dd>
         <dt className="text-muted-foreground">{kind === "payout" ? "Nama vs pemilik akun toko" : "Nama vs nama pembeli"}</dt>
-        <dd data-testid="snap-check">{d.holderCheck === "match" ? "Cocok" : d.holderCheck === "mismatch" ? "BERBEDA: periksa sebelum menyetujui" : "Belum diperiksa"}</dd>
+        <dd data-testid="snap-check" className={d.holderCheck === "mismatch" ? "font-semibold text-destructive" : undefined}>{d.holderCheck === "match" ? "Cocok" : d.holderCheck === "mismatch" ? "BERBEDA: periksa sebelum menyetujui" : "Belum diperiksa"}</dd>
         {d.composition && (
           <>
             <dt className="text-muted-foreground">Komposisi refund</dt>
@@ -96,7 +103,7 @@ export default async function TransferDetailPage({ params, searchParams }: PageP
           <ul className="grid gap-3">
             {d.approvals.map((a) => (
               <li key={a.id} className="grid gap-2 rounded-lg border p-3 text-sm" data-testid={`approval-${a.id}`}>
-                <p className="flex flex-wrap items-center gap-2"><span className="font-mono">{a.actionKey}</span> <StatusBadge label={a.status} tone={a.status === "approved" || a.status === "executed" ? "success" : a.status === "pending" ? "warning" : "secondary"} /> <span className="text-muted-foreground">oleh {a.requestedBy === g.userId ? "Anda" : a.requestedBy}{a.decidedBy ? `, diputuskan ${a.decidedBy === g.userId ? "Anda" : a.decidedBy}` : ""}</span></p>
+                <p className="flex flex-wrap items-center gap-2"><span className="font-mono">{a.actionKey}</span> <StatusBadge label={APPROVAL_STATUS_LABEL[a.status] ?? a.status} tone={a.status === "approved" || a.status === "executed" ? "success" : a.status === "pending" ? "warning" : "secondary"} /> <span className="text-muted-foreground">oleh {a.requestedBy === g.userId ? "Anda" : a.requestedBy}{a.decidedBy ? `, diputuskan ${a.decidedBy === g.userId ? "Anda" : a.decidedBy}` : ""}</span></p>
                 <p className="break-words text-muted-foreground">Alasan: {a.reason}</p>
                 <pre data-testid="payload" className="max-h-48 overflow-auto rounded-md border bg-muted/40 p-2 text-xs whitespace-pre-wrap [overflow-wrap:anywhere]">{a.payloadCanonical}</pre>
                 <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">SHA-256: <span className="font-mono" data-testid="payload-sha">{a.payloadSha256}</span></p>

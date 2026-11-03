@@ -14,6 +14,17 @@ export const metadata = { title: "Pesanan — Bukalaris" };
 
 const isStatus = (s: unknown): s is OrderStatus => typeof s === "string" && (ORDER_STATUSES as readonly string[]).includes(s);
 
+/** Separate payment axis from fulfilment/order status: a confirmed or shipped COD order is not paid yet (admin-dashboard §8). */
+function paymentAxisNote(method: "cod" | "manual_transfer", status: OrderStatus): string {
+  if (method === "cod") {
+    if (status === "cancelled" || status === "returned") return "Tidak tertagih";
+    if (status === "completed") return "Diterima kurir";
+    return "Bayar saat terima";
+  }
+  if (status === "awaiting_payment") return "Belum dibayar";
+  if (status === "cancelled") return "Dibatalkan";
+  return "Sudah dibayar";
+}
 export default async function OrdersPage({ searchParams }: PageProps<"/seller/orders">) {
   const sp = await searchParams;
   const status = isStatus(sp.status) ? sp.status : undefined;
@@ -52,11 +63,11 @@ export default async function OrdersPage({ searchParams }: PageProps<"/seller/or
           <TableHeader>
             <TableRow>
               <TableHead>No.</TableHead>
-              <TableHead>Waktu</TableHead>
+              <TableHead className="max-md:hidden">Waktu</TableHead>
               <TableHead>Pembeli</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Pembayaran</TableHead>
-              <TableHead numeric>Total</TableHead>
+              <TableHead className="max-md:hidden">Pembayaran</TableHead>
+              <TableHead numeric className="max-sm:hidden">Total</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -65,17 +76,24 @@ export default async function OrdersPage({ searchParams }: PageProps<"/seller/or
                 <TableCell>
                   <Link href={`/seller/orders/${o.id}`} className="font-mono text-xs font-medium tabular-nums underline-offset-4 hover:underline">#{o.id}</Link>
                 </TableCell>
-                <TableCell className="text-muted-foreground">
+                <TableCell className="text-muted-foreground max-md:hidden">
                   <time dateTime={o.createdAt.toISOString()}>{tanggal(o.createdAt)}</time>
                 </TableCell>
-                <TableCell>
+                <TableCell className="whitespace-normal">
                   <Link href={`/seller/orders/${o.id}`} className="font-medium underline-offset-4 hover:underline">{o.buyerName}</Link>
+                  <span className="mt-0.5 block text-xs text-muted-foreground md:hidden">
+                    <span className="font-medium text-foreground tabular-nums sm:hidden">{rupiah(o.total)} · </span>
+                    {paymentShortLabel[o.paymentMethod]} ({paymentAxisNote(o.paymentMethod, o.status).toLowerCase()}) · <time dateTime={o.createdAt.toISOString()}>{tanggal(o.createdAt)}</time>
+                  </span>
                 </TableCell>
                 <TableCell>
                   <StatusBadge label={orderStatusLabel[o.status]} tone={orderStatusTone[o.status]} />
                 </TableCell>
-                <TableCell>{paymentShortLabel[o.paymentMethod]}</TableCell>
-                <TableCell numeric>{rupiah(o.total)}</TableCell>
+                <TableCell className="max-md:hidden">
+                  <span>{paymentShortLabel[o.paymentMethod]}</span>
+                  <span className="block text-xs text-muted-foreground">{paymentAxisNote(o.paymentMethod, o.status)}</span>
+                </TableCell>
+                <TableCell numeric className="max-sm:hidden">{rupiah(o.total)}</TableCell>
               </TableRow>
             ))}
           </TableBody>

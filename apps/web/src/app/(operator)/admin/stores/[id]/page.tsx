@@ -20,6 +20,8 @@ import { AccessDenied } from "../../access-denied";
 import { openCaseAction } from "../../cases/actions";
 import { setStoreStatusDetailAction } from "../actions";
 
+const CASE_STATUS_LABEL: Record<string, string> = { open: "Terbuka", in_progress: "Dikerjakan", waiting: "Menunggu", resolved: "Selesai", closed: "Ditutup" };
+
 export default async function StoreDetailPage({ params, searchParams }: PageProps<"/admin/stores/[id]">) {
   const g = await consoleGate("/admin/stores/[id]");
   if (!g.ok) return <AccessDenied capability={g.capability} />;
@@ -81,11 +83,11 @@ export default async function StoreDetailPage({ params, searchParams }: PageProp
         <p className="text-xs text-muted-foreground">Kontak disamarkan. Mengungkap nilai asli butuh kasus terbuka, tujuan dan izin khusus (halaman akun).</p>
       </section>
 
-      <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-        {canVerify && <Link href={`/admin/stores/${s.id}/verification`} className="underline underline-offset-4">Catatan verifikasi (opsional)</Link>}
-        <Link href="/admin/risk" className="underline underline-offset-4">Tanda risiko</Link>
-        {g.caps.includes("finance.read") ? <Link href={`/admin/stores/${s.id}/ledger`} className="underline underline-offset-4" data-testid="ledger-link">Buku besar toko</Link> : <span className="text-muted-foreground" data-testid="ledger-denied">Buku besar toko butuh izin <code>finance.read</code>.</span>}
-      </p>
+      <nav aria-label="Tautan tata kelola toko" className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border bg-muted/20 px-4 py-3 text-sm">
+        {canVerify && <Link href={`/admin/stores/${s.id}/verification`} className="font-medium underline underline-offset-4">Catatan verifikasi (opsional)</Link>}
+        <Link href="/admin/risk" className="font-medium underline underline-offset-4">Tanda risiko</Link>
+        {g.caps.includes("finance.read") ? <Link href={`/admin/stores/${s.id}/ledger`} className="font-medium underline underline-offset-4" data-testid="ledger-link">Buku besar toko</Link> : <span className="text-muted-foreground" data-testid="ledger-denied">Buku besar toko butuh izin <code>finance.read</code>.</span>}
+      </nav>
 
       <form action={setStoreStatusDetailAction.bind(null, s.id, next)} className="grid gap-3 rounded-lg border p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
         <div className="grid gap-2">
@@ -125,7 +127,7 @@ export default async function StoreDetailPage({ params, searchParams }: PageProp
       <section aria-labelledby="kasus" className="grid gap-2">
         <h2 id="kasus" className="text-lg font-semibold">Kasus untuk toko ini</h2>
         {cases && cases.length > 0 ? (
-          <ul className="divide-y rounded-lg border text-sm">{cases.map((c) => <li key={c.id} className="p-3"><Link href={`/admin/cases/${c.id}`} className="font-mono underline underline-offset-4">{c.caseNumber}</Link> · {c.title} <Badge variant="outline">{c.status}</Badge></li>)}</ul>
+          <ul className="divide-y rounded-lg border text-sm">{cases.map((c) => <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 p-3"><span><Link href={`/admin/cases/${c.id}`} className="font-mono underline underline-offset-4">{c.caseNumber}</Link> · {c.title}</span><Badge variant="outline">{CASE_STATUS_LABEL[c.status] ?? c.status}</Badge></li>)}</ul>
         ) : (
           <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">{cases === undefined ? "Kasus butuh izin cases.read." : "Belum ada kasus untuk toko ini."}</p>
         )}

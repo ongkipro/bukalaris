@@ -2,7 +2,7 @@ import { ConfirmSubmit } from "@/components/confirm-submit";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/status-badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -31,7 +31,7 @@ export default async function StaffDetailPage({ params, searchParams }: PageProp
   const grantable = CAPABILITY_CATALOGUE.filter((c) => c.phase !== "P2");
   return (
     <section className="grid gap-6">
-      <PageHeader back={{ href: "/admin/staff", label: "Semua staf" }} title={<span className="break-all">{d.email}</span>} badge={<Badge variant={d.status === "active" ? "outline" : "destructive"}>{d.status === "active" ? "Aktif" : "Dinonaktifkan"}</Badge>}
+      <PageHeader back={{ href: "/admin/staff", label: "Semua staf" }} title={<span className="break-all">{d.email}</span>} badge={<StatusBadge label={d.status === "active" ? "Aktif" : "Dinonaktifkan"} tone={d.status === "active" ? "success" : "destructive"} />}
         description={<>Verifikasi dua langkah {d.mfaEnrolled ? "ya" : "tidak"} · sesi terbaru {d.lastSessionAt ? tanggal(d.lastSessionAt) : "—"}{own ? " · ini akun Anda: izin dan status Anda tidak bisa Anda ubah sendiri" : ""}</>} />
       <Notice error={error} saved={saved} savedText={savedText(saved)} />
       <section aria-labelledby="izin" className="grid gap-2">

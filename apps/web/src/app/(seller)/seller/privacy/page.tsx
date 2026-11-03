@@ -107,14 +107,15 @@ export default async function SellerPrivacyPage({ searchParams }: PageProps<"/se
               </div>
 
               <Table>
+                <caption className="sr-only">Pesanan pembeli yang cocok</caption>
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-10"><span className="sr-only">Pilih</span></TableHead>
                     <TableHead>Pesanan</TableHead>
-                    <TableHead>Waktu</TableHead>
+                    <TableHead className="max-sm:hidden">Waktu</TableHead>
                     <TableHead>Pembeli</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead numeric>Total</TableHead>
+                    <TableHead numeric className="max-sm:hidden">Total</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -127,10 +128,15 @@ export default async function SellerPrivacyPage({ searchParams }: PageProps<"/se
                         <Link href={`/seller/orders/${o.id}`} className="font-mono text-xs font-medium tabular-nums underline-offset-4 hover:underline">#{o.id}</Link>
                         <span className="ml-1 text-xs text-muted-foreground">{paymentShortLabel[o.paymentMethod]}</span>
                       </TableCell>
-                      <TableCell className="text-muted-foreground"><time dateTime={o.createdAt.toISOString()}>{tanggal(o.createdAt)}</time></TableCell>
-                      <TableCell>{o.buyerName}</TableCell>
+                      <TableCell className="text-muted-foreground max-sm:hidden"><time dateTime={o.createdAt.toISOString()}>{tanggal(o.createdAt)}</time></TableCell>
+                      <TableCell className="whitespace-normal">
+                        <span>{o.buyerName}</span>
+                        <span className="mt-0.5 block text-xs text-muted-foreground sm:hidden">
+                          <span className="font-medium text-foreground tabular-nums">{rupiah(o.total)}</span> · <time dateTime={o.createdAt.toISOString()}>{tanggal(o.createdAt)}</time>
+                        </span>
+                      </TableCell>
                       <TableCell><StatusBadge label={orderStatusLabel[o.status]} tone={orderStatusTone[o.status]} /></TableCell>
-                      <TableCell numeric>{rupiah(o.total)}</TableCell>
+                      <TableCell numeric className="max-sm:hidden">{rupiah(o.total)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

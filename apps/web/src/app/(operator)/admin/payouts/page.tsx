@@ -42,13 +42,16 @@ export default async function PayoutsPage({ searchParams }: PageProps<"/admin/pa
       <PageHeader title="Pencairan dan refund" description="Permintaan penarikan seller dan refund pembeli (non-COD). Persetujuan transfer butuh orang kedua; nomor rekening hanya tampil di halaman rincian dan setiap tampilannya tercatat." />
       <Notice error={error} saved={typeof saved === "string" ? saved : undefined} savedText={typeof saved === "string" ? SAVED[saved] : undefined} />
       {freeze && (
-        <form action={setFreezeAction} className="grid gap-2 rounded-lg border p-4 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end" data-testid="payout-freeze" aria-label="Pembekuan penarikan setelah pemulihan data">
+        <form action={setFreezeAction} className={`grid gap-2 rounded-lg border p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end ${freeze.frozen ? "border-destructive/50 bg-destructive/5" : ""}`} data-testid="payout-freeze" aria-label="Pembekuan penarikan setelah pemulihan data">
           <div className="grid gap-1.5">
-            <Label htmlFor="freeze-reason">Alasan ({freeze.frozen ? "pencabutan" : "pembekuan"})</Label>
+            <div className="flex flex-wrap items-center gap-2">
+              <Label htmlFor="freeze-reason">Alasan ({freeze.frozen ? "pencabutan" : "pembekuan"})</Label>
+              <StatusBadge label={freeze.frozen ? "Dibekukan" : "Berjalan normal"} tone={freeze.frozen ? "destructive" : "success"} />
+            </div>
             <Input id="freeze-reason" name="reason" required minLength={5} maxLength={500} />
             <p className="text-xs text-muted-foreground">
               Status: <strong data-testid="freeze-state">{freeze.frozen ? "DIBEKUKAN" : "berjalan"}</strong>
-              {freeze.reason && <> · {freeze.reason}</>}. Saat dibekukan: tidak ada permintaan penarikan baru, persetujuan, klaim, pencatatan transfer atau pelepasan rekonsiliasi COD. Dipakai setelah pemulihan data sampai bukti bank dicocokkan.
+              {freeze.reason && freeze.reason !== "initial" && <> · {freeze.reason}</>}. Saat dibekukan: tidak ada permintaan penarikan baru, persetujuan, klaim, pencatatan transfer atau pelepasan rekonsiliasi COD. Dipakai setelah pemulihan data sampai bukti bank dicocokkan.
             </p>
           </div>
           <input type="hidden" name="frozen" value={freeze.frozen ? "0" : "1"} />
@@ -80,7 +83,9 @@ export default async function PayoutsPage({ searchParams }: PageProps<"/admin/pa
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                <span className="tabular-nums">{rupiah(r.amountIdr)}</span>
+                <span className="font-medium tabular-nums">{rupiah(r.amountIdr)}</span>
+                {r.holderCheck === "mismatch" && <StatusBadge label="Nama berbeda" tone="warning" />}
+                {r.transferUnknownAt && <StatusBadge label="Hasil belum diketahui" tone="destructive" />}
                 <StatusBadge label={label[r.status] ?? r.status} tone={tone[r.status] ?? "secondary"} />
               </div>
             </li>

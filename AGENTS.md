@@ -84,6 +84,25 @@ superuser as `DATABASE_URL` (it bypasses RLS).
 - Never claim something works without running it; record evidence in
   `BUILD-LOG.md` and `docs/TASKS.md`.
 
+## Conventions added by the Goal Mode run (2026-10-28)
+
+- **Owner console:** every `/admin` page and server action starts with the console gate (`apps/web/src/lib/console-gate.ts`); a new page is registered in
+  `packages/db/src/ops/console-routes.ts` and gets an ARCH-5 row (9-column Pages table). Services take an `OperatorScope` and call `requirePlatformCap` first;
+  protected personal data is read through `withPersonalDataAccess`; sensitive actions use four-eyes (`requestApproval`/`consumeApproval`) with the approver
+  reading `payload_canonical`.
+- **Isolation registry:** every table needs an entry in `packages/db/src/platform/isolation-registry.ts` and every `SECURITY DEFINER` function an entry in
+  `DEFINER_FUNCTIONS` (pinned `search_path = pg_catalog, pg_temp`, schema-qualified names including INSERT/UPDATE/DELETE targets, `execute: []` for owner-only
+  functions such as every `reset_demo_*`). After a registry change regenerate the GRANT block of `packages/db/drizzle-pending/t59-contract.sql` from
+  `registryRows()`; `rls.test.ts`, `rls-contract.test.ts` and `pnpm verify:docker` enforce both.
+- **Migrations:** append-only; the generated structure comes from `pnpm --filter @bukalaris/db generate`, hand-written SQL (RLS, grants, triggers, definer
+  functions, seeds) goes in a `-- ===== <task>` section after it. A migration that adds a foreign key to a populated table must backfill first
+  (`NOT VALID`, then `VALIDATE`). Prove a new migration on a populated copy of the dev database (`create database ... template bukalaris`), not only on the empty test database.
+- **Money and auth tests:** a test for an invariant is only accepted after the invariant was broken once on purpose and a named test failed (mutation check,
+  recorded in the track report). Reviews of sensitive work are done by a separate agent; findings and fixes are recorded in `BUILD-LOG.md` and on the task in `docs/TASKS.md`.
+- **UI:** reuse `PageHeader`, `EmptyState`, `StatusBadge`, `Notice`, `SubmitButton`, `ConfirmSubmit`, `CopyButton`; money is `Rp 1.234.567` right-aligned with tabular
+  numerals, dates are WIB; minimum target 24 px; 320 px must reflow without horizontal scroll. Screenshots go under `docs/evidence/` (the rewritten baseline PNGs are noise: do not stage them).
+- **Hosting (D-23):** Vultr + Coolify + Cloudflare, no Supabase; nothing is provisioned. `CLIENT_IP_HEADER` selects the single trusted client-IP header.
+
 ## Parallel tracks (M2)
 
 > Historical ownership table. File names below are the M2 flat names; since T-51 (2026-10-28) they live

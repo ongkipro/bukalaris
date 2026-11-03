@@ -30,7 +30,7 @@ export default async function SecurityPage({ searchParams }: PageProps<"/account
             Setiap kali masuk, Anda diminta kode dari aplikasi autentikator. Kode cadangan yang Anda simpan dapat dipakai jika
             aplikasi tidak tersedia.
           </p>
-          <Link href={target} className="text-sm underline-offset-4 hover:underline">
+          <Link href={target} className="inline-flex min-h-6 w-fit items-center rounded-sm py-1 text-sm underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50">
             Lanjut ke {target === "/admin" ? "Owner console" : "Seller Admin"}
           </Link>
         </>

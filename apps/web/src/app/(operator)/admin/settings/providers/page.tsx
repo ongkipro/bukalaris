@@ -28,9 +28,9 @@ export default async function ProvidersPage() {
         <TableBody>
           {h.providers.map((p) => (
             <TableRow key={p.provider} data-testid={`provider-${p.provider}`}>
-              <TableCell className="font-mono text-xs">{p.provider}</TableCell>
-              <TableCell className="whitespace-normal text-xs">{p.lastEventAt ? <time dateTime={p.lastEventAt.toISOString()}>{tanggal(p.lastEventAt)}</time> : "—"}</TableCell>
-              <TableCell className="whitespace-normal text-xs">{p.lastFailureAt ? <time dateTime={p.lastFailureAt.toISOString()}>{tanggal(p.lastFailureAt)}</time> : "—"}</TableCell>
+              <TableCell className="font-mono">{p.provider}</TableCell>
+              <TableCell className="whitespace-normal">{p.lastEventAt ? <time dateTime={p.lastEventAt.toISOString()}>{tanggal(p.lastEventAt)}</time> : "—"}</TableCell>
+              <TableCell className="whitespace-normal">{p.lastFailureAt ? <time dateTime={p.lastFailureAt.toISOString()}>{tanggal(p.lastFailureAt)}</time> : "—"}</TableCell>
               <TableCell>{p.lastEventAt === null ? <StatusBadge label="Tidak diketahui" tone="secondary" /> : p.lastFailureAt && p.lastFailureAt >= p.lastEventAt ? <StatusBadge label="Gagal terakhir" tone="destructive" /> : <StatusBadge label="Ada catatan, tanpa gagal terakhir" tone="success" />}</TableCell>
             </TableRow>
           ))}
@@ -38,9 +38,12 @@ export default async function ProvidersPage() {
       </Table>
       <section aria-labelledby="gates" className="grid gap-2">
         <h2 id="gates" className="text-lg font-semibold">Saklar live (hanya baca, diatur lewat environment)</h2>
-        <ul className="text-sm">
+        <ul className="divide-y rounded-lg border text-sm">
           {h.liveGates.map((x) => (
-            <li key={x.name}><span className="font-mono">{x.name}</span> · {x.on ? "menyala" : "mati"}</li>
+            <li key={x.name} className="flex flex-wrap items-center justify-between gap-2 p-3">
+              <span><span className="font-mono">{x.name}</span> · {x.on ? "menyala" : "mati"}</span>
+              <StatusBadge label={x.on ? "Menyala" : "Mati"} tone={x.on ? "success" : "secondary"} />
+            </li>
           ))}
         </ul>
       </section>

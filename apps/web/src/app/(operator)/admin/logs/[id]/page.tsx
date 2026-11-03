@@ -133,11 +133,11 @@ export default async function LogDetailPage({ params, searchParams }: PageProps<
                 <TableBody>
                   {detail.related.map((e) => (
                     <TableRow key={e.id}>
-                      <TableCell className="whitespace-normal text-xs text-muted-foreground">
+                      <TableCell className="whitespace-normal text-muted-foreground">
                         <time dateTime={e.time.toISOString()}>{fmtTime(e.time)}</time>
                       </TableCell>
                       <TableCell><LevelBadge level={e.level} /></TableCell>
-                      <TableCell className="hidden md:table-cell font-mono text-xs">{e.module}</TableCell>
+                      <TableCell className="hidden md:table-cell font-mono">{e.module}</TableCell>
                       <TableCell className="max-w-[12rem] whitespace-normal sm:max-w-md">
                         <Link href={`/admin/logs/${e.id}?back=${encodeURIComponent(backHref.slice("/admin/logs".length))}`} className="font-medium underline-offset-4 hover:underline">
                           {e.message.length > 90 ? `${e.message.slice(0, 90)}…` : e.message}

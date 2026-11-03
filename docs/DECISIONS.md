@@ -366,3 +366,35 @@ Decision (owner instruction 2026-10-28: build what needs no further owner decisi
 
 Why acceptable now: all of it is local, uncommitted unless the owner asks, and behind existing gates.
 Revisit when: the owner reviews the Goal Mode report, or any item above blocks a live gate.
+
+## D-23 — Hosting direction: Vultr + Coolify + Cloudflare, no Supabase; deploy after local polish (2026-10-28)
+
+Decision (owner): production will run on a Vultr VPS (Singapore) with Coolify v4 (deploys, Coolify-managed PostgreSQL 17) behind Cloudflare (DNS, proxy, WAF,
+TLS). Supabase is not used. Edge pattern chosen: Cloudflare proxied with an Origin CA certificate, SSL Full (strict), `CF-Connecting-IP` trusted only behind a
+Cloudflare-only origin firewall. The owner chose NOT to start the migration now: the local build is polished first, and the domain `bukalaris.com` is not bought yet.
+Nothing is provisioned. The plan, the pre-deploy hardening list and the variable inventory are in `docs/DEPLOY-COOLIFY.md`; every live step still needs explicit approval.
+Why acceptable now: documentation only. Revisit when: the domain is bought and the owner asks to provision staging, or Cloudflare plan limits (two-label wildcard for T-55) change the host shape.
+
+## D-24 — Review disposition and development backlog (2026-11-04)
+
+Owner direction: apply the review recommendations, turn missing work into development tasks, and improve the system map. This pass aligns documentation and records work; it does not implement application behavior or approve a release. Existing accepted requirements own technical corrections; disputed product, financial, legal and infrastructure choices remain gated. The D1 to D10 labels below are local research candidate labels, not decision IDs.
+
+| Research candidate / review item | Disposition and recommendation | Execution owner |
+|---|---|---|
+| D1 origin exposure | Keep D-23 for the currently chosen Cloudflare-proxied hosts. Before custom domains, prove the certificate/ACME and trusted-IP boundary for each host class; scope exceptions rather than opening the origin globally. No firewall change in this pass. | T-15, T-79; platform owner approval before provisioning |
+| D2 reservation expiry and gateway fee truth | Recommend expiry aligned to the actual payment instruction and one transactional stock release; choose expiry/backorder policy first. Preserve immutable, exact fee/total snapshots; do not infer provider fees. | T-88, Q-10; T-49 live fixture gates |
+| D3 stock and store grants | Accept as technical correction scope under PR-2 and PR-1: prevent stale-form stock overwrite and narrow app-role store writes. Reuse `adjustStock` where suitable; preserve audited tenant settings. DB-level grant exposure is not a proven browser exploit. | T-80, T-81; independent security/concurrency review required during implementation |
+| D4 release gate | A current green local `pnpm verify` is necessary while CI evidence is absent, not a substitute for deployment approval or target-runtime proof. Record a reproducible artifact/revision and no claim that CI ran. | T-18, T-85, T-79 |
+| D5 collected-money KPI | Recommend a separately labelled collected metric, not silently changing historical goods/order KPIs. Decide recognition, refunds and time basis first. | T-89; product + finance |
+| D6 rate-limit availability | Reject blanket fail-open as an adopted default. Decide behavior per bucket and dependency failure; signature/auth, exact amount, stock and replay controls never fail open. Shared auth storage is independently actionable. | T-90 policy; T-83 storage; security owner |
+| D7 legal/consent | Claims in research require current official sources and qualified legal review; do not copy statutory assertions into customer promises. Existing Q-17 and privacy gates remain. | T-87 legal disposition; Q-11/Q-14/Q-17 and T-33/T-45/T-64 as applicable |
+| D8 parcel dimensions | Evaluate real Mengantar requirements and parcel packing/units first; no mandatory dimensions or speculative helper is accepted by this record. | T-92; integration + product |
+| D9 unreviewed stores | Verify reachability first; no speculative review queue while self-service signup is disabled. Activation/suspension rules must be server-derived if onboarding is introduced. | T-93; product + security |
+| D10 HSTS | Plan a reversible short-max-age rollout before a long-lived policy; exact hosts, duration and `includeSubDomains` need platform approval and TLS inventory. D-23 itself is not replaced. | T-94; platform owner |
+| Payment anomaly queue | Investigate and specify a bounded operator queue over recorded anomalies; no direct payment-state override or duplicate settlement/refund path. Product scope and capabilities need approval first. | T-91; finance + product |
+| Authentication and runtime verification | Existing D-20 CSRF gate, shared auth limiter, worker/cleanup container proof and a fresh baseline need explicit tracked work. | T-82 to T-85; T-76 to T-79 remain |
+| Documentation and research | Align current status without rewriting append-only evidence. Reconcile remaining ADR/spec/OpenAPI drift and classify every remaining lesson as covered, task-owned, gated, duplicate or not applicable. A search no-hit is not proof of a defect. | T-86, T-87; system-map maintenance T-12 |
+
+Technical corrections are planned, not completed. T-59 contract still requires all consumers upgraded and explicit owner approval; T-59b/T-59c remain T-59 follow-ups. Public-page independent design review remains T-28. No new business rates, retention periods, provider behavior, ADR-0001..0003 acceptance, credential access, commit/push, deployment or production DB changes are authorised here.
+
+Revisit when: a task's focused verification disproves a research claim, the owner resolves a gated policy, or real provider evidence changes the contract. Track execution in TASKS.md and BUILD-LOG.md, not in the research reports.

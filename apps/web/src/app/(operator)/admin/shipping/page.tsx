@@ -3,6 +3,7 @@ import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { SubmitButton } from "@/components/submit-button";
+import { buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -222,7 +223,7 @@ export default async function AdminShippingPage({ searchParams }: PageProps<"/ad
                         <input type="hidden" name="accountId" value={a.id} />
                         <input type="hidden" name="revision" value={a.revision} />
                         <Input name="reason" aria-label={`Alasan pemulihan akun ${a.id}`} minLength={5} maxLength={300} required placeholder="Alasan" className="h-8 w-32" />
-                        <SubmitButton size="sm" variant="outline" pendingText="…">Pulihkan</SubmitButton>
+                        <SubmitButton variant="outline" pendingText="…">Pulihkan</SubmitButton>
                       </form>
                     ) : null}
                   </TableCell>
@@ -231,7 +232,7 @@ export default async function AdminShippingPage({ searchParams }: PageProps<"/ad
             </TableBody>
           </Table>
         )}
-        {nextCursor ? <Link href={`/admin/shipping?after=${nextCursor}`} className="text-sm underline underline-offset-4">Akun berikutnya</Link> : null}
+        {nextCursor ? <Link href={`/admin/shipping?after=${nextCursor}`} className={buttonVariants({ variant: "outline" }) + " w-fit"}>Akun berikutnya</Link> : null}
       </section>
 
       <section aria-labelledby="audit-heading" className="grid gap-2">

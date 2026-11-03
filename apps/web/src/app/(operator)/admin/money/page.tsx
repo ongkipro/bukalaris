@@ -43,9 +43,9 @@ export default async function MoneyPage({ searchParams }: PageProps<"/admin/mone
     <section className="grid gap-6">
       <PageHeader title="Ringkasan keuangan" description="Posisi uang menurut kelas kewajiban, dihitung dari buku besar (bukan pembukuan kedua). Dana seller dan refund adalah kewajiban, bukan pendapatan." />
       <Notice error={error} saved={typeof saved === "string" ? saved : undefined} savedText={typeof saved === "string" ? SAVED[saved] : undefined} />
-      <nav aria-label="Keuangan" className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-        <Link href="/admin/payouts" className="underline underline-offset-4">Pencairan dan refund</Link>
-        <Link href="/admin/money/cod-reconciliation" className="underline underline-offset-4">Rekonsiliasi COD</Link>
+      <nav aria-label="Keuangan" className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border bg-muted/20 px-4 py-3 text-sm">
+        <Link href="/admin/payouts" className="font-medium underline underline-offset-4">Pencairan dan refund</Link>
+        <Link href="/admin/money/cod-reconciliation" className="font-medium underline underline-offset-4">Rekonsiliasi COD</Link>
       </nav>
 
       <section aria-labelledby="owed" className="grid gap-2">

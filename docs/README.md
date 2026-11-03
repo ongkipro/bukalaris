@@ -56,9 +56,11 @@ and workflows; which screens exist on `main` is recorded in the UX document's
 - Hosted checkout: Bukalaris-owned /checkout and confirmation, independent of
   storefront themes/origins, with server-authoritative transaction processing.
 - Later: drag-and-drop LP builder and MCP (landing pages v1 with typed blocks
-  exist, T-42), marketplace discovery. Specified as Proposed and not built: subscription billing, hybrid
-  shipping accounts, the seller ledger, the platform affiliate programme and storefront, the global buyer
-  portal and the Owner console governance scope (PRD PR-18, PR-23, PR-27 to PR-31; build order in [TASKS.md](TASKS.md)).
+  exist, T-42), marketplace discovery. Accepted and partly built locally (2026-10-28, not deployed):
+  subscription billing (T-50), the seller ledger and payouts (T-37), platform-managed Mengantar accounts (T-48),
+  Owner console governance (T-57, T-60, T-62, T-63) and the affiliate attribution base (T-52); the affiliate
+  portal and storefront and the global buyer portal remain to build (PR-18, PR-23, PR-27 to PR-31; per-task
+  status in [TASKS.md](TASKS.md)).
 
 ## Document ownership
 
@@ -82,11 +84,12 @@ and workflows; which screens exist on `main` is recorded in the UX document's
 | 16-OBSERVABILITY-RATE-LIMITING.md | Signals, Log System and query/abuse controls |
 | 17-UX-FLOWS-SCREEN-CONTRACTS.md | Initial screen workflows, states and acceptance |
 | ADR-0001 through ADR-0012 | Architecture decisions (0001–0003 proposed; 0004 accepted for local M1; 0005 accepted and implemented, with the 2026-10-27 amendment accepted on 2026-10-28 (T-59, D-20); 0006–0012 accepted on 2026-10-28 (D-20, D-21) as decisions, not implementation evidence — 0006 platform-managed money, net seller ledger & Mengantar reconciliation; 0007 platform-managed Mengantar Partner seller provisioning, shipping discounts & cashback ledger; 0008 platform architecture and routing; 0009 platform-owned affiliate programme; 0010 global buyer identity; 0011 Owner console scope, navigation, naming rule and account governance, with the startup relaxation and the dormant Compliance center (Compliance activation); 0012 platform tax workflows: startup-off defaults (earnings statements, optional voluntary tax identity) and a dormant tax policy engine (Tax activation)) |
-| DECISIONS.md | Implementation decisions and deliberate ceilings (D-1..D-22) |
+| DECISIONS.md | Implementation decisions and deliberate ceilings (D-1..D-24; D-24 also records gated review dispositions) |
 | TASKS.md | Only execution queue; planning versus verified status |
 | DEPLOY-COOLIFY.md / RUNBOOK.md | Deployment draft (unexecuted) / local operations and release gates |
 | tracks/*.md | Per-track implementation reports (what changed, commands, open issues); read-only history |
 | reviews/*.md | Dated code-versus-spec gap reports (evidence for rework/redevelop decisions; not specifications) |
+| research/*/ | Dated research on other projects and markets with its sources and verification (reference only; adopted items move into the owning document and TASKS.md) |
 | mockups/ | Static clickable mockups of surfaces that have no code yet (affiliate, subscription, seller affiliate settings, Owner console affiliate admin); see DEMO.md |
 | evidence/ | Playwright screenshots re-rendered by every e2e run |
 

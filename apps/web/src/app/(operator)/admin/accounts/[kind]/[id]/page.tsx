@@ -2,7 +2,7 @@ import { ConfirmSubmit } from "@/components/confirm-submit";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/status-badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -19,6 +19,13 @@ import { openCaseAction } from "../../../cases/actions";
 import { executeMfaResetAction, requestMfaResetAction, revealAction, revokeSessionsAction, startRecoveryAction, suspendAction } from "../../actions";
 
 export const metadata = { title: "Detail akun" };
+
+const ACTION_STATUS_LABEL: Record<string, string> = {
+  awaiting_approval: "Menunggu persetujuan",
+  approved: "Disetujui",
+  executed: "Dijalankan",
+  cancelled: "Dibatalkan",
+};
 
 /** The reason and case fields every action form shares (UX-22: each action needs a case and a reason). */
 function Common({ d, prefix }: { d: AccountDiagnostics; prefix: string }) {
@@ -71,7 +78,7 @@ export default async function AccountDetailPage({ params, searchParams }: PagePr
   const shown = (f: "email" | "name") => d.revealed.find((r) => r.field === f);
   return (
     <section className="grid gap-6">
-      <PageHeader back={{ href: "/admin/accounts", label: "Cari akun" }} title="Akun seller" badge={<Badge variant={d.status === "suspended" ? "destructive" : "outline"}>{d.status === "suspended" ? "Ditangguhkan" : "Aktif"}</Badge>}
+      <PageHeader back={{ href: "/admin/accounts", label: "Cari akun" }} title="Akun seller" badge={<StatusBadge label={d.status === "suspended" ? "Ditangguhkan" : "Aktif"} tone={d.status === "suspended" ? "destructive" : "success"} />}
         description={<>Referensi <span className="font-mono">{d.id}</span>. Kontak disamarkan; tidak ada kata sandi, tautan, token, kode atau kunci yang pernah ditampilkan di sini.</>} />
       <Notice error={error} saved={saved} savedText={savedText(saved)} />
       <dl className="grid gap-x-6 gap-y-2 rounded-lg border p-4 text-sm sm:grid-cols-[max-content_1fr]" data-testid="diagnostik">
@@ -82,8 +89,13 @@ export default async function AccountDetailPage({ params, searchParams }: PagePr
         <dt className="text-muted-foreground">Sesi terbaru</dt><dd>{d.lastSessionAt ? <time dateTime={d.lastSessionAt.toISOString()}>{tanggal(d.lastSessionAt)}</time> : "—"}</dd>
         <dt className="text-muted-foreground">Peran toko</dt><dd>{d.storeOwner ? "Pemilik toko" : "Anggota tim"}</dd>
       </dl>
-      {d.revealed.length > 0 && <p role="status" className="text-xs text-muted-foreground">Nilai asli terbuka sampai <time dateTime={d.revealed[0]!.expiresAt.toISOString()}>{tanggal(d.revealed[0]!.expiresAt)}</time>, lalu tersamarkan lagi. Setiap pembacaan tercatat.</p>}
-
+      {d.revealed.length > 0 ? (
+        <p role="status" className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-200">
+          <strong>Data pribadi sedang diungkap ({d.revealed.map((r) => r.field === "email" ? "Email" : "Nama").join(", ")})</strong> — nilai asli terbuka sampai <time dateTime={d.revealed[0]!.expiresAt.toISOString()}>{tanggal(d.revealed[0]!.expiresAt)}</time> (jendela pengungkapan 5 menit), lalu tersamarkan lagi. Setiap pembacaan tercatat.
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground">Nilai identitas di atas saat ini disamarkan. Untuk mengungkap nilai asli sementara, gunakan formulir Ungkap nilai asli di bawah dengan merujuk kasus terbuka dan tujuan pemeriksaan.</p>
+      )}
       <section aria-labelledby="toko" className="grid gap-2">
         <h2 id="toko" className="text-lg font-semibold">Toko</h2>
         <ul className="divide-y rounded-lg border text-sm">
@@ -156,7 +168,7 @@ export default async function AccountDetailPage({ params, searchParams }: PagePr
         {d.history.length + d.actions.length === 0 ? <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Belum ada.</p> : (
           <ul className="divide-y rounded-lg border text-sm">
             {d.history.map((h) => <li key={`h${h.id}`} className="p-3">{h.fromStatus ?? "—"} → {h.toStatus} ({h.reasonCode}) · <time dateTime={h.createdAt.toISOString()}>{tanggal(h.createdAt)}</time></li>)}
-            {d.actions.map((a) => <li key={`a${a.id}`} className="p-3"><span className="font-mono">{a.actionKind}</span> · {a.status}{a.resultCode ? ` (${a.resultCode})` : ""} · <time dateTime={a.createdAt.toISOString()}>{tanggal(a.createdAt)}</time></li>)}
+            {d.actions.map((a) => <li key={`a${a.id}`} className="p-3"><span className="font-mono">{a.actionKind}</span> · {ACTION_STATUS_LABEL[a.status] ?? a.status} ({a.status}){a.resultCode ? ` · ${a.resultCode}` : ""} · <time dateTime={a.createdAt.toISOString()}>{tanggal(a.createdAt)}</time></li>)}
           </ul>
         )}
       </section>

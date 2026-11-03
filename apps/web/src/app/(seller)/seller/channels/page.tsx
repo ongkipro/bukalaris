@@ -27,7 +27,7 @@ export default async function ChannelsPage({ searchParams }: PageProps<"/seller/
   }
   const channels = await listChannels(scope);
   return (
-    <section className="grid gap-6">
+    <section className="grid max-w-3xl gap-6">
       <PageHeader
         title="Channel"
         description="Storefront eksternal memanggil Storefront API dengan token channel dari backend-nya (jangan di browser). Token hanya memberi akses katalog terbit, keranjang dan handoff ke checkout Bukalaris untuk toko ini."
@@ -52,8 +52,8 @@ export default async function ChannelsPage({ searchParams }: PageProps<"/seller/
             {channels.map((c) => (
               <TableRow key={c.id} data-testid={`channel-${c.id}`}>
                 <TableCell className="font-medium">{c.name}</TableCell>
-                <TableCell className="max-w-[12rem] font-mono text-xs break-all whitespace-normal sm:max-w-xs">{c.origin}{c.returnPath}</TableCell>
-                <TableCell className="font-mono text-xs">blsk_{c.tokenPrefix}_…</TableCell>
+                <TableCell className="max-w-[12rem] break-all whitespace-normal sm:max-w-xs"><span className="font-mono text-xs">{c.origin}{c.returnPath}</span></TableCell>
+                <TableCell><span className="font-mono text-xs">blsk_{c.tokenPrefix}_…</span></TableCell>
                 <TableCell>
                   <StatusBadge label={channelStateLabel[c.state]} tone={channelStateTone[c.state]} />
                   {c.state !== "revoked" && c.expiresAt && <span className="mt-1 block text-xs text-muted-foreground">s/d {tanggal(c.expiresAt)}</span>}

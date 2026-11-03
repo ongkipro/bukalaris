@@ -12,6 +12,15 @@ import { submitRefundDestinationAction } from "./actions";
 export const dynamic = "force-dynamic";
 
 const dt = new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Jakarta" });
+const formatTimelineAt = (at: Date | string) => {
+  if (typeof at !== "string") return `${dt.format(at)} WIB`;
+  const m = /^(\d{2})-(\d{2})-(\d{4}) (\d{2}):(\d{2})$/.exec(at.trim());
+  if (m) {
+    const d = new Date(`${m[3]}-${m[2]}-${m[1]}T${m[4]}:${m[5]}:00+07:00`);
+    if (Number.isFinite(d.getTime())) return `${dt.format(d)} WIB`;
+  }
+  return at ? `${at} WIB` : "—";
+};
 
 /**
  * Buyer order status behind a signed, expiring link (`/o/<orderId>.<expiry>.<hmac>`, T-36).
@@ -30,7 +39,7 @@ export default async function OrderStatusPage({ params, searchParams }: PageProp
   const tracking = s && s.trackingNumber ? s : null;
   return (
     <section className="grid gap-4 rounded-xl border bg-background p-6" aria-labelledby="status-heading">
-      <p className="text-sm font-medium tracking-wide text-muted-foreground uppercase">{o.storeName}</p>
+      <p className="text-sm font-medium text-muted-foreground">{o.storeName}</p>
       <h1 id="status-heading" className="-mt-2 text-2xl font-semibold tracking-tight">
         Pesanan <span className="font-mono" data-testid="order-id">#{o.id}</span>
       </h1>
@@ -48,8 +57,9 @@ export default async function OrderStatusPage({ params, searchParams }: PageProp
       </ul>
       <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 border-t pt-2 text-sm tabular-nums">
         <dt>Subtotal</dt><dd className="text-right">{rupiah(o.subtotal)}</dd>
-        {o.goodsDiscount > 0 && <><dt>Diskon barang</dt><dd className="text-right">−{rupiah(o.goodsDiscount)}</dd></>}
-        <dt>Ongkir{o.shippingDiscount > 0 && <span className="font-normal text-muted-foreground"> (diskon ongkir {rupiah(o.shippingDiscount)})</span>}</dt><dd className="text-right">{rupiah(o.shippingFee)}</dd>
+        {o.goodsDiscount > 0 && <><dt>Diskon barang</dt><dd className="text-right" data-testid="order-goods-discount">−{rupiah(o.goodsDiscount)}</dd></>}
+        {o.shippingDiscount > 0 && <><dt>Diskon ongkir</dt><dd className="text-right" data-testid="order-shipping-discount">−{rupiah(o.shippingDiscount)}</dd></>}
+        <dt>Ongkir{o.shippingDiscount > 0 && <span className="font-normal text-muted-foreground"> (setelah diskon)</span>}</dt><dd className="text-right" data-testid="order-shipping">{rupiah(o.shippingFee)}</dd>
         <dt className="font-semibold">Total</dt><dd className="text-right font-semibold" data-testid="order-total">{rupiah(o.total)}</dd>
       </dl>
       <dl className="grid gap-1 border-t pt-2 text-sm">
@@ -65,7 +75,9 @@ export default async function OrderStatusPage({ params, searchParams }: PageProp
         <section aria-labelledby="tracking-heading" className="grid gap-2 border-t pt-3 text-sm" data-testid="tracking-timeline">
           <h2 id="tracking-heading" className="font-semibold">Perjalanan paket</h2>
           <p>
-            <span data-testid="tracking-status">{providerStatusLabel(tracking.providerStatus) ?? SHIPMENT_STATUS_LABEL[tracking.status]}</span>
+            <span data-testid="tracking-status">
+              {(tracking.providerStatus && tracking.providerStatus !== "[dihapus]" ? providerStatusLabel(tracking.providerStatus) : null) ?? SHIPMENT_STATUS_LABEL[tracking.status]}
+            </span>
             {tracking.lastTrackedAt && <span className="block text-xs text-muted-foreground">Dicek {dt.format(tracking.lastTrackedAt)} WIB</span>}
           </p>
           <ol className="grid gap-1.5">
@@ -74,11 +86,16 @@ export default async function OrderStatusPage({ params, searchParams }: PageProp
               .reverse()
               .map((t, i) => (
                 <li key={i} className="grid gap-x-3 sm:grid-cols-[11rem_minmax(0,1fr)]">
-                  <span className="text-muted-foreground tabular-nums">{typeof t.at === "string" ? (t.at ? `${t.at} WIB` : "—") : `${dt.format(t.at)} WIB`}</span>
+                  <span className="text-muted-foreground tabular-nums">{formatTimelineAt(t.at)}</span>
                   <span className="break-words">{t.text}</span>
                 </li>
               ))}
           </ol>
+          {tracking.trackingHistory.some((h) => h.desc === "[dihapus]") && (
+            <p className="text-xs text-muted-foreground" data-testid="tracking-redacted-note">
+              Keterangan bebas dari kurir telah dihapus sesuai kebijakan privasi data pembeli; waktu dan status paket tetap tercatat.
+            </p>
+          )}
         </section>
       )}
       {refund && (
@@ -100,11 +117,12 @@ export default async function OrderStatusPage({ params, searchParams }: PageProp
               <p className="text-xs text-muted-foreground">Isi rekening bank atau e-wallet atas nama Anda. Refund ditransfer manual oleh tim Bukalaris setelah diperiksa; nomor rekening tidak ditampilkan lagi setelah disimpan.</p>
               <div className="grid gap-1.5">
                 <Label htmlFor="refund-bank">Bank atau e-wallet</Label>
-                <NativeSelect id="refund-bank" name="bank" defaultValue="BCA">{BANKS.map((b) => <option key={b} value={b}>{b}</option>)}</NativeSelect>
+                <NativeSelect id="refund-bank" name="bank" defaultValue={refund.destinationBank ?? "BCA"}>{BANKS.map((b) => <option key={b} value={b}>{b}</option>)}</NativeSelect>
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="refund-account">Nomor rekening</Label>
-                <Input id="refund-account" name="account" inputMode="numeric" pattern="[0-9]{5,24}" required autoComplete="off" />
+                <Input id="refund-account" name="account" inputMode="numeric" pattern="[0-9]{5,24}" required autoComplete="off" aria-describedby="refund-account-help" />
+                <p id="refund-account-help" className="text-xs text-muted-foreground">5–24 angka saja tanpa spasi atau tanda hubung.</p>
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="refund-holder">Nama pemilik rekening</Label>

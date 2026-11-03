@@ -41,6 +41,17 @@ DEPLOY-COOLIFY and `packages/db/docker/05-roles.sql`, the `verify:docker` policy
 count, and the restore rehearsal checks (`rls_ok`, grants per role, erasure
 replay; 14 restore rules).
 
+Drizzle migrator traps (portfolio scan 2026-11, G2; task T-77). The migrator applies every
+pending migration in one transaction, so one failing statement rolls back the whole batch; and it
+applies only journal entries newer than the newest stamp recorded in the target database, so an
+entry whose `when` is lower is skipped silently while the run still reports success. Rules: the
+journal `when` values strictly increase and every entry has its `.sql` file (and the reverse);
+renumbering a migration after a merge also re-stamps it; hand-written sections are idempotent
+(`if not exists`, guarded enum and role creation) so a partially applied environment can be
+repaired by re-running; generated SQL is read before commit because a drifted snapshot can
+re-add existing columns. After a deploy, compare `drizzle.__drizzle_migrations` (count and
+newest `created_at`) with the journal.
+
 ## DEL-3 — Vertical delivery order
 - Owner: Bukalaris delivery owner
 - Statement: Implement an accepted vertical slice through data, permission,
@@ -74,6 +85,7 @@ no placeholder command is claimed runnable against a nonexistent application.
 | Domains | Pending TLS, primary race, removal/reassignment, cache isolation |
 | Signals | Feed/Pixel/CAPI identity fixture parity and actual provider receipt before match claims |
 | Operations | Log sink-to-UI correlation, synthetic redaction, isolated restore with grants per role and erasure replay, post-restore payout freeze and reconciliation |
+| Provider fixtures | Every provider fixture records whether it is captured (date, environment, sanitized source) or synthetic; a synthetic fixture never stands as evidence of provider behavior (portfolio scan 2026-11, G3) |
 
 ## Release evidence and documentation maintenance
 

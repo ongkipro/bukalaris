@@ -2,12 +2,12 @@ import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { billingStateLabel, billingStateTone, invoiceKindLabel, invoiceStatusLabel, invoiceStatusTone } from "@/lib/billing";
 import { sellerScope } from "@/lib/context";
-import { rupiah, tanggal, tanggalSaja } from "@/lib/format";
+import { rupiah, tanggal, tanggalIso, tanggalSaja } from "@/lib/format";
 import { can, defaultProviders, DomainError, effectivePlan, invoiceAttempts, jakartaMidnight, listInvoices, paymentView, subscriptionChannels, type Invoice } from "@bukalaris/db";
 import Link from "next/link";
 import { Instruction, PayForm } from "./_payment";
@@ -69,11 +69,11 @@ export default async function BillingPage({ searchParams }: PageProps<"/seller/b
       </div>
 
       <div className="grid gap-3" data-testid="billing-pay">
-        <h2 className="text-base font-medium">Bayar</h2>
+        <h2 className="text-base font-semibold">Bayar</h2>
         {open ? (
           <>
             <p className="text-sm">
-              Tagihan <Link href={`/seller/billing/invoices/${open.id}`} className="font-mono underline underline-offset-4">{open.number}</Link> · periode {open.periodStart} sampai {open.periodEnd} · <strong>{rupiah(open.totalIdr)}</strong>
+              Tagihan <Link href={`/seller/billing/invoices/${open.id}`} className="font-mono font-medium underline underline-offset-4">{open.number}</Link> · periode {tanggalIso(open.periodStart)} sampai {tanggalIso(open.periodEnd)} (WIB) · <strong className="tabular-nums">{rupiah(open.totalIdr)}</strong>
             </p>
             {attempt && <Instruction view={paymentView(attempt)} />}
             {!pay ? <p role="note" className="text-sm text-muted-foreground">Hanya pemilik toko yang dapat membayar.</p> : channelError ? <p role="alert" className="text-sm text-destructive">{channelError}</p> : <PayForm channels={channels} invoiceId={open.id} label={attempt ? "Buat instruksi baru" : "Bayar sekarang"} />}
@@ -91,9 +91,9 @@ export default async function BillingPage({ searchParams }: PageProps<"/seller/b
       </div>
 
       <div className="grid gap-3">
-        <h2 className="text-base font-medium">Riwayat tagihan</h2>
-        <form method="get" action="/seller/billing" className="grid gap-2 sm:grid-cols-[minmax(0,16rem)_auto] sm:items-end">
-          <div className="grid gap-1.5">
+        <h2 className="text-base font-semibold">Riwayat tagihan</h2>
+        <form method="get" action="/seller/billing" className="grid gap-2 sm:flex sm:flex-wrap sm:items-end">
+          <div className="grid gap-1.5 sm:w-64">
             <Label htmlFor="status">Status</Label>
             <NativeSelect id="status" name="status" defaultValue={status ?? ""}>
               {FILTERS.map(([v, l]) => (
@@ -106,17 +106,17 @@ export default async function BillingPage({ searchParams }: PageProps<"/seller/b
         {all.length === 0 ? (
           <EmptyState title="Belum ada tagihan">Tagihan pertama dibuat menjelang akhir masa percobaan, atau saat Anda menekan Bayar.</EmptyState>
         ) : filtered.length === 0 ? (
-          <EmptyState title="Tidak ada tagihan dengan status ini" action={<Link href="/seller/billing" className="text-sm underline underline-offset-4">Tampilkan semua</Link>}>Ada {all.length} tagihan lain; ubah filter untuk melihatnya.</EmptyState>
+          <EmptyState title="Tidak ada tagihan dengan status ini" action={<Link href="/seller/billing" className={buttonVariants({ variant: "outline", size: "sm" })}>Tampilkan semua</Link>}>Ada {all.length} tagihan lain; ubah filter untuk melihatnya.</EmptyState>
         ) : (
-          <ul className="grid gap-2" aria-label="Daftar tagihan" data-testid="billing-invoices">
+          <ul className="divide-y rounded-lg border" aria-label="Daftar tagihan" data-testid="billing-invoices">
             {filtered.map((i) => (
-              <li key={i.id} className="grid gap-1 rounded-lg border p-3 text-sm sm:grid-cols-[1fr_auto] sm:items-center">
+              <li key={i.id} className="grid gap-1 p-3 text-sm sm:grid-cols-[1fr_auto] sm:items-center">
                 <div className="min-w-0 grid gap-0.5">
-                  <Link href={`/seller/billing/invoices/${i.id}${status ? `?status=${status}` : ""}`} className="break-all font-mono underline underline-offset-4">{i.number}</Link>
-                  <span className="text-muted-foreground">{invoiceKindLabel[i.kind]} · periode {i.periodStart} sampai {i.periodEnd}</span>
+                  <Link href={`/seller/billing/invoices/${i.id}${status ? `?status=${status}` : ""}`} className="break-all font-mono font-medium underline underline-offset-4">{i.number}</Link>
+                  <span className="text-muted-foreground">{invoiceKindLabel[i.kind]} · periode {tanggalIso(i.periodStart)} sampai {tanggalIso(i.periodEnd)} (WIB)</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                  <span className="tabular-nums">{rupiah(i.totalIdr)}</span>
+                  <span className="font-medium tabular-nums">{rupiah(i.totalIdr)}</span>
                   <StatusBadge label={invoiceStatusLabel[i.status]} tone={invoiceStatusTone[i.status]} />
                 </div>
               </li>

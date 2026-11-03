@@ -42,23 +42,23 @@ export function VariantFields({ prefix = "", d }: { prefix?: string; d?: { title
   const id = (k: string) => `${prefix}${k}`;
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-      <div className="grid gap-2">
+      <div className="grid content-start gap-2">
         <Label htmlFor={id("title")}>Nama varian</Label>
         <Input id={id("title")} name={id("title")} required maxLength={120} defaultValue={d?.title ?? "Default"} />
       </div>
-      <div className="grid gap-2">
+      <div className="grid content-start gap-2">
         <Label htmlFor={id("price")}>Harga (Rp)</Label>
         <Input id={id("price")} name={id("price")} type="number" inputMode="numeric" min={0} step={1} required defaultValue={d?.price} className="tabular-nums" />
       </div>
-      <div className="grid gap-2">
+      <div className="grid content-start gap-2">
         <Label htmlFor={id("stock")}>Stok</Label>
         <Input id={id("stock")} name={id("stock")} type="number" inputMode="numeric" min={0} step={1} required defaultValue={d?.stock ?? 0} className="tabular-nums" />
       </div>
-      <div className="grid gap-2">
+      <div className="grid content-start gap-2">
         <Label htmlFor={id("sku")}>SKU (opsional)</Label>
         <Input id={id("sku")} name={id("sku")} maxLength={64} defaultValue={d?.sku ?? ""} />
       </div>
-      <div className="grid gap-2">
+      <div className="grid content-start gap-2">
         <Label htmlFor={id("weightGrams")}>Berat (gram)</Label>
         <Input id={id("weightGrams")} name={id("weightGrams")} type="number" inputMode="numeric" min={1} step={1} required aria-describedby={id("weight-help")} defaultValue={d?.weightGrams} className="tabular-nums" />
         <p id={id("weight-help")} className="text-xs text-muted-foreground">Per satuan; dasar ongkir.</p>

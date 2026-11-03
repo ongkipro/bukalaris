@@ -349,11 +349,11 @@ The API document is a proposed contract until implementation conformance passes.
 
 | ID | Decision | Owner | Gate |
 |---|---|---|---|
-| Q-1 | Platform-owned versus seller-owned AutoLaris merchant account | Finance owner | Before BILL-1 approval |
+| Q-1 | Platform-managed AutoLaris ownership direction decided by ADR-0006 (Accepted under D-20); commercial account, `courir_id: 1` profile, sandbox credentials and vendor response evidence remain open | Finance + integration owner | T-5/T-6/T-49 before live payment activation |
 | Q-2 | Decided 2026-10-27 and refined by D-15: one unified Bukalaris-managed Partner Mengantar account per store (`partner_managed`, `platform_master` fallback); the earlier hybrid with seller-owned accounts is superseded (ADR-0007, PR-27) | Finance owner | Live-use provider gates and cashback mechanics remain UNVERIFIED |
 | Q-3 | Marketplace commission, settlement, payout, refund, and COD ownership | Finance + legal owner | Before marketplace checkout |
 | Q-4 | Global auto-created buyer identity and passwordless proof-of-possession direction decided 2026-10-27 (ADR-0010) | Security + privacy owner | OTP channel/provider, verified prefill, merge UX, recycled numbers and global deletion OPEN before affected paths launch |
-| Q-5 | Bukalaris repository, pinned stack versions, deployment, and executable contracts | Architecture owner | Before implementation planning |
+| Q-5 | Repository, pinned stack and executable baseline established (D-1, T-1); hosting direction decided in D-23 | Architecture owner | Closed for local implementation; provisioning and fresh release evidence remain T-18/T-79/T-85 |
 
 ## Delivery phases and product boundary
 
@@ -378,11 +378,11 @@ deferred. Scoped storefront API/token integration is initial headless scope.
 
 | ID | Decision | Owner | Gate |
 |---|---|---|---|
-| Q-6 | Auth provider, hosting and package versions; framework selected and database recommended in Architecture | Architecture owner | Before implementation baseline |
+| Q-6 | Better Auth selected (D-1, ADR-0004); package versions are pinned in repository manifests; hosting direction is D-23 | Architecture owner | Closed for provider selection; auth hardening remains T-17/T-59/T-82/T-83 |
 | Q-7 | Catalog granularity and seller Pixel/catalog account ownership (2026-10-06: variant-level item ids with product group ids adopted with Q-15; Pixel/catalog accounts are seller-owned per store) | Integration owner | Before feed export or advertising events |
 | Q-8 | Domain provider, apex support, quotas and operating cost | Platform owner | Before domain provisioning |
 | Q-9 | LP form types and protected/customizable fields | Product owner | Before LP/form implementation |
-| Q-10 | Stock reservation expiry, late payment, order cancellation/refund and COD confirmation policy | Finance owner | Before checkout release |
+| Q-10 | Stock reservation expiry and backorder policy. Late payment on a cancelled or returned order, cancellation restock and the buyer refund obligation are decided and implemented locally (BILL-5, ADR-0006 decision 8, T-49, T-37; re-checked 2026-11-01); COD confirmation is PR-19 | Finance owner | Before checkout release |
 | Q-11 | Restore objectives decided by D-19 (99.5 % availability target, RPO 1 hour, RTO 4 hours; internal targets, no SLA promised to sellers). Retention durations and numeric latency targets remain open | Operations owner | Retention before pilot release |
 
 These records keep unresolved choices visible; documentation completeness does
@@ -591,21 +591,16 @@ docs and a test-event code before claiming it works.
 | ID | Decision | Owner | Gate |
 |---|---|---|---|
 | Q-12 | Decided 2026-10-27: one all-feature Rp175.000/store/month DPP plan, AutoLaris VA/QRIS billing; Bukalaris-managed shipping margin and payment-fee margin | Product + finance owner | PR-18/BILL-7; annual plan and first-month promo OPEN; cashback share UNVERIFIED and affiliate platform fee OPEN |
-| Q-13 | First seller segment and launch market (e.g. ad-driven COD sellers in specific categories/cities) | Product owner | Before pilot |
+| Q-13 | Decided: COD sellers across Indonesia; store-scoped COD controls are P0 | Product owner | PR-19; provider coverage and live COD gates remain |
 | Q-14 | Whether COD risk signals may be shared across stores, and on which legal basis | Privacy + product owner | Before cross-store PR-19 features |
-| Q-15 | Ad-signal scope: destinations, consent model, purchase definitions for COD vs prepaid | Integration + privacy owner | Before PR-20 implementation |
-| Q-16 | Notification channels and provider (email sender domain, WhatsApp provider) | Product owner | Before PR-21 implementation |
+| Q-15 | TokoΦ/AdsBookCMS direction and PR-20 event definitions accepted; provider receipts and consent/legal review remain open | Integration + privacy owner | T-38 simulation does not establish live event acceptance |
+| Q-16 | Email-first accepted; real mail provider and sender domain remain open; WhatsApp integration deferred | Product owner | T-73 before real delivery |
 
 ### Owner decisions — 2026-10-06 (Paduka Ongki)
 
-| ID | Decision | Consequence recorded by the team |
-|---|---|---|
-| Q-12 | Original shipping-margin-first decision; subscription deferral superseded 2026-10-27 | PR-18 is now Proposed for the single all-feature subscription; shipping margin applies to Bukalaris-managed shipments under Owner console rules (BILL-6, ADR-0007, D-15). |
-| Q-13 | First segment = COD sellers across Indonesia | COD is the primary payment path; PR-19 (COD risk control) becomes P0, store-scoped (Q-14 still open). Area coverage must be nationwide through provider area search. |
-| Q-2 (derived) | Original platform-account default; the 2026-10-27 hybrid extension was superseded by D-15 (one unified Bukalaris-managed system) | Every store gets a Bukalaris-provisioned Partner Mengantar account (`partner_managed`, `platform_master` fallback); COD stays on the Q-17 custody path (ADR-0007, D-15). |
-| Mengantar use | Mengantar API allowed for development; credentials only via the local secret store (`secrets-env`, never files or logs) | Read operations (area search, estimate, COD eligibility) may call the real API in development. Shipment creation spends balance and dispatches couriers: it stays fake/disabled until the owner explicitly approves a write test. |
-| Q-15 | Ad signals follow the TokoΦ / AdsBookCMS concept | PR-20 accepted in that direction; exact event taxonomy recorded in PR-20 after reviewing those implementations. |
-| Q-16 | Notifications: email first | PR-21 accepted for email; WhatsApp deferred. Email provider choice still open (dev outbox until then). |
+The current Q-12 to Q-16 dispositions are maintained once in the table above; Q-2 is maintained in the earlier decision register. Their original 2026-10-06 direction was shipping-margin-first, nationwide COD sellers, TokoΦ/AdsBookCMS signals and email-first. Subscription deferral was superseded on 2026-10-27 (D-15, BILL-7); dated history does not reopen those decisions.
+
+Mengantar-use boundary: development credentials enter only through `secrets-env`, never files or logs. Every present entry gate (including Partner Secret rotation) still applies. Shipment creation spends balance and dispatches couriers; it remains fake/disabled until the owner explicitly approves a write test. This historical record grants no new network permission.
 
 Status changes under owner direction (2026-10-06): PR-5 (Mengantar part),
 PR-19 (store-scoped scope only), PR-20 and PR-21 (email) → Accepted for

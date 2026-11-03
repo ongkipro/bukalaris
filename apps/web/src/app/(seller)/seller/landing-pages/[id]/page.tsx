@@ -67,7 +67,7 @@ export default async function LandingPageEditor({ params, searchParams }: PagePr
       />
       <Notice error={error} saved={savedKey} savedText={savedText[savedKey ?? "1"] ?? "Tersimpan."} />
 
-      <form action={updateSettingsAction.bind(null, p.id)} className="grid gap-4 rounded-xl border bg-muted/30 p-4 sm:p-5" aria-labelledby="pengaturan">
+      <form action={updateSettingsAction.bind(null, p.id)} className="grid gap-4 rounded-lg border bg-muted/30 p-4 sm:p-5" aria-labelledby="pengaturan">
         <h2 id="pengaturan" className="font-medium">Pengaturan halaman</h2>
         <input type="hidden" name="expectedRevisionId" value={p.draft.id} />
         <div className="grid gap-4 sm:grid-cols-2">

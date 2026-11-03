@@ -16,7 +16,7 @@ export default async function StoreHome({ params }: PageProps<"/s/[store]">) {
       </section>
       {collections.length > 0 && (
         <section aria-labelledby="koleksi" className="grid gap-3">
-          <h2 id="koleksi" className="text-sm font-medium tracking-wide text-muted-foreground uppercase">Koleksi</h2>
+          <h2 id="koleksi" className="text-sm font-semibold text-muted-foreground">Koleksi</h2>
           <ul className="flex flex-wrap gap-2">
             {collections.map((c) => (
               <li key={c.id}>
@@ -31,7 +31,7 @@ export default async function StoreHome({ params }: PageProps<"/s/[store]">) {
       <section aria-labelledby="produk" className="grid gap-4">
         <div className="flex items-baseline justify-between gap-4">
           <h1 id="produk" className="text-2xl font-semibold tracking-tight">Produk</h1>
-          {products.length > 0 && <p className="text-sm text-muted-foreground">{products.length} produk</p>}
+          {products.length > 0 && <p className="text-sm tabular-nums text-muted-foreground">{products.length} produk</p>}
         </div>
         {products.length === 0 ? (
           <EmptyState title="Belum ada produk yang dijual." hint="Toko ini sedang menyiapkan katalognya." />

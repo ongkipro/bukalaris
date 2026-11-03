@@ -49,7 +49,7 @@ export function LoginForm({ next }: { next: string }) {
   return (
     <form onSubmit={onSubmit} className="grid gap-4">
       {error && (
-        <p role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+        <p id="login-error" role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
           {error}
         </p>
       )}
@@ -57,14 +57,14 @@ export function LoginForm({ next }: { next: string }) {
         <>
           <div className="grid gap-2">
             <Label htmlFor="email">Email</Label>
-            <Input id="email" name="email" type="email" autoComplete="email" required />
+            <Input id="email" name="email" type="email" autoComplete="email" required aria-invalid={!!error} aria-describedby={error ? "login-error" : undefined} />
           </div>
           <div className="grid gap-2">
             <Label htmlFor="password">Kata sandi</Label>
-            <Input id="password" name="password" type="password" autoComplete="current-password" required />
+            <Input id="password" name="password" type="password" autoComplete="current-password" required aria-invalid={!!error} aria-describedby={error ? "login-error" : undefined} />
           </div>
           <Button type="submit" disabled={pending}>{pending ? "Memproses…" : "Masuk"}</Button>
-          <Link href="/account/recovery" className="text-sm text-muted-foreground underline-offset-4 hover:underline">
+          <Link href="/account/recovery" className="inline-flex min-h-6 w-fit items-center rounded-sm py-1 text-sm text-muted-foreground underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50">
             Lupa kata sandi?
           </Link>
         </>
@@ -85,12 +85,14 @@ export function LoginForm({ next }: { next: string }) {
               pattern={step === "totp" ? "[0-9 ]{6,7}" : undefined}
               required
               autoFocus
+              aria-invalid={!!error}
+              aria-describedby={error ? "login-error" : undefined}
             />
           </div>
           <Button type="submit" disabled={pending}>{pending ? "Memeriksa…" : "Verifikasi"}</Button>
           <button
             type="button"
-            className="text-sm text-muted-foreground underline-offset-4 hover:underline"
+            className="inline-flex min-h-6 w-fit items-center rounded-sm py-1 text-left text-sm text-muted-foreground underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
             onClick={() => {
               setError(null);
               setStep(step === "totp" ? "backup" : "totp");

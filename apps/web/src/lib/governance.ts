@@ -1,3 +1,4 @@
+import type { Tone } from "@/lib/status";
 import type { SupportOutcome, StaffMfaOutcome } from "@bukalaris/db";
 
 /** Reason codes offered by the governance forms (a select, never free text; the bounded reason text goes next to it). */
@@ -46,3 +47,39 @@ export function savedText(saved: string | string[] | undefined): string | undefi
   const text = f(count && /^\d+$/.test(count) ? Number(count) : null);
   return replay === "replay" || count === "replay" ? `${text} (permintaan yang sama sudah pernah diproses; tidak ada perubahan baru)` : text;
 }
+
+export const ISSUE_STATUS_LABEL: Record<string, string> = {
+  new: "Baru",
+  triaged: "Ditriage",
+  in_progress: "Dikerjakan",
+  resolved: "Selesai",
+  wont_fix: "Tidak diperbaiki",
+  duplicate: "Duplikat",
+};
+export const ISSUE_STATUS_TONE: Record<string, Tone> = {
+  new: "warning",
+  triaged: "default",
+  in_progress: "default",
+  resolved: "success",
+  wont_fix: "secondary",
+  duplicate: "outline",
+};
+export const ISSUE_CATEGORY_LABEL: Record<string, string> = {
+  no_response: "Tombol/fungsi tidak merespons",
+  wrong_result: "Hasil salah",
+  error_message: "Pesan error",
+  page_broken: "Halaman rusak",
+  other: "Lainnya",
+};
+export const ISSUE_SEVERITY_LABEL: Record<string, string> = {
+  low: "Rendah",
+  medium: "Sedang",
+  high: "Tinggi",
+  blocking: "Menghambat pekerjaan",
+};
+export const ISSUE_SEVERITY_TONE: Record<string, Tone> = {
+  low: "secondary",
+  medium: "outline",
+  high: "warning",
+  blocking: "destructive",
+};

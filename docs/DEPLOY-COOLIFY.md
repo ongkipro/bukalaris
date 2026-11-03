@@ -1,4 +1,9 @@
-# Deploy plan — Vultr VPS + Coolify (DRAFT, not executed)
+# Deploy plan — Vultr VPS + Coolify + Cloudflare (DRAFT, not executed)
+
+**Direction (owner, 2026-10-28, DECISIONS D-23):** Vultr (Singapore, the closest region to Indonesia) for the VPS, Coolify v4 on it for deploys and
+Postgres, Cloudflare in front for DNS, proxy, WAF and TLS. **No Supabase**: the database is the Coolify-managed PostgreSQL 17 below, sign-in is
+Better Auth in the app, media sits on a volume (object storage later). **Not started on purpose:** the owner wants the local build polished first;
+the domain `bukalaris.com` is not bought yet, no Vultr instance, no Cloudflare zone, no Coolify instance exists.
 
 Status: **Draft only, 2026-10-06. Nothing in this document has been executed.**
 No VPS, Coolify instance, database, DNS record, certificate, secret or
@@ -13,6 +18,31 @@ labels when executing.
 |---|---|---|
 | Web | `docker build -f apps/web/Dockerfile -t bukalaris-web .` (final stage `runner`) | 301 MB; non-root `app`; `/api/health` 200, storefront, host mode and sign-in against Postgres on the compose network (BUILD-LOG) |
 | Migrate | `docker build -f apps/web/Dockerfile --target migrate -t bukalaris-migrate .` | 273 MB (node:24-alpine + `packages/db` + 27 MB prod deps); applied all migrations to a fresh database and is safe to re-run (BUILD-LOG) |
+
+## Chosen edge topology (D-23; nothing deployed)
+
+- **Cloudflare proxied (orange cloud) + Cloudflare Origin CA certificate on the origin, SSL mode Full (strict).** Traefik in Coolify serves the Origin
+  certificate (valid only for Cloudflare, so a direct hit on the origin IP shows an untrusted certificate: intended). WAF and DDoS rules apply at the edge.
+- **Client IP:** trust exactly one header, `CF-Connecting-IP`, and only because the Vultr Firewall group allows 80/443 from the published Cloudflare IP ranges
+  alone (re-fetch the ranges when creating the rule and on a schedule; they change). Without that firewall rule the header is forgeable and every per-IP limit
+  (checkout, click, step-up, sign-in) collapses. The app reads it when `CLIENT_IP_HEADER=cf-connecting-ip` (default stays the last `x-forwarded-for` hop).
+- **Certificates:** the Universal SSL certificate covers the apex and ONE label (`*.bukalaris.com`), which is enough for `owner`, `app`, `checkout`, `buyer`,
+  `logs` and `<slug>` storefronts. `*.affiliate.bukalaris.com` is two labels deep and is NOT covered: T-55 needs Cloudflare Advanced Certificate Manager (paid) or
+  a different affiliate host shape. Check the current Cloudflare plan limits before T-55.
+- **Origin ports:** 22 (SSH keys only), 80/443 (Cloudflare ranges only), and 8000/6001/6002 only while reaching the Coolify dashboard by IP; close them at the Vultr
+  Firewall once the dashboard has its own proxied domain (Docker-published ports bypass UFW).
+- **Secrets stay local:** the Vultr token is `VULTR_DOTFILES_API_KEY` and the Coolify token `COOLIFY_TOKEN` in `~/.config/ai-local/secrets.env` (names only here); a
+  Cloudflare API token (scoped: DNS edit for the zone) is added the same way when the zone exists.
+
+## Pre-deploy hardening list (build locally first; each item gets a test)
+
+1. DONE locally: `CLIENT_IP_HEADER=cf-connecting-ip` makes `CF-Connecting-IP` the only trusted client-IP header (`packages/db/src/platform/client-ip.ts`, test `client-ip.test.ts`); it must be set in production together with the Cloudflare-only origin firewall.
+2. A real mail transport adapter and the SPF/DKIM/DMARC records (Q-16 provider choice) before any notification is promised; until then production refuses mail
+   (`MAIL_MODE`/`MAIL_PROVIDER` fail-closed start).
+3. The contract step of T-59 and the T-59b/T-59c follow-ups, so the platform login is no longer table-wide (D-22 item 4).
+4. Worker and cleanup as Coolify applications with a heartbeat alert (see "Worker and cleanup"); the cleanup schedule must run at least every 15 minutes (T-45).
+5. Off-host encrypted backups and a restore rehearsal on the target Postgres (DR-1), including the freeze of payouts (`payout_control.frozen`) before the app starts.
+6. Production values for every key ring below, generated on the server side of the secret store, with the offline key backup rehearsed.
 
 ## Required environment variables
 
@@ -67,6 +97,28 @@ Secrets to generate per environment (never shared between staging and
 production): three database passwords (`bukalaris_owner`, `bukalaris_app`,
 `bukalaris_platform`), `BETTER_AUTH_SECRET`, `ORDER_LINK_SECRET`,
 `INTEGRATION_TOKEN_KEY`, and `MENGANTAR_API_KEY` (issued by the provider).
+
+## Variables read by the build since M3 chain A (2026-10-28; verified by grep of `process.env.*` in `apps/web/src` and `packages/db/src`)
+
+All of these fail closed in production when required and missing; values only in Coolify secrets.
+
+| Variable | Used by | Notes |
+|---|---|---|
+| `AUTOLARIS_CALLBACK_SECRET` | Web, Worker | HMAC of the signed AutoLaris callback reference (T-49), at least 32 bytes. Without it the instruction job and every callback fail closed |
+| `KEYRING_BUYER_FINGERPRINT` | Web, Worker | Key ring `<id>:<base64 of 32 bytes>[,...]` for the keyed buyer contact fingerprints (T-57, T-46 voucher caps, rate-limit keys). Web only needs it at checkout |
+| `KEYRING_SHIPPING_CREDENTIALS` | Web, Worker | Seals the API keys of Bukalaris-provisioned Mengantar accounts (T-48); must differ from every other ring (checked at start) |
+| `KEYRING_INTEGRATION_TOKENS` | Web, Worker | Optional ring form of `INTEGRATION_TOKEN_KEY` (Meta/TikTok server tokens) |
+| `KEYRING_TAX_IDENTITY`, `IDENTITY_FINGERPRINT_KEY` | Web, Worker | Voluntary tax identity sealing and its distinct fingerprint key (T-65) |
+| `KEYRING_CHECKOUT_RESUME` | Web | Signs the 7-day abandoned-checkout resume links (T-45) |
+| `ACCOUNT_SEARCH_FINGERPRINT_KEY` | Web (Owner console) | Keyed digest of account-search queries in audit rows (T-63); falls back to `BETTER_AUTH_SECRET` when unset, set it in production |
+| `ACCOUNT_SEARCH_LIMIT`, `ACCOUNT_SEARCH_WINDOW_SECONDS` | Web | Optional account-search rate limit (defaults 30 per window) |
+| `REVEAL_WINDOW_SECONDS`, `SUPPORT_RECOVERY_TTL_SECONDS` | Web | Optional: how long a protected reveal stays open (default 300) and how long a support recovery link lives (default 3600, minimum 60) |
+| `MAIL_MODE`, `MAIL_PROVIDER`, `MAIL_FROM`, `MAIL_TRANSPORT_TIMEOUT_MS` | Web, Worker | Production requires `MAIL_PROVIDER` and `MAIL_FROM` and an installed matching transport; `MAIL_MODE=local` is refused in production unless every surface origin is loopback (T-73). No transport adapter is installed yet (Q-16 OPEN) |
+| `CLIENT_IP_HEADER` | Web | `x-forwarded-for` (default: last hop set by Traefik) or `cf-connecting-ip` (behind Cloudflare, only with the Cloudflare-only origin firewall of D-23). One header is trusted, never a mix; a typo refuses the request path loudly. Set `cf-connecting-ip` in production |
+| `SCHEDULER_TICK_MS` | Worker | Periodic enqueuer tick (default 30000, 1000 to 300000); any replica may run it |
+| `MENGANTAR_PARTNER_SECRET_ROTATED_AT`, `MENGANTAR_PARTNER_OLD_SECRET_REVOKED` | Worker | The entry gate of T-48: no provider call of any kind unless the rotation time is set and the old secret is confirmed revoked (`=1`). Leave unset until the owner has rotated the Partner Secret |
+| `MENGANTAR_ROUTING_EMAIL_DOMAIN` | Worker | Verified, Bukalaris-controlled domain for per-store routing e-mails of Partner accounts; the default is a `.invalid` domain that works only with the fake adapter |
+| `LIVE_SYSTEM_IDENTIFIER` | restore script only | `select system_identifier from pg_control_system()` of production; makes `scripts/db-restore-rehearsal.sh` refuse to restore onto the live cluster |
 
 ## Planned variables (not read by the current build)
 
@@ -156,16 +208,11 @@ while the database is unreachable. Without it, transfer orders never receive a
 payment instruction, no order e-mail is sent and no ad signal is delivered, and no shipment is booked or tracked.
 
 Cleanup (`node packages/db/src/cleanup.ts`, T-30/T-38) runs once and exits:
-schedule it (Coolify scheduled task or cron, e.g. daily) with
+schedule it at least every 15 minutes (Coolify scheduled task or cron; T-45) with
 `PLATFORM_DATABASE_URL` and optional `CART_IDLE_HOURS`; the buyer-data
 retention step runs only when `BUYER_DATA_RETENTION_DAYS` is set. The worker and
 cleanup command paths do not move when T-51 reorganises `packages/db/src`
-(ADR-0008 keeps `worker.ts` and `cleanup.ts` as root entry points). The outbox has
-no scheduler of its own today: periodic jobs (JOB-09, JOB-11 to JOB-14, JOB-19)
-exist only once the periodic enqueuer JOB-21 (T-74) runs inside the worker with
-a liveness heartbeat; until then no such job runs. Cleanup stays a scheduled
-one-shot and records its last success in the same heartbeat so a missed run is
-visible. Neither process is part of `verify:docker` yet.
+(ADR-0008 keeps `worker.ts` and `cleanup.ts` as root entry points). The worker now runs JOB-21's periodic enqueuer and scheduler heartbeat (T-74) in its normal loop; `--once` does not tick it. Only imported registrations run: ARCH-5 lists actual handlers and disabled/stub boundaries. Future Compliance, statement and Update Log jobs do not exist merely because a scheduler exists. Cleanup stays an external one-shot; its heartbeat is not implemented (T-79). Neither process is part of `verify:docker` yet (T-84).
 
 ## Database roles (once per database, before the first migration)
 

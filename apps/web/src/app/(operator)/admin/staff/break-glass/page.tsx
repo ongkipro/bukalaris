@@ -2,7 +2,7 @@ import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/status-badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { consoleGate } from "@/lib/console-gate";
@@ -23,7 +23,7 @@ export default async function BreakGlassPage({ searchParams }: PageProps<"/admin
   if (grants === undefined) return <AccessDenied capability="break_glass.approve" />;
   return (
     <section className="grid gap-6">
-      <PageHeader title="Akses darurat" description="Peningkatan akses baca dan ungkap yang dibatasi waktu untuk satu akun dan satu kasus, disetujui staf kedua (halaman Persetujuan). Berakhir sendiri, tidak pernah memberi izin tulis, dan semua pemegang audit.read diberi tahu saat diberikan." />
+      <PageHeader back={{ href: "/admin/staff", label: "Staf dan izin" }} title="Akses darurat" description="Peningkatan akses baca dan ungkap yang dibatasi waktu untuk satu akun dan satu kasus, disetujui staf kedua (halaman Persetujuan). Berakhir sendiri, tidak pernah memberi izin tulis, dan semua pemegang audit.read diberi tahu saat diberikan." />
       <Notice error={error} saved={saved} savedText={savedText(saved)} />
       <form action={requestBreakGlassAction} className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2" aria-labelledby="minta">
         <h2 id="minta" className="text-base font-semibold sm:col-span-2">Minta akses darurat</h2>
@@ -47,7 +47,10 @@ export default async function BreakGlassPage({ searchParams }: PageProps<"/admin
           <ul className="divide-y rounded-lg border text-sm">
             {grants.map((e) => (
               <li key={e.id} className="grid gap-2 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center" data-testid={`bg-${e.id}`}>
-                <span>#{e.id} · kasus <span className="font-mono">{e.caseId}</span> · <span className="break-all font-mono">{e.targetId}</span> · {e.capabilities.join(", ")} · <time dateTime={e.expiresAt.toISOString()}>{tanggal(e.startsAt)} — {tanggal(e.expiresAt)}</time> <Badge variant={e.state === "active" ? "default" : "outline"}>{e.state === "active" ? "Aktif" : e.state === "revoked" ? "Dicabut" : "Berakhir"}</Badge>{e.reviewedAt ? " · ditinjau" : ""}</span>
+                <span className="flex flex-wrap items-center gap-2">
+                  <span>#{e.id} · kasus <span className="font-mono">{e.caseId}</span> · <span className="break-all font-mono">{e.targetId}</span> · {e.capabilities.join(", ")} · <time dateTime={e.expiresAt.toISOString()}>{tanggal(e.startsAt)} — {tanggal(e.expiresAt)}</time> ({Math.max(1, Math.round((e.expiresAt.getTime() - e.startsAt.getTime()) / 60_000))} mnt){e.reviewedAt ? " · ditinjau" : ""}</span>
+                  <StatusBadge label={e.state === "active" ? "Aktif" : e.state === "revoked" ? "Dicabut" : "Berakhir"} tone={e.state === "active" ? "warning" : e.state === "revoked" ? "destructive" : "secondary"} />
+                </span>
                 {e.state === "active" && <form action={revokeBreakGlassAction.bind(null, e.id)}><SubmitButton variant="outline" pendingText="Mencabut…">Cabut</SubmitButton></form>}
               </li>
             ))}

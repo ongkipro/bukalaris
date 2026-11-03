@@ -32,6 +32,21 @@ provider's `DELIVERED` status through the single order-status writer (ADR-0006
 decision 4); any other tracking status, and any manual seller completion, never
 settles a COD payment.
 
+Provider call and anomaly rules (portfolio scan 2026-11, G9 and G10):
+
+- Every AutoLaris and Mengantar HTTP call has an explicit timeout; a timed-out create or booking
+  stays `pending_instruction` (or the shipment's unknown state) and is resolved by pull, never by
+  a blind second create. The Mengantar client has one (`AbortSignal.timeout`); the real AutoLaris
+  adapter must carry the same before T-49 goes live.
+- A second paid answer for the same order or invoice, a paid answer on a void invoice or a
+  terminal order, and an amount or environment mismatch never grant goods, credit or subscription
+  time. Today: a paid answer on a void or already-covered invoice is recorded as an event
+  (`billing/attempts.ts`), a late payment on a terminal order opens a refund obligation
+  (`payments/attempts.ts`), and an amount mismatch is refused with an error and no event
+  (`payments/callback.ts`); an environment mismatch has no check yet (requirement).
+  Candidate (owner decision): an Owner console anomaly queue that lists these with the refund or
+  keep decision, instead of leaving them to events and logs.
+
 ## BILL-3 — Marketplace finance is not Phase 1
 
 - Owner: Bukalaris finance owner

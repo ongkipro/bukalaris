@@ -163,11 +163,11 @@ export default async function LogsPage({ searchParams }: PageProps<"/admin/logs"
                   <TableBody>
                     {state.data.items.map((e) => (
                       <TableRow key={e.id}>
-                        <TableCell className="whitespace-normal text-xs text-muted-foreground">
+                        <TableCell className="whitespace-normal text-muted-foreground">
                           <time dateTime={e.time.toISOString()}>{fmtTime(e.time)}</time>
                         </TableCell>
                         <TableCell className="hidden sm:table-cell"><LevelBadge level={e.level} /></TableCell>
-                        <TableCell className="hidden md:table-cell font-mono text-xs">{e.module}</TableCell>
+                        <TableCell className="hidden md:table-cell font-mono">{e.module}</TableCell>
                         <TableCell className="max-w-[11rem] whitespace-normal sm:max-w-xs lg:max-w-md">
                           {/* Narrow screens: severity rides with the summary so time + summary stay readable without scrolling (UX-9). */}
                           <span className="mb-1 block sm:hidden"><LevelBadge level={e.level} /></span>
@@ -176,7 +176,7 @@ export default async function LogsPage({ searchParams }: PageProps<"/admin/logs"
                           </Link>
                           {e.code && <span className="ml-1 font-mono text-xs text-muted-foreground">{e.code}</span>}
                         </TableCell>
-                        <TableCell className="hidden lg:table-cell font-mono text-xs">{e.requestId ?? "—"}</TableCell>
+                        <TableCell className="hidden lg:table-cell font-mono">{e.requestId ?? "—"}</TableCell>
                         <TableCell numeric className="hidden md:table-cell">{e.storeId ?? "—"}</TableCell>
                       </TableRow>
                     ))}

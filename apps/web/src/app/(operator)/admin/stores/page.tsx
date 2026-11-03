@@ -3,6 +3,7 @@ import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
+import { SubmitButton } from "@/components/submit-button";
 import { buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { consoleGate } from "@/lib/console-gate";
@@ -52,11 +53,11 @@ export default async function AdminStoresPage({ searchParams }: PageProps<"/admi
                   <label htmlFor={`reason-${s.id}`} className="sr-only">Alasan untuk {s.name}</label>
                   <Input id={`reason-${s.id}`} name="reason" required minLength={5} maxLength={500} placeholder="Alasan (wajib, tercatat di audit)" className="w-64 max-w-full" />
                   {next === "suspended" ? (
-                    <ConfirmSubmit size="sm" variant="destructive" message={`Tangguhkan toko "${s.name}"? Seller Admin dan storefront /${s.slug} langsung tertutup untuk pembeli sampai diaktifkan kembali.`}>
+                    <ConfirmSubmit variant="destructive" message={`Tangguhkan toko "${s.name}"? Seller Admin dan storefront /${s.slug} langsung tertutup untuk pembeli sampai diaktifkan kembali.`}>
                       Tangguhkan
                     </ConfirmSubmit>
                   ) : (
-                    <button type="submit" className={buttonVariants({ size: "sm" })}>Aktifkan kembali</button>
+                    <SubmitButton pendingText="Mengaktifkan…">Aktifkan kembali</SubmitButton>
                   )}
                 </form>
               </li>

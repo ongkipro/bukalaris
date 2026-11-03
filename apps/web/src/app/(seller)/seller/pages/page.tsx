@@ -45,8 +45,8 @@ export default async function PagesPage() {
                 <TableCell>
                   <StatusBadge label={publishStatusLabel[p.status]} tone={publishStatusTone[p.status]} />
                 </TableCell>
-                <TableCell className="font-mono text-xs text-muted-foreground max-sm:hidden">
-                  {p.status === "published" ? <a href={`/s/${scope.storeSlug}/pages/${p.slug}`} className="underline underline-offset-4">/pages/{p.slug}</a> : `/pages/${p.slug}`}
+                <TableCell className="text-muted-foreground max-sm:hidden">
+                  <span className="font-mono text-xs">{p.status === "published" ? <a href={`/s/${scope.storeSlug}/pages/${p.slug}`} className="underline underline-offset-4">/pages/{p.slug}</a> : `/pages/${p.slug}`}</span>
                 </TableCell>
                 <TableCell numeric className="text-muted-foreground max-sm:hidden">
                   <time dateTime={p.updatedAt.toISOString()}>{tanggalSaja(p.updatedAt)}</time>

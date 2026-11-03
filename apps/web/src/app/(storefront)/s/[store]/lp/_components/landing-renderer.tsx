@@ -44,10 +44,10 @@ export function LandingRenderer({
     <div className="lp flex flex-1 flex-col" data-accent={design.accent} data-scale={design.fontScale} data-testid="lp-root">
       <a href="#lp-main" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-white focus:px-3 focus:py-2">Langsung ke konten</a>
       <header className="lp-wrap flex items-center justify-between gap-3 py-4">
-        <Link href={storeHome} className="lp-link lp-sm font-semibold no-underline">{storeName}</Link>
+        <Link href={storeHome} className="lp-link lp-sm inline-flex min-h-7 items-center py-1 font-semibold no-underline">{storeName}</Link>
         {hasOrder && <a href="#order" className="lp-btn lp-sm min-h-[2.5em] px-4">Pesan</a>}
       </header>
-      <main id="lp-main" tabIndex={-1} className="flex-1 outline-none">
+      <main id="lp-main" tabIndex={-1} className="flex-1">
         {error && (
           <div className="lp-wrap">
             <p role="alert" className="lp-sm rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-red-800">{typeof error === "string" ? error : error[0]}</p>
@@ -58,7 +58,7 @@ export function LandingRenderer({
         ))}
       </main>
       <footer className="lp-wrap lp-xs lp-muted flex flex-wrap items-center justify-between gap-2 border-t py-6">
-        <Link href={storeHome} className="lp-link">{storeName}</Link>
+        <Link href={storeHome} className="lp-link inline-flex min-h-6 items-center py-1">{storeName}</Link>
         <span>Ditenagai Bukalaris</span>
       </footer>
     </div>

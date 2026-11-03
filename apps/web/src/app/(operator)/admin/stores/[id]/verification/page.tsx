@@ -2,7 +2,7 @@ import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/status-badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -17,6 +17,15 @@ import { reviewVerificationAction, revealVerificationAction, submitVerificationA
 
 export const metadata = { title: "Verifikasi toko" };
 const STATUS_LABEL: Record<string, string> = { submitted: "Diajukan", in_review: "Ditinjau", verified: "Terverifikasi", rejected: "Ditolak", revoked: "Dicabut", expired: "Kedaluwarsa", not_started: "Belum dimulai" };
+const STATUS_TONE: Record<string, "default" | "secondary" | "outline" | "destructive" | "success" | "warning"> = {
+  submitted: "warning",
+  in_review: "default",
+  verified: "success",
+  rejected: "destructive",
+  revoked: "outline",
+  expired: "secondary",
+  not_started: "secondary",
+};
 const NEXT: Record<string, readonly [string, string][]> = {
   submitted: [["in_review", "Mulai tinjau"], ["verified", "Verifikasi"], ["rejected", "Tolak"]],
   in_review: [["verified", "Verifikasi"], ["rejected", "Tolak"]],
@@ -60,7 +69,7 @@ export default async function StoreVerificationPage({ params, searchParams }: Pa
                 <li key={v.id} className="grid gap-2 rounded-lg border p-4 text-sm" data-testid={`versi-${v.id}`}>
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="font-semibold">{v.kind === "identity" ? "Identitas" : "Usaha"} · versi {v.version}</h3>
-                    <Badge variant="outline">{STATUS_LABEL[v.status] ?? v.status}</Badge>
+                    <StatusBadge label={STATUS_LABEL[v.status] ?? v.status} tone={STATUS_TONE[v.status] ?? "outline"} />
                     <time dateTime={v.submittedAt.toISOString()} className="text-muted-foreground">{tanggal(v.submittedAt)}</time>
                   </div>
                   <dl className="grid gap-x-6 gap-y-1 sm:grid-cols-[max-content_1fr]">
@@ -70,7 +79,13 @@ export default async function StoreVerificationPage({ params, searchParams }: Pa
                     <dt className="text-muted-foreground">Nomor registrasi</dt><dd>{v.hasRegistrationNumber ? "Tersimpan (tidak ditampilkan)" : "—"}</dd>
                     <dt className="text-muted-foreground">Bukti</dt><dd className="font-mono break-all">{v.evidenceRef ?? "—"}</dd>
                   </dl>
-                  {shown.length > 0 && <p role="status" className="text-xs text-muted-foreground">Nilai terbuka sampai <time dateTime={shown[0]!.expiresAt.toISOString()}>{tanggal(shown[0]!.expiresAt)}</time>, lalu tersamarkan lagi. Setiap pembacaan tercatat.</p>}
+                  {shown.length > 0 ? (
+                    <p role="status" className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-200">
+                      <strong>Data pribadi sedang diungkap</strong> — nilai terbuka sampai <time dateTime={shown[0]!.expiresAt.toISOString()}>{tanggal(shown[0]!.expiresAt)}</time> (jendela pengungkapan 5 menit), lalu tersamarkan lagi. Setiap pembacaan tercatat.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Nilai kontak disamarkan secara bawaan. Ungkap satu kolom hanya bila diperlukan untuk tinjauan kasus terbuka.</p>
+                  )}
                   {NEXT[v.status] && (
                     <form className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" aria-label={`Keputusan versi ${v.version}`}>
                       <div className="grid gap-1.5"><Label htmlFor={`alasan-${v.id}`}>Alasan keputusan</Label><Input id={`alasan-${v.id}`} name="reason" required minLength={5} maxLength={500} /></div>

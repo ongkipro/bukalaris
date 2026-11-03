@@ -37,9 +37,9 @@ export default async function InventoryPage({ searchParams }: PageProps<"/seller
             Stok mengikuti varian produk. Tambahkan produk dulu, lalu sesuaikan stoknya di sini.
           </EmptyState>
         ) : (
-          <ul className="grid gap-3">
+          <ul className="divide-y rounded-lg border">
             {rows.map((v) => (
-              <li key={v.variantId} className="grid gap-3 rounded-lg border p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center" data-testid={`variant-${v.variantId}`}>
+              <li key={v.variantId} className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center" data-testid={`variant-${v.variantId}`}>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <Link href={`/seller/products/${v.productId}`} className="font-medium underline-offset-4 hover:underline">{v.productTitle}</Link>

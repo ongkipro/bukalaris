@@ -12,13 +12,14 @@ const actionLabel: Record<Row["action"], string> = {
   "variant.update": "Varian diubah",
 };
 // Display order (jsonb does not keep key order).
-const fieldLabel: Record<string, string> = { title: "judul", slug: "slug", status: "status", sku: "SKU", price: "harga", stock: "stok" };
+const fieldLabel: Record<string, string> = { title: "judul", slug: "slug", status: "status", sku: "SKU", price: "harga", stock: "stok", weightGrams: "berat" };
 const FIELDS = Object.keys(fieldLabel);
 const statusLabel: Record<string, string> = productStatusLabel;
 
 function show(field: string, v: string | number | null | undefined) {
   if (v == null || v === "") return "—";
   if (field === "price") return rupiah(Number(v));
+  if (field === "weightGrams") return `${v} gram`;
   if (field === "status") return statusLabel[String(v)] ?? String(v);
   return String(v);
 }

@@ -12,5 +12,7 @@ const precise = new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyl
 export const tanggal = (d: Date) => `${dateTime.format(d)} WIB`;
 /** "7 Okt 2026" — list columns where the time of day does not matter. */
 export const tanggalSaja = (d: Date) => dateOnly.format(d);
+/** "31 Okt 2026" — formats a stored YYYY-MM-DD calendar date in Asia/Jakarta without browser recomputation. */
+export const tanggalIso = (ymd: string) => (/^\d{4}-\d{2}-\d{2}$/.test(ymd) ? dateOnly.format(new Date(`${ymd}T00:00:00+07:00`)) : ymd);
 /** "7 Okt 2026, 14.03.21 WIB" — log events, where seconds matter. */
 export const waktuLog = (d: Date) => `${precise.format(d)} WIB`;

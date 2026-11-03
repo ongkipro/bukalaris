@@ -2,7 +2,7 @@ import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
-import { Button } from "@/components/ui/button";
+import { SubmitButton } from "@/components/submit-button";
 import { allowed, sellerScope } from "@/lib/context";
 import { rupiah, tanggal } from "@/lib/format";
 import { can, getAbandonedCarts, REDACTED } from "@bukalaris/db";
@@ -58,20 +58,21 @@ export default async function AbandonedCartsPage({ searchParams }: PageProps<"/s
                   <div className="grid min-w-0 gap-1">
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                       <strong className="break-words">{redacted ? "Data dihapus" : (c.buyerName ?? "Tanpa nama")}</strong>
-                      <span className="tabular-nums">{rupiah(c.subtotalIdr)}</span>
+                      <span className="font-medium tabular-nums">{rupiah(c.subtotalIdr)}</span>
                       {c.waOpenedAt && <StatusBadge label={`WA dibuka ${tanggal(c.waOpenedAt)}`} tone="secondary" />}
                     </div>
                     <p className="break-all text-muted-foreground">
                       {c.hasPhone ? c.buyerPhone : redacted ? "Nomor dihapus atas permintaan pembeli" : (c.buyerEmail ?? "Belum mengisi nomor HP")}
-                      {" · "}terakhir aktif {tanggal(c.lastActivityAt)}
+                      {" · "}terakhir aktif <time dateTime={c.lastActivityAt.toISOString()}>{tanggal(c.lastActivityAt)}</time>
                     </p>
                     {c.items.length > 0 && <p className="text-muted-foreground">{c.items.map((i) => `${i.title} · ${i.variant} × ${i.quantity}`).join("; ")}</p>}
                   </div>
-                  <form action={openWhatsApp}>
+                  <form action={openWhatsApp} className="grid gap-1 sm:justify-items-end">
                     <input type="hidden" name="id" value={c.id} />
-                    <Button type="submit" size="sm" className="w-full sm:w-auto" disabled={!c.hasPhone || !canRecover} title={c.hasPhone ? undefined : "Pembeli belum mengisi nomor HP yang valid"}>
+                    <SubmitButton size="sm" className="w-full sm:w-auto" pendingText="Membuka WA…" disabled={!c.hasPhone || !canRecover}>
                       {c.waOpenedAt ? "Hubungi lagi" : "Hubungi lewat WhatsApp"}
-                    </Button>
+                    </SubmitButton>
+                    {!c.hasPhone && <span className="text-xs text-muted-foreground">Nomor HP belum valid</span>}
                   </form>
                 </li>
               );

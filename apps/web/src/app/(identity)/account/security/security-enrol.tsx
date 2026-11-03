@@ -1,5 +1,6 @@
 "use client";
 
+import { CopyButton } from "@/components/copy-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -60,9 +61,12 @@ export function SecurityEnrol({ email, next }: { email: string; next: string }) 
             <li key={c}>{c}</li>
           ))}
         </ul>
-        <Link href={next} className="text-sm font-medium underline-offset-4 hover:underline">
-          Lanjut ke {next === "/admin" ? "Owner console" : "Seller Admin"}
-        </Link>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <CopyButton value={enrolment.backupCodes.join("\n")} label="semua kode cadangan" />
+          <Link href={next} className="inline-flex min-h-6 w-fit items-center rounded-sm py-1 text-sm font-medium underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50">
+            Lanjut ke {next === "/admin" ? "Owner console" : "Seller Admin"}
+          </Link>
+        </div>
       </div>
     );
 
@@ -75,11 +79,14 @@ export function SecurityEnrol({ email, next }: { email: string; next: string }) 
             Tambahkan akun secara manual untuk <span className="font-medium">{email}</span> dengan kunci berikut (berbasis waktu, 6 digit):
           </li>
         </ol>
-        <p className="break-all rounded-md border bg-muted/40 p-3 font-mono text-sm" data-testid="totp-secret" aria-label="Kunci rahasia">
-          {secret}
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 p-3">
+          <p className="break-all font-mono text-sm" data-testid="totp-secret" aria-label="Kunci rahasia">
+            {secret}
+          </p>
+          <CopyButton value={secret} label="kunci rahasia" />
+        </div>
         <details className="text-xs text-muted-foreground">
-          <summary className="cursor-pointer">Tautan otpauth untuk aplikasi yang mendukung tempel</summary>
+          <summary className="cursor-pointer py-1">Tautan otpauth untuk aplikasi yang mendukung tempel</summary>
           <p className="mt-1 break-all font-mono" data-testid="totp-uri">{enrolment.totpURI}</p>
         </details>
         {error && (

@@ -1,6 +1,7 @@
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
+import { buttonVariants } from "@/components/ui/button";
 import { consoleGate } from "@/lib/console-gate";
 import { allowed } from "@/lib/context";
 import { ledgerStatusLabel, ledgerStatusTone, releaseBasisLabel } from "@/lib/finance";
@@ -41,14 +42,14 @@ export default async function StoreLedgerPage({ params, searchParams }: PageProp
                 <span className="text-muted-foreground"><time dateTime={e.createdAt.toISOString()}>{tanggal(e.createdAt)}</time>{e.releaseBasis ? <> · {releaseBasisLabel[e.releaseBasis]}</> : null}{e.note ? <> · {e.note}</> : null}</span>
               </div>
               <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                <span className={`tabular-nums ${e.amountIdr < 0 ? "text-destructive" : ""}`}>{rupiah(e.amountIdr)}</span>
+                <span className={`font-medium tabular-nums ${e.amountIdr < 0 ? "text-destructive" : ""}`}>{rupiah(e.amountIdr)}</span>
                 <StatusBadge label={ledgerStatusLabel[e.status] ?? e.status} tone={ledgerStatusTone[e.status] ?? "secondary"} />
               </div>
             </li>
           ))}
         </ul>
       )}
-      {v.next && <Link href={`/admin/stores/${v.store.id}/ledger?cursor=${v.next}`} className="text-sm underline underline-offset-4">Mutasi lebih lama</Link>}
+      {v.next && <Link href={`/admin/stores/${v.store.id}/ledger?cursor=${v.next}`} className={buttonVariants({ variant: "outline" }) + " w-fit"}>Mutasi lebih lama</Link>}
     </section>
   );
 }

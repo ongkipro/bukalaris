@@ -1,5 +1,6 @@
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
+import { StatusBadge } from "@/components/status-badge";
 import { SubmitButton } from "@/components/submit-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,29 +37,40 @@ export default async function SellerShippingPage({ searchParams }: PageProps<"/s
       />
       <Notice error={error} saved={saved} />
 
-      <div className="rounded-lg border p-4" data-testid="pickup-area">
-        <h2 className="text-sm font-medium text-muted-foreground">Area pickup saat ini</h2>
-        {current ? (
-          <>
-            <p className="mt-1 font-medium">{current.areaLabel}</p>
-            <p className="text-sm text-muted-foreground">{current.addressText || "Alamat lengkap belum diisi."}</p>
-          </>
-        ) : (
-          <p className="mt-1 text-sm" role="note">Belum diatur — pembeli belum bisa melihat ongkir.</p>
-        )}
-      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid content-start gap-1.5 rounded-lg border p-4" data-testid="pickup-area">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-medium text-muted-foreground">Area pickup saat ini</h2>
+            <StatusBadge label={current ? "Diatur" : "Belum diatur"} tone={current ? "success" : "warning"} />
+          </div>
+          {current ? (
+            <>
+              <p className="font-medium">{current.areaLabel}</p>
+              <p className="text-sm text-muted-foreground">{current.addressText || "Alamat lengkap belum diisi."}</p>
+            </>
+          ) : (
+            <p className="text-sm" role="note">Belum diatur — pembeli belum bisa melihat ongkir.</p>
+          )}
+        </div>
 
-      <div className="rounded-lg border p-4" data-testid="shipping-account">
-        <h2 className="text-sm font-medium text-muted-foreground">Akun Bukalaris Kirim yang dipakai</h2>
-        {shipping.selected ? (
-          <>
-            <p className="mt-1 font-medium" data-testid="shipping-account-kind">{shipping.selected.kind === "partner_managed" ? "Akun khusus toko Anda" : "Akun induk Bukalaris Kirim (sementara)"}</p>
-            <p className="text-sm text-muted-foreground">{shipping.selected.kind === "partner_managed" ? "Dibuat dan dikelola otomatis oleh Bukalaris. Anda tidak perlu mengisi kunci apa pun." : "Akun khusus toko Anda sedang disiapkan. Pesanan tetap dikirim lewat akun induk; Anda tidak perlu melakukan apa pun."}</p>
-          </>
-        ) : (
-          <p className="mt-1 text-sm" role="note" data-testid="shipping-account-waiting">Akun pengiriman sedang dipulihkan oleh Bukalaris. Pesanan baru menunggu sampai akun siap; tidak ada tindakan dari Anda.</p>
-        )}
-        <p className="mt-2 text-xs text-muted-foreground">COD ditawarkan hanya untuk layanan: {shipping.services.filter((s) => s.codAllowed && s.returnFree).map((s) => s.courierCode).join(", ") || "belum ada"}.</p>
+        <div className="grid content-start gap-1.5 rounded-lg border p-4" data-testid="shipping-account">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-medium text-muted-foreground">Akun Bukalaris Kirim yang dipakai</h2>
+            <StatusBadge
+              label={!shipping.selected ? "Dipulihkan" : shipping.selected.kind === "partner_managed" ? "Aktif" : "Sementara"}
+              tone={!shipping.selected ? "warning" : shipping.selected.kind === "partner_managed" ? "success" : "secondary"}
+            />
+          </div>
+          {shipping.selected ? (
+            <>
+              <p className="font-medium" data-testid="shipping-account-kind">{shipping.selected.kind === "partner_managed" ? "Akun khusus toko Anda" : "Akun induk Bukalaris Kirim (sementara)"}</p>
+              <p className="text-sm text-muted-foreground">{shipping.selected.kind === "partner_managed" ? "Dibuat dan dikelola otomatis oleh Bukalaris. Anda tidak perlu mengisi kunci apa pun." : "Akun khusus toko Anda sedang disiapkan. Pesanan tetap dikirim lewat akun induk; Anda tidak perlu melakukan apa pun."}</p>
+            </>
+          ) : (
+            <p className="text-sm" role="note" data-testid="shipping-account-waiting">Akun pengiriman sedang dipulihkan oleh Bukalaris. Pesanan baru menunggu sampai akun siap; tidak ada tindakan dari Anda.</p>
+          )}
+          <p className="mt-1 text-xs text-muted-foreground">COD ditawarkan hanya untuk layanan: {shipping.services.filter((s) => s.codAllowed && s.returnFree).map((s) => s.courierCode).join(", ") || "belum ada"}.</p>
+        </div>
       </div>
 
       {manage && (
@@ -72,10 +84,10 @@ export default async function SellerShippingPage({ searchParams }: PageProps<"/s
           </form>
           {searchError && <p id="q-error" role="alert" className="text-sm text-destructive">{searchError}</p>}
           {keyword && !searchError && (
-            <ul aria-label="Hasil pencarian area" className="grid gap-2">
+            <ul aria-label="Hasil pencarian area" className={results.length > 0 ? "divide-y rounded-lg border" : "grid gap-2"}>
               {results.length === 0 && <li className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Area tidak ditemukan untuk “{keyword}”. Coba nama kecamatan atau kode pos.</li>}
               {results.map((a) => (
-                <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
+                <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 text-sm">
                   <span>{a.label}</span>
                   <form action={setPickupAreaAction}>
                     <input type="hidden" name="areaId" value={a.id} />

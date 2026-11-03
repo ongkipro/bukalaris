@@ -27,7 +27,7 @@ export function BlockCard({ block: b, index, count, ctx }: { block: LandingBlock
   );
   const f = (name: string) => `${b.id}-${name}`;
   return (
-    <article id={`blok-${b.id}`} aria-labelledby={`blok-h-${b.id}`} className="grid gap-4 rounded-xl border bg-background p-4 sm:p-5" data-testid={`block-${b.type}`}>
+    <article id={`blok-${b.id}`} aria-labelledby={`blok-h-${b.id}`} className="grid gap-4 rounded-lg border bg-background p-4 sm:p-5" data-testid={`block-${b.type}`}>
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 id={`blok-h-${b.id}`} className="font-medium">
@@ -192,7 +192,7 @@ function Fields({ block: b, f, ctx }: { block: LandingBlock; f: (n: string) => s
 
 export function AddBlockForm({ pageId, expectedRevisionId, hasOrder }: { pageId: number; expectedRevisionId: number; hasOrder: boolean }) {
   return (
-    <form action={addBlockAction.bind(null, pageId)} className="grid gap-3 rounded-xl border border-dashed p-4 sm:flex sm:items-end">
+    <form action={addBlockAction.bind(null, pageId)} className="grid gap-3 rounded-lg border border-dashed p-4 sm:flex sm:items-end">
       <input type="hidden" name="expectedRevisionId" value={expectedRevisionId} />
       <div className="grid flex-1 gap-1.5">
         <Label htmlFor="add-type">Tambah blok</Label>

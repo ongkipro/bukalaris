@@ -29,10 +29,10 @@ export default async function ProductsPage() {
           <caption className="sr-only">Daftar produk</caption>
           <TableHeader>
             <TableRow>
-              <TableHead>ID produk</TableHead>
+              <TableHead className="max-sm:hidden">ID produk</TableHead>
               <TableHead>Produk</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead numeric>Varian</TableHead>
+              <TableHead numeric className="max-sm:hidden">Varian</TableHead>
               <TableHead numeric>Stok</TableHead>
               <TableHead numeric>Harga mulai</TableHead>
             </TableRow>
@@ -40,14 +40,15 @@ export default async function ProductsPage() {
           <TableBody>
             {products.map((p) => (
               <TableRow key={p.id}>
-                <TableCell className="font-mono text-xs tabular-nums text-muted-foreground">{p.catalogId}</TableCell>
+                <TableCell className="max-sm:hidden"><span className="font-mono text-xs tabular-nums text-muted-foreground">{p.catalogId}</span></TableCell>
                 <TableCell className="max-w-[14rem] whitespace-normal sm:max-w-xs">
                   <Link href={`/seller/products/${p.id}`} className="font-medium underline-offset-4 hover:underline">{p.title}</Link>
+                  <span className="mt-0.5 block font-mono text-xs tabular-nums text-muted-foreground sm:hidden">{p.catalogId} · {p.variants} varian</span>
                 </TableCell>
                 <TableCell>
                   <StatusBadge label={productStatusLabel[p.status]} tone={productStatusTone[p.status]} />
                 </TableCell>
-                <TableCell numeric>{p.variants}</TableCell>
+                <TableCell numeric className="max-sm:hidden">{p.variants}</TableCell>
                 <TableCell numeric className={p.stock ? undefined : "text-destructive"}>{p.stock ?? 0}</TableCell>
                 <TableCell numeric>{rupiah(p.minPrice)}</TableCell>
               </TableRow>

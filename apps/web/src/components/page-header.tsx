@@ -23,7 +23,7 @@ export function PageHeader({
     <header className="grid gap-3 sm:flex sm:items-start sm:justify-between sm:gap-6">
       <div className="min-w-0 grid gap-1">
         {back && (
-          <Link href={back.href} className="inline-flex w-fit items-center gap-1 text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
+          <Link href={back.href} className="inline-flex min-h-6 w-fit items-center gap-1 text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
             <ArrowLeftIcon className="size-3.5" aria-hidden />
             {back.label}
           </Link>

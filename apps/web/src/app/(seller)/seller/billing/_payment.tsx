@@ -19,7 +19,7 @@ export function Instruction({ view }: { view: SubscriptionPaymentView }) {
       {i?.qr && (
         <label className="grid gap-1">
           <span>Kode QR (isi QRIS apa adanya)</span>
-          <textarea readOnly rows={4} defaultValue={i.qr} className="w-full rounded-md border bg-muted/40 p-2 font-mono text-xs" data-testid="billing-qr" />
+          <textarea readOnly rows={4} defaultValue={i.qr} className="w-full rounded-md border bg-muted/40 p-2 font-mono text-base md:text-sm" data-testid="billing-qr" />
         </label>
       )}
       <p className="text-muted-foreground">Total yang dibayar {rupiah(view.totalIdr)}{view.status === "expired" ? "" : <> · bayar sebelum <span data-testid="billing-expiry">{tanggal(view.expiresAt)}</span></>}.</p>

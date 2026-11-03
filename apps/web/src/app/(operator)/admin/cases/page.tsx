@@ -2,6 +2,8 @@ import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
+import { StatusBadge } from "@/components/status-badge";
+import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,6 +20,13 @@ import { openCaseAction } from "./actions";
 export const metadata = { title: "Kasus" };
 const STATUS_LABEL: Record<string, string> = { open: "Terbuka", in_progress: "Dikerjakan", waiting: "Menunggu", resolved: "Selesai", closed: "Ditutup" };
 const KIND_LABEL: Record<string, string> = { support: "Dukungan", verification: "Verifikasi", risk: "Risiko", merge_request: "Permintaan merge", tax_correction: "Koreksi pajak" };
+const STATUS_TONE: Record<string, "default" | "secondary" | "outline" | "destructive" | "success" | "warning"> = {
+  open: "warning",
+  in_progress: "default",
+  waiting: "secondary",
+  resolved: "success",
+  closed: "outline",
+};
 
 export default async function CasesPage({ searchParams }: PageProps<"/admin/cases">) {
   const g = await consoleGate("/admin/cases");
@@ -70,14 +79,14 @@ export default async function CasesPage({ searchParams }: PageProps<"/admin/case
               <Link href={`/admin/cases/${c.id}`} className="font-mono underline underline-offset-4">{c.caseNumber}</Link>
               <span className="min-w-0 break-words">{c.title} <span className="text-muted-foreground">· {KIND_LABEL[c.kind] ?? c.kind} · <time dateTime={c.createdAt.toISOString()}>{tanggal(c.createdAt)}</time></span></span>
               <span className="flex flex-wrap gap-1.5">
-                <Badge variant="outline">{STATUS_LABEL[c.status] ?? c.status}</Badge>
+                <StatusBadge label={STATUS_LABEL[c.status] ?? c.status} tone={STATUS_TONE[c.status] ?? "outline"} />
                 {c.overdue && <Badge variant="destructive">Lewat tenggat</Badge>}
               </span>
             </li>
           ))}
         </ul>
       )}
-      {list.nextCursor && <Link href={`/admin/cases?${status ? `status=${status}&` : ""}cursor=${list.nextCursor}`} className="text-sm underline underline-offset-4">Kasus lebih lama</Link>}
+      {list.nextCursor && <Link href={`/admin/cases?${status ? `status=${status}&` : ""}cursor=${list.nextCursor}`} className={buttonVariants({ variant: "outline" }) + " w-fit"}>Kasus lebih lama</Link>}
     </section>
   );
 }

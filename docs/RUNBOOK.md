@@ -229,7 +229,7 @@ procedure is out of band by design.
   same script is the only path, again by two named people and recorded as
   `system_recovery`.
 
-## COD reconciliation batch (planned, T-37 and T-48; nothing exists yet)
+## COD reconciliation batch (built locally by T-37 and T-48 against fake adapters: `packages/db/src/ledger/reconciliation.ts`, Owner console `/admin/money/cod-reconciliation`; not run on real provider evidence yet)
 
 Rule (ADR-0006): the seller's sale for a COD order is released to
 the seller's available balance only when the parcel is delivered **and** the cash
@@ -342,3 +342,23 @@ with a recorded command and result before the first live deploy.
 - [ ] Restore rehearsal covers grants per role and erasure replay (T-59), and the
       post-restore payout freeze has been rehearsed.
 - [ ] JOB-21 scheduler heartbeat alert active before the first billing period.
+
+Added by the portfolio scan of 2026-11 (G5 to G7, task T-79; `docs/research/2026-11-portfolio-scan/`):
+
+- [ ] Deploy proof is a signal that must change: the running image tag of web and worker
+      equals the release commit, read back after the deploy and recorded with the before value;
+      every surface answers from the new image on two consecutive polls (a rolling swap can show
+      one false green), and a redirect to sign-in (3xx) counts as healthy.
+- [ ] Environment variables are set in Coolify before the merge that needs them, and the compose
+      file forwards each one; no `${X:+...}` or other alternate-value form anywhere in the compose
+      file, comments included (Coolify's parser rejects it although `docker compose config` accepts it).
+- [ ] Runtime role proof (SEC-25) passes in production for the web process and the worker.
+- [ ] One real e-mail reaches an external inbox through the production transport, with SPF and
+      DKIM passing (a placeholder key once left a sibling product unable to send any mail).
+- [ ] Mengantar production readiness: one non-mutating rate quote on the production account
+      returns couriers for a real route before shipping is switched on, and the COD estimate is
+      probed at two or more `COD_AMOUNT` values with the exact parameter casing (a wrong name
+      silently returns a zero COD fee).
+- [ ] Off-box probe installed, hosting balance alert active, backup age and offsite health
+      checks live, and the media volume plus Coolify's own database included in the restore
+      rehearsal (14, "Monitoring and backup lessons").

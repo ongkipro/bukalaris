@@ -41,7 +41,7 @@ export default async function SellerHome({ searchParams }: PageProps<"/seller">)
       </div>
 
       {/* The work queue is not period-bound: an old unanswered COD order must never hide behind "today". */}
-      <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <dl className="grid max-w-md gap-3">
         <Kpi
           testId="kpi-awaiting"
           label="Menunggu konfirmasi COD"
@@ -77,35 +77,40 @@ export default async function SellerHome({ searchParams }: PageProps<"/seller">)
           Angka pesanan, pendapatan, dan produk terlaris muncul begitu ada pesanan pada periode ini.
         </EmptyState>
       ) : (
-        <>
-          <section aria-labelledby="kpi-heading" className="grid gap-3">
-            <h2 id="kpi-heading" className="text-base font-semibold">
-              Pesanan dan pendapatan
-            </h2>
-            <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              <Kpi testId="kpi-orders" label="Pesanan" value={angka(kpi.orders)} hint={kpi.cancelled > 0 ? `${angka(kpi.cancelled)} dibatalkan/ditolak tidak dihitung.` : "Tidak ada yang dibatalkan."} />
-              <Kpi testId="kpi-goods" label="Pendapatan barang" value={rupiah(kpi.goodsRevenue)} hint="Subtotal barang dari pesanan yang dihitung, tanpa ongkir." />
-              <Kpi testId="kpi-shipping" label="Ongkir dibayar pembeli" value={rupiah(kpi.shippingCollected)} hint="Diteruskan ke kurir dan platform — bukan pendapatan toko." />
-              <Kpi testId="kpi-aov" label="Rata-rata nilai pesanan" value={rupiah(kpi.averageOrderValue)} hint="Pendapatan barang dibagi jumlah pesanan." />
-              <Kpi
-                testId="kpi-cod-confirmed"
-                label="COD terkonfirmasi"
-                value={rate(kpi.cod.confirmed, kpi.cod.total)}
-                hint={kpi.cod.total > 0 ? `${angka(kpi.cod.confirmed)} dari ${angka(kpi.cod.total)} pesanan COD.` : "Tidak ada pesanan COD pada periode ini."}
-              />
-              <Kpi
-                testId="kpi-cod-cancelled"
-                label="COD ditolak/dibatalkan"
-                value={rate(kpi.cod.cancelled, kpi.cod.total)}
-                hint={kpi.cod.total > 0 ? `${angka(kpi.cod.cancelled)} dari ${angka(kpi.cod.total)} pesanan COD.` : "Tidak ada pesanan COD pada periode ini."}
-              />
-            </dl>
-          </section>
+        <section aria-labelledby="kpi-heading" className="grid gap-3">
+          <h2 id="kpi-heading" className="text-base font-semibold">
+            Pesanan dan pendapatan
+          </h2>
+          <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <Kpi testId="kpi-orders" label="Pesanan" value={angka(kpi.orders)} hint={kpi.cancelled > 0 ? `${angka(kpi.cancelled)} dibatalkan/ditolak tidak dihitung.` : "Tidak ada yang dibatalkan."} />
+            <Kpi testId="kpi-goods" label="Pendapatan barang" value={rupiah(kpi.goodsRevenue)} hint="Subtotal barang dari pesanan yang dihitung, tanpa ongkir." />
+            <Kpi testId="kpi-shipping" label="Ongkir dibayar pembeli" value={rupiah(kpi.shippingCollected)} hint="Diteruskan ke kurir dan platform — bukan pendapatan toko." />
+            <Kpi testId="kpi-aov" label="Rata-rata nilai pesanan" value={rupiah(kpi.averageOrderValue)} hint="Pendapatan barang dibagi jumlah pesanan." />
+            <Kpi
+              testId="kpi-cod-confirmed"
+              label="COD terkonfirmasi"
+              value={rate(kpi.cod.confirmed, kpi.cod.total)}
+              hint={kpi.cod.total > 0 ? `${angka(kpi.cod.confirmed)} dari ${angka(kpi.cod.total)} pesanan COD.` : "Tidak ada pesanan COD pada periode ini."}
+            />
+            <Kpi
+              testId="kpi-cod-cancelled"
+              label="COD ditolak/dibatalkan"
+              value={rate(kpi.cod.cancelled, kpi.cod.total)}
+              hint={kpi.cod.total > 0 ? `${angka(kpi.cod.cancelled)} dari ${angka(kpi.cod.total)} pesanan COD.` : "Tidak ada pesanan COD pada periode ini."}
+            />
+          </dl>
+        </section>
+      )}
 
+      <div className={kpi.total > 0 ? "grid gap-6 lg:grid-cols-2 lg:items-start" : "grid max-w-2xl gap-6"}>
+        {kpi.total > 0 && (
           <section aria-labelledby="top-heading" className="grid gap-3">
-            <h2 id="top-heading" className="text-base font-semibold">
-              Produk terlaris
-            </h2>
+            <div className="grid gap-1">
+              <h2 id="top-heading" className="text-base font-semibold">
+                Produk terlaris
+              </h2>
+              <p className="text-sm text-muted-foreground">Diurutkan dari pendapatan barang tertinggi pada periode ini.</p>
+            </div>
             <Table>
               <caption className="sr-only">Lima produk dengan pendapatan tertinggi pada periode ini</caption>
               <TableHeader>
@@ -133,50 +138,50 @@ export default async function SellerHome({ searchParams }: PageProps<"/seller">)
               </TableBody>
             </Table>
           </section>
-        </>
-      )}
-
-      <section aria-labelledby="funnel-heading" className="grid gap-3">
-        <div className="grid gap-1">
-          <h2 id="funnel-heading" className="text-base font-semibold">
-            Corong konversi
-          </h2>
-          <p className="max-w-prose text-sm text-muted-foreground text-pretty">
-            Dari event sinyal iklan (Pemasaran). Pembelian dihitung dari event, jadi bisa berbeda dari jumlah pesanan di atas.
-          </p>
-        </div>
-        {!funnel.enabled ? (
-          <p role="note" data-testid="funnel-disabled" className="rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground">
-            Sinyal iklan belum aktif untuk toko ini, jadi corong kosong. Aktifkan tujuan iklan dengan token di{" "}
-            <Link href="/seller/marketing" className="font-medium text-foreground underline underline-offset-4">
-              Pemasaran
-            </Link>{" "}
-            agar event pembeli tercatat.
-          </p>
-        ) : funnelMax === 0 ? (
-          <p role="note" className="rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground">
-            Belum ada event sinyal pada periode ini.
-          </p>
-        ) : (
-          <ol className="grid gap-3" data-testid="funnel">
-            {funnel.steps.map((s, i) => {
-              const prev = funnel.steps[i - 1];
-              return (
-                <li key={s.event} className="grid gap-1">
-                  <div className="flex items-baseline justify-between gap-3 text-sm">
-                    <span>{FUNNEL_LABEL[s.event]}</span>
-                    <span className="tabular-nums">
-                      <span className="font-semibold">{angka(s.count)}</span>
-                      {prev && <span className="text-muted-foreground"> · {rate(s.count, prev.count)} dari langkah sebelumnya</span>}
-                    </span>
-                  </div>
-                  <Bar value={s.count} max={funnelMax} />
-                </li>
-              );
-            })}
-          </ol>
         )}
-      </section>
+
+        <section aria-labelledby="funnel-heading" className="grid gap-3">
+          <div className="grid gap-1">
+            <h2 id="funnel-heading" className="text-base font-semibold">
+              Corong konversi
+            </h2>
+            <p className="max-w-prose text-sm text-muted-foreground text-pretty">
+              Dari event sinyal iklan (Pemasaran). Pembelian dihitung dari event, jadi bisa berbeda dari jumlah pesanan di atas.
+            </p>
+          </div>
+          {!funnel.enabled ? (
+            <p role="note" data-testid="funnel-disabled" className="rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground">
+              Sinyal iklan belum aktif untuk toko ini, jadi corong kosong. Aktifkan tujuan iklan dengan token di{" "}
+              <Link href="/seller/marketing" className="font-medium text-foreground underline underline-offset-4">
+                Pemasaran
+              </Link>{" "}
+              agar event pembeli tercatat.
+            </p>
+          ) : funnelMax === 0 ? (
+            <p role="note" className="rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground">
+              Belum ada event sinyal pada periode ini.
+            </p>
+          ) : (
+            <ol className="divide-y rounded-lg border text-sm" data-testid="funnel">
+              {funnel.steps.map((s, i) => {
+                const prev = funnel.steps[i - 1];
+                return (
+                  <li key={s.event} className="grid gap-1.5 px-4 py-3">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="font-medium">{FUNNEL_LABEL[s.event]}</span>
+                      <span className="tabular-nums">
+                        <span className="font-semibold">{angka(s.count)}</span>
+                        {prev && <span className="text-xs text-muted-foreground"> · {rate(s.count, prev.count)} dari tahap sebelumnya</span>}
+                      </span>
+                    </div>
+                    <Bar value={s.count} max={funnelMax} />
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </section>
+      </div>
     </section>
   );
 }

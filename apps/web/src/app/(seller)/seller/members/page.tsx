@@ -41,13 +41,13 @@ export default async function MembersPage({ searchParams }: PageProps<"/seller/m
           <TableBody>
             {members.map((m) => (
               <TableRow key={m.userId}>
-                <TableCell className="font-medium">{m.name}</TableCell>
-                <TableCell className="text-muted-foreground">{m.email}</TableCell>
+                <TableCell className="font-medium whitespace-normal">{m.name}</TableCell>
+                <TableCell className="break-all whitespace-normal text-muted-foreground">{m.email}</TableCell>
                 <TableCell>
                   {manage ? (
-                    <form action={changeMemberAction.bind(null, m.userId)} className="flex items-center gap-2">
+                    <form action={changeMemberAction.bind(null, m.userId)} className="flex flex-wrap items-center gap-2">
                       <label htmlFor={`role-${m.userId}`} className="sr-only">Peran {m.name}</label>
-                      <NativeSelect id={`role-${m.userId}`} name="role" defaultValue={m.role} className="w-44">
+                      <NativeSelect id={`role-${m.userId}`} name="role" defaultValue={m.role} className="w-32 sm:w-44">
                         <option value="owner">{roleLabel.owner}</option>
                         <option value="staff">{roleLabel.staff}</option>
                         <option value="remove">Hapus dari toko</option>

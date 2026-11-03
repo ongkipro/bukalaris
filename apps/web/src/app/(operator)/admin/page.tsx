@@ -12,12 +12,12 @@ export const metadata = { title: { absolute: "Ringkasan — Bukalaris Owner" } }
 
 // Cards of the planned sources. They are listed, with the capability that will gate them, so an operator sees what is not
 // built yet instead of a zero (UX-22 SA-14: "no data yet" is never rendered as 0).
-const PLANNED: { capability: PlatformCapability; title: string }[] = [
-  { capability: "billing.read", title: "Pendapatan langganan" },
-  { capability: "finance.read", title: "Saldo penjual dan kewajiban" },
-  { capability: "payouts.process", title: "Antrean pencairan dan refund" },
-  { capability: "cases.read", title: "Kasus terbuka" },
-  { capability: "tenants.read", title: "Bendera risiko toko" },
+const PLANNED: { capability: PlatformCapability; title: string; href: string }[] = [
+  { capability: "billing.read", title: "Pendapatan langganan", href: "/admin/billing" },
+  { capability: "finance.read", title: "Saldo penjual dan kewajiban", href: "/admin/money" },
+  { capability: "payouts.process", title: "Antrean pencairan dan refund", href: "/admin/payouts" },
+  { capability: "cases.read", title: "Kasus terbuka", href: "/admin/cases" },
+  { capability: "tenants.read", title: "Bendera risiko toko", href: "/admin/risk" },
 ];
 
 function Card({ title, children, href, testId }: { title: string; children: ReactNode; href?: string; testId: string }) {
@@ -87,17 +87,17 @@ export default async function AdminDashboardPage() {
             ) : d.issues.data.length === 0 ? (
               <p className="text-sm text-muted-foreground">Belum ada laporan terbuka.</p>
             ) : (
-              <ul className="text-sm tabular-nums">
+              <ul className="grid gap-1 text-sm tabular-nums">
                 {d.issues.data.map((r) => (
-                  <li key={r.pageId}><Link className="underline" href={`/admin/issues?pageId=${r.pageId}`}><span className="font-mono">{r.pageId}</span> · {r.open}</Link></li>
+                  <li key={r.pageId}><Link className="underline underline-offset-4" href={`/admin/issues?pageId=${r.pageId}`}><span className="font-mono">{r.pageId}</span> · {r.open} laporan</Link></li>
                 ))}
               </ul>
             )}
           </Card>
         )}
         {planned.map((p) => (
-          <Card key={p.title} title={p.title} testId={`card-planned-${p.capability.replace(/\./g, "-")}`}>
-            <Unavailable />
+          <Card key={p.title} title={p.title} href={p.href} testId={`card-planned-${p.capability.replace(/\./g, "-")}`}>
+            <Unavailable text="Belum tersedia di kartu ringkasan — buka halaman untuk data langsung." />
           </Card>
         ))}
       </div>

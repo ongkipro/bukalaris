@@ -33,7 +33,15 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
   const cartId = (await cookies()).get(cartCookie(scope.storeId))?.value;
   const found = await checkoutSummary(db(), cartId);
   const summary = found?.storeId === scope.storeId ? found : null;
-  if (!summary) return <p className="rounded-lg border bg-background p-6">Keranjang kosong atau sudah di-checkout.</p>;
+  if (!summary)
+    return (
+      <section className="grid gap-3 rounded-xl border bg-background p-6">
+        <p>Keranjang kosong atau sudah di-checkout.</p>
+        <a href={`/s/${encodeURIComponent(scope.storeSlug)}`} className="inline-flex min-h-6 w-fit items-center rounded-sm py-1 text-sm underline underline-offset-4 outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
+          Kembali ke toko
+        </a>
+      </section>
+    );
   if (summary.store.status !== "active")
     return <p role="alert" className="rounded-lg border bg-background p-6">{summary.store.name} sedang tidak menerima pesanan.</p>;
 
@@ -141,7 +149,7 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
                 {area && (
                   <p className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm" data-testid="destination-area">
                     <span><span className="text-muted-foreground">Dikirim ke:</span> {area.label}</span>
-                    <a href={`${here}&q=${encodeURIComponent(q)}`} className="underline underline-offset-4">Ubah</a>
+                    <a href={`${here}&q=${encodeURIComponent(q)}`} className="inline-flex min-h-6 items-center rounded-sm px-1 underline underline-offset-4 outline-none focus-visible:ring-3 focus-visible:ring-ring/50">Ubah</a>
                   </p>
                 )}
               </>
@@ -168,7 +176,7 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
                     <input type="radio" name="courier" value={o.courier} defaultChecked={o.courier === defaultCourier?.courier} required />
                     <span className="min-w-0 flex-1">
                       {o.label}
-                      {o.etd && <span className="block text-xs text-muted-foreground">Estimasi {o.etd}</span>}
+                      {o.etd && <span className="block text-xs text-muted-foreground">Estimasi {o.etd.replace(/\bdays?\b/gi, "hari")}</span>}
                     </span>
                     <span className="text-right text-sm tabular-nums">
                       <span className="block">Transfer {rupiah(o.prepaid.buyerFee)}</span>
@@ -179,6 +187,9 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
               </fieldset>
               <fieldset className="grid gap-4">
                 <legend className="mb-2 font-medium">3. Data penerima</legend>
+                <p id="capture-notice" data-testid="capture-notice" role="note" className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
+                  Nama, nomor HP, email, dan alamat yang Anda ketik di sini disimpan sementara (paling lama 30 hari) agar {summary.store.name} dapat menghubungi Anda jika pesanan belum selesai. Data ini tidak dibagikan ke platform iklan.
+                </p>
                 <div className="grid gap-2">
                   <Label htmlFor="buyerName">Nama</Label>
                   <Input id="buyerName" name="buyerName" autoComplete="name" required minLength={2} maxLength={120} />
@@ -198,11 +209,8 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
                   <Textarea id="shippingAddress" name="shippingAddress" autoComplete="street-address" required minLength={10} maxLength={500} rows={3} aria-describedby="address-help" />
                   <p id="address-help" className="text-xs text-muted-foreground">Nama jalan, nomor rumah, RT/RW dan patokan di {area.label.split(",")[0]}.</p>
                 </div>
-                <p id="capture-notice" data-testid="capture-notice" role="note" className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
-                  Nama, nomor HP, email, dan alamat yang Anda ketik di sini disimpan sementara (paling lama 30 hari) agar {summary.store.name} dapat menghubungi Anda jika pesanan belum selesai. Data ini tidak dibagikan ke platform iklan.
-                </p>
               </fieldset>
-              <fieldset className="grid gap-2">
+              <fieldset className="group/pay grid gap-2">
                 <legend className="mb-2 font-medium">4. Pembayaran</legend>
                 {codOffered && (
                   <label className={optionClass}>
@@ -218,7 +226,7 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
                   <span>Transfer bank / e-wallet lewat Bukalaris Bayar (simulasi, tanpa transaksi nyata)</span>
                 </label>
                 {channels.length > 0 && (
-                  <fieldset className="ml-6 grid gap-2" aria-label="Metode pembayaran online">
+                  <fieldset className="ml-3 grid gap-2 border-l-2 pl-3 group-has-[input[name=paymentMethod][value=cod]:checked]/pay:opacity-60 sm:ml-4 sm:pl-4" aria-label="Metode pembayaran online">
                     <legend className="mb-1 text-sm text-muted-foreground">Pilih metode jika membayar online</legend>
                     {channels.map((c, i) => (
                       <label key={c.code} className={optionClass}>

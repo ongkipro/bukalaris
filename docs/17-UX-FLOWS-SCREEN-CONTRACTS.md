@@ -302,6 +302,19 @@ must bind them to real project commands once the repository exists.
   headless fixture through the same hosted checkout. Verify keyboard/mobile
   behavior, no theme CSS leakage, no shared-cookie dependency, replay/expiry,
   revoked token, stale cart, and authoritative final order state.
+- QRIS instruction contract (SF-08 and the SC subscription payment panel; portfolio scan 2026-11, G4, task T-78):
+  a pending QRIS attempt shows a scannable QR image rendered on the server from the stored
+  payload (treated as untrusted data, never as markup), with a quiet zone, an accessible name
+  stating the amount, the exact total including the admin fee, the expiry instant in WIB, and a
+  copyable text fallback. Today both screens render the raw payload in a read-only text area.
+
+### Mutation and bulk-action outcome rule (all surfaces)
+
+An action reports success only for rows it actually changed: a guarded `UPDATE` or `DELETE` that
+matches zero rows (stale id, other tenant under RLS, state already moved) is a refusal with a
+reason, never "ok". A bulk action states its cap before it runs or pages through every selected
+row; it never silently drops rows past a limit, and its result reports done, refused and skipped
+counts (portfolio scan 2026-11, G8).
 
 ## Initial surface workflow completion matrix
 

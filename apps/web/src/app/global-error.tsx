@@ -2,6 +2,7 @@
 
 import "./globals.css";
 import { useRequestId } from "@/lib/use-request-id";
+import Link from "next/link";
 
 /** Replaces the root layout when it fails itself; must render its own <html>/<body>. */
 export default function GlobalError({ error, retry }: { error: Error & { digest?: string }; retry: () => void }) {
@@ -23,9 +24,14 @@ export default function GlobalError({ error, retry }: { error: Error & { digest?
               </>
             )}
           </dl>
-          <button type="button" onClick={() => retry()} className="h-9 w-fit rounded-md bg-foreground px-4 text-sm font-medium text-background">
-            Coba lagi
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => retry()} className="inline-flex h-9 w-fit items-center rounded-md bg-foreground px-4 text-sm font-medium text-background outline-none hover:opacity-90 focus-visible:ring-3 focus-visible:ring-ring/50">
+              Coba lagi
+            </button>
+            <Link href="/" className="inline-flex h-9 w-fit items-center rounded-md border bg-background px-4 text-sm font-medium text-foreground outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50">
+              Ke beranda
+            </Link>
+          </div>
         </main>
       </body>
     </html>

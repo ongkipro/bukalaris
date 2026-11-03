@@ -1,6 +1,7 @@
 "use client";
 
 import { EmptyState } from "@/components/empty-state";
+import { StatusBadge } from "@/components/status-badge";
 import { SubmitButton } from "@/components/submit-button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -27,7 +28,7 @@ export function SearchForm() {
       {problem && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">{problem}</p>}
       {result && (
         <>
-          <p className="text-sm text-muted-foreground" data-testid="buyer-note">
+          <p className="rounded-lg border bg-muted/30 px-3 py-2 text-sm text-muted-foreground" data-testid="buyer-note">
             {result.buyerResults === "needs_case_and_purpose" ? "Hasil pembeli butuh kasus terbuka dan tujuan pada pencarian itu sendiri; tanpa itu hanya akun seller yang dicari." : "Akun pembeli belum tersedia."}
           </p>
           {result.hits.length === 0 ? (
@@ -37,8 +38,11 @@ export function SearchForm() {
               {result.hits.map((h) => (
                 <li key={`${h.kind}-${h.id}`} className="grid gap-1 p-3 sm:grid-cols-[6rem_minmax(0,1fr)_auto] sm:items-center sm:gap-4">
                   <Badge variant="outline" className="w-fit">Seller</Badge>
-                  <span className="min-w-0 break-words" data-testid="hit">{h.maskedName} <span className="text-muted-foreground">· {h.maskedEmail} · {h.memberships} toko{h.status === "suspended" ? " · ditangguhkan" : ""}</span></span>
-                  <Link href={`/admin/accounts/${h.kind}/${h.id}`} className="underline underline-offset-4">Buka rekam</Link>
+                  <span className="flex flex-wrap items-center gap-2 min-w-0 break-words" data-testid="hit">
+                    <span>{h.maskedName} <span className="text-muted-foreground">· {h.maskedEmail} · {h.memberships} toko{h.status === "suspended" ? " · ditangguhkan" : ""}</span></span>
+                    <StatusBadge label={h.status === "suspended" ? "Ditangguhkan" : "Aktif"} tone={h.status === "suspended" ? "destructive" : "success"} />
+                  </span>
+                  <Link href={`/admin/accounts/${h.kind}/${h.id}`} className="font-medium underline underline-offset-4">Buka rekam</Link>
                 </li>
               ))}
             </ul>

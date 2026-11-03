@@ -69,22 +69,22 @@ export default async function OpsPage({ searchParams }: PageProps<"/admin/ops">)
                 <TableHeader>
                   <TableRow>
                     <TableHead>Jenis</TableHead>
-                    <TableHead className="text-right">Menunggu</TableHead>
-                    <TableHead className="text-right">Berjalan</TableHead>
-                    <TableHead className="text-right">Gagal</TableHead>
-                    <TableHead className="text-right">Belum diketahui</TableHead>
-                    <TableHead className="text-right">Tertua</TableHead>
+                    <TableHead numeric>Menunggu</TableHead>
+                    <TableHead numeric>Berjalan</TableHead>
+                    <TableHead numeric>Gagal</TableHead>
+                    <TableHead numeric>Belum diketahui</TableHead>
+                    <TableHead numeric>Tertua</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {h.lag.map((r) => (
                     <TableRow key={`${r.kind}-${r.priority}`}>
-                      <TableCell className="font-mono text-xs">{r.kind}</TableCell>
-                      <TableCell className="text-right tabular-nums">{r.pending}</TableCell>
-                      <TableCell className="text-right tabular-nums">{r.running}</TableCell>
-                      <TableCell className="text-right tabular-nums">{r.dead}</TableCell>
-                      <TableCell className="text-right tabular-nums">{r.unknown}</TableCell>
-                      <TableCell className="text-right tabular-nums">{age(r.oldestDueAgeMs)}</TableCell>
+                      <TableCell className="font-mono">{r.kind}</TableCell>
+                      <TableCell numeric>{r.pending}</TableCell>
+                      <TableCell numeric>{r.running}</TableCell>
+                      <TableCell numeric>{r.dead}</TableCell>
+                      <TableCell numeric>{r.unknown}</TableCell>
+                      <TableCell numeric>{age(r.oldestDueAgeMs)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -139,9 +139,9 @@ export default async function OpsPage({ searchParams }: PageProps<"/admin/ops">)
               {h.replay.length === 0 ? (
                 <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Belum ada tindakan.</p>
               ) : (
-                <ul className="text-sm">
+                <ul className="divide-y rounded-lg border text-sm">
                   {h.replay.map((r) => (
-                    <li key={r.id}><time dateTime={r.createdAt.toISOString()}>{tanggal(r.createdAt)}</time> · <span className="font-mono">{r.action}</span> · <span className="font-mono">{r.actorUserId}</span></li>
+                    <li key={r.id} className="p-3"><time dateTime={r.createdAt.toISOString()} className="text-muted-foreground">{tanggal(r.createdAt)}</time> · <span className="font-mono">{r.action}</span> · <span className="font-mono">{r.actorUserId}</span></li>
                   ))}
                 </ul>
               )}
@@ -153,10 +153,10 @@ export default async function OpsPage({ searchParams }: PageProps<"/admin/ops">)
         <h2 id="function-health" className="text-lg font-semibold">Kesehatan fungsi per halaman</h2>
         {functions === null ? <p role="alert">Sumber kesehatan fungsi tidak tersedia.</p> : <Table>
           <caption className="sr-only">Laporan terbuka per ARCH-5</caption>
-          <TableHeader><TableRow>{["Halaman", "Rendah", "Sedang", "Tinggi", "Menghambat", "Tertua", "7 hari", "Error 24 jam"].map((h) => <TableHead key={h}>{h}</TableHead>)}</TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>Halaman</TableHead>{["Rendah", "Sedang", "Tinggi", "Menghambat", "Tertua", "7 hari", "Error 24 jam"].map((h) => <TableHead key={h} numeric>{h}</TableHead>)}</TableRow></TableHeader>
           <TableBody>{functions.map((r) => <TableRow key={r.pageId} data-testid={`health-${r.pageId}`}>
-            <TableCell><Link className="underline" href={`/admin/issues?pageId=${r.pageId}`}>{r.pageId} · {r.title}</Link></TableCell>
-            <TableCell>{r.low}</TableCell><TableCell>{r.medium}</TableCell><TableCell>{r.high}</TableCell><TableCell>{r.blocking}</TableCell><TableCell>{age(r.oldestAgeMs)}</TableCell><TableCell>{r.week}</TableCell><TableCell>{r.errors}</TableCell>
+            <TableCell><Link className="underline underline-offset-4" href={`/admin/issues?pageId=${r.pageId}`}>{r.pageId} · {r.title}</Link></TableCell>
+            <TableCell numeric>{r.low}</TableCell><TableCell numeric>{r.medium}</TableCell><TableCell numeric>{r.high}</TableCell><TableCell numeric>{r.blocking}</TableCell><TableCell numeric>{age(r.oldestAgeMs)}</TableCell><TableCell numeric>{r.week}</TableCell><TableCell numeric>{r.errors}</TableCell>
           </TableRow>)}</TableBody>
         </Table>}
       </section>}

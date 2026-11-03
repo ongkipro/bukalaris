@@ -1,6 +1,7 @@
 import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
+import { StatusBadge } from "@/components/status-badge";
 import { SubmitButton } from "@/components/submit-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,10 +35,13 @@ export default async function RiskPage({ searchParams }: PageProps<"/admin/risk"
         <ul className="grid gap-3">
           {q.flags.map((f) => (
             <li key={`${f.storeId}-${f.key}`} className="grid gap-2 rounded-lg border p-4 text-sm" data-testid={`risk-${f.storeId}-${f.key}`}>
-              <div className="flex flex-wrap items-baseline gap-x-3">
-                <Link href={`/admin/stores/${f.storeId}`} className="font-semibold underline underline-offset-4">{f.storeName}</Link>
-                <span>{ruleOf(f.key)?.rule ?? f.key}</span>
-                <span className="tabular-nums">{f.count} kasus</span>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-baseline gap-x-3">
+                  <Link href={`/admin/stores/${f.storeId}`} className="font-semibold underline underline-offset-4">{f.storeName}</Link>
+                  <span>{ruleOf(f.key)?.rule ?? f.key}</span>
+                  <span className="tabular-nums font-medium">{f.count} kasus</span>
+                </div>
+                <StatusBadge label={f.acknowledged ? "Diakui sementara" : "Perlu tinjauan"} tone={f.acknowledged ? "secondary" : "warning"} />
               </div>
               <p className="text-xs text-muted-foreground">Sumber: {ruleOf(f.key)?.source}{f.oldestAt ? <> · tertua <time dateTime={f.oldestAt.toISOString()}>{tanggal(f.oldestAt)}</time></> : null}{f.acknowledged ? <> · diakui sampai <time dateTime={f.acknowledged.until.toISOString()}>{tanggal(f.acknowledged.until)}</time></> : null}</p>
               {canAck && !f.acknowledged && (

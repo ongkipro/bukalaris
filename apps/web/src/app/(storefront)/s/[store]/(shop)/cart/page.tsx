@@ -1,5 +1,6 @@
 import { fieldClass, Notice } from "@/components/notice";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { SubmitButton } from "@/components/submit-button";
+import { buttonVariants } from "@/components/ui/button";
 import { SignalEvent } from "@/components/pixels/runtime";
 import { rupiah } from "@/lib/format";
 import { signalsFor } from "@/lib/signals";
@@ -44,14 +45,14 @@ export default async function CartPage({ params, searchParams }: PageProps<"/s/[
                   </Link>
                   <div className="min-w-0">
                     <Link href={href} className="font-medium underline-offset-4 hover:underline">{l.productTitle}</Link>
-                    <p className="text-sm text-muted-foreground">{l.variantTitle} · {rupiah(l.price)}</p>
+                    <p className="text-sm tabular-nums text-muted-foreground">{l.variantTitle} · {rupiah(l.price)}</p>
                     {l.quantity > l.stock && <p className="mt-1 text-sm text-destructive" role="alert">Stok tersisa {l.stock}; jumlah akan ditolak saat checkout.</p>}
                   </div>
                   <form action={updateCart.bind(null, store)} className="col-start-2 flex items-center gap-2 @xl:col-start-3">
                     <input type="hidden" name="variantId" value={l.variantId} />
                     <label htmlFor={`qty-${l.variantId}`} className="sr-only">Jumlah {l.productTitle}</label>
-                    <input id={`qty-${l.variantId}`} name="quantity" type="number" inputMode="numeric" min={0} max={99} defaultValue={l.quantity} className={`${fieldClass} w-20`} />
-                    <Button type="submit" variant="outline" size="sm">Ubah</Button>
+                    <input id={`qty-${l.variantId}`} name="quantity" type="number" inputMode="numeric" min={0} max={99} defaultValue={l.quantity} className={`${fieldClass} w-20 tabular-nums`} />
+                    <SubmitButton pendingText="…" variant="outline" size="sm">Ubah</SubmitButton>
                   </form>
                 </li>
               );

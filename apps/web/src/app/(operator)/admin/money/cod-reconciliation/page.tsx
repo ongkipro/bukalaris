@@ -83,7 +83,7 @@ export default async function CodReconciliationPage({ searchParams }: PageProps<
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="lines">Baris bukti (satu per baris: id pesanan; referensi baris kurir; jumlah; tanggal YYYY-MM-DD)</Label>
-                <Textarea id="lines" name="lines" rows={5} required className="font-mono text-xs" />
+                <Textarea id="lines" name="lines" rows={5} required placeholder="101; MGT-LINE-001; 125000; 2026-10-28" className="font-mono" />
               </div>
               <p className="text-xs text-muted-foreground">Jumlah yang diharapkan dibaca dari angka COD pesanan, bukan dari isian ini. Baris yang berbeda adalah selisih dan menahan pengajuan sampai diselesaikan atau dihapus.</p>
               <div><SubmitButton pendingText="Menyiapkan…">Siapkan batch</SubmitButton></div>

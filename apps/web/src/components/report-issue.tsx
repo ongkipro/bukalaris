@@ -166,11 +166,9 @@ export function ReportIssue({ submit, surface }: { submit: ReportIssueSubmit; su
       >
         Lapor masalah
       </button>
-      {state.kind === "done" && (
-        <span aria-live="polite" className="text-xs">
-          Laporan #{state.id} terkirim
-        </span>
-      )}
+      <span aria-live="polite" className="text-xs">
+        {state.kind === "done" ? `Laporan #${state.id} terkirim` : ""}
+      </span>
       <dialog
         ref={dialog}
         aria-labelledby={`${uid}-title`}
@@ -184,16 +182,16 @@ export function ReportIssue({ submit, surface }: { submit: ReportIssueSubmit; su
           <fieldset className="grid gap-1.5">
             <legend className="text-sm font-medium">Apa yang bermasalah?</legend>
             {CATEGORIES.map(([value, label], i) => (
-              <label key={value} className="flex items-center gap-2 text-sm">
-                <input type="radio" name="category" value={value} required={i === 0} /> {label}
+              <label key={value} className="flex min-h-6 cursor-pointer items-center gap-2 py-0.5 text-sm">
+                <input type="radio" name="category" value={value} required={i === 0} className="size-4" /> {label}
               </label>
             ))}
           </fieldset>
           <fieldset className="grid gap-1.5">
             <legend className="text-sm font-medium">Seberapa parah?</legend>
             {SEVERITIES.map(([value, label], i) => (
-              <label key={value} className="flex items-center gap-2 text-sm">
-                <input type="radio" name="severity" value={value} required={i === 0} /> {label}
+              <label key={value} className="flex min-h-6 cursor-pointer items-center gap-2 py-0.5 text-sm">
+                <input type="radio" name="severity" value={value} required={i === 0} className="size-4" /> {label}
               </label>
             ))}
           </fieldset>

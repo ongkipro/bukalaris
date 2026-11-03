@@ -1,3 +1,4 @@
+import { CopyButton } from "@/components/copy-button";
 import { buttonVariants } from "@/components/ui/button";
 import { REQUEST_ID_HEADER } from "@/lib/request-id";
 import { headers } from "next/headers";
@@ -14,7 +15,10 @@ export default async function NotFound() {
       <p className="text-muted-foreground">Alamat yang Anda buka tidak ada, sudah dipindahkan, atau toko ini sedang tidak tersedia.</p>
       <dl className="rounded-lg border p-4 text-sm">
         <dt className="text-muted-foreground">Kode permintaan</dt>
-        <dd className="font-mono break-all" data-testid="request-id">{requestId ?? "—"}</dd>
+        <dd className="mt-0.5 flex flex-wrap items-center gap-2">
+          <span className="font-mono break-all" data-testid="request-id">{requestId ?? "—"}</span>
+          {requestId && <CopyButton value={requestId} label="kode permintaan" />}
+        </dd>
       </dl>
       <Link href="/" className={buttonVariants({ variant: "outline" }) + " w-fit"}>Ke beranda</Link>
     </main>

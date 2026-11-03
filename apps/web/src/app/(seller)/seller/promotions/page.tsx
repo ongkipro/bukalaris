@@ -1,6 +1,8 @@
+import { CopyButton } from "@/components/copy-button";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
+import { bpsPercent } from "@/lib/billing";
 import { sellerScope } from "@/lib/context";
 import { rupiah, tanggal } from "@/lib/format";
 import { can, sellerPromotions } from "@bukalaris/db";
@@ -10,7 +12,6 @@ export const metadata = { title: "Promosi — Bukalaris" };
 const wib = (d: Date) => new Date(d.getTime() + 7 * 3600_000).toISOString().slice(0, 16);
 const kindLabel = { percent: "Persen", fixed: "Potongan tetap", free_shipping: "Gratis ongkir kurir" } as const;
 const scopeLabel = { all: "Semua barang", collection: "Koleksi", product: "Produk" } as const;
-
 export default async function PromotionsPage() {
   const scope = await sellerScope();
   const data = await sellerPromotions(scope);
@@ -22,28 +23,32 @@ export default async function PromotionsPage() {
   const common = { products, collections, variants, images };
   const hub = data.hub;
   return (
-    <section className="grid gap-8">
+    <section className="grid max-w-4xl gap-8">
       <PageHeader title="Promosi" description="Voucher, flash sale, gratis ongkir otomatis, dan halaman /promo toko. Semua aturan dicek ulang server saat pesanan dibuat." />
       {!writable && <p role="note" className="rounded-lg border bg-muted/30 p-3 text-sm">{can(scope, "promotions.manage") ? "Langganan belum aktif: promosi hanya bisa dibaca." : "Hanya pemilik toko yang dapat mengubah promosi."}</p>}
 
-      <section aria-labelledby="hub" className="grid gap-4">
+      <section aria-labelledby="hub" className="grid gap-3">
         <h2 id="hub" className="text-base font-semibold">Hub promo dan gratis ongkir</h2>
-        {writable ? <PromotionEditor type="hub" {...common} initial={{ enabled: String(hub?.enabled ?? false), title: hub?.title ?? "Promo toko", subtitle: hub?.subtitle ?? "", bannerMediaId: String(hub?.bannerMediaId ?? ""), bannerCtaLabel: hub?.bannerCtaLabel ?? "", bannerCtaHref: hub?.bannerCtaHref ?? "", freeShipEnabled: String(hub?.freeShipEnabled ?? false), freeShipThresholdIdr: String(hub?.freeShipThresholdIdr ?? 0), percentRounding: hub?.percentRounding ?? "floor" }} featured={data.featured.map((f) => f.collectionId)} />
-          : <p className="text-sm text-muted-foreground">{hub?.enabled ? "Hub aktif" : "Hub belum aktif"} · pembulatan persen {hub?.percentRounding ?? "floor"} · gratis ongkir otomatis {hub?.freeShipEnabled ? `mulai ${rupiah(hub.freeShipThresholdIdr)}` : "nonaktif"}.</p>}
+        <div className="rounded-lg border p-4">
+          {writable ? <PromotionEditor type="hub" {...common} initial={{ enabled: String(hub?.enabled ?? false), title: hub?.title ?? "Promo toko", subtitle: hub?.subtitle ?? "", bannerMediaId: String(hub?.bannerMediaId ?? ""), bannerCtaLabel: hub?.bannerCtaLabel ?? "", bannerCtaHref: hub?.bannerCtaHref ?? "", freeShipEnabled: String(hub?.freeShipEnabled ?? false), freeShipThresholdIdr: String(hub?.freeShipThresholdIdr ?? 0), percentRounding: hub?.percentRounding ?? "floor" }} featured={data.featured.map((f) => f.collectionId)} />
+            : <p className="text-sm text-muted-foreground">{hub?.enabled ? "Hub aktif" : "Hub belum aktif"} · pembulatan persen {hub?.percentRounding ?? "floor"} · gratis ongkir otomatis {hub?.freeShipEnabled ? `mulai ${rupiah(hub.freeShipThresholdIdr)}` : "nonaktif"}.</p>}
+        </div>
       </section>
 
-      <section aria-labelledby="vouchers" className="grid gap-4">
+      <section aria-labelledby="vouchers" className="grid gap-3">
         <h2 id="vouchers" className="text-base font-semibold">Voucher</h2>
         {data.vouchers.length === 0 ? <EmptyState title="Belum ada voucher">Buat voucher dengan cakupan, batas pakai, dan jadwal WIB.</EmptyState> : (
           <ul className="divide-y rounded-lg border">
             {data.vouchers.map((v) => (
-              <li key={v.id} className="grid gap-3 p-3 text-sm" data-testid="voucher-row">
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <li key={v.id} className="grid gap-2 p-3 text-sm" data-testid="voucher-row">
+                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
                   <strong className="break-all font-mono">{v.code}</strong>
+                  <CopyButton value={v.code} label={`kode voucher ${v.code}`} />
                   <StatusBadge label={v.status === "active" ? "Aktif" : "Nonaktif"} tone={v.status === "active" ? "success" : "secondary"} />
+                  {v.public && <StatusBadge label="Tampil di /promo" tone="outline" />}
                 </div>
-                <p className="text-muted-foreground">{kindLabel[v.kind]} · {scopeLabel[v.scope]} · terpakai {v.usedCount}{v.usageLimit ? `/${v.usageLimit}` : ""} · {tanggal(v.startsAt)} sampai {tanggal(v.endsAt)} · minimum {rupiah(v.minPurchaseIdr)}</p>
-                {writable && <details><summary className="cursor-pointer underline underline-offset-4">Ubah aturan</summary><div className="mt-3"><PromotionEditor type="voucher" id={v.id} {...common} initial={{ kind: v.kind, value: String(v.value), scope: v.scope, productId: String(v.productId ?? ""), collectionId: String(v.collectionId ?? ""), minPurchaseIdr: String(v.minPurchaseIdr), maxDiscountIdr: String(v.maxDiscountIdr ?? ""), usageLimit: String(v.usageLimit ?? ""), buyerUsageLimit: String(v.buyerUsageLimit ?? ""), public: String(v.public), startsAt: wib(v.startsAt), endsAt: wib(v.endsAt), status: v.status }} /></div></details>}
+                <p className="text-muted-foreground tabular-nums">{v.kind === "percent" ? `Diskon ${bpsPercent(v.value)} (${kindLabel.percent})${v.maxDiscountIdr ? ` maks. ${rupiah(v.maxDiscountIdr)}` : ""}` : v.kind === "fixed" ? `Potongan ${rupiah(v.value)} (${kindLabel.fixed})` : kindLabel.free_shipping} · {scopeLabel[v.scope]} · terpakai {v.usedCount}{v.usageLimit ? `/${v.usageLimit}` : ""} · <time dateTime={v.startsAt.toISOString()}>{tanggal(v.startsAt)}</time> sampai <time dateTime={v.endsAt.toISOString()}>{tanggal(v.endsAt)}</time> · minimum {rupiah(v.minPurchaseIdr)}</p>
+                {writable && <details><summary className="cursor-pointer font-medium underline underline-offset-4">Ubah aturan</summary><div className="mt-3 border-t pt-3"><PromotionEditor type="voucher" id={v.id} {...common} initial={{ kind: v.kind, value: String(v.value), scope: v.scope, productId: String(v.productId ?? ""), collectionId: String(v.collectionId ?? ""), minPurchaseIdr: String(v.minPurchaseIdr), maxDiscountIdr: String(v.maxDiscountIdr ?? ""), usageLimit: String(v.usageLimit ?? ""), buyerUsageLimit: String(v.buyerUsageLimit ?? ""), public: String(v.public), startsAt: wib(v.startsAt), endsAt: wib(v.endsAt), status: v.status }} /></div></details>}
               </li>
             ))}
           </ul>

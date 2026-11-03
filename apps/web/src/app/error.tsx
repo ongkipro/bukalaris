@@ -1,5 +1,6 @@
 "use client";
 
+import { CopyButton } from "@/components/copy-button";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { useRequestId } from "@/lib/use-request-id";
 import Link from "next/link";
@@ -15,7 +16,10 @@ export default function ErrorPage({ error, retry }: { error: Error & { digest?: 
       </p>
       <dl className="rounded-lg border p-4 text-sm">
         <dt className="text-muted-foreground">Kode permintaan</dt>
-        <dd className="font-mono break-all" data-testid="request-id">{requestId ?? "—"}</dd>
+        <dd className="mt-0.5 flex flex-wrap items-center gap-2">
+          <span className="font-mono break-all" data-testid="request-id">{requestId ?? "—"}</span>
+          {requestId && <CopyButton value={requestId} label="kode permintaan" />}
+        </dd>
         {error.digest && (
           <>
             <dt className="mt-2 text-muted-foreground">Kode kesalahan</dt>

@@ -1,3 +1,4 @@
+import { CopyButton } from "@/components/copy-button";
 import { Pixels } from "@/components/pixels/pixels";
 import { SignalEvent } from "@/components/pixels/runtime";
 import { rupiah } from "@/lib/format";
@@ -39,7 +40,7 @@ export default async function ConfirmationPage({ searchParams }: PageProps<"/che
           serverLeg={false}
         />
       )}
-      <p className="text-sm font-medium tracking-wide text-muted-foreground uppercase">Terima kasih</p>
+      <p className="text-sm font-medium text-muted-foreground">Terima kasih</p>
       <h1 id="done" className="-mt-2 text-2xl font-semibold tracking-tight">Pesanan diterima</h1>
       <p>
         Nomor pesanan <strong data-testid="order-id" className="select-all font-mono">#{o.id}</strong> di {o.storeName}. Simpan nomor ini untuk menanyakan status pesanan.
@@ -62,10 +63,20 @@ export default async function ConfirmationPage({ searchParams }: PageProps<"/che
       {o.payment?.instruction && o.payment.status !== "paid" && (
         <section aria-labelledby="instruksi" className="grid gap-2 rounded-lg border p-3 text-sm" data-testid="payment-instruction">
           <h2 id="instruksi" className="font-medium">Instruksi pembayaran · {o.payment.channelCode}</h2>
-          {o.payment.instruction.virtualAccount && <p>Nomor virtual account: <strong className="select-all font-mono" data-testid="payment-va">{o.payment.instruction.virtualAccount}</strong></p>}
-          {o.payment.instruction.paymentCode && <p>Kode pembayaran: <strong className="select-all font-mono" data-testid="payment-code">{o.payment.instruction.paymentCode}</strong></p>}
+          {o.payment.instruction.virtualAccount && (
+            <p className="flex flex-wrap items-center gap-2">
+              <span>Nomor virtual account: <strong className="select-all font-mono" data-testid="payment-va">{o.payment.instruction.virtualAccount}</strong></span>
+              <CopyButton value={o.payment.instruction.virtualAccount} label="nomor virtual account" />
+            </p>
+          )}
+          {o.payment.instruction.paymentCode && (
+            <p className="flex flex-wrap items-center gap-2">
+              <span>Kode pembayaran: <strong className="select-all font-mono" data-testid="payment-code">{o.payment.instruction.paymentCode}</strong></span>
+              <CopyButton value={o.payment.instruction.paymentCode} label="kode pembayaran" />
+            </p>
+          )}
           {o.payment.instruction.url && (
-            <p><a href={o.payment.instruction.url} rel="noopener noreferrer" className="underline underline-offset-4" data-testid="payment-url">Buka halaman pembayaran</a></p>
+            <p><a href={o.payment.instruction.url} rel="noopener noreferrer" className="inline-flex min-h-6 items-center py-1 underline underline-offset-4" data-testid="payment-url">Buka halaman pembayaran</a></p>
           )}
           {o.payment.instruction.qr && (
             <label className="grid gap-1">
@@ -79,8 +90,8 @@ export default async function ConfirmationPage({ searchParams }: PageProps<"/che
       <ul className="divide-y text-sm">
         {o.lines.map((l) => (
           <li key={l.variantId} className="flex justify-between gap-4 py-2">
-            <span>{l.productTitle} · {l.variantTitle} × {l.quantity}</span>
-            <span>{rupiah(l.lineTotal)}</span>
+            <span className="min-w-0">{l.productTitle} · {l.variantTitle} × {l.quantity}</span>
+            <span className="shrink-0 text-right tabular-nums">{rupiah(l.lineTotal)}</span>
           </li>
         ))}
       </ul>
@@ -90,7 +101,8 @@ export default async function ConfirmationPage({ searchParams }: PageProps<"/che
       <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 border-t pt-2 text-sm tabular-nums">
         <dt>Subtotal</dt><dd className="text-right">{rupiah(o.subtotal)}</dd>
         {o.goodsDiscount > 0 && <><dt>Diskon barang</dt><dd className="text-right" data-testid="order-goods-discount">−{rupiah(o.goodsDiscount)}</dd></>}
-        <dt>Ongkir{o.shippingDiscount > 0 && <span className="font-normal text-muted-foreground"> (diskon ongkir {rupiah(o.shippingDiscount)})</span>}</dt><dd className="text-right" data-testid="order-shipping">{rupiah(o.shippingFee)}</dd>
+        {o.shippingDiscount > 0 && <><dt>Diskon ongkir</dt><dd className="text-right" data-testid="order-shipping-discount">−{rupiah(o.shippingDiscount)}</dd></>}
+        <dt>Ongkir{o.shippingDiscount > 0 && <span className="font-normal text-muted-foreground"> (setelah diskon)</span>}</dt><dd className="text-right" data-testid="order-shipping">{rupiah(o.shippingFee)}</dd>
         <dt className="font-semibold">Total</dt><dd className="text-right font-semibold" data-testid="order-total">{rupiah(o.total)}</dd>
         {o.payment && (
           <>
@@ -99,7 +111,7 @@ export default async function ConfirmationPage({ searchParams }: PageProps<"/che
           </>
         )}
       </dl>
-      <a href={back} className="text-sm underline underline-offset-4" data-testid="return-link">Kembali ke toko</a>
+      <a href={back} className="inline-flex min-h-6 w-fit items-center rounded-sm py-1 text-sm underline underline-offset-4 outline-none focus-visible:ring-3 focus-visible:ring-ring/50" data-testid="return-link">Kembali ke toko</a>
     </section>
   );
 }

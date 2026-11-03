@@ -1,5 +1,6 @@
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
+import { StatusBadge } from "@/components/status-badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -102,13 +103,16 @@ export default async function AuditPage({ searchParams }: PageProps<"/admin/audi
               <TableBody>
                 {page.items.map((r) => (
                   <TableRow key={r.id} data-testid="audit-row">
-                    <TableCell className="whitespace-normal text-xs"><time dateTime={r.createdAt.toISOString()}>{tanggal(r.createdAt)}</time></TableCell>
-                    <TableCell className="font-mono text-xs break-all whitespace-normal">{r.actorUserId}</TableCell>
-                    <TableCell className="whitespace-normal"><span className="font-mono text-xs">{r.action}</span>{r.actorCapability && <span className="block text-xs text-muted-foreground">{r.actorCapability}</span>}</TableCell>
-                    <TableCell className="font-mono text-xs break-all whitespace-normal">{r.subjectKind ? `${r.subjectKind}:${r.subjectId ?? ""}` : r.storeId ? `toko:${r.storeId}` : "—"}{r.caseId && <span className="block">kasus {r.caseId}</span>}</TableCell>
-                    <TableCell className="whitespace-normal text-xs">{r.outcome ?? "—"}{r.accessLevel && <span className="block text-muted-foreground">{r.accessLevel}</span>}</TableCell>
-                    <TableCell className="max-w-[16rem] whitespace-normal text-xs [overflow-wrap:anywhere]">
-                      {Object.entries(r.fields).map(([k, v]) => <span key={k} className="block font-mono">{k}={v}</span>)}
+                    <TableCell className="whitespace-normal"><time dateTime={r.createdAt.toISOString()}>{tanggal(r.createdAt)}</time></TableCell>
+                    <TableCell className="font-mono break-all whitespace-normal">{r.actorUserId}</TableCell>
+                    <TableCell className="whitespace-normal"><span className="font-mono">{r.action}</span>{r.actorCapability && <span className="block text-xs text-muted-foreground">{r.actorCapability}</span>}</TableCell>
+                    <TableCell className="font-mono break-all whitespace-normal">{r.subjectKind ? `${r.subjectKind}:${r.subjectId ?? ""}` : r.storeId ? `toko:${r.storeId}` : "—"}{r.caseId && <span className="block text-xs text-muted-foreground">kasus {r.caseId}</span>}</TableCell>
+                    <TableCell className="whitespace-normal">
+                      {r.outcome ? <StatusBadge label={r.outcome === "allowed" ? "Diizinkan" : r.outcome === "denied" ? "Ditolak" : r.outcome} tone={r.outcome === "allowed" ? "success" : r.outcome === "denied" ? "destructive" : "secondary"} /> : "—"}
+                      {r.accessLevel && <span className="block text-xs text-muted-foreground">{r.accessLevel}</span>}
+                    </TableCell>
+                    <TableCell className="max-w-[16rem] whitespace-normal [overflow-wrap:anywhere]">
+                      {Object.entries(r.fields).map(([k, v]) => <span key={k} className="block font-mono text-xs">{k}={v}</span>)}
                       {r.reason ?? (Object.keys(r.fields).length === 0 ? "disamarkan" : null)}
                     </TableCell>
                   </TableRow>
@@ -125,9 +129,9 @@ export default async function AuditPage({ searchParams }: PageProps<"/admin/audi
           {access.length === 0 ? (
             <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Belum ada nilai pribadi yang dibuka.</p>
           ) : (
-            <ul className="text-sm">
+            <ul className="divide-y rounded-lg border text-sm">
               {access.map((e) => (
-                <li key={e.id}><time dateTime={e.createdAt.toISOString()}>{tanggal(e.createdAt)}</time> · {e.accessLevel} · {e.fieldClass} · {e.purposeCode} · <span className="font-mono">{e.targetKind}:{e.targetId}</span></li>
+                <li key={e.id} className="p-3"><time dateTime={e.createdAt.toISOString()} className="text-muted-foreground">{tanggal(e.createdAt)}</time> · <span className="font-mono text-xs">{e.accessLevel}</span> · <span className="font-mono text-xs">{e.fieldClass}</span> · <span className="font-mono text-xs">{e.purposeCode}</span> · <span className="font-mono">{e.targetKind}:{e.targetId}</span></li>
               ))}
             </ul>
           )}

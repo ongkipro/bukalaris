@@ -28,12 +28,12 @@ export function PromotionEditor(p: Props) {
       {error && <p id={`${id}-error`} className="text-sm text-destructive">{error}</p>}
     </div>;
   };
-  const check = (name: string, label: string) => <label className="flex min-h-9 items-center gap-2"><input type="checkbox" name={name} defaultChecked={initial[name] === "true"} />{label}</label>;
+  const check = (name: string, label: string) => <label className="flex min-h-9 items-center gap-2"><input type="checkbox" name={name} defaultChecked={initial[name] === "true"} className="size-4 accent-foreground" />{label}</label>;
   return <form action={action} className="grid max-w-4xl gap-4 text-sm" aria-label={p.type === "voucher" ? "Aturan voucher" : p.type === "flash" ? "Aturan flash sale" : "Pengaturan hub promo"}>
     <input type="hidden" name="type" value={p.type} />
     {p.id && <input type="hidden" name="id" value={p.id} />}
-    {state.error && <p role="alert" className="text-destructive">{state.error}</p>}
-    {state.saved && <p role="status">Promo disimpan.{state.code && <> Kode: <strong className="break-all font-mono">{state.code}</strong></>}</p>}
+    {state.error && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">{state.error}</p>}
+    {state.saved && <p role="status" className="rounded-lg border border-emerald-600/30 bg-emerald-600/5 px-3 py-2.5 text-sm text-emerald-800 dark:text-emerald-300">Promo disimpan.{state.code && <> Kode: <strong className="break-all font-mono">{state.code}</strong></>}</p>}
     {p.type === "voucher" && <>
       <div className="grid gap-4 sm:grid-cols-2">
         {field("kind", "Jenis voucher", "text", [{ value: "percent", label: "Persen (basis poin)" }, { value: "fixed", label: "Potongan tetap (IDR)" }, { value: "free_shipping", label: "Gratis ongkir kurir" }])}
@@ -75,7 +75,7 @@ export function PromotionEditor(p: Props) {
         {field("freeShipThresholdIdr", "Ambang belanja bersih untuk gratis ongkir (IDR)", "number")}
       </div>
       {check("freeShipEnabled", "Aktifkan gratis ongkir kurir otomatis")}
-      <fieldset className="grid gap-2"><legend className="mb-2 font-medium">Koleksi unggulan</legend>{p.collections.length ? p.collections.map((c) => <label key={c.value} className="flex min-h-9 items-center gap-2"><input type="checkbox" name="featuredCollectionIds" value={c.value} defaultChecked={p.featured?.includes(Number(c.value))} />{c.label}</label>) : <p className="text-muted-foreground">Buat koleksi untuk ditampilkan di sini.</p>}</fieldset>
+      <fieldset className="grid gap-2"><legend className="mb-1 font-medium">Koleksi unggulan</legend>{p.collections.length ? <div className="grid gap-1 rounded-lg border p-3 sm:grid-cols-2">{p.collections.map((c) => <label key={c.value} className="flex min-h-8 items-center gap-2"><input type="checkbox" name="featuredCollectionIds" value={c.value} defaultChecked={p.featured?.includes(Number(c.value))} className="size-4 accent-foreground" />{c.label}</label>)}</div> : <p className="text-muted-foreground">Buat koleksi untuk ditampilkan di sini.</p>}</fieldset>
     </>}
     <p className="text-muted-foreground">Diskon ongkir dibiayai penjual, hanya atas biaya kurir. Margin layanan platform tetap dibayar pembeli. Promo ditolak bila hasil bersih penjual menjadi negatif.</p>
     <Button type="submit" disabled={pending} className="justify-self-start">{pending ? "Menyimpan…" : p.type === "voucher" ? "Simpan voucher" : p.type === "flash" ? "Simpan flash sale" : "Simpan hub promo"}</Button>

@@ -1,4 +1,5 @@
 import { Notice } from "@/components/notice";
+import { SubmitButton } from "@/components/submit-button";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { currentUser } from "@/lib/context";
@@ -32,7 +33,7 @@ export default async function InvitePage({ params, searchParams }: PageProps<"/i
           {inv.status !== "pending" ? (
             <>
               <p role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{closed[inv.status]}</p>
-              <Link href="/login" className="text-sm underline-offset-4 hover:underline">Ke halaman masuk</Link>
+              <Link href="/login" className="inline-flex min-h-6 w-fit items-center rounded-sm py-1 text-sm underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50">Ke halaman masuk</Link>
             </>
           ) : (
             <>
@@ -44,7 +45,7 @@ export default async function InvitePage({ params, searchParams }: PageProps<"/i
               {user ? (
                 user.email.toLowerCase() === inv.email ? (
                   <form action={acceptAsCurrentUser.bind(null, token)}>
-                    <Button type="submit">Gabung ke {inv.storeName}</Button>
+                    <SubmitButton pendingText="Bergabung…">Gabung ke {inv.storeName}</SubmitButton>
                   </form>
                 ) : (
                   <>

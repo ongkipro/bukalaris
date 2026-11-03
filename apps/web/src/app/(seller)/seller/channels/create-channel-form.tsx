@@ -1,5 +1,6 @@
 "use client";
 
+import { CopyButton } from "@/components/copy-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,7 +17,10 @@ export function CreateChannelForm() {
           Salin sekarang dan simpan di secret store backend storefront Anda. Token ini <strong>hanya ditampilkan sekali</strong>; jika hilang,
           buat channel pengganti lalu cabut yang lama.
         </p>
-        <code data-testid="channel-token" className="block overflow-x-auto rounded-md bg-background p-3 text-sm break-all select-all">{state.token}</code>
+        <div className="flex flex-wrap items-center gap-2">
+          <code data-testid="channel-token" className="min-w-0 flex-1 overflow-x-auto rounded-md bg-background p-3 text-sm break-all select-all">{state.token}</code>
+          <CopyButton value={state.token} label="token channel" />
+        </div>
         <p className="text-xs text-muted-foreground">Prefix {state.prefix} muncul di daftar sebagai pengenal.</p>
       </section>
     );
@@ -46,7 +50,7 @@ export function CreateChannelForm() {
         <Input id="ch-expires" name="expiresAt" type="datetime-local" aria-describedby="ch-expires-help" />
         <p id="ch-expires-help" className="text-xs text-muted-foreground">Kosongkan agar token berlaku sampai dicabut.</p>
       </div>
-      <Button type="submit" disabled={pending} aria-busy={pending || undefined} aria-describedby={state?.error ? "ch-error" : undefined}>
+      <Button type="submit" className="justify-self-start" disabled={pending} aria-busy={pending || undefined} aria-describedby={state?.error ? "ch-error" : undefined}>
         {pending ? "Membuat…" : "Buat channel"}
       </Button>
     </form>

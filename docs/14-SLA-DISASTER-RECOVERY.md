@@ -126,6 +126,27 @@ authorization. Never restore production personal data into an unsecured test env
    3. Freeze before unfreezing: after any restore to a point before the present, keep payout, billing and provider-write jobs frozen. Reconcile every `requested`, `processing` and `paid` payout (seller and affiliate), subscription invoice and refund against bank and provider evidence; a payout that shows `requested` but whose transfer happened must not be paid again. Only then unfreeze.
    4. The rehearsal (`scripts/db-restore-rehearsal.sh`) records: row counts, `rls_ok=yes`, orphan check, **grants asserted per role** (expected grant list for each of the three roles and the NOLOGIN roles equals the registry), erasure replay counts (records replayed equals records expected) and a count per table class of the registry (platform-owned tables included, not only store-owned ones). T-59 extends the script and the `verify:docker` policy count together with the role SQL.
 3. **Secrets and keys backup:** secrets live only in the secret store. Keep an offline encrypted copy of the three database passwords, every key id still referenced by a sealed credential (`INTEGRATION_TOKEN_KEY` key ring and its purpose-separated siblings), the per-surface session secrets, the Mengantar partner and webhook secrets and the backup encryption key. Two named people hold the access, and the copy is rehearsed: restore a dump on a clean host with only that set and confirm that one sealed credential decrypts. Losing a sealing key without a copy makes the sealed credentials of that key id unrecoverable; sellers and the platform then re-enter them.
-4. **Off-box HTTP readiness and smoke probe (`scripts/bukalaris-probe.sh`):**
-   - Until T-70 (path mode, one host): `/api/health` (200), `/api/ready` (200, DB + roles ready), `/login` (200), `/admin` (redirects unauthenticated/non-MFA to login) and a known demo store `/s/<slug>` (200).
+4. **Off-box HTTP readiness and smoke probe (`scripts/bukalaris-probe.sh`, planned: the script does not exist yet, T-79):**
+   - Until T-70 (path mode, one host): `/api/health` (200), `/api/ready` (200 when one bounded `select 1` succeeds; the role proof joins it with SEC-25, T-76), `/login` (200), `/admin` (redirects unauthenticated/non-MFA to login) and a known demo store `/s/<slug>` (200).
    - After T-70 (host mode) the probe is host-aware and is the one defined by OBS-6 in 16-OBSERVABILITY-RATE-LIMITING: `/` on the apex, `/login` on the Owner console, Seller Admin, Affiliate and Buyer hosts, `/` on the Update Log host and on a sample storefront, `/api/health` and `/api/ready` on every routed host, an assertion that `/checkout` and a foreign-surface prefix (and `/admin` on the apex) are 404 on the Owner console, Seller Admin and apex hosts (the retirement rule, 08 DOM-5), and the TLS expiry of every host certificate including the `*.affiliate` one. Post-deploy verification must run this probe before a release is marked verified.
+
+### Monitoring and backup lessons adopted from the portfolio scan (2026-11, G5; task T-79)
+
+Each item is a requirement for the pilot, not an implemented control.
+
+- **Alarm off the box.** The probe above runs on infrastructure that does not share the VPS, its
+  provider account or its billing; every alert names a recipient and where they will see it.
+  TokoΦ lost 70 hours to a provider suspension that every on-box signal missed.
+- **Hosting balance.** A low-balance or suspension warning from the hosting provider is an alert,
+  not an e-mail nobody reads.
+- **Backup health by age, not by count.** The backup job is unhealthy when the newest local dump is
+  older than two schedule intervals or the last offsite upload failed; retention prunes by age
+  (a count-based keep-N shrank one week to six hours when every deploy restarted the job).
+- **Offsite copy is independent.** Separate credentials from the server, copy rather than a
+  mirror that propagates deletes, and the media volume (`/data/media`) is part of the restore
+  rehearsal, because a database dump alone does not restore product images.
+- **The deployment platform itself.** Coolify's own database and configuration are on the backup
+  list, so the deployment can be rebuilt without them being recreated by hand.
+- **Provider allow-lists.** After any origin move, a non-mutating Mengantar and AutoLaris call proves
+  the new egress IP is allow-listed before the site is called healthy.
+

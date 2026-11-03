@@ -1,9 +1,12 @@
-import { fieldClass, Notice } from "@/components/notice";
-import { Button } from "@/components/ui/button";
+import { ConfirmSubmit } from "@/components/confirm-submit";
+import { Notice } from "@/components/notice";
+import { PageHeader } from "@/components/page-header";
+import { StatusBadge } from "@/components/status-badge";
+import { SubmitButton } from "@/components/submit-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ConfirmSubmit } from "@/components/confirm-submit";
 import { sellerScope } from "@/lib/context";
+import { tanggal } from "@/lib/format";
 import {
   can,
   destinationHealth,
@@ -19,7 +22,7 @@ import {
 import { clearTokenAction, revokeFeedTokenAction, saveDestinationAction } from "./actions";
 import { FeedTokenForm } from "./feed-token-form";
 
-export const metadata = { title: "Pemasaran — Seller Admin" };
+export const metadata = { title: "Pemasaran — Bukalaris" };
 
 const COPY: Record<SignalProvider, { title: string; idLabel: string; idHint: string; tokenLabel: string | null; tokenHint: string }> = {
   meta: {
@@ -44,16 +47,14 @@ const COPY: Record<SignalProvider, { title: string; idLabel: string; idHint: str
     tokenHint: "Google berjalan di browser saja (Google tag). Unggah konversi offline COD setelah pengiriman menyusul.",
   },
 };
-const fmt = new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Jakarta" });
-
 export default async function MarketingPage({ searchParams }: PageProps<"/seller/marketing">) {
   const { error, saved } = await searchParams;
   const scope = await sellerScope();
   if (!can(scope, "marketing.manage")) {
     return (
-      <section className="grid gap-4">
-        <h1 className="text-2xl font-semibold">Pemasaran</h1>
-        <p role="note" className="rounded-lg border p-4 text-sm text-muted-foreground">Hanya pemilik toko yang dapat mengatur pixel iklan dan token server.</p>
+      <section className="grid gap-6">
+        <PageHeader title="Pemasaran" />
+        <p role="note" className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Hanya pemilik toko yang dapat mengatur pixel iklan dan token server.</p>
       </section>
     );
   }
@@ -62,13 +63,10 @@ export default async function MarketingPage({ searchParams }: PageProps<"/seller
   const healthBy = new Map(health.map((h) => [h.provider, h]));
   return (
     <section className="grid gap-6">
-      <div>
-        <h1 className="mb-1 text-2xl font-semibold">Pemasaran</h1>
-        <p className="text-sm text-muted-foreground">
-          Sinyal konversi (lihat produk, tambah keranjang, mulai checkout, pembelian) dikirim dari browser pembeli dan dari server dengan ID event yang sama. Pembelian COD
-          dihitung saat pesanan dibuat, transfer saat pembayaran ditandai lunas; nilainya subtotal barang tanpa ongkir.
-        </p>
-      </div>
+      <PageHeader
+        title="Pemasaran"
+        description="Sinyal konversi (lihat produk, tambah keranjang, mulai checkout, pembelian) dikirim dari browser pembeli dan dari server dengan ID event yang sama. Pembelian COD dihitung saat pesanan dibuat, transfer saat pembayaran ditandai lunas; nilainya subtotal barang tanpa ongkir."
+      />
       <Notice error={error} saved={saved} />
       {!liveMode() && (
         <p role="note" className="rounded-md border border-dashed p-3 text-sm text-muted-foreground" data-testid="signals-mode">
@@ -90,7 +88,7 @@ function FeedSection({ feeds }: { feeds: FeedSettings }) {
   return (
     <article className="grid gap-4 rounded-lg border p-4" data-testid="feed-section" aria-labelledby="feed-title">
       <div className="grid gap-1">
-        <h2 id="feed-title" className="font-medium">Feed katalog</h2>
+        <h2 id="feed-title" className="text-base font-semibold">Feed katalog</h2>
         <p className="text-sm text-muted-foreground">
           Meta dan Google mengambil katalog toko dari URL feed secara terjadwal. Satu item per varian produk aktif: ID item = ID varian, ID grup = ID produk —
           sama dengan content id yang dikirim sinyal konversi, jadi iklan katalog dan event pembelian bertemu di produk yang sama.
@@ -107,7 +105,7 @@ function FeedSection({ feeds }: { feeds: FeedSettings }) {
       )}
       {feeds.token ? (
         <p className="text-sm" data-testid="feed-token-state">
-          Token aktif <code className="rounded bg-muted px-1 text-xs">blfd_{feeds.token.prefix}_…</code> dibuat {fmt.format(feeds.token.createdAt)}. URL feed hanya ditampilkan
+          Token aktif <code className="rounded bg-muted px-1 text-xs">blfd_{feeds.token.prefix}_…</code> dibuat <time dateTime={feeds.token.createdAt.toISOString()}>{tanggal(feeds.token.createdAt)}</time>. URL feed hanya ditampilkan
           saat dibuat.
         </p>
       ) : (
@@ -134,10 +132,8 @@ function DestinationCard({ provider, current, health }: { provider: SignalProvid
   return (
     <article className="grid content-start gap-4 rounded-lg border p-4" data-testid={`destination-${provider}`} aria-labelledby={`${provider}-title`}>
       <div className="flex items-start justify-between gap-2">
-        <h2 id={`${provider}-title`} className="font-medium">{c.title}</h2>
-        <span className={`rounded-full px-2 py-0.5 text-xs ${current?.enabled ? "bg-emerald-500/10 text-emerald-800 dark:text-emerald-300" : "bg-muted text-muted-foreground"}`}>
-          {current?.enabled ? "Aktif" : "Nonaktif"}
-        </span>
+        <h2 id={`${provider}-title`} className="text-base font-semibold">{c.title}</h2>
+        <StatusBadge label={current?.enabled ? "Aktif" : "Nonaktif"} tone={current?.enabled ? "success" : "secondary"} />
       </div>
       <form action={save} className="grid gap-3">
         <div className="grid gap-1.5">
@@ -154,19 +150,18 @@ function DestinationCard({ provider, current, health }: { provider: SignalProvid
         {c.tokenLabel && (
           <div className="grid gap-1.5">
             <Label htmlFor={`${provider}-token`}>{c.tokenLabel}</Label>
-            <input
+            <Input
               id={`${provider}-token`}
               name="token"
               type="password"
               autoComplete="new-password"
               maxLength={512}
               placeholder={current?.hasToken ? "Tersimpan — isi untuk mengganti" : "Tempel token"}
-              className={fieldClass}
               aria-describedby={`${provider}-token-hint`}
             />
             <p id={`${provider}-token-hint`} className="text-xs text-muted-foreground">
               {c.tokenHint}
-              {current?.tokenSetAt && <> Token terakhir disimpan {fmt.format(current.tokenSetAt)}.</>}
+              {current?.tokenSetAt && <> Token terakhir disimpan <time dateTime={current.tokenSetAt.toISOString()}>{tanggal(current.tokenSetAt)}</time>.</>}
             </p>
           </div>
         )}
@@ -180,11 +175,13 @@ function DestinationCard({ provider, current, health }: { provider: SignalProvid
           <input type="checkbox" name="enabled" defaultChecked={current?.enabled ?? false} className="size-4 accent-foreground" />
           Aktifkan pengiriman event
         </label>
-        <Button type="submit" className="justify-self-start">Simpan {c.title.split(" ")[0]}</Button>
+        <SubmitButton className="justify-self-start">Simpan {c.title.split(" ")[0]}</SubmitButton>
       </form>
       {current?.hasToken && (
         <form action={clear}>
-          <Button type="submit" variant="outline" size="sm">Hapus token server</Button>
+          <ConfirmSubmit variant="outline" size="sm" message={`Hapus token server ${c.title}? Pengiriman event server ke ${c.title} berhenti sampai Anda mengisi token baru.`}>
+            Hapus token server
+          </ConfirmSubmit>
         </form>
       )}
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1 border-t pt-3 text-sm tabular-nums" aria-label={`Kesehatan 7 hari ${c.title}`} data-testid={`health-${provider}`}>
@@ -199,7 +196,7 @@ function DestinationCard({ provider, current, health }: { provider: SignalProvid
         {health?.lastSentAt && (
           <>
             <dt className="text-muted-foreground">Terakhir diterima</dt>
-            <dd className="text-right">{fmt.format(health.lastSentAt)}</dd>
+            <dd className="text-right"><time dateTime={health.lastSentAt.toISOString()}>{tanggal(health.lastSentAt)}</time></dd>
           </>
         )}
       </dl>

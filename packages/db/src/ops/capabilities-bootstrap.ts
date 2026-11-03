@@ -41,6 +41,15 @@ export const LOCAL_SEED_OPERATOR_CAPABILITIES = [
   "accounts.reveal",
   "tenants.verify",
   "access.review",
+  // T-37 / T-50: money, payouts, refunds, COD reconciliation, store ledger, subscription billing and PPN switch.
+  "finance.read",
+  "payouts.process",
+  "refunds.process",
+  "payouts.reconcile",
+  "ledger.adjust",
+  "billing.read",
+  "billing.manage",
+  "tax.manage",
   ...BOOTSTRAP_CAPABILITIES,
 ] as const satisfies readonly PlatformCapability[];
 

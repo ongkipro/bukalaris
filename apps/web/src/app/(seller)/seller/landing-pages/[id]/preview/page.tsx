@@ -26,7 +26,7 @@ export default async function LandingPreview({ params }: PageProps<"/seller/land
         </p>
         <Link href={`/seller/landing-pages/${lp.id}`} className={buttonVariants({ variant: "outline", size: "sm" })}>Kembali ke editor</Link>
       </div>
-      <div className="flex overflow-hidden rounded-xl border" data-testid="lp-preview">
+      <div className="flex overflow-hidden rounded-lg border" data-testid="lp-preview">
         <LandingRenderer
           lp={lp}
           storeName={scope.storeName}

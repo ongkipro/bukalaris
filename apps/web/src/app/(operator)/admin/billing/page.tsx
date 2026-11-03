@@ -1,8 +1,10 @@
+import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { SubmitButton } from "@/components/submit-button";
 import { ConfirmSubmit } from "@/components/confirm-submit";
+import { buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -67,28 +69,32 @@ export default async function AdminBillingPage({ searchParams }: PageProps<"/adm
 
       <section aria-labelledby="toko" className="grid gap-3">
         <h2 id="toko" className="text-lg font-semibold">Toko</h2>
-        <Table>
-          <caption className="sr-only">Status langganan per toko</caption>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Toko</TableHead>
-              <TableHead>Status tagihan</TableHead>
-              <TableHead>Aktif sampai</TableHead>
-              <TableHead>Penangguhan operator</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {o.rows.map((r) => (
-              <TableRow key={r.storeId} data-testid="billing-store-row">
-                <TableCell><Link href={`/admin/stores/${r.storeId}`} className="underline underline-offset-4">{r.name}</Link> <span className="text-xs text-muted-foreground">#{r.storeId}</span></TableCell>
-                <TableCell><StatusBadge label={billingStateLabel[r.derivedState]} tone={billingStateTone[r.derivedState]} /></TableCell>
-                <TableCell>{tanggal(r.coveredUntil)}</TableCell>
-                <TableCell>{r.suspendedAt ? `Sejak ${tanggal(r.suspendedAt)}` : "Tidak"}</TableCell>
+        {o.rows.length === 0 ? (
+          <EmptyState title="Belum ada toko">Status langganan toko muncul di sini setelah toko dibuat.</EmptyState>
+        ) : (
+          <Table>
+            <caption className="sr-only">Status langganan per toko</caption>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Toko</TableHead>
+                <TableHead>Status tagihan</TableHead>
+                <TableHead>Aktif sampai</TableHead>
+                <TableHead>Penangguhan operator</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-        {o.nextAfter !== null && <Link href={`/admin/billing?after=${o.nextAfter}`} className="text-sm underline underline-offset-4">Toko berikutnya</Link>}
+            </TableHeader>
+            <TableBody>
+              {o.rows.map((r) => (
+                <TableRow key={r.storeId} data-testid="billing-store-row">
+                  <TableCell><Link href={`/admin/stores/${r.storeId}`} className="underline underline-offset-4">{r.name}</Link> <span className="text-xs text-muted-foreground">#{r.storeId}</span></TableCell>
+                  <TableCell><StatusBadge label={billingStateLabel[r.derivedState]} tone={billingStateTone[r.derivedState]} /></TableCell>
+                  <TableCell>{tanggal(r.coveredUntil)}</TableCell>
+                  <TableCell>{r.suspendedAt ? `Sejak ${tanggal(r.suspendedAt)}` : "Tidak"}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        {o.nextAfter !== null && <Link href={`/admin/billing?after=${o.nextAfter}`} className={buttonVariants({ variant: "outline" }) + " w-fit"}>Toko berikutnya</Link>}
       </section>
 
       {manage && (

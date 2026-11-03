@@ -3,6 +3,7 @@ import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { SubmitButton } from "@/components/submit-button";
+import { buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -51,31 +52,31 @@ export default async function FinancePage({ searchParams }: PageProps<"/seller/f
       )}
 
       <dl className="grid gap-3 sm:grid-cols-3" data-testid="finance-balances">
-        <div className="rounded-lg border p-4">
-          <dt className="text-xs text-muted-foreground">Saldo Tersedia</dt>
-          <dd className="text-xl font-semibold tabular-nums" data-testid="balance-available">{rupiah(fin.balance.availableIdr)}</dd>
-          <dd className="text-xs text-muted-foreground">Boleh ditarik.</dd>
+        <div className="grid content-start gap-1 rounded-lg border p-4">
+          <dt className="text-sm text-muted-foreground">Saldo Tersedia</dt>
+          <dd className="text-2xl font-semibold tracking-tight tabular-nums" data-testid="balance-available">{rupiah(fin.balance.availableIdr)}</dd>
+          <dd className="text-xs text-muted-foreground">Boleh ditarik ke rekening aktif.</dd>
         </div>
-        <div className="rounded-lg border p-4">
-          <dt className="text-xs text-muted-foreground">Dana dalam Proses</dt>
-          <dd className="text-xl font-semibold tabular-nums" data-testid="balance-pending">{rupiah(fin.balance.pendingIdr)}</dd>
+        <div className="grid content-start gap-1 rounded-lg border p-4">
+          <dt className="text-sm text-muted-foreground">Dana dalam Proses</dt>
+          <dd className="text-2xl font-semibold tracking-tight tabular-nums" data-testid="balance-pending">{rupiah(fin.balance.pendingIdr)}</dd>
           <dd className="text-xs text-muted-foreground">Terjual, belum diterima pembeli atau belum direkonsiliasi.</dd>
         </div>
-        <div className="rounded-lg border p-4">
-          <dt className="text-xs text-muted-foreground">Penarikan diproses</dt>
-          <dd className="text-xl font-semibold tabular-nums" data-testid="balance-processing">{rupiah(fin.processingIdr)}</dd>
-          <dd className="text-xs text-muted-foreground">Sudah diminta, belum selesai ditransfer.</dd>
+        <div className="grid content-start gap-1 rounded-lg border p-4">
+          <dt className="text-sm text-muted-foreground">Penarikan diproses</dt>
+          <dd className="text-2xl font-semibold tracking-tight tabular-nums" data-testid="balance-processing">{rupiah(fin.processingIdr)}</dd>
+          <dd className="text-xs text-muted-foreground">Sudah diminta, menunggu persetujuan dan transfer.</dd>
         </div>
       </dl>
 
       <section aria-labelledby="rekening" className="grid gap-3" data-testid="finance-destination">
-        <h2 id="rekening" className="text-base font-medium">Rekening tujuan</h2>
+        <h2 id="rekening" className="text-base font-semibold">Rekening tujuan</h2>
         {fin.destinations.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Belum ada rekening tujuan. Rekening baru ditahan {fin.holdHours} jam sebelum bisa dipakai menarik dana.</p>
+          <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Belum ada rekening tujuan. Rekening baru ditahan {fin.holdHours} jam sebelum bisa dipakai menarik dana.</p>
         ) : (
-          <ul className="grid gap-2">
+          <ul className="divide-y rounded-lg border">
             {fin.destinations.map((d) => (
-              <li key={d.id} className="grid gap-1 rounded-lg border p-3 text-sm" data-testid={`destination-${d.status}`}>
+              <li key={d.id} className="grid gap-1 p-3 text-sm" data-testid={`destination-${d.status}`}>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">{d.bankCode} ••••{d.last4}</span>
                   <span className="text-muted-foreground">a.n. {d.holder}</span>
@@ -99,61 +100,61 @@ export default async function FinancePage({ searchParams }: PageProps<"/seller/f
             </div>
             <div className="grid gap-1.5 sm:col-span-2">
               <Label htmlFor="accountHolderName">Nama pemilik rekening</Label>
-              <Input id="accountHolderName" name="accountHolderName" required minLength={2} maxLength={120} autoComplete="off" />
-              <p className="text-xs text-muted-foreground">Dicocokkan dengan nama pemilik akun toko; perbedaan ditandai untuk pemeriksa.</p>
+              <Input id="accountHolderName" name="accountHolderName" required minLength={2} maxLength={120} autoComplete="off" aria-describedby="holder-help" />
+              <p id="holder-help" className="text-xs text-muted-foreground">Dicocokkan dengan nama pemilik akun toko; perbedaan ditandai untuk pemeriksa.</p>
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="dest-code">Kode verifikasi dua langkah (6 angka)</Label>
-              <Input id="dest-code" name="code" inputMode="numeric" pattern="[0-9 ]{6,7}" autoComplete="one-time-code" required />
+              <Input id="dest-code" name="code" inputMode="numeric" pattern="[0-9 ]{6,7}" autoComplete="one-time-code" required aria-describedby="dest-help" />
             </div>
             <div className="flex items-end">
               <SubmitButton variant="outline" pendingText="Menyimpan…">{active || held ? "Ganti rekening" : "Simpan rekening"}</SubmitButton>
             </div>
-            <p className="text-xs text-muted-foreground sm:col-span-2">Rekening baru ditahan {fin.holdHours} jam sebelum bisa dipakai, pemilik sebelumnya diberi tahu lewat email, dan perubahan butuh kode verifikasi dua langkah.</p>
+            <p id="dest-help" className="text-xs text-muted-foreground sm:col-span-2">Rekening baru ditahan {fin.holdHours} jam sebelum bisa dipakai, pemilik sebelumnya diberi tahu lewat email, dan perubahan butuh kode verifikasi dua langkah.</p>
           </form>
         )}
       </section>
 
       <section aria-labelledby="tarik" className="grid gap-3" data-testid="finance-payout">
-        <h2 id="tarik" className="text-base font-medium">Tarik dana</h2>
+        <h2 id="tarik" className="text-base font-semibold">Tarik dana</h2>
         {!owner ? (
           <p role="note" className="text-sm text-muted-foreground">Hanya pemilik toko yang dapat meminta penarikan.</p>
         ) : !scope.billing.writable ? (
           <p role="note" className="text-sm text-muted-foreground">Penarikan dana dijeda selama langganan belum dibayar. <Link href="/seller/billing" className="underline underline-offset-4">Lihat tagihan</Link></p>
         ) : !active ? (
-          <p role="note" className="text-sm text-muted-foreground" data-testid="no-active-destination">Belum ada rekening tujuan yang aktif{held ? " (rekening baru masih ditahan)" : ""}. Simpan rekening di atas; penarikan baru bisa diminta setelah masa tahan selesai.</p>
+          <p role="note" className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground" data-testid="no-active-destination">Belum ada rekening tujuan yang aktif{held ? " (rekening baru masih ditahan)" : ""}. Simpan rekening di atas; penarikan baru bisa diminta setelah masa tahan selesai.</p>
         ) : (
           <form action={requestPayoutAction} className="grid gap-3 rounded-lg border p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end" aria-label="Minta penarikan dana">
             <input type="hidden" name="requestKey" value={requestKey} />
             <div className="grid gap-1.5">
               <Label htmlFor="amountIdr">Jumlah (Rp)</Label>
               <Input id="amountIdr" name="amountIdr" inputMode="numeric" pattern="[0-9.]+" required autoComplete="off" aria-describedby="amount-help" />
-              <p id="amount-help" className="text-xs text-muted-foreground">Minimal {rupiah(fin.minPayoutIdr)}; paling banyak Saldo Tersedia. Ke {active.bankCode} ••••{active.last4}.</p>
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="payout-code">Kode verifikasi dua langkah (6 angka)</Label>
-              <Input id="payout-code" name="code" inputMode="numeric" pattern="[0-9 ]{6,7}" autoComplete="one-time-code" required />
+              <Input id="payout-code" name="code" inputMode="numeric" pattern="[0-9 ]{6,7}" autoComplete="one-time-code" required aria-describedby="amount-help" />
             </div>
             <SubmitButton pendingText="Meminta…" disabled={fin.payoutsFrozen}>Minta penarikan</SubmitButton>
+            <p id="amount-help" className="text-xs text-muted-foreground sm:col-span-3">Minimal {rupiah(fin.minPayoutIdr)}; paling banyak Saldo Tersedia. Ditransfer ke {active.bankCode} ••••{active.last4}.</p>
           </form>
         )}
       </section>
 
       <section aria-labelledby="riwayat" className="grid gap-3" data-testid="finance-payouts">
-        <h2 id="riwayat" className="text-base font-medium">Riwayat penarikan</h2>
+        <h2 id="riwayat" className="text-base font-semibold">Riwayat penarikan</h2>
         {fin.payouts.length === 0 ? (
           <EmptyState title="Belum ada penarikan">Permintaan penarikan Anda dan statusnya muncul di sini.</EmptyState>
         ) : (
-          <ul className="grid gap-2" aria-label="Daftar penarikan">
+          <ul className="divide-y rounded-lg border" aria-label="Daftar penarikan">
             {fin.payouts.map((p) => (
-              <li key={p.id} className="grid gap-1 rounded-lg border p-3 text-sm sm:grid-cols-[1fr_auto] sm:items-center" data-testid={`payout-${p.id}`}>
+              <li key={p.id} className="grid gap-1 p-3 text-sm sm:grid-cols-[1fr_auto] sm:items-center" data-testid={`payout-${p.id}`}>
                 <div className="min-w-0 grid gap-0.5">
-                  <span>Penarikan #{p.id} · {p.bankCode} ••••{p.last4} · <time dateTime={p.createdAt.toISOString()}>{tanggal(p.createdAt)}</time></span>
+                  <span className="font-medium">Penarikan #{p.id} · {p.bankCode} ••••{p.last4} · <time dateTime={p.createdAt.toISOString()} className="font-normal text-muted-foreground">{tanggal(p.createdAt)}</time></span>
                   {p.rejectionReason && <span className="text-muted-foreground">Alasan penolakan: {p.rejectionReason}</span>}
                   {p.processedAt && <span className="text-muted-foreground">Diselesaikan <time dateTime={p.processedAt.toISOString()}>{tanggal(p.processedAt)}</time></span>}
                 </div>
                 <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                  <span className="tabular-nums">{rupiah(p.amountIdr)}</span>
+                  <span className="font-medium tabular-nums">{rupiah(p.amountIdr)}</span>
                   <StatusBadge label={payoutStatusLabel[p.status] ?? p.status} tone={payoutStatusTone[p.status] ?? "secondary"} />
                 </div>
               </li>
@@ -164,17 +165,19 @@ export default async function FinancePage({ searchParams }: PageProps<"/seller/f
 
       {fin.refunds.length > 0 && (
         <section aria-labelledby="refund" className="grid gap-3" data-testid="finance-refunds">
-          <h2 id="refund" className="text-base font-medium">Refund pembeli</h2>
-          <p className="text-xs text-muted-foreground">Refund dibayar dari dana Bukalaris kepada pembeli (penuh: barang, ongkir dan biaya admin); tidak memotong Saldo Anda.</p>
-          <ul className="grid gap-2">
+          <div className="grid gap-1">
+            <h2 id="refund" className="text-base font-semibold">Refund pembeli</h2>
+            <p className="text-xs text-muted-foreground">Refund dibayar dari dana Bukalaris kepada pembeli (penuh: barang, ongkir dan biaya admin); tidak memotong Saldo Anda.</p>
+          </div>
+          <ul className="divide-y rounded-lg border">
             {fin.refunds.map((r) => (
-              <li key={r.id} className="grid gap-1 rounded-lg border p-3 text-sm sm:grid-cols-[1fr_auto] sm:items-center">
+              <li key={r.id} className="grid gap-1 p-3 text-sm sm:grid-cols-[1fr_auto] sm:items-center">
                 <div className="min-w-0 grid gap-0.5">
-                  <span>Pesanan <Link href={`/seller/orders/${r.orderId}`} className="underline underline-offset-4">#{r.orderId}</Link> · {refundReasonLabel[r.reason] ?? r.reason}</span>
+                  <span className="font-medium">Pesanan <Link href={`/seller/orders/${r.orderId}`} className="underline underline-offset-4">#{r.orderId}</Link> · {refundReasonLabel[r.reason] ?? r.reason}</span>
                   <span className="text-muted-foreground tabular-nums">Barang {rupiah(r.goodsRefundIdr)} + ongkir {rupiah(r.shippingRefundIdr)} + biaya admin {rupiah(r.feeRefundIdr)}</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                  <span className="tabular-nums">{rupiah(r.amountIdr)}</span>
+                  <span className="font-medium tabular-nums">{rupiah(r.amountIdr)}</span>
                   <StatusBadge label={refundStatusLabel[r.status] ?? r.status} tone={refundStatusTone[r.status] ?? "secondary"} />
                 </div>
               </li>
@@ -184,15 +187,15 @@ export default async function FinancePage({ searchParams }: PageProps<"/seller/f
       )}
 
       <section aria-labelledby="mutasi" className="grid gap-3" data-testid="finance-statement">
-        <h2 id="mutasi" className="text-base font-medium">Mutasi saldo</h2>
+        <h2 id="mutasi" className="text-base font-semibold">Mutasi saldo</h2>
         {stmt.rows.length === 0 ? (
           <EmptyState title="Belum ada mutasi">Penjualan, potongan ongkir dan penarikan tercatat di sini, tidak pernah diubah atau dihapus.</EmptyState>
         ) : (
-          <ul className="grid gap-2" aria-label="Mutasi saldo">
+          <ul className="divide-y rounded-lg border" aria-label="Mutasi saldo">
             {stmt.rows.map((e) => (
-              <li key={e.id} className="grid gap-1 rounded-lg border p-3 text-sm sm:grid-cols-[1fr_auto] sm:items-center" data-testid={`entry-${e.kind}`}>
+              <li key={e.id} className="grid gap-1 p-3 text-sm sm:grid-cols-[1fr_auto] sm:items-center" data-testid={`entry-${e.kind}`}>
                 <div className="min-w-0 grid gap-0.5">
-                  <span>
+                  <span className="font-medium">
                     {SELLER_KIND_LABEL[e.kind]}
                     {e.orderId && <> · pesanan <Link href={`/seller/orders/${e.orderId}`} className="underline underline-offset-4">#{e.orderId}</Link></>}
                     {e.payoutId && <> · penarikan #{e.payoutId}</>}
@@ -204,14 +207,20 @@ export default async function FinancePage({ searchParams }: PageProps<"/seller/f
                   </span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-                  <span className={`tabular-nums ${e.amountIdr < 0 ? "text-destructive" : ""}`}>{rupiah(e.amountIdr)}</span>
+                  <span className={`font-medium tabular-nums ${e.amountIdr < 0 ? "text-destructive" : ""}`}>{rupiah(e.amountIdr)}</span>
                   <StatusBadge label={ledgerStatusLabel[e.status] ?? e.status} tone={ledgerStatusTone[e.status] ?? "secondary"} />
                 </div>
               </li>
             ))}
           </ul>
         )}
-        {stmt.next && <Link href={`/seller/finance?cursor=${stmt.next}`} className="text-sm underline underline-offset-4">Mutasi lebih lama</Link>}
+        {stmt.next && (
+          <div>
+            <Link href={`/seller/finance?cursor=${stmt.next}`} className={buttonVariants({ variant: "outline", size: "sm" })} rel="next">
+              Mutasi lebih lama
+            </Link>
+          </div>
+        )}
         <p className="text-xs text-muted-foreground">Setiap saldo dihitung dari mutasi ini saja. Koreksi manual tampil sebagai baris tersendiri dengan alasannya.</p>
       </section>
     </section>

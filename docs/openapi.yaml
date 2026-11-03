@@ -191,7 +191,7 @@ paths:
       security:
       - storefrontToken: []
       x-status: proposed
-      x-implemented: 'GET /api/storefront/v1/products (M2 channels track, apps/web/src/app/api/storefront/v1/**). Channel token required; the token resolves the store. Returns {items:[PublicProductSummary]}; no pagination, search or collection filter yet.'
+      x-implemented: 'GET /api/storefront/v1/products (apps/web/src/app/api/storefront/v1/products/route.ts → packages/db/src/storefront/storefront.ts listPublishedProducts). Channel token required; authenticateChannel resolves the store on the app pool via resolve_channel_store (T-59); served on the app (seller) host in host mode (DOM-5, T-70). Returns {items:[PublicProductSummary]} including catalog_id (T-14); no pagination, search or collection filter yet.'
       x-tenant-source: verified-native-host-or-scoped-channel-token
       responses:
         '200':
@@ -237,7 +237,7 @@ paths:
       security:
       - storefrontToken: []
       x-status: proposed
-      x-implemented: 'GET /api/storefront/v1/products/{slug} (M2 channels track, apps/web/src/app/api/storefront/v1/**). Channel token required; the token resolves the store. slug is the canonical slug or the numeric id; historical aliases are not implemented.'
+      x-implemented: 'GET /api/storefront/v1/products/{slug} (apps/web/src/app/api/storefront/v1/products/[slug]/route.ts → packages/db/src/storefront/storefront.ts getPublishedProduct). Channel token required; the token resolves the store via resolve_channel_store (T-59). slug resolves canonical slug, 5+ digit catalog_id, legacy numeric id, or historical product_slug_alias (T-14) and returns catalog_id on the product and each variant.'
       x-tenant-source: verified-native-host-or-scoped-channel-token
       responses:
         '200':
@@ -3100,7 +3100,7 @@ paths:
       - sessionCookie: []
       - serviceToken: []
       x-status: proposed
-      x-implemented: 'Implemented as a Seller Admin server action (apps/web/src/app/seller/orders/[id]/actions.ts bookShipmentAction → packages/db/src/fulfillment.ts bookShipment, capability orders.fulfill, T-39): one shipment per order, booking runs as the outbox job shipment.book; a provider timeout fails closed (manual check) instead of staying pending. Fake adapter unless MENGANTAR_API_KEY and MENGANTAR_PICKUP_ADDRESS_ID are set; writes refused without MENGANTAR_WRITE_ENABLED=1; COD refused unless ALLOW_COD_BOOKING=1. No HTTP route yet.'
+      x-implemented: 'Implemented as a Seller Admin server action (apps/web/src/app/(seller)/seller/orders/[id]/actions.ts bookShipmentAction → packages/db/src/shipping/fulfillment.ts bookShipment, capability orders.fulfill, T-39/T-37/T-48): one shipment per order, reserves shipping_debit and uses the snapshotted shipping account; booking runs as the outbox job shipment.book; a provider timeout fails closed (unknown/manual check) instead of rebooking. Fake adapter unless live Mengantar credentials and the T-48 Partner Secret rotation gate are set; writes refused without MENGANTAR_WRITE_ENABLED=1; COD refused unless ALLOW_COD_BOOKING=1. No HTTP route yet.'
       x-tenant-source: authorized-store-path
       responses:
         '202':
@@ -3676,7 +3676,7 @@ paths:
       security:
       - storefrontToken: []
       x-status: proposed
-      x-implemented: 'POST /api/storefront/v1/carts/{cart_id}/checkout-handoffs (M2 channels track, apps/web/src/app/api/storefront/v1/**). Channel token required; the token resolves the store. Body is an empty object. checkout_url = <checkout origin>/checkout/h/<43-char code>; the code hash is stored, TTL 10 minutes, consumed atomically once. Exchange sets the per-store cart cookie and redirects to /checkout?store=<slug>; return destination is the channel''s registered origin + path. Idempotent retry is not implemented: each call issues a new code.'
+      x-implemented: 'POST /api/storefront/v1/carts/{cart_id}/checkout-handoffs (apps/web/src/app/api/storefront/v1/carts/[cartId]/checkout-handoffs/route.ts → packages/db/src/storefront/channels.ts createHandoff). Channel token required; the token resolves the store via resolve_channel_store (T-59). Body is an empty object. checkout_url = <checkoutOrigin>/checkout/h/<43-char code> where checkoutOrigin comes from surfaceOriginsFromEnv (packages/db/src/platform/host.ts, CHECKOUT_ORIGIN / PLATFORM_ORIGIN / BETTER_AUTH_URL fallback, never the request origin, T-70); the code hash is stored, TTL 10 minutes, consumed atomically once by exchangeHandoff via resolve_handoff_store (T-59). Exchange sets the per-store cart cookie and redirects to /checkout?store=<slug>; return destination is the channel''s registered origin + path. Idempotent retry is not implemented: each call issues a new code.'
       x-tenant-source: verified-native-host-or-scoped-channel-token
       responses:
         '400':
@@ -3779,7 +3779,7 @@ paths:
       security:
       - sessionCookie: []
       x-status: proposed
-      x-implemented: 'Implemented as the Seller Admin page /seller/channels (server component, apps/web/src/app/seller/channels/page.tsx), capability integrations.manage (owner). Metadata only: token prefix, never the secret. No HTTP route yet.'
+      x-implemented: 'Implemented as the Seller Admin page /seller/channels (server component, apps/web/src/app/(seller)/seller/channels/page.tsx → packages/db/src/storefront/channels.ts listChannels), capability integrations.manage (owner). Metadata only: token prefix, never the secret. No HTTP route yet.'
       x-tenant-source: authorized-store-path
       responses:
         '200':
@@ -3834,7 +3834,7 @@ paths:
       security:
       - sessionCookie: []
       x-status: proposed
-      x-implemented: 'Implemented as a Seller Admin server action (apps/web/src/app/seller/channels/actions.ts → packages/db/src/channels.ts createChannel): name, https origin (http only for localhost), one local return_path, optional expires_at. Token blsk_<prefix>_<secret> is returned in the action result once; only its SHA-256 hash is stored. Repeat submission creates another channel (no idempotency). No HTTP route yet.'
+      x-implemented: 'Implemented as a Seller Admin server action (apps/web/src/app/(seller)/seller/channels/actions.ts createChannelAction → packages/db/src/storefront/channels.ts createChannel): name, https origin (http only for localhost), one local return_path, optional expires_at. Token blsk_<prefix>_<secret> is returned in the action result once; only its SHA-256 hash is stored. Repeat submission creates another channel (no idempotency). No HTTP route yet.'
       x-tenant-source: authorized-store-path
       responses:
         '400':
@@ -3894,7 +3894,7 @@ paths:
       security:
       - sessionCookie: []
       x-status: proposed
-      x-implemented: 'Implemented as a Seller Admin server action (revokeChannel): sets status revoked; new API calls and unused handoffs are denied immediately; no revision check. No HTTP route yet.'
+      x-implemented: 'Implemented as a Seller Admin server action (apps/web/src/app/(seller)/seller/channels/actions.ts revokeChannelAction → packages/db/src/storefront/channels.ts revokeChannel): sets status revoked; new API calls, unused handoffs and the post-checkout return link are denied immediately; no revision check. No HTTP route yet.'
       x-tenant-source: authorized-store-path
       responses:
         '400':
@@ -4314,6 +4314,7 @@ components:
       additionalProperties: false
       required:
       - id
+      - catalog_id
       - title
       - price
       - available
@@ -4323,6 +4324,12 @@ components:
           pattern: ^[1-9][0-9]*$
           examples:
           - '1042'
+        catalog_id:
+          type: string
+          pattern: ^[1-9][0-9]{4,}$
+          description: Immutable 5+ digit external catalog identity from catalog_id_seq (DATA-5, T-14).
+          examples:
+          - '10001'
         title:
           type: string
         price:
@@ -4334,6 +4341,7 @@ components:
       additionalProperties: false
       required:
       - id
+      - catalog_id
       - slug
       - canonical_path
       - title
@@ -4345,6 +4353,12 @@ components:
           pattern: ^[1-9][0-9]*$
           examples:
           - '1042'
+        catalog_id:
+          type: string
+          pattern: ^[1-9][0-9]{4,}$
+          description: Immutable 5+ digit external catalog identity from catalog_id_seq (DATA-5, T-14).
+          examples:
+          - '10000'
         slug:
           type: string
           pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
@@ -5443,6 +5457,7 @@ components:
       additionalProperties: false
       required:
       - id
+      - catalog_id
       - slug
       - canonical_path
       - title
@@ -5451,6 +5466,10 @@ components:
         id:
           type: string
           pattern: ^[1-9][0-9]*$
+        catalog_id:
+          type: string
+          pattern: ^[1-9][0-9]{4,}$
+          description: Immutable 5+ digit external catalog identity from catalog_id_seq (DATA-5, T-14).
         slug:
           type: string
           description: Canonical slug, or the numeric id when the product has no custom slug (DATA-5).

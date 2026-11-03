@@ -63,7 +63,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
 
       {confirming && (
         <section aria-labelledby="risk" className="grid gap-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 text-sm" data-testid="cod-risk">
-          <h2 id="risk" className="text-lg font-semibold">Sinyal risiko COD</h2>
+          <h2 id="risk" className="text-base font-semibold">Sinyal risiko COD</h2>
           <p className="text-muted-foreground">
             Dari data toko ini saja. Hubungi pembeli di nomor HP di bawah sebelum mengonfirmasi; pesanan yang belum dikonfirmasi tidak akan dikirim.
           </p>
@@ -81,7 +81,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
 
       {fulfil && o.actions.length > 0 && (
         <section aria-labelledby="actions" className="grid gap-4 rounded-lg border p-4">
-          <h2 id="actions" className="text-lg font-semibold">Tindakan</h2>
+          <h2 id="actions" className="text-base font-semibold">Tindakan</h2>
           {o.actions.includes("confirm") && (
             <p className="text-sm text-muted-foreground">Konfirmasi hanya setelah pembeli membenarkan pesanan dan alamatnya. Tahan jika belum bisa dihubungi; tolak jika pesanan tidak valid.</p>
           )}
@@ -150,7 +150,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
       {(shipmentRow || (fulfil && bookable)) && (
         <section aria-labelledby="shipment" className="grid gap-4 rounded-lg border p-4" data-testid="shipment">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 id="shipment" className="text-lg font-semibold">Pengiriman Bukalaris Kirim</h2>
+            <h2 id="shipment" className="text-base font-semibold">Pengiriman Bukalaris Kirim</h2>
             {shipmentRow && <StatusBadge label={SHIPMENT_STATUS_LABEL[shipmentRow.status]} tone={shipmentTone[shipmentRow.status]} data-testid="shipment-status" />}
           </div>
 
@@ -217,35 +217,91 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
         </section>
       )}
 
-      <div className="grid gap-6 sm:grid-cols-2">
-        <section aria-labelledby="buyer" className="grid content-start gap-1 text-sm">
-          <h2 id="buyer" className="text-lg font-semibold">Pembeli</h2>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <section aria-labelledby="buyer" className="grid content-start gap-1.5 rounded-lg border p-4 text-sm">
+          <h2 id="buyer" className="text-base font-semibold">Pembeli & Pengiriman</h2>
           <p className="font-medium">{o.buyerName}</p>
           <p><a href={`tel:${o.buyerPhone}`} className="underline underline-offset-4">{o.buyerPhone}</a></p>
           <p className="whitespace-pre-line text-muted-foreground">{o.shippingAddress}</p>
           <p className="text-muted-foreground">Area: {o.destinationAreaLabel}</p>
           <p className="text-muted-foreground">Kurir: {o.courier} <span className="font-mono text-xs">({o.courierCode})</span> · {o.weightKg} kg</p>
-          {o.trackingNumber && <p>Resi: <span className="font-mono" data-testid="tracking">{o.trackingNumber}</span></p>}
+          <p className="text-muted-foreground" data-testid="order-shipping-account">
+            Akun Bukalaris Kirim: {o.shippingAccountKind === "partner_managed" ? "Akun khusus toko Anda" : "Akun induk Bukalaris Kirim"}
+          </p>
+          {o.trackingNumber && <p>Resi: <span className="font-mono font-medium" data-testid="tracking">{o.trackingNumber}</span></p>}
+          {o.status === "returned" && (
+            <p className="mt-1 rounded-md border border-destructive/30 bg-destructive/5 px-2.5 py-1.5 text-xs text-destructive">
+              Paket dikembalikan ke penjual (RTS). Stok setiap barang sudah dikembalikan ke inventaris.
+            </p>
+          )}
         </section>
-        <section aria-labelledby="payment" className="grid content-start gap-1 text-sm">
-          <h2 id="payment" className="text-lg font-semibold">Pembayaran</h2>
-          <p>{paymentLabel[o.paymentMethod]}</p>
+        <section aria-labelledby="payment" className="grid content-start gap-1.5 rounded-lg border p-4 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 id="payment" className="text-base font-semibold">Pembayaran</h2>
+            <StatusBadge
+              label={
+                o.paymentMethod === "cod"
+                  ? o.status === "completed"
+                    ? "COD diterima kurir"
+                    : o.status === "cancelled" || o.status === "returned"
+                      ? "COD tidak tertagih"
+                      : "Bayar saat terima"
+                  : o.paidAt || o.payment?.status === "paid"
+                    ? "Sudah dibayar"
+                    : o.status === "cancelled"
+                      ? "Dibatalkan"
+                      : "Belum dibayar"
+              }
+              tone={
+                o.paymentMethod === "cod"
+                  ? o.status === "completed"
+                    ? "success"
+                    : o.status === "cancelled" || o.status === "returned"
+                      ? "outline"
+                      : "warning"
+                  : o.paidAt || o.payment?.status === "paid"
+                    ? "success"
+                    : o.status === "cancelled"
+                      ? "outline"
+                      : "warning"
+              }
+            />
+          </div>
+          <p className="font-medium">{paymentLabel[o.paymentMethod]}</p>
           {o.payment ? (
             <p className="text-muted-foreground" data-testid="payment-attempt">
               {o.payment.channelCode} · Total tagihan {rupiah(o.payment.totalIdr)} (termasuk biaya layanan {rupiah(o.payment.adminFeeIdr)}) ·{" "}
-              {o.payment.status === "paid" ? "terverifikasi" : o.payment.requestState === "failed" ? "instruksi gagal dibuat" : o.payment.requestState === "unknown" ? "menunggu pengecekan ke penyedia" : o.payment.requestState === "in_progress" ? "instruksi sedang disiapkan" : "menunggu pembayaran"}
+              {o.payment.status === "paid"
+                ? "terverifikasi"
+                : o.paidAt
+                  ? "dikonfirmasi manual oleh penjual"
+                  : o.payment.requestState === "failed"
+                    ? "instruksi gagal dibuat"
+                    : o.payment.requestState === "unknown"
+                      ? "menunggu pengecekan ke penyedia"
+                      : o.payment.requestState === "in_progress"
+                        ? "instruksi sedang disiapkan"
+                        : "menunggu pembayaran"}
             </p>
           ) : (
             <p className="text-muted-foreground">Tagihan online: —</p>
           )}
           {o.paidAt && <p className="text-muted-foreground">Dikonfirmasi dibayar {tanggal(o.paidAt)}</p>}
           {o.confirmedAt && <p className="text-muted-foreground">Pesanan COD dikonfirmasi {tanggal(o.confirmedAt)}</p>}
-          {o.paymentMethod === "cod" && !o.paidAt && <p className="text-muted-foreground">COD: uang diterima kurir saat barang sampai, belum tercatat sebagai pembayaran.</p>}
+          {o.paymentMethod === "cod" && !o.paidAt && (
+            <p className="text-muted-foreground">
+              {o.status === "completed"
+                ? "COD: paket sudah diterima pembeli; dana masuk ke Dana dalam Proses sampai direkonsiliasi ke Saldo Tersedia."
+                : o.status === "cancelled" || o.status === "returned"
+                  ? "COD: pesanan batal atau kembali ke toko (RTS), tidak ada uang yang ditagih."
+                  : "COD: uang diterima kurir saat barang sampai, belum tercatat sebagai pembayaran."}
+            </p>
+          )}
         </section>
       </div>
 
       <section aria-labelledby="lines" className="grid gap-2">
-        <h2 id="lines" className="text-lg font-semibold">Barang</h2>
+        <h2 id="lines" className="text-base font-semibold">Barang</h2>
         <ul className="divide-y rounded-lg border text-sm">
           {o.lines.map((l) => (
             <li key={l.variantId} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 p-3">
@@ -266,7 +322,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
       </section>
 
       <section aria-labelledby="history" className="grid gap-2">
-        <h2 id="history" className="text-lg font-semibold">Riwayat status</h2>
+        <h2 id="history" className="text-base font-semibold">Riwayat status</h2>
         <ol className="divide-y rounded-lg border text-sm">
           <li className="grid gap-0.5 p-3 sm:grid-cols-[12rem_minmax(0,1fr)] sm:gap-4">
             <time dateTime={o.createdAt.toISOString()} className="text-muted-foreground">{tanggal(o.createdAt)}</time>

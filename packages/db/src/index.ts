@@ -109,3 +109,4 @@ export * from "./affiliate/catalog.ts";
 export * from "./affiliate/jobs.ts";
 export * from "./affiliate/risk.ts";
 export { hit, peekHits } from "./platform/rate-limit.ts";
+export * from "./platform/client-ip.ts";

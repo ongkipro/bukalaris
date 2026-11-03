@@ -30,16 +30,16 @@ export function RecoveryForm() {
   return (
     <form onSubmit={onSubmit} className="grid gap-4">
       {state === "throttled" && (
-        <p role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+        <p id="recovery-error" role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
           Terlalu banyak permintaan. Coba lagi dalam satu menit.
         </p>
       )}
       {state === "offline" && (
-        <p role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">Tidak dapat terhubung. Coba lagi.</p>
+        <p id="recovery-error" role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">Tidak dapat terhubung. Coba lagi.</p>
       )}
       <div className="grid gap-2">
         <Label htmlFor="email">Email</Label>
-        <Input id="email" name="email" type="email" autoComplete="email" required />
+        <Input id="email" name="email" type="email" autoComplete="email" required aria-invalid={state === "throttled" || state === "offline"} aria-describedby={state === "throttled" || state === "offline" ? "recovery-error" : undefined} />
       </div>
       <Button type="submit" disabled={state === "pending"}>{state === "pending" ? "Mengirim…" : "Kirim tautan"}</Button>
     </form>

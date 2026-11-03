@@ -1,5 +1,7 @@
+import { buttonVariants } from "@/components/ui/button";
 import { coverImages, getPublishedCollection } from "@bukalaris/db";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { EmptyState, ProductGrid } from "../../_components/product-grid";
 import { storeShell } from "../../_lib";
@@ -22,10 +24,14 @@ export default async function CollectionPage({ params }: PageProps<"/s/[store]/c
       <header className="grid gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">{c.title}</h1>
         {c.description && <p className="max-w-prose text-pretty text-muted-foreground">{c.description}</p>}
-        <p className="text-sm text-muted-foreground">{c.products.length} produk</p>
+        <p className="text-sm tabular-nums text-muted-foreground">{c.products.length} produk</p>
       </header>
       {c.products.length === 0 ? (
-        <EmptyState title="Koleksi ini belum berisi produk yang dijual." />
+        <EmptyState
+          title="Koleksi ini belum berisi produk yang dijual."
+          hint="Lihat koleksi lain atau kembali ke katalog utama toko."
+          action={<Link href={base || "/"} className={buttonVariants({ variant: "outline" })}>Lihat semua produk</Link>}
+        />
       ) : (
         <ProductGrid base={base} products={c.products} covers={covers} />
       )}

@@ -629,3 +629,87 @@ dummy content.
   73 files / 1388 tests passed; `pnpm build` ok; full Playwright **207 passed, 2 skipped, 0 failed**; `verify:docker` (133 tables, 75/75
   policies, 0 registry differences, run before the last review fixes) and the populated-database upgrade (run before them as well) are
   not repeated on the final tree; `python3 docs/check-spec.py` and the traceability checker pass (0 findings).
+
+## 2026-10-28 — Hosting direction, UI/UX review pass, status audit (after the Goal Mode commits `302cfa4` and `2ddf5d2`)
+
+- **Hosting direction recorded (DECISIONS D-23, `docs/DEPLOY-COOLIFY.md`):** Vultr (Singapore) + Coolify v4 (Postgres 17) + Cloudflare; no Supabase;
+  Cloudflare proxied with an Origin CA certificate, SSL Full (strict); `CF-Connecting-IP` trusted only behind a Cloudflare-only origin firewall.
+  The owner chose NOT to deploy yet: polish the local build first; the domain is not bought; nothing is provisioned. The env-variable inventory
+  of the deploy doc now lists the 17 variables the build reads since M3 chain A plus `CLIENT_IP_HEADER`.
+- **Small hardening done locally:** `CLIENT_IP_HEADER` (`packages/db/src/platform/client-ip.ts`, test `client-ip.test.ts`, 3 cases): exactly one
+  client-IP header is trusted, a typo fails loudly.
+- **UI/UX review-and-polish pass** (three isolated children, rubric: repository design system + `admin-dashboard`, `ui-validation`, `design-taste`):
+  `UxSeller` (Seller Admin, 21 routes), `UxConsole` (Owner console, 27 routes), `UxPublic` (storefront, checkout, order status, identity, error pages).
+  Presentation, copy and accessibility only; no business logic, money math, authorization or schema changed. Reports: `docs/tracks/ux-uxs.md`,
+  `ux-uxc.md`, `ux-uxp.md`; screenshots under `docs/evidence/ux/{uxs,uxc,uxp}/`. Reported results: geometry audit clean on the changed routes (the
+  remaining exit codes come from the repository's two-row header and 28px/24px small buttons, listed in the reports), no horizontal overflow at
+  320/390/1366/1536, no console errors, Playwright of the touched specs green per child (104 + 95 + 109 passed), `tells-scan` exit 0. Public pages:
+  `design-gate.py` reached `PASS` on refs and critique but exit 1 on its external `review` step, which could not run in a worker; the design review
+  by a model or by the owner is therefore NOT done and visual acceptance of the public pages stays open.
+  Notable fixes: the checkout capture notice moved above the typed fields on 320px, discount rows (goods and shipping) on checkout and order pages,
+  seller navigation regrouped by workflow, payment axis separated from order status, mobile priority columns, 24px minimum targets, tabular numerals,
+  Indonesian copy for status and event labels, forms moved to the shared components, a visible reveal banner in the Owner console.
+  `LOCAL_SEED_OPERATOR_CAPABILITIES` (local seed only) gained the money and billing capabilities so the demo operator can open every console page.
+- **Status audit** (`AuditPartial`, docs only, `docs/tracks/audit-partial.md`): the old 'Partial' and 'Planned' statuses of T-2, T-3, T-4, T-5, T-6, T-7,
+  T-9, T-10, T-11, T-15, T-16, T-17, T-19, T-20, T-33 were re-checked against the code of 2026-10-28; each keeps its remaining work and blocker type;
+  `docs/openapi.yaml` and the ARCH-5 rows for the Storefront API and channels were synced.
+- **Deferred from the UX pass:** typed recipient fields are lost on a failed non-JS checkout redirect, collection sorting and the stale-price cart banner
+  (feature scope), QR rendering on the security page (dependency ceiling), live SQL for five planned dashboard cards, pointer-pick mode of 'Lapor masalah',
+  a grouped Seller navigation (an existing e2e pins the single strip), invoice CSV export (T-71/T-66).
+- **Not committed:** all of the above is in the working tree on top of `2ddf5d2`. The commit authorisation of this session was used up by the two commits above.
+- **Evidence on the UX-polished tree (parked):** `pnpm lint`, `pnpm typecheck`, `pnpm map:check`, `check-spec.py` and the traceability checker pass;
+  `pnpm --filter @bukalaris/db test` 74 files / 1391 tests passed. `pnpm build` and the FULL Playwright suite were started on this tree and stopped
+  at the owner's request before they finished: the full suite is NOT verified on the UX-polished tree (each child ran the specs of the pages it touched,
+  see its report). Run `pnpm build && pnpm --filter @bukalaris/web e2e` first when work resumes.
+
+## 2026-11-01 — Portfolio scan and documentation pass (docs only, no code changed)
+
+- **Scope:** owner asked to scan the related projects (TokoΦ first, Etalashop snapshot, 99ribu, GeraiExpress, CMSPRO,
+  PunyaSitus, owner memory) and use the result to perfect the Bukalaris documents. Output and method:
+  `docs/research/2026-11-portfolio-scan/README.md`, six source reports in `sources/`, four verification batches in `verification/`.
+- **How:** six read-only extraction lanes (`ai-ask claude`; the Codex lanes failed because its `bwrap` sandbox cannot create
+  namespaces on this host and were rerun), then 88 P1 findings verified against Bukalaris code first and docs second by four
+  read-only Pi agents (`9router-fantastico/cc/claude-sonnet-5-5`, tools `read,bash`). The orchestrator re-checked every conflict
+  and corrected three agent conclusions (password reset does revoke sessions; `completed` already has a single provider/four-eyes
+  writer; the 30-line cart cap is enforced).
+- **Checked by reading code (not executed):** every schema table is in the isolation registry (asserted both ways by `rls.test.ts`) and every
+  tenant table carries `store_id`; `/api/ready` runs only `select 1`; both QRIS screens render the raw payload in a text area; no migration journal check
+  and no off-box probe script exist.
+- **Adopted into owners:** SEC-25 (12), DEL-2 migrator traps and the provider-fixture row (15), DR-1 monitoring and backup lessons
+  (14), BILL-2 provider timeout and anomaly rules (11), UX-12 QRIS contract and the mutation outcome rule (17), RUNBOOK
+  pre-production rows; tasks T-76 to T-79 (TASKS.md). Conflicts fixed: 14 `/api/ready` wording and the missing probe script,
+  02-PRD Q-10, the ADR-0005 amendment status, the README scope paragraph and the STATUS header.
+- **Not done:** no test, build or database run for this pass; P2/P3 findings stay in the research README; the owner-decision
+  candidates (anomaly queue, per-store COD conditions, consent unbundling under PP 33/2026) are not decided.
+
+## 2026-11-01 — Full read of TokoΦ and Etalashop (docs only)
+
+- Owner asked for a complete read before the decision list. Twelve parallel read-only Pi lanes
+  (`9router-fantastico/cc/claude-sonnet-5-5`, tools `read,bash`) read the whole TokoΦ Markdown corpus
+  (`~/Projects/tokophi-consolidate`: about 63,000 lines across `BUILD-LOG`, `CHANGELOG`, `AGENTS.md`, root records,
+  `specs/**`, `apps/**`) and diffed the Etalashop snapshot. Every lane has a coverage table showing lines read = lines total.
+- Result: 554 new findings (139 P1). Etalashop is an older strict subset of TokoΦ. A synthesis agent reduced the P1s
+  to 84 unique lessons checked against Bukalaris code and docs. The orchestrator re-verified the two new code-level gaps:
+  the app role's table-wide `UPDATE` on `store` (U65) and the product edit writing `stock` (U64).
+- Output: `docs/research/2026-11-portfolio-scan/full-read/` (12 lane reports plus `SYNTHESIS-P1.md`); summary in the
+  research README; resume point in `STATUS.md`. Owner documents are not changed by this step. Applying the lessons waits
+  for the decision list (D-24).
+- Checks: traceability PASS (105 files, 0 findings) after escaping in-cell pipes and relabelling a TokoΦ ADR id in the raw
+  reports; `check-spec.py` PASS; `map:check` ok. No test, build or database run.
+
+## 2026-11-04 — Review alignment, development follow-ups and system-map guard
+
+- Owner asked to apply review recommendations, turn missing work into development tasks, and improve the system map. Scope: documentation and map-check tooling on the dirty tree over `2ddf5d2`; no application behavior, database, live provider, credentials, deployment, commit or push changed.
+- Reconciled current-status gaps while preserving dated evidence. PRD Q-1/Q-5/Q-6 and Q-12 to Q-16 distinguish decided direction from unresolved commercial/provider facts; duplicate business-question rows consolidated. Corrected stale T-52/wave review wording and completed UX subitems. D-24 records candidate dispositions without accepting unresolved business policies or ADRs.
+- Added T-80 to T-94 (94 total): stock lost-update protection, store-column grants, CSRF, shared auth limits, worker/cleanup Docker proof, fresh integrated verification, spec/API reconciliation, complete research triage, and gated reservation/KPI/rate-limit/anomaly/parcel/onboarding/HSTS work. Each has one primary, dependencies, allowed paths and runnable completion criteria; sensitive implementation requires independent review. Remaining full portfolio triage is T-87, not done by this pass.
+- ARCH-5: exact entry paths replace route abbreviations; HTTP-23 appears once; SA-17 links to SA-03 rather than claiming its page. Eighteen existing job/framework entries moved from the future register with local/fake/OFF qualifiers; mail delivery/purge, console bootstrap and read-only ledger verification gained JOB-34..JOB-36. JOB-33 is an hourly disabled stub that throws if enabled, not provider reconciliation. JOB-23 covers shipping reseal only. Corrected cleanup cadence (at least every 15 minutes), absent cleanup heartbeat and implemented worker scheduler in map/deploy notes.
+- The map guard no longer accepts URL-only or ambiguous suffix coverage. It checks exactly one implemented owner per route, URL/path agreement, table shape, duplicate IDs, known tasks, concrete test/command locators and background source files; future rows cannot conceal code. This is structural proof, not runtime/provider/exported-symbol proof. `map:check` runs native `node:test` fixtures first; no dependency added.
+- Executed: `pnpm map:check` PASS, **14 passed / 0 failed / 0 skipped**, then **102 route files / 124 current rows / 117 Implemented**. Deliberately broken fixtures prove missing/unmapped/phantom paths, duplicate IDs/owners, malformed columns, wrong URL and missing task/test/background references are caught. `python3 docs/check-spec.py` PASS (50 paths / 63 operations); installed `check-traceability.py docs` PASS (105 files / 330 declarations / 94 tasks / 0 findings). Node syntax checks and `git diff --check` scoped to this pass's tracked files PASS; checks rerun after final map edits with the same counts.
+- Limits: TypeScript LSP could not initialize because workspace-root TypeScript resolution failed; packages already declare TypeScript, so configure `tsserver.path` or workspace resolution before claiming diagnostics clean. No full lint/typecheck/application DB suite/build/E2E/Docker run (T-85). Repository-wide `git diff --check` found a pre-existing blank line at EOF in untouched `docs/14-SLA-DISASTER-RECOVERY.md`; left intact. No independent runtime/design review performed.
+
+## 2026-11-04 — Approved backlog commit/push preparation
+
+- Owner explicitly approved commit and push of the complete pending backlog. Staged source, documentation, portfolio research and track reports; excluded `docs/evidence/**`: rewritten baseline PNGs are excluded by AGENTS.md, and new UX captures remain local pending artifact/privacy review (notably dev outbox, recovery and revealed-account screens). Nothing was discarded.
+- Reviewed staged scope: 141 text files, no binary/credential files. Gitleaks 8.30.1 scanned both the tracked diff and new text files, then the complete staged diff (~1.34 MB): no leaks found. The mise shim lacked a selected version; used the already installed version directly, without changing system configuration.
+- Re-ran before commit: `pnpm map:check` PASS (14 fixtures, 102 routes), `python3 docs/check-spec.py` PASS, installed traceability checker PASS (94 tasks / 0 findings), `pnpm lint` PASS and `pnpm typecheck` PASS. Full application tests/build/E2E/Docker not rerun; T-85 stays Planned. LSP workspace initialization failure does not mean the package-script typecheck failed: both package TypeScript checks passed.
+- Inspected `.github/workflows/ci.yml`: push to main triggers verification/image CI, not deployment. No CI completion or remote push is claimed by this preparation entry.

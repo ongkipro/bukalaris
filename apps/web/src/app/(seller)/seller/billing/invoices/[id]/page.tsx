@@ -3,13 +3,12 @@ import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { bpsPercent, invoiceKindLabel, invoiceStatusLabel, invoiceStatusTone, settlementLabel, voidReasonLabel } from "@/lib/billing";
 import { sellerScope } from "@/lib/context";
-import { rupiah, tanggal } from "@/lib/format";
+import { rupiah, tanggal, tanggalIso } from "@/lib/format";
 import { can, defaultProviders, DomainError, getInvoice, invoiceAttempts, paymentView, subscriptionChannels } from "@bukalaris/db";
 import { notFound } from "next/navigation";
 import { Instruction, PayForm } from "../../_payment";
 
 export const metadata = { title: "Tagihan — Bukalaris" };
-
 export default async function InvoicePage({ params, searchParams }: PageProps<"/seller/billing/invoices/[id]">) {
   const scope = await sellerScope();
   const { id } = await params;
@@ -36,7 +35,7 @@ export default async function InvoicePage({ params, searchParams }: PageProps<"/
       <PageHeader
         title={<span className="break-all font-mono text-lg sm:text-xl">{invoice.number}</span>}
         badge={<StatusBadge label={invoiceStatusLabel[invoice.status]} tone={invoiceStatusTone[invoice.status]} data-testid="invoice-status" />}
-        description={`${invoiceKindLabel[invoice.kind]} · periode ${invoice.periodStart} sampai ${invoice.periodEnd} (tanggal akhir tidak termasuk)`}
+        description={`${invoiceKindLabel[invoice.kind]} · periode ${tanggalIso(invoice.periodStart)} sampai ${tanggalIso(invoice.periodEnd)} WIB (tanggal akhir tidak termasuk)`}
         back={{ href: back, label: "Kembali ke langganan" }}
       />
       <Notice error={error} saved={saved} />
@@ -44,24 +43,24 @@ export default async function InvoicePage({ params, searchParams }: PageProps<"/
         <p role="status" className="rounded-lg border px-3 py-2.5 text-sm" data-testid="billing-returned">Menunggu verifikasi pembayaran. Tagihan baru berubah menjadi lunas setelah Bukalaris memeriksanya ke penyedia pembayaran; kembali dari halaman bank belum berarti lunas.</p>
       )}
 
-      <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 rounded-lg border p-4 text-sm tabular-nums" data-testid="invoice-amounts">
+      <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5 rounded-lg border p-4 text-sm tabular-nums" data-testid="invoice-amounts">
         <dt>DPP (dasar pengenaan pajak)</dt>
-        <dd data-testid="invoice-dpp">{rupiah(invoice.dppIdr)}</dd>
+        <dd className="text-right" data-testid="invoice-dpp">{rupiah(invoice.dppIdr)}</dd>
         <dt>PPN{invoice.ppnRateBps !== null ? ` (${bpsPercent(invoice.ppnRateBps)})` : ""}</dt>
-        <dd data-testid="invoice-ppn">{invoice.ppnEnabled ? rupiah(invoice.ppnIdr) : "Rp0 — belum dipungut"}</dd>
-        <dt className="font-medium">Total</dt>
-        <dd className="font-medium" data-testid="invoice-total">{rupiah(invoice.totalIdr)}</dd>
+        <dd className="text-right" data-testid="invoice-ppn">{invoice.ppnEnabled ? rupiah(invoice.ppnIdr) : "Rp0 — belum dipungut"}</dd>
+        <dt className="border-t pt-1.5 font-semibold">Total</dt>
+        <dd className="border-t pt-1.5 text-right font-semibold" data-testid="invoice-total">{rupiah(invoice.totalIdr)}</dd>
       </dl>
 
-      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 rounded-lg border p-4 text-sm">
         <dt className="text-muted-foreground">Dibuat</dt>
-        <dd>{tanggal(invoice.createdAt)}</dd>
+        <dd><time dateTime={invoice.createdAt.toISOString()}>{tanggal(invoice.createdAt)}</time></dd>
         <dt className="text-muted-foreground">Jatuh tempo</dt>
-        <dd>{tanggal(invoice.dueAt)}</dd>
+        <dd><time dateTime={invoice.dueAt.toISOString()}>{tanggal(invoice.dueAt)}</time></dd>
         {invoice.paidAt && (
           <>
             <dt className="text-muted-foreground">{invoice.settlementSource === "provider" ? "Lunas" : "Dicatat"}</dt>
-            <dd>{tanggal(invoice.paidAt)}</dd>
+            <dd><time dateTime={invoice.paidAt.toISOString()}>{tanggal(invoice.paidAt)}</time></dd>
           </>
         )}
         {invoice.settlementSource && (

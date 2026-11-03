@@ -27,7 +27,7 @@ export default async function StoreLayout({ children, params }: LayoutProps<"/s/
       <div className="sf-shell flex min-h-dvh w-full flex-col bg-background">
         <header className="sf-header sticky top-0 z-20 border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80">
           <div className="sf-wrap flex items-center gap-3 py-3">
-            <Link href={home} className="min-w-0 shrink-0 truncate rounded-md text-lg font-semibold tracking-tight outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
+            <Link href={home} className="min-w-0 truncate rounded-md text-lg font-semibold tracking-tight outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
               {scope.storeName}
             </Link>
             <div className="flex flex-1 justify-end">
@@ -76,7 +76,7 @@ export default async function StoreLayout({ children, params }: LayoutProps<"/s/
               <ul className="flex flex-wrap gap-x-4 gap-y-1">
                 {pages.map((p) => (
                   <li key={p.id}>
-                    <Link href={`${base}/pages/${p.slug}`} className="underline-offset-4 hover:underline">{p.title}</Link>
+                    <Link href={`${base}/pages/${p.slug}`} className="inline-flex min-h-6 items-center rounded-sm py-1 underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50">{p.title}</Link>
                   </li>
                 ))}
               </ul>

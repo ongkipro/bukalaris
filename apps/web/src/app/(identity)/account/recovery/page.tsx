@@ -13,7 +13,7 @@ export default function RecoveryPage() {
         </p>
       </div>
       <RecoveryForm />
-      <Link href="/login" className="text-sm text-muted-foreground underline-offset-4 hover:underline">
+      <Link href="/login" className="inline-flex min-h-6 w-fit items-center rounded-sm py-1 text-sm text-muted-foreground underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50">
         Kembali ke halaman masuk
       </Link>
     </>

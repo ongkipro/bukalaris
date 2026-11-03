@@ -52,11 +52,14 @@ export default async function BatchPage({ params, searchParams }: PageProps<"/ad
         {items.map((i) => (
           <li key={i.id} className={`grid gap-1 rounded-lg border p-3 text-sm sm:grid-cols-[1fr_auto] sm:items-center ${i.voided ? "opacity-60" : ""} ${i.brk && !i.voided ? "border-destructive/50" : ""}`} data-testid={`item-${i.orderId}`}>
             <div className="min-w-0 grid gap-0.5">
-              <span>Pesanan <span className="font-mono">#{i.orderId}</span> · toko {i.storeId} · baris kurir <span className="font-mono">{i.evidenceLineRef}</span> · {i.evidenceDate}</span>
+              <span className="flex flex-wrap items-center gap-2">
+                <span>Pesanan <span className="font-mono">#{i.orderId}</span> · toko {i.storeId} · baris kurir <span className="font-mono">{i.evidenceLineRef}</span> · {i.evidenceDate}</span>
+                {i.brk && !i.voided && <StatusBadge label="Selisih nominal" tone="destructive" />}
+              </span>
               <span className="tabular-nums text-muted-foreground">Diharapkan (COD pesanan) {rupiah(i.codAmountIdr)} · bukti {rupiah(i.evidenceAmountIdr)}{i.brk && !i.voided ? " · SELISIH" : ""}{i.voided ? " · dihapus" : ""}{i.reconciledAt ? " · direkonsiliasi" : ""}</span>
             </div>
             {batch.status === "draft" && mine && !i.voided && (
-              <form action={voidItemAction.bind(null, id, i.id)}><SubmitButton variant="outline" size="sm" pendingText="Menghapus…">Hapus baris</SubmitButton></form>
+              <form action={voidItemAction.bind(null, id, i.id)}><SubmitButton variant="outline" pendingText="Menghapus…">Hapus baris</SubmitButton></form>
             )}
           </li>
         ))}
