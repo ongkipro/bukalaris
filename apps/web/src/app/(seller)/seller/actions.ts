@@ -28,7 +28,6 @@ const variantFields = (f: FormData, prefix = "") => ({
   title: text(f, `${prefix}title`),
   sku: text(f, `${prefix}sku`),
   price: text(f, `${prefix}price`),
-  stock: text(f, `${prefix}stock`),
   weightGrams: text(f, `${prefix}weightGrams`),
 });
 
@@ -58,7 +57,7 @@ export async function switchStore(f: FormData) {
 export async function createProductAction(f: FormData) {
   const scope = await sellerScope();
   await run("/seller/products/new", (id) => `/seller/products/${id}?saved=1`, () =>
-    createProduct(scope, { ...productFields(f), variant: variantFields(f, "variant_") }),
+    createProduct(scope, { ...productFields(f), variant: { ...variantFields(f, "variant_"), stock: text(f, "variant_stock") } }),
   );
 }
 
@@ -71,7 +70,7 @@ export async function updateProductAction(productId: number, f: FormData) {
 export async function addVariantAction(productId: number, f: FormData) {
   const scope = await sellerScope();
   const back = `/seller/products/${productId}`;
-  await run(back, () => `${back}?saved=1`, () => addVariant(scope, productId, variantFields(f, "new_")));
+  await run(back, () => `${back}?saved=1`, () => addVariant(scope, productId, { ...variantFields(f, "new_"), stock: text(f, "new_stock") }));
 }
 
 export async function updateVariantAction(productId: number, variantId: number, f: FormData) {

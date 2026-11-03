@@ -3,6 +3,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { productStatusLabel } from "@/lib/status";
+import Link from "next/link";
 
 type Defaults = { title?: string; description?: string; status?: string; slug?: string | null };
 
@@ -51,8 +52,19 @@ export function VariantFields({ prefix = "", d }: { prefix?: string; d?: { title
         <Input id={id("price")} name={id("price")} type="number" inputMode="numeric" min={0} step={1} required defaultValue={d?.price} className="tabular-nums" />
       </div>
       <div className="grid content-start gap-2">
-        <Label htmlFor={id("stock")}>Stok</Label>
-        <Input id={id("stock")} name={id("stock")} type="number" inputMode="numeric" min={0} step={1} required defaultValue={d?.stock ?? 0} className="tabular-nums" />
+        {d ? (
+          <>
+            <span className="text-sm font-medium">Stok saat ini</span>
+            <p className="tabular-nums" data-testid="variant-stock">{d.stock}</p>
+            <Link href="/seller/inventory" className="inline-flex min-h-6 items-center text-xs underline underline-offset-4">Ubah di Inventaris</Link>
+          </>
+        ) : (
+          <>
+            <Label htmlFor={id("stock")}>Stok</Label>
+            <Input id={id("stock")} name={id("stock")} type="number" inputMode="numeric" min={0} step={1} required defaultValue={0} aria-describedby={id("stock-help")} className="tabular-nums" />
+            <p id={id("stock-help")} className="text-xs text-muted-foreground">Stok awal. Selanjutnya ubah lewat Inventaris.</p>
+          </>
+        )}
       </div>
       <div className="grid content-start gap-2">
         <Label htmlFor={id("sku")}>SKU (opsional)</Label>

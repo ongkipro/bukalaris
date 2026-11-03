@@ -207,7 +207,8 @@ export async function addVariant(scope: SellerScope, productId: number, raw: unk
 
 export async function updateVariant(scope: SellerScope, variantId: number, raw: unknown): Promise<void> {
   requireCap(scope, "catalog.write");
-  const input = variantInput.parse(raw);
+  // Legacy forms may include stock: validate it, but manual stock changes go through adjustStock.
+  const input = variantInput.partial({ stock: true }).parse(raw);
   await inStore(scope, async ({ exec: tx }) => {
     const [before] = await tx
       .select()
@@ -217,7 +218,7 @@ export async function updateVariant(scope: SellerScope, variantId: number, raw: 
     if (!before) throw new DomainError("not_found", "Varian tidak ditemukan.");
     const [after] = await tx
       .update(variant)
-      .set(input)
+      .set({ title: input.title, sku: input.sku, price: input.price, weightGrams: input.weightGrams })
       .where(and(eq(variant.storeId, scope.storeId), eq(variant.id, variantId)))
       .returning();
     const b = variantSnapshot(before);

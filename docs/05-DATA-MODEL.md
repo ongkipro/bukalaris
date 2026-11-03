@@ -162,6 +162,8 @@ instants, and clients format locally. Exact SQL type/driver decisions depend
 on the selected database. Add compound ownership foreign keys and database
 policies where supported; an application convention alone is not proof.
 
+Accepted catalog stock boundary (T-80, D-24): product/variant creation accepts initial stock. Subsequent `updateVariant` writes only metadata (title, SKU, price and weight); a legacy stock field is validated but ignored, never copied over a checkout decrement. Manual inventory changes use the existing signed-delta `adjustStock` transaction with `inventory.write`, a reason, a non-negative guard and `stock_adjustment` audit. Catalog audit snapshots retain the stock observed under the row lock; they do not claim a manual adjustment. This does not settle reservation expiry or general metadata revision conflicts.
+
 Proposed stock flow: carts do not reserve stock. Checkout submission atomically
 checks/reserves available quantity and snapshots totals before scheduling a
 provider action. Fulfillment consumes, expiry/cancel releases exactly once.

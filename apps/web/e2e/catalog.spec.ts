@@ -1,7 +1,75 @@
 import { expect, test, type Page } from "@playwright/test";
-import { evidence, login } from "./helpers";
+import { chooseDestination, evidence, login, testPhone } from "./helpers";
 
 const CATALOG_ID = /^[1-9][0-9]{4,}$/;
+
+test("stale variant form preserves a sale and stock changes use audited inventory (T-80)", async ({ page }, info) => {
+  const title = `Stock-safe ${info.project.name}-${Date.now()}`;
+  const slug = title.toLowerCase();
+  const errors: string[] = [];
+  page.on("pageerror", (err) => errors.push(err.message));
+  page.on("console", (msg) => { if (msg.type() === "error") errors.push(msg.text()); });
+  await login(page, "owner-a@bukalaris.local");
+  await page.getByRole("link", { name: "Tambah produk" }).click();
+  await page.getByLabel("Judul produk").fill(title);
+  await page.getByLabel("Status").selectOption("active");
+  await page.getByLabel("Slug URL (opsional)").fill(slug.replaceAll(" ", "-"));
+  await page.getByLabel("Nama varian").fill("M");
+  await page.getByLabel("Harga (Rp)").fill("100000");
+  await page.getByLabel("Stok").fill("5");
+  await page.getByLabel("Berat (gram)").fill("1000");
+  await page.getByRole("button", { name: "Simpan produk", exact: true }).click();
+  await expect(page.getByTestId("variant-stock")).toHaveText("5");
+  const editor = page.url().split("?")[0]!;
+  const form = page.locator("form").filter({ has: page.getByRole("button", { name: "Simpan varian", exact: true }) });
+  await expect(form.locator('input[name$="_stock"]')).toHaveCount(0);
+  await form.getByLabel("Harga (Rp)").fill("110000");
+
+  // A second page buys while the first page retains the old stock snapshot.
+  const customer = await page.context().newPage();
+  customer.on("pageerror", (err) => errors.push(err.message));
+  customer.on("console", (msg) => { if (msg.type() === "error") errors.push(msg.text()); });
+  try {
+    await customer.goto(`/s/toko-a/products/${slug.replaceAll(" ", "-")}`);
+    await customer.getByRole("button", { name: "Tambah ke keranjang" }).click();
+    await customer.getByRole("link", { name: "Checkout", exact: true }).click();
+    await chooseDestination(customer);
+    await customer.getByLabel("Nama", { exact: true }).fill("Pembeli Uji");
+    await customer.getByLabel("Nomor HP").fill(testPhone());
+    await customer.getByLabel("Alamat lengkap").fill("Alamat fixture lokal 123, Jakarta");
+    await customer.locator('input[name="paymentMethod"][value="cod"]').check();
+    await customer.getByRole("button", { name: "Buat pesanan", exact: true }).click();
+    await expect(customer.getByRole("heading", { name: "Pesanan diterima" })).toBeVisible();
+  } finally {
+    await customer.close();
+  }
+  await expect(page.getByTestId("variant-stock")).toHaveText("5");
+  await form.getByRole("button", { name: "Simpan varian", exact: true }).click();
+  await page.waitForURL(/saved=1/);
+  await expect(page.getByTestId("variant-stock")).toHaveText("4");
+  await expect(form.getByLabel("Harga (Rp)")).toHaveValue("110000");
+  await page.reload();
+  await expect(page.getByTestId("variant-stock")).toHaveText("4");
+  await evidence(page, info, "80-stock-safe-product");
+
+  // The replacement control is keyboard-accessible and leads to the existing audited delta path.
+  const inventoryLink = form.getByRole("link", { name: "Ubah di Inventaris", exact: true });
+  await inventoryLink.focus();
+  await expect(inventoryLink).toBeFocused();
+  expect((await inventoryLink.boundingBox())?.height).toBeGreaterThanOrEqual(24);
+  await page.keyboard.press("Enter");
+  await page.waitForURL(/\/seller\/inventory$/);
+  const row = page.getByRole("listitem").filter({ hasText: title });
+  await expect(row.getByTestId("stock")).toHaveText("4");
+  await row.getByLabel(/Perubahan stok/).fill("-1");
+  await row.getByLabel(/Alasan perubahan/).fill("T-80 fixture inventory adjustment");
+  await row.getByRole("button", { name: "Sesuaikan", exact: true }).click();
+  await expect(row.getByTestId("stock")).toHaveText("3");
+  await expect(page.getByRole("region", { name: "Riwayat penyesuaian" })).toContainText("T-80 fixture inventory adjustment");
+  await page.goto(editor);
+  await expect(page.getByTestId("variant-stock")).toHaveText("3");
+  expect(errors).toEqual([]);
+});
 
 /** Follow nothing: the storefront answers an old URL with exactly one 308 to the canonical path. */
 async function redirect(page: Page, path: string) {
@@ -81,14 +149,18 @@ test("catalog ids are shown and copyable, slug renames redirect without chains, 
   // --- Price change → history panel row with before/after, actor and time.
   await page.goto(editor);
   await page.getByLabel("Harga (Rp)").first().fill("275000");
-  await page.getByLabel("Stok").first().fill("3");
   await page.getByRole("button", { name: "Simpan varian" }).click();
   await page.waitForURL(/saved=1/);
   await expect(page.getByRole("status")).toHaveText("Tersimpan.");
   const history = page.getByTestId("product-history");
   await expect(history.getByText("Varian diubah")).toBeVisible();
   await expect(history.getByText("harga: Rp 250.000 → Rp 275.000")).toBeVisible();
-  await expect(history.getByText("stok: 4 → 3")).toBeVisible();
+  await expect(page.getByTestId("variant-stock")).toHaveText("4");
+  await expect(page.locator("form").filter({ has: page.getByRole("button", { name: "Simpan varian", exact: true }) }).locator('input[name$="_stock"]')).toHaveCount(0);
+  const variantChange = history.getByRole("listitem").filter({ hasText: "Varian diubah" });
+  await expect(variantChange).toHaveCount(1);
+  await expect(variantChange.getByText(/^stok:/)).toHaveCount(0);
+  await expect(history.getByText("stok: 4", { exact: true })).toBeVisible();
   await expect(history.getByText(`slug: sepatu-baru-${tag} → sepatu-final-${tag}`)).toBeVisible();
   await expect(history.getByText("Ayu (Toko A)").first()).toBeVisible();
   await evidence(page, info, "51-seller-product-history");
