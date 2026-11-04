@@ -1,6 +1,6 @@
 import "server-only";
 import { createHmac } from "node:crypto";
-import { db, dbMailer, platformDb, recordSessionMfa, resolveUserSuspended } from "@bukalaris/db";
+import { authRateLimitStorage, clientIpHeader, db, dbMailer, platformDb, recordSessionMfa, resolveUserSuspended, sanitizeError } from "@bukalaris/db";
 import { resolveHostSurface, surfaceCookieNames, surfaceOriginsFromEnv } from "@bukalaris/db/host";
 import { account, auditLog, session, twoFactor, user, verification } from "@bukalaris/db/schema";
 import { betterAuth } from "better-auth";
@@ -91,9 +91,6 @@ function createAuth(surface: AuthSurface) {
     // write whose Origin is anything else. The route handler adds the Sec-Fetch-Site and no-Origin checks.
     trustedOrigins: [origin],
     database: drizzleAdapter(db(), { provider: "pg", schema: { user, session, account, verification, twoFactor } }),
-    // `__Host-` needs Secure + no Domain + Path=/. Better Auth would prepend `__Secure-` itself, so the prefix is
-    // written into each explicit cookie name instead (production only; plain names over local HTTP).
-    ...(surface === "local" ? {} : { advanced: { useSecureCookies: false, cookies: surfaceCookies(surface, prod) } }),
     emailAndPassword: {
       enabled: true,
       // Accounts are provisioned by the platform (seed / invitation); no public signup (IAM named boundary).
@@ -120,6 +117,22 @@ function createAuth(surface: AuthSurface) {
       },
     },
     telemetry: { enabled: false },
+    // T-83 RL-LOGIN: Better Auth's own rules (sign-in 3/10 s, reset 3/60 s, two-factor 3/10 s, default 100/10 s) are kept;
+    // only the counter moves from per-process memory to the shared Postgres counter, so every instance and restart
+    // enforces one budget per surface and client IP. A failing counter refuses (429), never bypasses.
+    rateLimit: {
+      customStorage: authRateLimitStorage(db, surface, (err) =>
+        console.error(JSON.stringify({ ts: new Date().toISOString(), level: "error", event: "auth_rate_limit_store_failed", surface, error: sanitizeError(err) })),
+      ),
+    },
+    // The client IP for that key comes from the ONE header the hosting topology trusts (CLIENT_IP_HEADER, D-23), the same
+    // choice as the checkout counters; without it Better Auth would trust a single client-supplied x-forwarded-for value.
+    advanced: {
+      // `__Host-` needs Secure + no Domain + Path=/. Better Auth would prepend `__Secure-` itself, so the prefix is
+      // written into each explicit cookie name instead (production only; plain names over local HTTP).
+      ...(surface === "local" ? {} : { useSecureCookies: false, cookies: surfaceCookies(surface, prod) }),
+      ipAddress: { ipAddressHeaders: [clientIpHeader(env)] },
+    },
     // T-63: an identity the Owner console suspended gets no new session on any surface (existing sessions are deleted at suspension).
     databaseHooks: { session: { create: { before: async (s) => ((await resolveUserSuspended(db(), s.userId)) ? false : undefined) } } },
     hooks: {

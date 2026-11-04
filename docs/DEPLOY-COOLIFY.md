@@ -378,9 +378,9 @@ The web image stores uploads on local disk under `MEDIA_DIR` (default
 - Auth: recovery, invitations and operator TOTP are implemented (T-22). Per-surface
   origins, secrets and `__Host-` cookies (T-70; ADR-0004, D-2) are implemented locally and
   uncommitted, not deployed, and still need production origins and DNS/TLS; Better Auth's
-  rate-limit storage is in memory per process (one web replica, or configure
-  `secondaryStorage`); confirm the client-IP header the reverse proxy sets so
+  rate limits use the shared Postgres counter since T-83 (D-26), so several web replicas share one budget; confirm the client-IP header the reverse proxy sets so
   the per-IP checkout limits (`x-forwarded-for` last hop / `x-real-ip`) cannot be forged.
+- Client IP for auth limits (D-26, D-23): production sets `CLIENT_IP_HEADER=cf-connecting-ip` (Cloudflare-only origin firewall). If `x-forwarded-for` mode is ever used, Traefik must not be given `forwardedHeaders.trustedIPs`/`insecure`: Better Auth accepts only a single-value `X-Forwarded-For`, and a multi-value chain puts every user into one shared sign-in bucket (3 per 10 s for everyone).
 - Host forwarding (D-25): through Cloudflare and Traefik, `GET /api/health` on every surface host must not answer `421`. A `421` means the proxy chain rewrites `Host` while keeping the original name in `X-Forwarded-Host`, which also breaks host-selected sessions (DOM-6); fix the proxy configuration, do not relax the rule.
 - RLS and separate DB roles: implemented (ADR-0005, T-27); the production roles
   still have to be created by hand (see "Database roles").

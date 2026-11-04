@@ -50,7 +50,7 @@ user input. Inbound trace/baggage values are untrusted and are never identity.
 
 | Operation | Key hierarchy | Policy | On `main` |
 |---|---|---|---|
-| Login/recovery | Trusted network + identity candidate + account | Numeric limit requires threat/capacity evidence; shared store, RL-LOGIN below | Better Auth defaults (3/10 s sign-in, 3/60 s reset) per IP, in memory |
+| Login/recovery | Trusted network + identity candidate + account | Numeric limit requires threat/capacity evidence; shared store, RL-LOGIN below | Better Auth defaults (3/10 s sign-in, 3/60 s reset, two-factor 3/10 s) per surface + trusted client IP, on the shared Postgres counter since T-83 (D-26) |
 | Seller mutation | Session identity + store + operation | Serialize/conflict-detect sensitive edits | No limiter; slug changes serialised with `pg_advisory_xact_lock(store_id)`, order transitions row-locked |
 | Checkout/create payment | Cart/order idempotency + store + network | One logical attempt; bounded retries | Idempotency key + request hash per store; counters per IP/cart/phone (see "Implemented") |
 | Provider webhook/job | Provider identity + event/reference | Verify then durable-deduplicate | Outbox `(kind, key)` unique; no inbound webhooks exist |
@@ -90,7 +90,7 @@ deployment document records the chosen topology and the trusted-proxy list.
 
 | ID | Operation | Key hierarchy (coarse → fine) | Behaviour on refusal | Proposed starting value (OPEN) |
 |---|---|---|---|---|
-| RL-LOGIN | Sign-in and recovery request, all surfaces | IP → identity candidate (fingerprint) → account | 429 with `Retry-After`; uniform response | Better Auth defaults today (3 / 10 s sign-in, 3 / 60 s reset), moved to the shared store |
+| RL-LOGIN | Sign-in and recovery request, all surfaces | IP → identity candidate (fingerprint) → account | 429 with `Retry-After`; uniform response | Better Auth defaults (3 / 10 s sign-in, 3 / 60 s reset); shared store implemented by T-83 (D-26): fixed window on `rate_limit`, key `auth:<surface>:<sha256(ip|path)>`, counter failure → 429 with one-window retry. Identity-candidate and account dimensions remain proposed |
 | RL-OTP-REQ | Buyer OTP or magic-link request and resend | Global provider budget → IP → destination (fingerprint) → destination per day | Uniform "if this contact exists…" response, nothing sent; circuit breaker when the provider budget is spent | per destination 3 / 10 min and 10 / day; per IP 20 / 10 min |
 | RL-OTP-VERIFY | OTP or magic-link verification | Challenge (attempt count) → destination → IP | The challenge is invalidated after the attempt cap; account never locked | 5 attempts per challenge |
 | RL-AFF-SIGNUP | Affiliate application (AF-11 `/affiliate/apply`) | IP → email fingerprint → day | 429; no account-existence hint | 5 / hour per IP, 3 / day per email |
