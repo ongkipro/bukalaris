@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
@@ -16,6 +17,7 @@ export default async function NewCollectionPage({ searchParams }: PageProps<"/se
       <PageHeader back={{ href: "/seller/collections", label: "Semua koleksi" }} title="Tambah koleksi" description="Pilih produk dan urutannya; publikasikan saat siap tampil di toko." />
       <Notice error={error} />
       <form action={createCollectionAction} className="grid gap-6">
+        <CsrfField />
         <CollectionFields products={products} />
         <div>
           <SubmitButton>Simpan koleksi</SubmitButton>

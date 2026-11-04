@@ -1,5 +1,6 @@
 "use client";
 
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { SubmitButton } from "@/components/submit-button";
@@ -19,6 +20,7 @@ export function SearchForm() {
   return (
     <>
       <form action={action} role="search" className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+        <CsrfField />
         <div className="grid gap-1.5">
           <Label htmlFor="q">Email, nomor ponsel atau ID akun</Label>
           <Input id="q" name="q" type="search" minLength={3} maxLength={254} required autoComplete="off" spellCheck={false} />

@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { sellerScope } from "@/lib/context";
 import { userError } from "@/lib/errors";
 import { jakartaInstant, saveFlashSale, savePromoHub, saveVoucher } from "@bukalaris/db";
@@ -8,6 +10,11 @@ import { z } from "zod";
 
 export type PromotionFormState = { error?: string; errors?: Record<string, string>; saved?: boolean; code?: string; values?: Record<string, string> };
 export async function savePromotionAction(_previous: PromotionFormState, f: FormData): Promise<PromotionFormState> {
+  try {
+    await requirePortalCsrf(f);
+  } catch (err) {
+    return { error: userError(err) };
+  }
   const scope = await sellerScope();
   const values = Object.fromEntries([...f.entries()].filter(([k]) => !k.startsWith("$ACTION_")).map(([k, v]) => [k, String(v)]));
   const n = (key: string) => Number(f.get(key) ?? 0);

@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { consoleActionOp } from "@/lib/console-gate";
 import { userError, withError } from "@/lib/errors";
 import { approveForTransfer, claimTransfer, completeTransfer, DomainError, recordTransferUnknown, rejectTransfer, reopenFailedRefund, requestRejectApproval, requestTransferApproval, type PlatformCapability, type TransferKind } from "@bukalaris/db";
@@ -16,6 +18,7 @@ export async function requestApprovalAction(kind: TransferKind, id: number, f: F
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/payouts/[kind]/[id]", cap(kind));
+    await requirePortalCsrf(f);
     await requestTransferApproval(op, kind, id, text(f, "reason"));
   } catch (err) {
     error = userError(err);
@@ -23,10 +26,11 @@ export async function requestApprovalAction(kind: TransferKind, id: number, f: F
   redirect(error ? withError(back(kind, id), error) : `${back(kind, id)}?saved=requested`);
 }
 
-export async function executeApprovalAction(kind: TransferKind, id: number) {
+export async function executeApprovalAction(kind: TransferKind, id: number, f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/payouts/[kind]/[id]", cap(kind));
+    await requirePortalCsrf(f);
     await approveForTransfer(op, kind, id);
   } catch (err) {
     error = userError(err);
@@ -34,10 +38,11 @@ export async function executeApprovalAction(kind: TransferKind, id: number) {
   redirect(error ? withError(back(kind, id), error) : `${back(kind, id)}?saved=approved`);
 }
 
-export async function claimAction(kind: TransferKind, id: number) {
+export async function claimAction(kind: TransferKind, id: number, f: FormData) {
   let error: string | undefined;
   try {
     const { op, sessionId } = await consoleActionOp("/admin/payouts/[kind]/[id]", cap(kind));
+    await requirePortalCsrf(f);
     await claimTransfer(op, sessionId, kind, id);
   } catch (err) {
     error = userError(err);
@@ -45,10 +50,11 @@ export async function claimAction(kind: TransferKind, id: number) {
   redirect(error ? withError(back(kind, id), error) : `${back(kind, id)}?saved=claimed`);
 }
 
-export async function unknownAction(kind: TransferKind, id: number) {
+export async function unknownAction(kind: TransferKind, id: number, f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/payouts/[kind]/[id]", cap(kind));
+    await requirePortalCsrf(f);
     await recordTransferUnknown(op, kind, id);
   } catch (err) {
     error = userError(err);
@@ -61,6 +67,7 @@ export async function completeAction(kind: TransferKind, id: number, f: FormData
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/payouts/[kind]/[id]", cap(kind));
+    await requirePortalCsrf(f);
     const file = f.get("receipt");
     if (!(file instanceof File) || file.size === 0) throw new DomainError("receipt_size", "Pilih berkas bukti transfer (PNG, JPEG, WebP atau PDF).");
     await completeTransfer(op, kind, id, { evidenceRef: text(f, "evidenceRef"), receipt: new Uint8Array(await file.arrayBuffer()) });
@@ -75,6 +82,7 @@ export async function rejectDirectAction(kind: TransferKind, id: number, f: Form
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/payouts/[kind]/[id]", cap(kind));
+    await requirePortalCsrf(f);
     await rejectTransfer(op, kind, id, { reason: text(f, "reason") });
   } catch (err) {
     error = userError(err);
@@ -87,6 +95,7 @@ export async function requestRejectAction(kind: TransferKind, id: number, f: For
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/payouts/[kind]/[id]", cap(kind));
+    await requirePortalCsrf(f);
     const ref = text(f, "noTransferEvidenceRef").trim();
     await requestRejectApproval(op, kind, id, { reason: text(f, "reason"), ...(ref ? { noTransferEvidenceRef: ref } : {}) });
   } catch (err) {
@@ -99,6 +108,7 @@ export async function executeRejectAction(kind: TransferKind, id: number, f: For
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/payouts/[kind]/[id]", cap(kind));
+    await requirePortalCsrf(f);
     await rejectTransfer(op, kind, id, { approvalId: Number(text(f, "approvalId")) });
   } catch (err) {
     error = userError(err);
@@ -112,6 +122,7 @@ export async function reopenRefundAction(id: number, f: FormData) {
   let to = back("refund", id);
   try {
     const { op } = await consoleActionOp("/admin/payouts/[kind]/[id]", "refunds.process");
+    await requirePortalCsrf(f);
     const r = await reopenFailedRefund(op, id, text(f, "reason"));
     to = back("refund", r.refundId);
   } catch (err) {

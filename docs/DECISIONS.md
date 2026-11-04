@@ -398,3 +398,15 @@ Owner direction: apply the review recommendations, turn missing work into develo
 Technical corrections are planned, not completed. T-59 contract still requires all consumers upgraded and explicit owner approval; T-59b/T-59c remain T-59 follow-ups. Public-page independent design review remains T-28. No new business rates, retention periods, provider behavior, ADR-0001..0003 acceptance, credential access, commit/push, deployment or production DB changes are authorised here.
 
 Revisit when: a task's focused verification disproves a research claim, the owner resolves a gated policy, or real provider evidence changes the contract. Track execution in TASKS.md and BUILD-LOG.md, not in the research reports.
+
+## D-25 — Misdirected internal renders are refused, not re-targeted (2026-11-05, T-82, T-70, DOM-5, DOM-6)
+
+Context: after a successful hydrated Server Action that redirects, Next (16.3.8) renders the target through an internal fetch to its listener origin. On a multi-host deployment that request reaches the app with the listener `Host` (locally `localhost`, surface `local`) while the browser's real host survives only in `x-forwarded-host`. Auth and CSRF are selected from `Host` (DOM-6), so the render used the wrong surface: no session, login rendered, wrong CSRF binding (proof: T-82 track, runs ba615e88b and b68c9673e).
+
+Baseline 283f322 (pre-T-82) reproduces the same symptom (probe b7d3ffedc), so this is an inherited T-70 defect surfaced by T-82.
+
+Decision (owner-approved): `proxy.ts` answers `421` (no-store, empty) when the first `x-forwarded-host` value resolves to a different surface than `Host`. Next then returns the redirect without Flight data and the browser performs a hard navigation with its real `Host`. `x-forwarded-host` is used only to refuse; it never selects a surface or grants authority, so a forged value can only deny the forger's own request.
+
+Rejected: a server-signed internal surface header (adds an authority-bearing channel and a key); `__NEXT_PRIVATE_ORIGIN` (private, single origin); `trustHostHeader` (inactive while a hostname is configured); framework patch or upgrade; trusting `x-forwarded-host` to choose identity.
+
+Cost: one extra browser round trip after a successful redirecting action on non-local surfaces; one-host path mode is unaffected. Next's cross-bundle action forwarding (`createForwardedActionResponse`) makes the same kind of internal fetch and is refused too; before this rule it already arrived on the wrong surface without a session, so this is not a regression, and no current action is known to take that path. Independent review 089b6b7e: ACCEPT WITH NOTES (no P0/P1). Revisit when: a custom-domain resolver is wired into `proxy.ts` (pass the same resolver to both sides of this comparison, otherwise two `unknown` surfaces match and the symptom returns on custom domains); the reverse proxy in front (Coolify/Traefik, Cloudflare) is configured, to confirm it forwards the original `Host` and does not set a differing `X-Forwarded-Host`; or when Next changes how it renders action redirects.

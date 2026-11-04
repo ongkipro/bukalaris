@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { sellerScope } from "@/lib/context";
 import { unlinkMedia, writeMedia } from "@/lib/media";
 import { addProductMedia, moveMediaUp, removeProductMedia, updateMediaAlt } from "@bukalaris/db";
@@ -7,6 +9,7 @@ import { run, text } from "../_run";
 
 /** Upload: bytes are sniffed in packages/db; the file is written inside the insert transaction. */
 export async function uploadMediaAction(productId: number, f: FormData) {
+  await requirePortalCsrf(f, `/seller/products/${productId}`);
   const scope = await sellerScope();
   const back = `/seller/products/${productId}`;
   await run(back, () => `${back}?saved=1#gambar`, async () => {
@@ -17,18 +20,21 @@ export async function uploadMediaAction(productId: number, f: FormData) {
 }
 
 export async function updateMediaAltAction(productId: number, mediaId: number, f: FormData) {
+  await requirePortalCsrf(f, `/seller/products/${productId}`);
   const scope = await sellerScope();
   const back = `/seller/products/${productId}`;
   await run(back, () => `${back}?saved=1#gambar`, () => updateMediaAlt(scope, mediaId, text(f, `alt_${mediaId}`)));
 }
 
-export async function moveMediaUpAction(productId: number, mediaId: number) {
+export async function moveMediaUpAction(productId: number, mediaId: number, f: FormData) {
+  await requirePortalCsrf(f, `/seller/products/${productId}`);
   const scope = await sellerScope();
   const back = `/seller/products/${productId}`;
   await run(back, () => `${back}?saved=1#gambar`, () => moveMediaUp(scope, mediaId));
 }
 
-export async function removeMediaAction(productId: number, mediaId: number) {
+export async function removeMediaAction(productId: number, mediaId: number, f: FormData) {
+  await requirePortalCsrf(f, `/seller/products/${productId}`);
   const scope = await sellerScope();
   const back = `/seller/products/${productId}`;
   await run(back, () => `${back}?saved=1#gambar`, async () => {

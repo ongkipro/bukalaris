@@ -1,4 +1,6 @@
 import { Pixels } from "@/components/pixels/pixels";
+import { cartCsrfToken } from "@/lib/auth-csrf";
+import { CsrfProvider } from "@/lib/auth-csrf-form";
 import { SignalEvent } from "@/components/pixels/runtime";
 import { mediaUrl } from "@/lib/media";
 import { signalsFor } from "@/lib/signals";
@@ -30,7 +32,7 @@ export default async function LandingPage({ params, searchParams }: PageProps<"/
   const signals = await signalsFor(scope.storeId);
   const viewed = lp.product?.status === "active" ? (lp.product.variants.find((v) => v.stock > 0) ?? lp.product.variants[0]) : undefined;
   return (
-    <>
+    <CsrfProvider token={await cartCsrfToken(scope)}>
       <Pixels storeId={scope.storeId} />
       {signals && viewed && <SignalEvent config={signals} store={scope.storeSlug} name="ViewContent" items={[{ id: viewed.catalogId, quantity: 1, price: viewed.price }]} value={viewed.price} />}
       <LandingRenderer
@@ -41,6 +43,6 @@ export default async function LandingPage({ params, searchParams }: PageProps<"/
         order={{ store: scope.storeSlug, signals, action: orderFromLanding.bind(null, store, slug) }}
         error={error}
       />
-    </>
+    </CsrfProvider>
   );
 }

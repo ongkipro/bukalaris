@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
@@ -68,6 +69,7 @@ export default async function AbandonedCartsPage({ searchParams }: PageProps<"/s
                     {c.items.length > 0 && <p className="text-muted-foreground">{c.items.map((i) => `${i.title} · ${i.variant} × ${i.quantity}`).join("; ")}</p>}
                   </div>
                   <form action={openWhatsApp} className="grid gap-1 sm:justify-items-end">
+        <CsrfField />
                     <input type="hidden" name="id" value={c.id} />
                     <SubmitButton size="sm" className="w-full sm:w-auto" pendingText="Membuka WA…" disabled={!c.hasPhone || !canRecover}>
                       {c.waOpenedAt ? "Hubungi lagi" : "Hubungi lewat WhatsApp"}

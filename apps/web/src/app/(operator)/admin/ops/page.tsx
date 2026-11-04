@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
@@ -108,6 +109,7 @@ export default async function OpsPage({ searchParams }: PageProps<"/admin/ops">)
                     {j.lastError && <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{j.lastError}</p>}
                     {canManage && j.status === "dead" && (j.requeueable ? (
                       <form className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+        <CsrfField />
                         <div className="grid gap-1.5">
                           <Label htmlFor={`rq-${j.id}`}>Alasan antre ulang (wajib)</Label>
                           <Input id={`rq-${j.id}`} name="reason" required minLength={3} maxLength={400} />
@@ -119,6 +121,7 @@ export default async function OpsPage({ searchParams }: PageProps<"/admin/ops">)
                     ))}
                     {canManage && j.status === "unknown" && (
                       <form className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
+        <CsrfField />
                         <div className="grid gap-1.5">
                           <Label htmlFor={`rs-${j.id}`}>Bukti hasil di sistem pemilik (wajib)</Label>
                           <Input id={`rs-${j.id}`} name="evidence" required minLength={3} maxLength={400} />

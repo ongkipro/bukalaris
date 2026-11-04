@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
@@ -33,6 +34,7 @@ export default async function SettingsPage({ searchParams }: PageProps<"/seller/
       />
       <Notice error={error} saved={saved} />
       <form action={updateSettingsAction} className="grid gap-6">
+        <CsrfField />
         <fieldset disabled={!owner} className="grid gap-4">
           <legend className="sr-only">Profil toko</legend>
           <div className="grid gap-2">

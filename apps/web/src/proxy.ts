@@ -1,6 +1,6 @@
-import { dispatchHostPath, surfaceOriginsFromEnv } from "@bukalaris/db/host";
+import { dispatchHostPath, resolveHostSurface, surfaceOriginsFromEnv } from "@bukalaris/db/host";
 import { NextResponse, type NextRequest } from "next/server";
-import { HOST_STORE_HEADER } from "./lib/host-header";
+import { HOST_STORE_HEADER, WWW_REDIRECT_HEADER } from "./lib/host-header";
 import { REQUEST_ID_COOKIE, REQUEST_ID_HEADER, validRequestId } from "./lib/request-id";
 import { CSP_HEADER, contentSecurityPolicy, HSTS_HEADER, HSTS_VALUE, newNonce, NONCE_HEADER } from "./lib/security-headers";
 
@@ -13,8 +13,19 @@ import { CSP_HEADER, contentSecurityPolicy, HSTS_HEADER, HSTS_VALUE, newNonce, N
  * live in next.config.ts, which is evaluated at build time).
  */
 export function proxy(request: NextRequest) {
+  // T-82 #31: after a successful hydrated Server Action redirect, Next renders the target with an internal
+  // fetch to its listener origin, so the app sees Host=localhost (one-host path mode, no session) while the
+  // browser's real host survives only in x-forwarded-host. Rendering that request would show the wrong surface
+  // (login, wrong CSRF binding). Refuse it instead: Next then sends the redirect without Flight data and the
+  // browser navigates itself with its real Host. x-forwarded-host is only ever used to REFUSE, never to choose
+  // a surface or grant authority, so a forged value can only deny the forger's own request.
+  if (misdirectedInternalRender(request)) {
+    // Traceable without echoing the forwarded value (review 089b6b7e).
+    return new NextResponse(null, { status: 421, headers: { "cache-control": "no-store", [REQUEST_ID_HEADER]: crypto.randomUUID() } });
+  }
   const headers = new Headers(request.headers);
   headers.delete(HOST_STORE_HEADER);
+  headers.delete(WWW_REDIRECT_HEADER);
   // Correlation id (OBS): minted here. An inbound x-request-id is honoured only with
   // TRUST_PROXY_REQUEST_ID=1, i.e. when the reverse proxy in front is known to set or overwrite
   // it; otherwise a client could pick the id its log lines carry. Never identity or authorization.
@@ -61,6 +72,13 @@ export function proxy(request: NextRequest) {
     return finish(NextResponse.rewrite(url, { status: 404, request: { headers } }));
   }
   if (decision.action === "redirect") {
+    if (decision.surface === "www") {
+      // Emit WWW Location from a route response, outside Next's middleware redirect relativization.
+      headers.set(WWW_REDIRECT_HEADER, decision.location);
+      const url = request.nextUrl.clone();
+      url.pathname = "/api/internal/www-redirect";
+      return finish(NextResponse.rewrite(url, { request: { headers } }));
+    }
     return finish(NextResponse.redirect(new URL(decision.location), decision.status));
   }
   if (decision.storeSlug) {
@@ -72,6 +90,20 @@ export function proxy(request: NextRequest) {
     return finish(NextResponse.rewrite(url, { request: { headers } }));
   }
   return finish(NextResponse.next({ request: { headers } }));
+}
+
+/**
+ * True when the first x-forwarded-host names a different surface than Host. Locally the internal render arrives as
+ * localhost (local_path); with a real root domain the same listener host resolves to `unknown`, so the comparison is
+ * by resolved surface rather than by "is localhost". Ordinary requests (Next sets x-forwarded-host = Host, and a
+ * Host-preserving reverse proxy does the same) never differ.
+ */
+function misdirectedInternalRender(request: NextRequest) {
+  const forwarded = request.headers.get("x-forwarded-host")?.split(",", 1)[0]?.trim();
+  if (!forwarded) return false;
+  const root = process.env.STORE_ROOT_DOMAIN ?? "localhost";
+  const key = (host: string | null) => JSON.stringify(resolveHostSurface(host, root));
+  return key(request.headers.get("host")) !== key(forwarded);
 }
 
 export const config = {

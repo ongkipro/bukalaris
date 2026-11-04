@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
@@ -49,6 +50,7 @@ export default async function CasesPage({ searchParams }: PageProps<"/admin/case
       </nav>
       {canWrite && (
         <form action={openCaseAction} className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2" aria-labelledby="buka-kasus">
+        <CsrfField />
           <h2 id="buka-kasus" className="text-base font-semibold sm:col-span-2">Buka kasus</h2>
           <div className="grid gap-1.5">
             <Label htmlFor="kind">Jenis</Label>

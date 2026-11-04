@@ -1,5 +1,6 @@
 "use client";
 
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { CopyButton } from "@/components/copy-button";
 import { Button } from "@/components/ui/button";
 import { useActionState } from "react";
@@ -37,6 +38,7 @@ export function FeedTokenForm({ hasToken }: { hasToken: boolean }) {
   }
   return (
     <form action={action} className="grid gap-2">
+        <CsrfField />
       {state?.error && (
         <p id="feed-error" role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">{state.error}</p>
       )}

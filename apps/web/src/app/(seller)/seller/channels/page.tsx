@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
@@ -62,6 +63,7 @@ export default async function ChannelsPage({ searchParams }: PageProps<"/seller/
                 <TableCell numeric>
                   {c.state !== "revoked" && (
                     <form action={revokeChannelAction.bind(null, c.id)}>
+        <CsrfField />
                       <ConfirmSubmit size="sm" variant="outline" aria-label={`Cabut ${c.name}`} message={`Cabut channel "${c.name}"? Storefront yang memakai token ini langsung berhenti bekerja dan token tidak bisa dipulihkan.`}>
                         Cabut
                       </ConfirmSubmit>

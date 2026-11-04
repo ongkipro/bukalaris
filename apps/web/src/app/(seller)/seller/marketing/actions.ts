@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { sellerScope } from "@/lib/context";
 import { userError } from "@/lib/errors";
 import { clearDestinationToken, createFeedToken, feedUrls, revokeFeedToken, saveDestination } from "@bukalaris/db";
@@ -13,7 +15,12 @@ const PAGE = "/seller/marketing";
 export type FeedTokenState = { urls?: { meta: string; google: string }; error?: string } | null;
 
 /** The one-time token travels only in the action result (never a URL, cookie or log), inside the two feed URLs. */
-export async function createFeedTokenAction(): Promise<FeedTokenState> {
+export async function createFeedTokenAction(_previous: FeedTokenState, f: FormData): Promise<FeedTokenState> {
+  try {
+    await requirePortalCsrf(f);
+  } catch (err) {
+    return { error: userError(err) };
+  }
   const scope = await sellerScope();
   try {
     const { token } = await createFeedToken(scope);
@@ -24,7 +31,8 @@ export async function createFeedTokenAction(): Promise<FeedTokenState> {
   }
 }
 
-export async function revokeFeedTokenAction() {
+export async function revokeFeedTokenAction(f: FormData) {
+  await requirePortalCsrf(f, "/seller/marketing");
   const scope = await sellerScope();
   await run(PAGE, () => `${PAGE}?saved=1`, () => revokeFeedToken(scope));
 }
@@ -33,6 +41,7 @@ export async function revokeFeedTokenAction() {
 
 /** Save one destination; the token field is write-only (blank keeps the stored token). */
 export async function saveDestinationAction(provider: string, f: FormData) {
+  await requirePortalCsrf(f, "/seller/marketing");
   const scope = await sellerScope();
   await run(PAGE, () => `${PAGE}?saved=1`, () =>
     saveDestination(scope, provider, {
@@ -45,7 +54,8 @@ export async function saveDestinationAction(provider: string, f: FormData) {
   );
 }
 
-export async function clearTokenAction(provider: string) {
+export async function clearTokenAction(provider: string, f: FormData) {
+  await requirePortalCsrf(f, "/seller/marketing");
   const scope = await sellerScope();
   await run(PAGE, () => `${PAGE}?saved=1`, () => clearDestinationToken(scope, provider));
 }

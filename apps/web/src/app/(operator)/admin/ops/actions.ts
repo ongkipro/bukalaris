@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { consoleActionOp } from "@/lib/console-gate";
 import { userError, withError } from "@/lib/errors";
 import { requeueDeadJob, resolveUnknownJob } from "@bukalaris/db";
@@ -12,6 +14,7 @@ export async function requeueJobAction(id: number, f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/ops", "ops.jobs.manage");
+    await requirePortalCsrf(f);
     await requeueDeadJob(op, { jobId: jobId(id), reason: String(f.get("reason") ?? "") });
   } catch (err) {
     error = userError(err);
@@ -24,6 +27,7 @@ export async function resolveJobAction(id: number, outcome: "effect_confirmed" |
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/ops", "ops.jobs.manage");
+    await requirePortalCsrf(f);
     await resolveUnknownJob(op, { jobId: jobId(id), outcome, evidence: String(f.get("evidence") ?? "") });
   } catch (err) {
     error = userError(err);

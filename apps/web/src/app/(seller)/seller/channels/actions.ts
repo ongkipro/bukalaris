@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { sellerScope } from "@/lib/context";
 import { userError, withError } from "@/lib/errors";
 import { createChannel, revokeChannel } from "@bukalaris/db";
@@ -10,6 +12,11 @@ export type CreateChannelState = { token?: string; prefix?: string; name?: strin
 
 /** Returns the one-time token in the action result only: it never enters a URL, cookie or log. */
 export async function createChannelAction(_prev: CreateChannelState, f: FormData): Promise<CreateChannelState> {
+  try {
+    await requirePortalCsrf(f);
+  } catch (err) {
+    return { error: userError(err) };
+  }
   const scope = await sellerScope();
   const input = {
     name: String(f.get("name") ?? ""),
@@ -26,7 +33,8 @@ export async function createChannelAction(_prev: CreateChannelState, f: FormData
   }
 }
 
-export async function revokeChannelAction(channelId: number) {
+export async function revokeChannelAction(channelId: number, f: FormData) {
+  await requirePortalCsrf(f, "/seller/channels");
   const scope = await sellerScope();
   let error: string | undefined;
   try {

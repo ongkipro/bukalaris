@@ -1,5 +1,6 @@
 import { expect, type Page, type TestInfo } from "@playwright/test";
-import { createHmac } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { createHmac, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -84,15 +85,25 @@ export function saveTotpSecret(email: string, secret: string) {
   writeFileSync(secretsFile, JSON.stringify({ ...totpSecrets(), [email]: secret }));
 }
 
+/** Resolve the current surface binding without logging the token or caching across session replacement. */
+export async function authHeaders(page: Page): Promise<Record<string, string>> {
+  const origin = new URL(page.url()).origin;
+  const issued = await page.request.get(`${origin}/api/auth/csrf-token`);
+  expect(issued.status(), "CSRF issuance status").toBe(200);
+  const body = await issued.json() as { token?: unknown };
+  if (typeof body.token !== "string") throw new Error("Expected a current CSRF binding");
+  return { origin, "x-bl-csrf": body.token };
+}
+
 /** Enrol TOTP through the HTTP routes for an already signed-in page (fallback when a spec needs an enrolled operator). */
 export async function enrolTotpViaApi(page: Page, email: string, password = DEV_PASSWORD) {
-  // Cookie-authenticated writes need the surface's exact Origin (DOM-6); a browser adds it, `page.request` does not.
-  const headers = { origin: new URL(page.url()).origin };
-  const enable = await page.request.post("/api/auth/two-factor/enable", { headers, data: { password, method: "totp" } });
+  // page.request has its own baseURL; use the actual page surface, including host-mode.
+  const origin = new URL(page.url()).origin;
+  const enable = await page.request.post(`${origin}/api/auth/two-factor/enable`, { headers: await authHeaders(page), data: { password, method: "totp" } });
   expect(enable.ok(), `two-factor/enable ${enable.status()}`).toBeTruthy();
   const { totpURI } = (await enable.json()) as { totpURI: string };
   const secret = new URL(totpURI).searchParams.get("secret")!;
-  const verify = await page.request.post("/api/auth/two-factor/verify-totp", { headers, data: { code: totp(secret) } });
+  const verify = await page.request.post(`${origin}/api/auth/two-factor/verify-totp`, { headers: await authHeaders(page), data: { code: totp(secret) } });
   expect(verify.ok(), `two-factor/verify-totp ${verify.status()}`).toBeTruthy();
   saveTotpSecret(email, secret);
   return secret;
@@ -162,4 +173,57 @@ let phoneSeq = 0;
 export function testPhone(): string {
   const n = (Date.now() % 1e6) * 100 + (phoneSeq++ % 100) + process.pid % 7;
   return `0812${String(n).padStart(8, "0").slice(-8)}`;
+}
+
+// ---------------------------------------------------------------------------
+// Disposable fixture owners (T-82). Specs that change persistent auth state (TOTP enrolment, memberships)
+// must not reuse the shared seed users: a later project in the same run would inherit that state.
+// Same pattern as t37.spec: the platform pool through a child process, never the application under test.
+// ---------------------------------------------------------------------------
+const FIXTURE_DB_CWD = resolve(process.cwd(), "../../packages/db");
+function fixtureDb<T>(body: string): T {
+  const script = `
+    import { createDb } from "./src/client.ts";
+    import { randomUUID } from "node:crypto";
+    import { hashPassword } from "better-auth/crypto";
+    import { account, user } from "./src/schema.ts";
+    import { createStore } from "./src/platform/platform.ts";
+    import { operatorScope } from "./src/platform/scoped.ts";
+    const db = createDb(process.env.E2E_PLATFORM_DATABASE_URL);
+    const admin = createDb(process.env.E2E_DATABASE_URL);
+    const out = await (async () => { ${body} })();
+    await db.$client.end();
+    await admin.$client.end();
+    console.log("@@" + JSON.stringify(out ?? null));
+  `;
+  const stdout = execFileSync("node", ["--input-type=module", "-e", script], { cwd: FIXTURE_DB_CWD, env: process.env, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
+  return JSON.parse(stdout.slice(stdout.lastIndexOf("@@") + 2)) as T;
+}
+
+const fixtureTag = () => `${Date.now().toString(36)}${randomBytes(2).toString("hex")}`;
+
+/** A user with the dev password and no membership. */
+export function seedFixtureUser(prefix: string): string {
+  const email = `${prefix}-${fixtureTag()}@bukalaris.local`;
+  fixtureDb(`
+    const id = randomUUID();
+    await db.insert(user).values({ id, email: ${JSON.stringify(email)}, name: ${JSON.stringify(prefix)}, emailVerified: true });
+    await db.insert(account).values({ id: randomUUID(), accountId: id, providerId: "credential", userId: id, password: await hashPassword(${JSON.stringify(DEV_PASSWORD)}) });
+  `);
+  return email;
+}
+
+/** A fresh store (trial, writable) with its own owner, created through createStore like an operator would. */
+export function seedFixtureStore(prefix: string): { email: string; slug: string; name: string } {
+  const slug = `${prefix}-${fixtureTag()}`;
+  const email = `${slug}@bukalaris.local`;
+  fixtureDb(`
+    const adminUser = (await admin.$client.unsafe("select id from \\"user\\" where email = 'admin@bukalaris.local'"))[0].id;
+    const op = await operatorScope(db, adminUser);
+    const id = randomUUID();
+    await db.insert(user).values({ id, email: ${JSON.stringify(email)}, name: ${JSON.stringify(`Pemilik ${slug}`)}, emailVerified: true });
+    await db.insert(account).values({ id: randomUUID(), accountId: id, providerId: "credential", userId: id, password: await hashPassword(${JSON.stringify(DEV_PASSWORD)}) });
+    return await createStore(op, { slug: ${JSON.stringify(slug)}, name: ${JSON.stringify(`Toko ${slug}`)}, ownerUserId: id });
+  `);
+  return { email, slug, name: `Toko ${slug}` };
 }

@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
@@ -101,6 +102,7 @@ export default async function AdminBillingPage({ searchParams }: PageProps<"/adm
         <section aria-labelledby="buat" className="grid gap-3">
           <h2 id="buat" className="text-lg font-semibold">Buat tagihan manual</h2>
           <form action={createInvoiceAction} className="grid gap-3 rounded-lg border p-4 md:grid-cols-3">
+        <CsrfField />
             <div className={field}>
               <Label htmlFor="storeId">ID toko</Label>
               <Input id="storeId" name="storeId" type="number" min={1} required />
@@ -126,12 +128,14 @@ export default async function AdminBillingPage({ searchParams }: PageProps<"/adm
           <h2 id="comp" className="text-lg font-semibold">Comp (masa aktif gratis)</h2>
           <p className="text-sm text-muted-foreground">Tagihan Rp0 berjenis comp dengan periode tertentu: bukan pendapatan dan tanpa instruksi pembayaran. Butuh persetujuan orang kedua. Tagihan belum dibayar pada periode itu dibatalkan; periode yang sudah dibayar tidak diubah.</p>
           <form action={requestCompAction} className="grid gap-3 rounded-lg border p-4 md:grid-cols-3" aria-label="Ajukan comp">
+        <CsrfField />
             <div className={field}><Label htmlFor="comp-store">ID toko</Label><Input id="comp-store" name="storeId" type="number" min={1} required /></div>
             <div className={field}><Label htmlFor="comp-period">Periode ke-</Label><Input id="comp-period" name="periodIndex" type="number" min={0} required /></div>
             <div className={field}><Label htmlFor="comp-reason">Alasan</Label><Input id="comp-reason" name="reason" required minLength={5} maxLength={500} /></div>
             <div className="md:col-span-3"><SubmitButton>Ajukan comp</SubmitButton></div>
           </form>
           <form action={grantCompAction} className="grid gap-3 rounded-lg border p-4 md:grid-cols-4" aria-label="Jalankan comp yang disetujui">
+        <CsrfField />
             <div className={field}><Label htmlFor="g-store">ID toko</Label><Input id="g-store" name="storeId" type="number" min={1} required /></div>
             <div className={field}><Label htmlFor="g-period">Periode ke-</Label><Input id="g-period" name="periodIndex" type="number" min={0} required /></div>
             <div className={field}><Label htmlFor="g-approval">Nomor persetujuan</Label><Input id="g-approval" name="approvalId" type="number" min={1} required /></div>
@@ -146,17 +150,20 @@ export default async function AdminBillingPage({ searchParams }: PageProps<"/adm
           <h2 id="harga" className="text-lg font-semibold">Harga paket dan hari percobaan/tenggang</h2>
           <p className="text-sm text-muted-foreground">Perubahan hanya berlaku untuk tagihan yang dibuat sesudahnya; tagihan yang sudah terbit tidak berubah. Harga butuh persetujuan orang kedua.</p>
           <form action={requestPriceAction} className="grid gap-3 rounded-lg border p-4 md:grid-cols-3" aria-label="Ajukan harga baru">
+        <CsrfField />
             <div className={field}><Label htmlFor="p-price">Harga DPP baru (Rp)</Label><Input id="p-price" name="monthlyDppIdr" type="number" min={1} step={1} required /></div>
             <div className={`${field} md:col-span-2`}><Label htmlFor="p-reason">Alasan</Label><Input id="p-reason" name="reason" required minLength={5} maxLength={500} /></div>
             <div className="md:col-span-3"><SubmitButton>Ajukan harga</SubmitButton></div>
           </form>
           <form action={changePriceAction} className="grid gap-3 rounded-lg border p-4 md:grid-cols-3" aria-label="Jalankan harga yang disetujui">
+        <CsrfField />
             <div className={field}><Label htmlFor="pp-price">Harga DPP (Rp)</Label><Input id="pp-price" name="monthlyDppIdr" type="number" min={1} step={1} required /></div>
             <div className={field}><Label htmlFor="pp-approval">Nomor persetujuan</Label><Input id="pp-approval" name="approvalId" type="number" min={1} required /></div>
             <div className={field}><Label htmlFor="pp-reason">Alasan</Label><Input id="pp-reason" name="reason" required minLength={5} maxLength={500} /></div>
             <div className="md:col-span-3"><ConfirmSubmit message="Terapkan harga baru untuk tagihan berikutnya?" variant="outline">Jalankan perubahan harga</ConfirmSubmit></div>
           </form>
           <form action={changeDaysAction} className="grid gap-3 rounded-lg border p-4 md:grid-cols-3" aria-label="Hari percobaan dan tenggang">
+        <CsrfField />
             <div className={field}><Label htmlFor="d-trial">Hari percobaan</Label><Input id="d-trial" name="trialDays" type="number" min={0} max={60} defaultValue={o.plan.trialDays} required /></div>
             <div className={field}><Label htmlFor="d-grace">Hari tenggang</Label><Input id="d-grace" name="graceDays" type="number" min={0} max={60} defaultValue={o.plan.graceDays} required /></div>
             <div className={field}><Label htmlFor="d-reason">Alasan</Label><Input id="d-reason" name="reason" required minLength={5} maxLength={500} /></div>
@@ -170,6 +177,7 @@ export default async function AdminBillingPage({ searchParams }: PageProps<"/adm
           <h2 id="ppn" className="text-lg font-semibold">Saklar PPN</h2>
           <p className="text-sm text-muted-foreground">PPN mati secara bawaan. Menyalakan hanya berlaku untuk tagihan baru dan butuh kebijakan PPN keluaran (vat_output) yang berlaku dan terkonfirmasi; tarifnya selalu nilai kebijakan itu, tidak pernah angka tetap. Dokumen hukum, pajak dan status PKP adalah tanggung jawab pemilik.</p>
           <form action={setPpnAction} className="grid gap-3 rounded-lg border p-4" aria-label="Saklar PPN">
+        <CsrfField />
             <input type="hidden" name="enabled" value={o.plan.ppnEnabled ? "0" : "1"} />
             <div className={field}><Label htmlFor="ppn-reason">Alasan</Label><Input id="ppn-reason" name="reason" required minLength={5} maxLength={500} /></div>
             <label className="flex items-start gap-2 text-sm"><input type="checkbox" name="confirmed" required className="mt-1" /> <span>Saya paham bahwa dokumen hukum, pajak dan status PKP adalah tanggung jawab pemilik, dan perubahan ini hanya berlaku untuk tagihan baru.</span></label>
@@ -182,6 +190,7 @@ export default async function AdminBillingPage({ searchParams }: PageProps<"/adm
         <section aria-labelledby="kontrol" className="grid gap-3">
           <h2 id="kontrol" className="text-lg font-semibold">Kontrol cron</h2>
           <form action={setControlsAction} className="grid gap-3 rounded-lg border p-4" aria-label="Kontrol cron tagihan">
+        <CsrfField />
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="jobsFrozen" defaultChecked={o.controls.jobsFrozen} /> Bekukan cron tagihan (setelah pemulihan basis data)</label>
             <label className="flex items-center gap-2 text-sm"><input type="checkbox" name="dunningEnabled" defaultChecked={o.controls.dunningEnabled} /> Jadwalkan pengingat surel (butuh pengiriman surel nyata yang terbukti; hingga itu hanya niat di kotak keluar)</label>
             <div className={field}><Label htmlFor="c-reason">Alasan</Label><Input id="c-reason" name="reason" required minLength={5} maxLength={500} /></div>

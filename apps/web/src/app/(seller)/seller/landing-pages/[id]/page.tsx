@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import "@/app/(storefront)/s/[store]/lp/lp.css";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { Notice } from "@/components/notice";
@@ -54,11 +55,13 @@ export default async function LandingPageEditor({ params, searchParams }: PagePr
           <>
             <Link href={`/seller/landing-pages/${p.id}/preview`} className={buttonVariants({ variant: "outline" })}>Pratinjau draf</Link>
             <form action={publishAction.bind(null, p.id)}>
+        <CsrfField />
               <input type="hidden" name="expectedRevisionId" value={p.draft.id} />
               <SubmitButton pendingText="Mempublikasikan…" disabled={upToDate} title={upToDate ? "Draf sudah dipublikasikan" : undefined}>{live ? "Publikasikan draf" : "Publikasikan"}</SubmitButton>
             </form>
             {live && (
               <form action={unpublishAction.bind(null, p.id)}>
+        <CsrfField />
                 <ConfirmSubmit variant="destructive" message={`Tarik “${p.title}” dari publik? Alamat ${url} akan menjadi 404; draf tetap tersimpan.`}>Tarik dari publik</ConfirmSubmit>
               </form>
             )}
@@ -68,6 +71,7 @@ export default async function LandingPageEditor({ params, searchParams }: PagePr
       <Notice error={error} saved={savedKey} savedText={savedText[savedKey ?? "1"] ?? "Tersimpan."} />
 
       <form action={updateSettingsAction.bind(null, p.id)} className="grid gap-4 rounded-lg border bg-muted/30 p-4 sm:p-5" aria-labelledby="pengaturan">
+        <CsrfField />
         <h2 id="pengaturan" className="font-medium">Pengaturan halaman</h2>
         <input type="hidden" name="expectedRevisionId" value={p.draft.id} />
         <div className="grid gap-4 sm:grid-cols-2">

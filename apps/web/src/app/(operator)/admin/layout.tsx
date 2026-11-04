@@ -1,4 +1,6 @@
 import { signOut } from "@/app/(identity)/login/actions";
+import { portalCsrfToken } from "@/lib/auth-csrf";
+import { CsrfProvider } from "@/lib/auth-csrf-form";
 import { AdminShell, ShellNotice } from "@/components/admin-shell";
 import { ReportIssue } from "@/components/report-issue";
 import { operator } from "@/lib/context";
@@ -12,19 +14,22 @@ export const metadata = { title: { default: "Owner Console — Bukalaris", templ
 // items never appear. It decides only what is shown; every page and action runs the console gate itself.
 export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
   const { user, op, caps } = await operator();
+  const csrfToken = await portalCsrfToken();
   return (
+    <CsrfProvider token={csrfToken}>
     <AdminShell
       tone="platform"
       brand="Owner"
       home="/admin"
       email={user.email}
-      signOut={signOut}
+      signOut={signOut.bind(null, csrfToken)}
       navLabel="Owner console"
       groups={op ? consoleNavigation(caps) : []}
-      actions={op && caps.includes("ops.issues.report") ? <ReportIssue surface="owner" submit={reportIssueAction} /> : undefined}
+      actions={op && caps.includes("ops.issues.report") ? <ReportIssue surface="owner" submit={reportIssueAction.bind(null, csrfToken)} /> : undefined}
       context={op && <span className="rounded-md border border-current/30 px-2 py-0.5 text-xs">Owner console</span>}
     >
       {op ? children : <ShellNotice title="Akses ditolak.">Halaman ini khusus staf Owner console.</ShellNotice>}
     </AdminShell>
+    </CsrfProvider>
   );
 }

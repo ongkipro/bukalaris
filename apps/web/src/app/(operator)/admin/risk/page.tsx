@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
@@ -46,6 +47,7 @@ export default async function RiskPage({ searchParams }: PageProps<"/admin/risk"
               <p className="text-xs text-muted-foreground">Sumber: {ruleOf(f.key)?.source}{f.oldestAt ? <> · tertua <time dateTime={f.oldestAt.toISOString()}>{tanggal(f.oldestAt)}</time></> : null}{f.acknowledged ? <> · diakui sampai <time dateTime={f.acknowledged.until.toISOString()}>{tanggal(f.acknowledged.until)}</time></> : null}</p>
               {canAck && !f.acknowledged && (
                 <form action={acknowledgeRiskAction.bind(null, f.storeId, f.key)} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_auto] sm:items-end">
+        <CsrfField />
                   <div className="grid gap-1.5"><Label htmlFor={`alasan-${f.storeId}-${f.key}`}>Alasan pengakuan</Label><Input id={`alasan-${f.storeId}-${f.key}`} name="reason" required minLength={5} maxLength={500} /></div>
                   <div className="grid gap-1.5"><Label htmlFor={`jam-${f.storeId}-${f.key}`}>Jam</Label><Input id={`jam-${f.storeId}-${f.key}`} name="hours" type="number" min={1} max={2160} defaultValue={24} required /></div>
                   <SubmitButton variant="outline" pendingText="Menyimpan…">Akui</SubmitButton>

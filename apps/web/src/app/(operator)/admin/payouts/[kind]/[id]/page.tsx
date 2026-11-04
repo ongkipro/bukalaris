@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
@@ -120,6 +121,7 @@ export default async function TransferDetailPage({ params, searchParams }: PageP
           <>
             {readyApprove ? (
               <form action={executeApprovalAction.bind(null, kind, id)} className="grid gap-2 rounded-lg border p-4" data-testid="execute-approval">
+        <CsrfField />
                 <p className="text-sm">Persetujuan orang kedua sudah ada. Jalankan: pindahkan ke <strong>sedang ditransfer</strong>.</p>
                 <div><SubmitButton pendingText="Menjalankan…">Setujui untuk transfer</SubmitButton></div>
               </form>
@@ -127,6 +129,7 @@ export default async function TransferDetailPage({ params, searchParams }: PageP
               <p className="rounded-lg border p-4 text-sm text-muted-foreground" data-testid="waiting-approval">Menunggu persetujuan orang kedua di Persetujuan.</p>
             ) : (
               <form action={requestApprovalAction.bind(null, kind, id)} className="grid gap-2 rounded-lg border p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" data-testid="request-approval">
+        <CsrfField />
                 <div className="grid gap-1.5">
                   <Label htmlFor="approve-reason">Alasan permintaan persetujuan transfer</Label>
                   <Input id="approve-reason" name="reason" required minLength={5} maxLength={500} />
@@ -137,6 +140,7 @@ export default async function TransferDetailPage({ params, searchParams }: PageP
             )}
             {kind === "payout" && (
               <form action={rejectDirectAction.bind(null, kind, id)} className="grid gap-2 rounded-lg border p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" data-testid="reject-direct">
+        <CsrfField />
                 <div className="grid gap-1.5">
                   <Label htmlFor="reject-reason">Tolak penarikan (alasan wajib; dana seller dikembalikan tepat)</Label>
                   <Input id="reject-reason" name="reason" required minLength={5} maxLength={500} />
@@ -151,12 +155,14 @@ export default async function TransferDetailPage({ params, searchParams }: PageP
           <>
             {!claimLive && !d.transferUnknownAt && (
               <form action={claimAction.bind(null, kind, id)} className="grid gap-2 rounded-lg border p-4" data-testid="claim">
+        <CsrfField />
                 <p className="text-sm">Klaim eksklusif 30 menit (butuh verifikasi dua langkah di sesi ini dalam 5 menit terakhir) sebelum Anda mentransfer.</p>
                 <div><SubmitButton pendingText="Mengklaim…">Klaim transfer ini</SubmitButton></div>
               </form>
             )}
             {(claimLive || iAmReporter) && (
               <form action={completeAction.bind(null, kind, id)} encType="multipart/form-data" className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2" data-testid="complete">
+        <CsrfField />
                 <div className="grid gap-1.5">
                   <Label htmlFor="evidenceRef">Referensi transfer bank</Label>
                   <Input id="evidenceRef" name="evidenceRef" required minLength={6} maxLength={120} autoComplete="off" />
@@ -171,12 +177,14 @@ export default async function TransferDetailPage({ params, searchParams }: PageP
             )}
             {claimLive && !d.transferUnknownAt && (
               <form action={unknownAction.bind(null, kind, id)} className="grid gap-2 rounded-lg border p-4" data-testid="unknown">
+        <CsrfField />
                 <p className="text-sm">Bank timeout atau layar ambigu? Catat hasil <strong>tidak diketahui</strong>. Dana tetap dialokasikan dan transfer ini tidak bisa diklaim lagi atau dikirim ulang.</p>
                 <div><SubmitButton variant="outline" pendingText="Mencatat…">Hasil transfer tidak diketahui</SubmitButton></div>
               </form>
             )}
             {readyReject ? (
               <form action={executeRejectAction.bind(null, kind, id)} className="grid gap-2 rounded-lg border p-4" data-testid="execute-reject">
+                <CsrfField />
                 <input type="hidden" name="approvalId" value={readyReject.id} />
                 <p className="text-sm">Orang kedua menyetujui pernyataan <em>tidak ada transfer yang terkirim</em>. Jalankan penolakan{kind === "payout" ? "; dana seller dikembalikan tepat sekali." : "."}</p>
                 <div><SubmitButton variant="destructive" pendingText="Menjalankan…">Jalankan penolakan</SubmitButton></div>
@@ -185,6 +193,7 @@ export default async function TransferDetailPage({ params, searchParams }: PageP
               <p className="rounded-lg border p-4 text-sm text-muted-foreground">Penolakan menunggu persetujuan orang kedua di Persetujuan.</p>
             ) : (
               <form action={requestRejectAction.bind(null, kind, id)} className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2" data-testid="request-reject">
+        <CsrfField />
                 <p className="text-sm sm:col-span-2">Menolak setelah disetujui berarti menyatakan bahwa <strong>tidak ada transfer yang terkirim</strong>. Itu butuh bukti bank dan persetujuan orang kedua.</p>
                 <div className="grid gap-1.5"><Label htmlFor="rej-reason">Alasan</Label><Input id="rej-reason" name="reason" required minLength={5} maxLength={500} /></div>
                 <div className="grid gap-1.5"><Label htmlFor="rej-ref">Referensi bukti bank (tidak ada transfer)</Label><Input id="rej-ref" name="noTransferEvidenceRef" required minLength={6} maxLength={120} autoComplete="off" /></div>
@@ -197,6 +206,7 @@ export default async function TransferDetailPage({ params, searchParams }: PageP
         {kind === "refund" && d.status === "pending" && (
           readyReject ? (
             <form action={executeRejectAction.bind(null, kind, id)} className="grid gap-2 rounded-lg border p-4" data-testid="execute-reject">
+              <CsrfField />
               <input type="hidden" name="approvalId" value={readyReject.id} />
               <p className="text-sm">Orang kedua menyetujui kegagalan refund ini. Dana pembeli tetap tercatat sebagai kewajiban (refund gagal) sampai dibuka kembali.</p>
               <div><SubmitButton variant="destructive" pendingText="Menjalankan…">Jalankan: refund gagal</SubmitButton></div>
@@ -205,6 +215,7 @@ export default async function TransferDetailPage({ params, searchParams }: PageP
             <p className="rounded-lg border p-4 text-sm text-muted-foreground">Kegagalan refund menunggu persetujuan orang kedua di Persetujuan.</p>
           ) : (
             <form action={requestRejectAction.bind(null, kind, id)} className="grid gap-2 rounded-lg border p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" data-testid="request-reject">
+        <CsrfField />
               <div className="grid gap-1.5"><Label htmlFor="fail-reason">Nyatakan refund gagal (alasan; butuh orang kedua)</Label><Input id="fail-reason" name="reason" required minLength={5} maxLength={500} /></div>
               <SubmitButton variant="outline" pendingText="Mengirim…">Minta persetujuan gagal</SubmitButton>
             </form>
@@ -213,6 +224,7 @@ export default async function TransferDetailPage({ params, searchParams }: PageP
 
         {kind === "refund" && d.status === "failed" && (
           <form action={reopenRefundAction.bind(null, id)} className="grid gap-2 rounded-lg border p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" data-testid="reopen">
+        <CsrfField />
             <div className="grid gap-1.5"><Label htmlFor="reopen-reason">Buka kembali refund ini (pembeli tetap berhak atas dananya)</Label><Input id="reopen-reason" name="reason" required minLength={5} maxLength={500} /></div>
             <SubmitButton pendingText="Membuka…">Buka kembali</SubmitButton>
           </form>

@@ -10,6 +10,9 @@ if (existsSync("../../.env")) process.loadEnvFile("../../.env");
 const PORT = Number(process.env.E2E_PORT ?? 3100);
 // ops.spec and security-headers.spec start their own servers on PORT + 1 and PORT + 2; the host-mode server takes PORT + 3.
 const HOST_PORT = PORT + 3;
+// Match Next\'s normalized loopback origin without opening a non-loopback listener.
+// Keep other caller Node options; the final DNS option pins localhost to IPv4 first.
+const LOCAL_SERVER_ENV = { HOSTNAME: "localhost", NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --dns-result-order=ipv4first`.trim() };
 // Per-run throwaway key for the encrypted ad-platform tokens (T-38): e2e never depends on, or
 // reuses, a developer's local secret. The disposable e2e database is wiped every run anyway.
 // Set on process.env so the web server, the worker and any server a spec spawns share it.
@@ -64,7 +67,7 @@ export default defineConfig({
       command: `PORT=${PORT} NEXT_TELEMETRY_DISABLED=1 pnpm start:standalone`,
       // Better Auth's origin check compares against BETTER_AUTH_URL, so it must match this port.
       // Disposable upload directory next to the disposable database (wiped by global-setup).
-      env: { DATABASE_URL: APP_DB, PLATFORM_DATABASE_URL: PLATFORM_DB, BETTER_AUTH_URL: `http://localhost:${PORT}`, MEDIA_DIR: resolve("var/e2e-media") },
+      env: { ...LOCAL_SERVER_ENV, DATABASE_URL: APP_DB, PLATFORM_DATABASE_URL: PLATFORM_DB, BETTER_AUTH_URL: `http://localhost:${PORT}`, MEDIA_DIR: resolve("var/e2e-media") },
       url: `http://localhost:${PORT}/api/health`,
       // Never reuse a server that may point at the dev database.
       reuseExistingServer: false,
@@ -75,6 +78,7 @@ export default defineConfig({
       // once for the first server; this one only runs the already prepared standalone server.
       command: `PORT=${HOST_PORT} NEXT_TELEMETRY_DISABLED=1 node .next/standalone/apps/web/server.js`,
       env: {
+        ...LOCAL_SERVER_ENV,
         DATABASE_URL: APP_DB,
         PLATFORM_DATABASE_URL: PLATFORM_DB,
         BETTER_AUTH_URL: `http://localhost:${HOST_PORT}`,

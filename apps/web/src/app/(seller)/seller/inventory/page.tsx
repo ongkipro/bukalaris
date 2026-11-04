@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
@@ -54,6 +55,7 @@ export default async function InventoryPage({ searchParams }: PageProps<"/seller
                 </div>
                 {write && (
                   <form action={adjustStockAction.bind(null, v.variantId)} className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2 sm:flex sm:flex-wrap sm:items-center">
+        <CsrfField />
                     <label htmlFor={`delta-${v.variantId}`} className="sr-only">Perubahan stok {v.productTitle} {v.variantTitle}</label>
                     <Input id={`delta-${v.variantId}`} name="delta" type="number" inputMode="numeric" step={1} required placeholder="+/-" className="tabular-nums sm:w-24" aria-describedby={`delta-help-${v.variantId}`} />
                     <label htmlFor={`reason-${v.variantId}`} className="sr-only">Alasan perubahan {v.productTitle} {v.variantTitle}</label>

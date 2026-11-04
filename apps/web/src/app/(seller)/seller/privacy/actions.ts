@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { redactCheckoutSessions, redactOrders } from "@bukalaris/db";
 import { sellerScope } from "@/lib/context";
 import { run, text } from "../_run";
@@ -8,6 +10,7 @@ const PAGE = "/seller/privacy";
 
 /** Redact the checked orders; the result page keeps the search so the owner sees the rows marked. */
 export async function redactAction(f: FormData) {
+  await requirePortalCsrf(f, "/seller/privacy");
   const scope = await sellerScope();
   const q = text(f, "q");
   const back = `${PAGE}?q=${encodeURIComponent(q)}`;
@@ -20,6 +23,7 @@ export async function redactAction(f: FormData) {
 
 /** T-45: redact the typed contact of this buyer's abandoned checkout sessions (a buyer who never ordered has no order to select). */
 export async function redactSessionsAction(f: FormData) {
+  await requirePortalCsrf(f, "/seller/privacy");
   const scope = await sellerScope();
   const q = text(f, "q");
   const back = `${PAGE}?q=${encodeURIComponent(q)}`;

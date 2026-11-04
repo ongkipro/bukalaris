@@ -1,4 +1,6 @@
 import { fieldClass, Notice } from "@/components/notice";
+
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { SubmitButton } from "@/components/submit-button";
 import { Label } from "@/components/ui/label";
 import { SignalEvent } from "@/components/pixels/runtime";
@@ -95,6 +97,7 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
           <p role="status" className="rounded-lg bg-muted p-3 font-medium">Stok habis.</p>
         ) : (
           <form action={addToCart.bind(null, store, `/products/${slug}`)} className="grid gap-5">
+            <CsrfField />
             <fieldset className="grid gap-2">
               <legend className="mb-2 text-sm font-medium">Varian</legend>
               {p.variants.map((v) => (

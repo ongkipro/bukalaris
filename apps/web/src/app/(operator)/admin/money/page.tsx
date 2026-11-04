@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
@@ -111,6 +112,7 @@ export default async function MoneyPage({ searchParams }: PageProps<"/admin/mone
           <h2 id="adjust" className="text-lg font-semibold">Penyesuaian manual (empat mata)</h2>
           <p className="text-sm text-muted-foreground">Satu baris buku besar dengan referensi bisnis unik. Orang kedua menyetujui jumlah persis di Persetujuan; penyesuaian negatif ditolak bila membuat Saldo Tersedia negatif.</p>
           <form className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2" aria-label="Penyesuaian manual">
+        <CsrfField />
             <div className="grid gap-1.5"><Label htmlFor="adj-store">ID toko</Label><Input id="adj-store" name="storeId" inputMode="numeric" required /></div>
             <div className="grid gap-1.5"><Label htmlFor="adj-amount">Jumlah (Rp, boleh negatif)</Label><Input id="adj-amount" name="amountIdr" inputMode="numeric" required /></div>
             <div className="grid gap-1.5"><Label htmlFor="adj-ref">Referensi bisnis (unik)</Label><Input id="adj-ref" name="businessRef" required minLength={4} maxLength={80} /></div>

@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
@@ -119,6 +120,7 @@ export default async function ApprovalsPage({ searchParams }: PageProps<"/admin/
                     </p>
                   ) : (
                     <form className="grid gap-2 rounded-md border bg-muted/20 p-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
+        <CsrfField />
                       <div className="grid gap-1.5">
                         <Label htmlFor={`reason-${a.id}`}>Alasan keputusan (wajib)</Label>
                         <Input id={`reason-${a.id}`} name="reason" required minLength={5} maxLength={500} aria-describedby={`stepup-${a.id}`} />

@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
@@ -96,6 +97,7 @@ export default async function SellerPrivacyPage({ searchParams }: PageProps<"/se
 
           {found && found.orders.length > 0 && (
             <form action={redactAction} className="grid gap-4" data-testid="privacy-results">
+        <CsrfField />
               <input type="hidden" name="q" value={keyword} />
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm text-muted-foreground">
@@ -171,6 +173,7 @@ export default async function SellerPrivacyPage({ searchParams }: PageProps<"/se
 
           {found && found.sessions > 0 && (
             <form action={redactSessionsAction} className="grid gap-3 rounded-lg border p-4" data-testid="privacy-sessions">
+        <CsrfField />
               <input type="hidden" name="q" value={keyword} />
               <p className="text-sm">
                 {found.sessions} keranjang tertinggal masih menyimpan {found.key.kind === "phone" ? "nomor" : "email"} ini (yang diketik pembeli di checkout sebelum memesan). Data ini ikut diekspor dan otomatis dihapus 30 hari setelah dibuat.

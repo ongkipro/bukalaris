@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { SubmitButton } from "@/components/submit-button";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -32,6 +33,7 @@ export function PayForm({ channels, invoiceId, label }: { channels: { code: stri
   if (channels.length === 0) return <p role="note" className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">Metode pembayaran sedang tidak tersedia. Coba lagi sebentar.</p>;
   return (
     <form action={payAction} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" data-testid="billing-pay-form">
+        <CsrfField />
       {invoiceId && <input type="hidden" name="invoiceId" value={invoiceId} />}
       <div className="grid gap-1.5">
         <Label htmlFor={`channel-${invoiceId ?? "now"}`}>Metode pembayaran</Label>

@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
@@ -115,6 +116,7 @@ function FeedSection({ feeds }: { feeds: FeedSettings }) {
         <FeedTokenForm hasToken={feeds.token !== null} />
         {feeds.token && (
           <form action={revokeFeedTokenAction}>
+        <CsrfField />
             <ConfirmSubmit variant="outline" message="Cabut token feed? Meta dan Google tidak bisa lagi mengambil katalog sampai Anda membuat token baru dan memperbaruinya di sana.">
               Cabut token feed
             </ConfirmSubmit>
@@ -136,6 +138,7 @@ function DestinationCard({ provider, current, health }: { provider: SignalProvid
         <StatusBadge label={current?.enabled ? "Aktif" : "Nonaktif"} tone={current?.enabled ? "success" : "secondary"} />
       </div>
       <form action={save} className="grid gap-3">
+        <CsrfField />
         <div className="grid gap-1.5">
           <Label htmlFor={`${provider}-pixelId`}>{c.idLabel}</Label>
           <Input id={`${provider}-pixelId`} name="pixelId" defaultValue={current?.pixelId ?? ""} required maxLength={40} autoComplete="off" aria-describedby={`${provider}-id-hint`} />
@@ -179,6 +182,7 @@ function DestinationCard({ provider, current, health }: { provider: SignalProvid
       </form>
       {current?.hasToken && (
         <form action={clear}>
+        <CsrfField />
           <ConfirmSubmit variant="outline" size="sm" message={`Hapus token server ${c.title}? Pengiriman event server ke ${c.title} berhenti sampai Anda mengisi token baru.`}>
             Hapus token server
           </ConfirmSubmit>

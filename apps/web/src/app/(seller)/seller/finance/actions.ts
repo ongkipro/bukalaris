@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { requestPayout, setPayoutDestination } from "@bukalaris/db";
 import { sellerScope } from "@/lib/context";
 import { userError, withError } from "@/lib/errors";
@@ -15,6 +17,7 @@ const BACK = "/seller/finance";
  * HELD (72 hours by default) and the previous contact is notified.
  */
 export async function setDestinationAction(f: FormData) {
+  await requirePortalCsrf(f, "/seller/finance");
   const scope = await sellerScope();
   let error: string | undefined;
   try {
@@ -31,6 +34,7 @@ export async function setDestinationAction(f: FormData) {
  * that key. Amount, minimum, balance, destination hold and the post-restore freeze are all checked by the service inside one locked transaction.
  */
 export async function requestPayoutAction(f: FormData) {
+  await requirePortalCsrf(f, "/seller/finance");
   const scope = await sellerScope();
   const requestKey = text(f, "requestKey");
   let error: string | undefined;

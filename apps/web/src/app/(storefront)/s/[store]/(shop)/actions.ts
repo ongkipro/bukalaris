@@ -1,5 +1,7 @@
 "use server";
 
+import { requireCartCsrf } from "@/lib/auth-csrf";
+
 import { db, limitCartMutation, setCartLine, storefrontScope } from "@bukalaris/db";
 import { userError, withError } from "@/lib/errors";
 import { HOST_STORE_HEADER } from "@/lib/host-header";
@@ -15,6 +17,7 @@ async function cartMutation(storeSlug: string, back: string, f: FormData, mode: 
   let error: string | undefined;
   try {
     const current = jar.get(cartCookie(scope.storeId))?.value;
+    await requireCartCsrf(scope, f);
     await limitCartMutation(db(), { clientIp: await clientIp(), cartId: current }); // T-30
     const cartId = await setCartLine(scope, current, { variantId: f.get("variantId"), quantity: f.get("quantity") }, mode);
     jar.set(cartCookie(scope.storeId), cartId, cookieOpts);

@@ -1,4 +1,6 @@
 import { Notice } from "@/components/notice";
+import { cartCsrfToken } from "@/lib/auth-csrf";
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -158,6 +160,7 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
 
           {area && summary.canShip && (
             <form action={submitCheckout} className="grid gap-6 rounded-xl border bg-background p-4 sm:p-6">
+              <CsrfField token={await cartCsrfToken(scope)} />
               {/* Same key across double-clicks/resubmits of this render: the server returns the same order. */}
               <input type="hidden" name="idempotencyKey" value={randomUUID()} />
               <input type="hidden" name="store" value={scope.storeSlug} />

@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { STORE_COOKIE, currentUser } from "@/lib/context";
 import { userError } from "@/lib/errors";
 import { acceptInvitation, db } from "@bukalaris/db";
@@ -14,7 +16,8 @@ async function rememberStore(storeId: number) {
 }
 
 /** Signed-in user with the invited e-mail joins the store. */
-export async function acceptAsCurrentUser(token: string) {
+export async function acceptAsCurrentUser(token: string, f: FormData) {
+  await requirePortalCsrf(f, `/invite/${encodeURIComponent(token)}`);
   const u = await currentUser();
   if (!u || !tokenOk(token)) redirect(`/invite/${encodeURIComponent(token)}`);
   let error: string | undefined;

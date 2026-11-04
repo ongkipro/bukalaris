@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
@@ -37,6 +38,7 @@ export default async function AccessReviewsPage({ searchParams }: PageProps<"/ad
               </div>
               {r.own ? <p className="text-xs text-muted-foreground">Izin Anda sendiri: ditinjau oleh orang lain.</p> : (
                 <form className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+        <CsrfField />
                   <div className="grid gap-1.5"><Label htmlFor={`alasan-${r.operatorUserId}-${r.capability}`}>Alasan</Label><Input id={`alasan-${r.operatorUserId}-${r.capability}`} name="reason" required minLength={5} maxLength={500} /></div>
                   <div className="flex flex-wrap gap-2">
                     <SubmitButton formAction={reviewGrantAction.bind(null, r.operatorUserId, r.capability, "confirmed")} variant="outline" pendingText="Menyimpan…">Tetap berlaku</SubmitButton>
@@ -55,7 +57,8 @@ export default async function AccessReviewsPage({ searchParams }: PageProps<"/ad
             {ended.map((e) => (
               <li key={e.id} className="grid gap-2 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                 <span>#{e.id} · kasus <span className="font-mono">{e.caseId}</span> · {e.capabilities.join(", ")} · berakhir <time dateTime={e.expiresAt.toISOString()}>{tanggal(e.expiresAt)}</time>{e.state === "revoked" ? " (dicabut)" : ""}</span>
-                {e.requestedBy !== g.userId ? <form action={reviewBreakGlassAction.bind(null, e.id)}><SubmitButton variant="outline" pendingText="Menyimpan…">Tandai ditinjau</SubmitButton></form> : <span className="text-xs text-muted-foreground">Peminta tidak meninjau sendiri.</span>}
+                {e.requestedBy !== g.userId ? <form action={reviewBreakGlassAction.bind(null, e.id)}>
+        <CsrfField /><SubmitButton variant="outline" pendingText="Menyimpan…">Tandai ditinjau</SubmitButton></form> : <span className="text-xs text-muted-foreground">Peminta tidak meninjau sendiri.</span>}
               </li>
             ))}
           </ul>

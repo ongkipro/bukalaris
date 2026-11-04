@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
@@ -43,6 +44,7 @@ export default async function StaffDetailPage({ params, searchParams }: PageProp
                 <span><code>{gr.capability}</code>{SENSITIVE_CAPABILITIES.includes(gr.capability as never) ? " ◆" : ""} <span className="text-muted-foreground">· terakhir dipakai {gr.lastUsedAt ? tanggal(gr.lastUsedAt) : "belum pernah"}{gr.expiresAt ? ` · berakhir ${tanggal(gr.expiresAt)}` : ""}</span></span>
                 {manage && !own && (
                   <form action={revokeAction.bind(null, d.userId, gr.capability)} className="flex flex-wrap items-end gap-2">
+        <CsrfField />
                     <div className="grid gap-1"><Label htmlFor={`cabut-${gr.capability}`} className="sr-only">Alasan mencabut {gr.capability}</Label><Input id={`cabut-${gr.capability}`} name="reason" placeholder="Alasan mencabut" required minLength={5} maxLength={500} /></div>
                     <ConfirmSubmit variant="outline" message={`Cabut ${gr.capability}? Semua sesi staf ini berakhir.`}>Cabut</ConfirmSubmit>
                   </form>
@@ -54,6 +56,7 @@ export default async function StaffDetailPage({ params, searchParams }: PageProp
       </section>
       {manage && !own && d.status === "active" && (
         <form action={grantAction.bind(null, d.userId)} className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2" aria-labelledby="beri">
+        <CsrfField />
           <h2 id="beri" className="text-base font-semibold sm:col-span-2">Beri izin</h2>
           <div className="grid gap-1.5"><Label htmlFor="capability">Izin</Label><NativeSelect id="capability" name="capability">{grantable.map((c) => <option key={c.name} value={c.name}>{c.name}{SENSITIVE_CAPABILITIES.includes(c.name as never) ? " ◆ (sensitif)" : ""}</option>)}</NativeSelect></div>
           <div className="grid gap-1.5"><Label htmlFor="hours">Berlaku jam (kosong = tetap)</Label><Input id="hours" name="hours" type="number" min={1} /></div>
@@ -71,6 +74,7 @@ export default async function StaffDetailPage({ params, searchParams }: PageProp
           <section aria-labelledby="status" className="grid gap-3 rounded-lg border p-4">
             <h2 id="status" className="text-base font-semibold">{d.status === "active" ? "Nonaktifkan staf" : "Aktifkan kembali"}</h2>
             <form action={(d.status === "active" ? deactivateAction : reactivateAction).bind(null, d.userId)} className="grid gap-3">
+        <CsrfField />
               <div className="grid gap-1.5"><Label htmlFor="st-code">Kode alasan</Label><NativeSelect id="st-code" name="reasonCode">{REASON_CODES.map(([c, l]) => <option key={c} value={c}>{l}</option>)}</NativeSelect></div>
               <div className="grid gap-1.5"><Label htmlFor="st-reason">Alasan</Label><Input id="st-reason" name="reason" required minLength={5} maxLength={500} /></div>
               <p className="text-xs text-muted-foreground">{d.status === "active" ? "Semua izin, permintaan persetujuan yang masih terbuka dan semua sesi berakhir bersamaan. Pemegang terakhir staff.manage atau break_glass.approve tidak bisa dinonaktifkan." : "Izin tidak dikembalikan otomatis; berikan lagi satu per satu."}</p>
@@ -81,6 +85,7 @@ export default async function StaffDetailPage({ params, searchParams }: PageProp
             <section aria-labelledby="sesi" className="grid gap-3 rounded-lg border p-4">
               <h2 id="sesi" className="text-base font-semibold">Sesi dan verifikasi dua langkah</h2>
               <form className="grid gap-3">
+        <CsrfField />
                 <input type="hidden" name="idempotencyKey" value={randomUUID()} />
                 <input type="hidden" name="reasonCode" value="staff_change" />
                 <div className="grid gap-1.5"><Label htmlFor="se-reason">Alasan</Label><Input id="se-reason" name="reason" required minLength={5} maxLength={500} /></div>
@@ -92,7 +97,8 @@ export default async function StaffDetailPage({ params, searchParams }: PageProp
               {d.pendingMfaResets.map((r) => (
                 <div key={r.supportActionId} className="grid gap-1 text-sm" data-testid={`reset-${r.supportActionId}`}>
                   <p>{r.approvalStatus === "approved" ? "Reset 2FA disetujui. Pemohon asli menjalankannya." : "Reset 2FA menunggu penyetuju kedua; belum ada yang direset."}</p>
-                  {r.approvalStatus === "approved" && r.requestedBy === g.userId && <form action={executeMfaResetAction.bind(null, d.userId, r.supportActionId)}><SubmitButton pendingText="Menjalankan…">Jalankan reset</SubmitButton></form>}
+                  {r.approvalStatus === "approved" && r.requestedBy === g.userId && <form action={executeMfaResetAction.bind(null, d.userId, r.supportActionId)}>
+        <CsrfField /><SubmitButton pendingText="Menjalankan…">Jalankan reset</SubmitButton></form>}
                 </div>
               ))}
               {d.openRequests.length > 0 && <p className="text-xs text-muted-foreground">Permintaan terbuka: {d.openRequests.map((r) => `${r.actionKey} (${r.status})`).join(", ")}</p>}

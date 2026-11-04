@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
@@ -77,6 +78,7 @@ export default async function CodReconciliationPage({ searchParams }: PageProps<
           <section aria-labelledby="prepare" className="grid gap-3">
             <h2 id="prepare" className="text-lg font-semibold">Siapkan batch</h2>
             <form action={prepareBatchAction} className="grid gap-3 rounded-lg border p-4" aria-label="Siapkan batch rekonsiliasi">
+        <CsrfField />
               <div className="grid gap-1.5">
                 <Label htmlFor="evidenceRef">Referensi invoice atau laporan kurir</Label>
                 <Input id="evidenceRef" name="evidenceRef" required minLength={3} maxLength={160} />
@@ -124,6 +126,7 @@ export default async function CodReconciliationPage({ searchParams }: PageProps<
             <ul className="grid gap-1 text-sm">{candidates.map((c) => <li key={c.orderId} className="rounded-lg border p-2">Pesanan <span className="font-mono">#{c.orderId}</span> · {c.storeName} · {c.method} · diklaim {tanggal(new Date(c.claimedAt))}</li>)}</ul>
           )}
           <form className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2" aria-label="Penyelesaian manual">
+        <CsrfField />
             <div className="grid gap-1.5"><Label htmlFor="mc-order">ID pesanan</Label><Input id="mc-order" name="orderId" inputMode="numeric" required /></div>
             <div className="grid gap-1.5"><Label htmlFor="mc-ref">Referensi bukti kurir</Label><Input id="mc-ref" name="evidenceRef" required minLength={4} maxLength={160} /></div>
             <div className="grid gap-1.5"><Label htmlFor="mc-reason">Alasan</Label><Input id="mc-reason" name="reason" minLength={5} maxLength={500} /></div>

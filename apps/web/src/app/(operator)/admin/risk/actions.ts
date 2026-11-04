@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { consoleActionOp } from "@/lib/console-gate";
 import { userError, withError } from "@/lib/errors";
 import { acknowledgeRisk } from "@bukalaris/db";
@@ -10,6 +12,7 @@ export async function acknowledgeRiskAction(storeId: number, flagKey: string, f:
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/risk", "tenants.manage");
+    await requirePortalCsrf(f);
     const hours = Number(f.get("hours"));
     if (!Number.isFinite(hours) || hours < 1 || hours > 24 * 90) throw new Error("hours");
     await acknowledgeRisk(op, storeId, { flagKey, reason: String(f.get("reason") ?? ""), expiresAt: new Date(Date.now() + hours * 3_600_000) });

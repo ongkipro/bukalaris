@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { setPickupAddress, setPickupArea } from "@bukalaris/db";
 import { sellerScope } from "@/lib/context";
 import { userError, withError } from "@/lib/errors";
@@ -19,11 +21,13 @@ async function run(op: () => Promise<unknown>) {
 }
 
 export async function setPickupAreaAction(f: FormData) {
+  await requirePortalCsrf(f, "/seller/shipping");
   const scope = await sellerScope();
   await run(() => setPickupArea(scope, { areaId: text(f, "areaId"), areaLabel: text(f, "areaLabel") }));
 }
 
 export async function setPickupAddressAction(f: FormData) {
+  await requirePortalCsrf(f, "/seller/shipping");
   const scope = await sellerScope();
   await run(() => setPickupAddress(scope, { addressText: text(f, "addressText") }));
 }

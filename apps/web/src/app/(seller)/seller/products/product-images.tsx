@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { SubmitButton } from "@/components/submit-button";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,7 @@ export function ProductImages({ productId, images }: { productId: number; images
               />
               <div className="grid content-start gap-2">
                 <form action={updateMediaAltAction.bind(null, productId, img.id)} className="grid gap-2">
+        <CsrfField />
                   <Label htmlFor={`alt_${img.id}`}>{i === 0 ? "Teks alternatif (sampul)" : `Teks alternatif gambar ${i + 1}`}</Label>
                   <div className="flex gap-2">
                     <Input id={`alt_${img.id}`} name={`alt_${img.id}`} maxLength={300} defaultValue={img.alt} placeholder="mis. Kaos hitam tampak depan" />
@@ -43,12 +45,14 @@ export function ProductImages({ productId, images }: { productId: number; images
                 <div className="flex flex-wrap gap-2">
                   {i > 0 && (
                     <form action={moveMediaUpAction.bind(null, productId, img.id)}>
+        <CsrfField />
                       <Button type="submit" variant="ghost" size="sm" aria-label={`Naikkan gambar ${i + 1}`}>
                         <ArrowUpIcon data-icon="inline-start" aria-hidden /> Naikkan
                       </Button>
                     </form>
                   )}
                   <form action={removeMediaAction.bind(null, productId, img.id)}>
+        <CsrfField />
                     <ConfirmSubmit variant="destructive" size="sm" aria-label={`Hapus gambar ${i + 1}`} message={`Hapus gambar ${i + 1}${img.alt ? ` (${img.alt})` : ""}? Gambar hilang dari toko dan tidak bisa dikembalikan.`}>
                       <Trash2Icon data-icon="inline-start" aria-hidden /> Hapus
                     </ConfirmSubmit>
@@ -61,6 +65,7 @@ export function ProductImages({ productId, images }: { productId: number; images
       )}
       {images.length < MEDIA_MAX_PER_PRODUCT && (
         <form action={uploadMediaAction.bind(null, productId)} className="grid gap-3 rounded-lg border border-dashed p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+        <CsrfField />
           <div className="grid gap-2">
             <Label htmlFor="file">Berkas gambar</Label>
             <Input id="file" name="file" type="file" accept="image/jpeg,image/png,image/webp" required className="pt-1" aria-describedby="gambar-help" />

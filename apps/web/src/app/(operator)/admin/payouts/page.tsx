@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
@@ -43,6 +44,7 @@ export default async function PayoutsPage({ searchParams }: PageProps<"/admin/pa
       <Notice error={error} saved={typeof saved === "string" ? saved : undefined} savedText={typeof saved === "string" ? SAVED[saved] : undefined} />
       {freeze && (
         <form action={setFreezeAction} className={`grid gap-2 rounded-lg border p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end ${freeze.frozen ? "border-destructive/50 bg-destructive/5" : ""}`} data-testid="payout-freeze" aria-label="Pembekuan penarikan setelah pemulihan data">
+        <CsrfField />
           <div className="grid gap-1.5">
             <div className="flex flex-wrap items-center gap-2">
               <Label htmlFor="freeze-reason">Alasan ({freeze.frozen ? "pencabutan" : "pembekuan"})</Label>

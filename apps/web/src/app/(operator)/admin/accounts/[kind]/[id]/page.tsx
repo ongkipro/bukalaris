@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
@@ -110,6 +111,7 @@ export default async function AccountDetailPage({ params, searchParams }: PagePr
         )}
         {canCase && (
           <form action={openCaseAction} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end" aria-label="Buka kasus untuk akun ini">
+        <CsrfField />
             <input type="hidden" name="subjectKind" value="user" /><input type="hidden" name="subjectId" value={d.id} /><input type="hidden" name="back" value={here} />
             <div className="grid gap-1.5"><Label htmlFor="case-title">Judul kasus</Label><Input id="case-title" name="title" required minLength={3} maxLength={200} /></div>
             <div className="grid gap-1.5"><Label htmlFor="case-reason">Alasan</Label><Input id="case-reason" name="reason" required minLength={5} maxLength={500} /></div>
@@ -123,7 +125,8 @@ export default async function AccountDetailPage({ params, searchParams }: PagePr
           {waiting.map((a) => (
             <div key={a.id} className="grid gap-2 text-sm" data-testid={`menunggu-${a.id}`}>
               <p>{a.status === "approved" ? "Disetujui oleh penyetuju kedua. Pemohon asli menjalankannya." : "Menunggu penyetuju kedua di halaman Persetujuan. Belum ada yang direset."}</p>
-              {a.status === "approved" && canSupport && <form action={executeMfaResetAction.bind(null, d.id, a.id)}><SubmitButton pendingText="Menjalankan…">Jalankan reset</SubmitButton></form>}
+              {a.status === "approved" && canSupport && <form action={executeMfaResetAction.bind(null, d.id, a.id)}>
+        <CsrfField /><SubmitButton pendingText="Menjalankan…">Jalankan reset</SubmitButton></form>}
             </div>
           ))}
         </Card>
@@ -132,28 +135,33 @@ export default async function AccountDetailPage({ params, searchParams }: PagePr
       {canSupport && (
         <div className="grid gap-4 lg:grid-cols-2">
           <Card id="sesi-h" title="Akhiri semua sesi">
-            <form action={revokeSessionsAction.bind(null, d.id)} className="grid gap-3 sm:grid-cols-2"><Common d={d} prefix="sesi" /><div><ConfirmSubmit variant="outline" message="Akhiri semua sesi akun ini?">Akhiri sesi</ConfirmSubmit></div></form>
+            <form action={revokeSessionsAction.bind(null, d.id)} className="grid gap-3 sm:grid-cols-2">
+        <CsrfField /><Common d={d} prefix="sesi" /><div><ConfirmSubmit variant="outline" message="Akhiri semua sesi akun ini?">Akhiri sesi</ConfirmSubmit></div></form>
           </Card>
           <Card id="pulih" title="Kirim tautan pemulihan">
             <p className="text-xs text-muted-foreground">Dikirim ke kontak yang tercatat. Anda tidak akan melihat tautannya.</p>
-            <form action={startRecoveryAction.bind(null, d.id)} className="grid gap-3 sm:grid-cols-2"><Common d={d} prefix="pulih" /><div><SubmitButton variant="outline" pendingText="Mengantre…" disabled={d.status === "suspended"}>Kirim tautan</SubmitButton></div></form>
+            <form action={startRecoveryAction.bind(null, d.id)} className="grid gap-3 sm:grid-cols-2">
+        <CsrfField /><Common d={d} prefix="pulih" /><div><SubmitButton variant="outline" pendingText="Mengantre…" disabled={d.status === "suspended"}>Kirim tautan</SubmitButton></div></form>
           </Card>
           <Card id="mfa" title="Reset verifikasi dua langkah">
             <p className="text-xs text-muted-foreground">{d.storeOwner ? "Pemilik toko: butuh persetujuan staf kedua sebelum dijalankan." : "Anggota tim: dijalankan segera dengan kasus, alasan dan pemberitahuan ke kontak."}</p>
-            <form action={requestMfaResetAction.bind(null, d.id)} className="grid gap-3 sm:grid-cols-2"><Common d={d} prefix="mfa" /><div><ConfirmSubmit variant="outline" message="Reset verifikasi dua langkah akun ini?">{d.storeOwner ? "Minta reset" : "Reset"}</ConfirmSubmit></div></form>
+            <form action={requestMfaResetAction.bind(null, d.id)} className="grid gap-3 sm:grid-cols-2">
+        <CsrfField /><Common d={d} prefix="mfa" /><div><ConfirmSubmit variant="outline" message="Reset verifikasi dua langkah akun ini?">{d.storeOwner ? "Minta reset" : "Reset"}</ConfirmSubmit></div></form>
           </Card>
         </div>
       )}
       {canSuspend && (
         <Card id="tangguh" title={d.status === "suspended" ? "Pulihkan akun" : "Tangguhkan akun"}>
           <p className="text-xs text-muted-foreground">{d.status === "suspended" ? "Akun bisa masuk lagi; sesi lama tidak kembali." : "Semua sesi diakhiri dan akun tidak bisa masuk atau mengubah data. Keanggotaan toko tidak berubah."}</p>
-          <form action={suspendAction.bind(null, d.id, d.status !== "suspended")} className="grid gap-3 sm:grid-cols-2"><Common d={d} prefix="tangguh" /><div>{d.status === "suspended" ? <SubmitButton pendingText="Memulihkan…">Pulihkan akun</SubmitButton> : <ConfirmSubmit variant="destructive" message="Tangguhkan akun ini dan akhiri semua sesinya?">Tangguhkan akun</ConfirmSubmit>}</div></form>
+          <form action={suspendAction.bind(null, d.id, d.status !== "suspended")} className="grid gap-3 sm:grid-cols-2">
+        <CsrfField /><Common d={d} prefix="tangguh" /><div>{d.status === "suspended" ? <SubmitButton pendingText="Memulihkan…">Pulihkan akun</SubmitButton> : <ConfirmSubmit variant="destructive" message="Tangguhkan akun ini dan akhiri semua sesinya?">Tangguhkan akun</ConfirmSubmit>}</div></form>
         </Card>
       )}
       {canReveal && (
         <Card id="ungkap" title="Ungkap nilai asli">
           <p className="text-xs text-muted-foreground">Butuh kasus terbuka, tujuan dan alasan. Nilai tampil selama jendela pengungkapan lalu tersamarkan lagi; pengungkapan dicatat sebelum nilai ditampilkan.</p>
           <form action={revealAction.bind(null, d.id)} className="grid gap-3 sm:grid-cols-2">
+        <CsrfField />
             <div className="grid gap-1.5"><Label htmlFor="ungkap-field">Kolom</Label><NativeSelect id="ungkap-field" name="field"><option value="email">Email</option><option value="name">Nama</option></NativeSelect></div>
             <div className="grid gap-1.5"><Label htmlFor="ungkap-tujuan">Tujuan</Label><NativeSelect id="ungkap-tujuan" name="purposeCode"><option value="support_case">Kasus dukungan</option><option value="fraud_or_abuse_review">Tinjauan penipuan atau penyalahgunaan</option><option value="verification_review">Tinjauan verifikasi</option></NativeSelect></div>
             <div className="grid gap-1.5"><Label htmlFor="ungkap-case">Nomor kasus terbuka</Label><Input id="ungkap-case" name="caseRef" required placeholder="C-000123" pattern="C-\d{6,}" defaultValue={d.openCases[0]?.caseNumber} /></div>

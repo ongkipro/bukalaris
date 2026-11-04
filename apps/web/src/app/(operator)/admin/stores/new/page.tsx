@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
@@ -18,6 +19,7 @@ export default async function NewStorePage({ searchParams }: PageProps<"/admin/s
       <PageHeader back={{ href: "/admin/stores", label: "Semua toko" }} title="Buat toko" description="Pemilik pertama dipilih dari akun yang sudah ada (undangan menyusul). Toko langsung aktif setelah dibuat." />
       <Notice error={error} />
       <form action={createStoreAction} className="grid gap-4">
+        <CsrfField />
         <div className="grid gap-2">
           <Label htmlFor="name">Nama toko</Label>
           <Input id="name" name="name" required maxLength={200} />

@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { consoleActionOp } from "@/lib/console-gate";
 import { userError, withError } from "@/lib/errors";
 import { failUnknownAttemptAsOperator, markInvoicePaidBookkeeping, requestMarkPaidApproval, voidInvoiceAsOperator } from "@bukalaris/db";
@@ -17,6 +19,7 @@ export async function requestMarkPaidAction(invoiceId: string, storeId: number, 
   let extra = "";
   try {
     const { op } = await consoleActionOp(TEMPLATE, "billing.manage");
+    await requirePortalCsrf(f);
     const r = await requestMarkPaidApproval(op, { invoiceId, storeId, evidence: text(f, "evidence"), reason: text(f, "reason") });
     extra = `&requested=${r.id}`;
   } catch (err) {
@@ -29,6 +32,7 @@ export async function markPaidAction(invoiceId: string, storeId: number, f: Form
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp(TEMPLATE, "billing.manage");
+    await requirePortalCsrf(f);
     await markInvoicePaidBookkeeping(op, { invoiceId, storeId, evidence: text(f, "evidence"), reason: text(f, "reason"), approvalId: Number(text(f, "approvalId")) });
   } catch (err) {
     error = userError(err);
@@ -40,6 +44,7 @@ export async function voidInvoiceAction(invoiceId: string, storeId: number, f: F
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp(TEMPLATE, "billing.manage");
+    await requirePortalCsrf(f);
     await voidInvoiceAsOperator(op, { invoiceId, storeId, reason: text(f, "reason") });
   } catch (err) {
     error = userError(err);
@@ -51,6 +56,7 @@ export async function failUnknownAttemptAction(invoiceId: string, storeId: numbe
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp(TEMPLATE, "billing.manage");
+    await requirePortalCsrf(f);
     await failUnknownAttemptAsOperator(op, { attemptId, storeId, reason: text(f, "reason") });
   } catch (err) {
     error = userError(err);

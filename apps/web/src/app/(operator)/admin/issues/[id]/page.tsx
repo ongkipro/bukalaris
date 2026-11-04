@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
@@ -103,6 +104,7 @@ export default async function IssueDetailPage({ params, searchParams }: PageProp
       <section className="grid min-w-0 gap-4 lg:grid-cols-2" aria-labelledby="triage">
         <h2 id="triage" className="text-lg font-semibold lg:col-span-2">Triage dan penugasan</h2>
         <form action={assignIssueAction.bind(null, r.id, r.assigneeId)} className="grid min-w-0 content-start gap-3 rounded-lg border p-4">
+        <CsrfField />
           <div className="grid gap-1.5">
             <Label htmlFor="issue-assignee">ID penanggung jawab</Label>
             <Input id="issue-assignee" name="assigneeId" defaultValue={r.assigneeId ?? ""} maxLength={128} aria-describedby="assignee-help" />
@@ -111,6 +113,7 @@ export default async function IssueDetailPage({ params, searchParams }: PageProp
           <div><SubmitButton variant="outline" pendingText="Menyimpan…">Simpan penugasan</SubmitButton></div>
         </form>
         <form action={transitionIssueAction.bind(null, r.id, r.status as IssueStatus)} className="grid min-w-0 content-start gap-3 rounded-lg border p-4">
+        <CsrfField />
           <div className="grid gap-1.5">
             <Label htmlFor="issue-status-next">Status berikut</Label>
             <NativeSelect id="issue-status-next" name="to">

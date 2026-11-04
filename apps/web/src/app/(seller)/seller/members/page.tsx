@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
@@ -46,6 +47,7 @@ export default async function MembersPage({ searchParams }: PageProps<"/seller/m
                 <TableCell>
                   {manage ? (
                     <form action={changeMemberAction.bind(null, m.userId)} className="flex flex-wrap items-center gap-2">
+        <CsrfField />
                       <label htmlFor={`role-${m.userId}`} className="sr-only">Peran {m.name}</label>
                       <NativeSelect id={`role-${m.userId}`} name="role" defaultValue={m.role} className="w-32 sm:w-44">
                         <option value="owner">{roleLabel.owner}</option>
@@ -78,6 +80,7 @@ export default async function MembersPage({ searchParams }: PageProps<"/seller/m
             <p className="text-sm text-muted-foreground">Tautan undangan dikirim ke email, berlaku 7 hari dan hanya bisa dipakai sekali.</p>
           </div>
           <form action={inviteMemberAction} className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
+        <CsrfField />
             <div className="grid gap-2">
               <Label htmlFor="invite-email">Email</Label>
               <Input id="invite-email" name="email" type="email" autoComplete="off" required />
@@ -120,6 +123,7 @@ export default async function MembersPage({ searchParams }: PageProps<"/seller/m
                     </TableCell>
                     <TableCell numeric>
                       <form action={revokeInvitationAction.bind(null, i.id)}>
+        <CsrfField />
                         <SubmitButton size="sm" variant="outline" aria-label={`Batalkan undangan ${i.email}`} pendingText="Membatalkan…">Batalkan</SubmitButton>
                       </form>
                     </TableCell>

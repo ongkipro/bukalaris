@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { consoleActionOp } from "@/lib/console-gate";
 import { userError, withError } from "@/lib/errors";
 import { setPayoutFreeze } from "@bukalaris/db";
@@ -11,6 +13,7 @@ export async function setFreezeAction(f: FormData) {
   const frozen = f.get("frozen") === "1";
   try {
     const { op } = await consoleActionOp("/admin/payouts", "payouts.process");
+    await requirePortalCsrf(f);
     await setPayoutFreeze(op, { frozen, reason: String(f.get("reason") ?? "") });
   } catch (err) {
     error = userError(err);

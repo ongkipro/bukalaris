@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
@@ -94,6 +95,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
             <div className="flex flex-wrap gap-2">
               {simple.map((a) => (
                 <form key={a} action={orderAction.bind(null, o.id, a)}>
+        <CsrfField />
                   <SubmitButton variant={a === "pay" ? "outline" : "default"} pendingText="Memproses…">{orderActionLabel[a]}</SubmitButton>
                 </form>
               ))}
@@ -101,6 +103,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
           )}
           {o.actions.includes("ship") && (
             <form action={orderAction.bind(null, o.id, "ship")} className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+        <CsrfField />
               <div className="grid gap-2">
                 <Label htmlFor="trackingNumber">Nomor resi kurir</Label>
                 <Input id="trackingNumber" name="trackingNumber" required minLength={3} maxLength={80} placeholder={`Resi ${o.courier}`} aria-describedby="tracking-help" />
@@ -111,6 +114,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
           )}
           {o.actions.includes("hold") && (
             <form action={orderAction.bind(null, o.id, "hold")} className="grid gap-2 border-t pt-4 sm:grid-cols-[1fr_auto] sm:items-end">
+        <CsrfField />
               <div className="grid gap-2">
                 <Label htmlFor="holdReason">Alasan penahanan</Label>
                 <Input id="holdReason" name="reason" required minLength={5} maxLength={500} placeholder="mis. Nomor HP belum bisa dihubungi" aria-describedby="hold-help" />
@@ -121,6 +125,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
           )}
           {o.actions.includes("reject") && (
             <form action={orderAction.bind(null, o.id, "reject")} className="grid gap-2 border-t pt-4 sm:grid-cols-[1fr_auto] sm:items-end">
+        <CsrfField />
               <div className="grid gap-2">
                 <Label htmlFor="rejectReason">Alasan penolakan</Label>
                 <Input id="rejectReason" name="reason" required minLength={5} maxLength={500} placeholder="Wajib, tercatat di riwayat" aria-describedby="reject-help" />
@@ -133,6 +138,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
           )}
           {o.actions.includes("cancel") && (
             <form action={orderAction.bind(null, o.id, "cancel")} className="grid gap-2 border-t pt-4 sm:grid-cols-[1fr_auto] sm:items-end">
+        <CsrfField />
               <div className="grid gap-2">
                 <Label htmlFor="reason">Alasan pembatalan</Label>
                 <Input id="reason" name="reason" required minLength={5} maxLength={500} placeholder="Wajib, tercatat di riwayat" aria-describedby="cancel-help" />
@@ -161,6 +167,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
           )}
           {!shipmentRow && !codLocked && (
             <form action={bookShipmentAction.bind(null, o.id)} className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
+        <CsrfField />
               <p className="text-sm text-muted-foreground">
                 Booking {o.courier} ke {o.destinationAreaLabel} ({o.weightKg} kg{o.paymentMethod === "cod" ? `, COD ${rupiah(o.total)}` : ""}) lewat Bukalaris Kirim. Resi terbit otomatis dan pesanan berpindah ke
                 &ldquo;Dikirim&rdquo;; pembeli diberi tahu sekali.
@@ -190,11 +197,13 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
                 <div className="flex flex-wrap gap-2">
                   {(RETRYABLE as readonly string[]).includes(shipmentRow.status) && bookable && (
                     <form action={bookShipmentAction.bind(null, o.id)}>
+        <CsrfField />
                       <SubmitButton pendingText="Mengantre…">Coba lagi</SubmitButton>
                     </form>
                   )}
                   {shipmentRow.providerOrderId && !(TERMINAL as readonly string[]).includes(shipmentRow.status) && (
                     <form action={refreshTrackingAction.bind(null, o.id)}>
+        <CsrfField />
                       <SubmitButton variant="outline" pendingText="Meminta…">Perbarui status</SubmitButton>
                     </form>
                   )}

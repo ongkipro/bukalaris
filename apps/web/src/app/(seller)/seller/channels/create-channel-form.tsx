@@ -1,5 +1,6 @@
 "use client";
 
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { CopyButton } from "@/components/copy-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,7 @@ export function CreateChannelForm() {
   }
   return (
     <form action={action} className="grid gap-4 rounded-lg border bg-background p-4">
+        <CsrfField />
       <h2 className="font-medium">Channel baru</h2>
       {state?.error && (
         <p id="ch-error" role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">{state.error}</p>

@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { consoleActionOp } from "@/lib/console-gate";
 import { userError, withError } from "@/lib/errors";
 import { applyManualCompletion, DomainError, prepareReconciliationBatch, requestManualCompletion } from "@bukalaris/db";
@@ -25,6 +27,7 @@ export async function prepareBatchAction(f: FormData) {
   let batchId: number | undefined;
   try {
     const { op } = await consoleActionOp("/admin/money/cod-reconciliation", "payouts.reconcile");
+    await requirePortalCsrf(f);
     batchId = (await prepareReconciliationBatch(op, { evidenceRef: text(f, "evidenceRef"), lines: parseLines(text(f, "lines")) })).batchId;
   } catch (err) {
     error = userError(err);
@@ -37,6 +40,7 @@ export async function requestManualCompleteAction(f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/money/cod-reconciliation", "payouts.process");
+    await requirePortalCsrf(f);
     await requestManualCompletion(op, { orderId: Number(text(f, "orderId")), evidenceRef: text(f, "evidenceRef"), reason: text(f, "reason") });
   } catch (err) {
     error = userError(err);
@@ -48,6 +52,7 @@ export async function applyManualCompleteAction(f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/money/cod-reconciliation", "payouts.process");
+    await requirePortalCsrf(f);
     await applyManualCompletion(op, { orderId: Number(text(f, "orderId")), approvalId: Number(text(f, "approvalId")), evidenceRef: text(f, "evidenceRef") });
   } catch (err) {
     error = userError(err);

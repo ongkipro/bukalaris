@@ -1,3 +1,5 @@
+import { CsrfField, CsrfProvider } from "@/lib/auth-csrf-form";
+import { portalCsrfToken } from "@/lib/auth-csrf";
 import { AdminShell, ShellNotice, type NavItem } from "@/components/admin-shell";
 import { buttonVariants } from "@/components/ui/button";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -40,13 +42,15 @@ const sellerNav: NavItem[] = [
 
 export default async function SellerLayout({ children }: LayoutProps<"/seller">) {
   const { user, ctx } = await seller();
+  const csrfToken = await portalCsrfToken();
   return (
+    <CsrfProvider token={csrfToken}>
     <AdminShell
       tone="seller"
       brand="Seller"
       home="/seller"
       email={user.email}
-      signOut={signOut}
+      signOut={signOut.bind(null, csrfToken)}
       nav={ctx.ok ? [...sellerNav.filter((n) => n.href !== "/seller/finance" || can(ctx.scope, "finance.read")), { href: `/s/${ctx.scope.storeSlug}`, label: "Lihat toko", external: true }] : []}
       context={
         ctx.ok && (
@@ -57,6 +61,7 @@ export default async function SellerLayout({ children }: LayoutProps<"/seller">)
             </span>
             {ctx.stores.length > 1 && (
               <form action={switchStore} className="flex items-center gap-1.5">
+        <CsrfField />
                 <label htmlFor="store" className="sr-only">Toko aktif</label>
                 <NativeSelect id="store" name="storeId" defaultValue={ctx.scope.storeId} className="w-40">
                   {ctx.stores.map((s) => (
@@ -92,5 +97,6 @@ export default async function SellerLayout({ children }: LayoutProps<"/seller">)
         <ShellNotice title="Akun ini belum terhubung ke toko">Minta pemilik toko atau tim Bukalaris menambahkan akun Anda.</ShellNotice>
       )}
     </AdminShell>
+    </CsrfProvider>
   );
 }

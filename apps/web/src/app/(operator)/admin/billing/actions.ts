@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { consoleActionOp } from "@/lib/console-gate";
 import { userError, withError } from "@/lib/errors";
 import { changePlanDays, changePlanPrice, createInvoiceAsOperator, grantComp, requestCompApproval, requestPlanPriceApproval, setBillingControls, setPpnSwitch } from "@bukalaris/db";
@@ -20,6 +22,7 @@ export async function createInvoiceAction(f: FormData) {
   let extra = "";
   try {
     const { op } = await consoleActionOp(BACK, "billing.manage");
+    await requirePortalCsrf(f);
     const r = await createInvoiceAsOperator(op, { storeId: Number(text(f, "storeId")), periodIndex: whole(f, "periodIndex"), reason: text(f, "reason") });
     if (r.kind === "invoice") extra = `&invoice=${r.invoice.id}&created=${r.created ? 1 : 0}`;
   } catch (err) {
@@ -33,6 +36,7 @@ export async function setPpnAction(f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp(BACK, "tax.manage");
+    await requirePortalCsrf(f);
     await setPpnSwitch(op, { enabled: text(f, "enabled") === "1", confirmed: f.get("confirmed") === "on", reason: text(f, "reason") });
   } catch (err) {
     error = userError(err);
@@ -44,6 +48,7 @@ export async function changeDaysAction(f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp(BACK, "billing.manage");
+    await requirePortalCsrf(f);
     await changePlanDays(op, { trialDays: Number(text(f, "trialDays")), graceDays: Number(text(f, "graceDays")), reason: text(f, "reason") });
   } catch (err) {
     error = userError(err);
@@ -55,6 +60,7 @@ export async function setControlsAction(f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp(BACK, "billing.manage");
+    await requirePortalCsrf(f);
     await setBillingControls(op, { jobsFrozen: f.get("jobsFrozen") === "on", dunningEnabled: f.get("dunningEnabled") === "on", reason: text(f, "reason") });
   } catch (err) {
     error = userError(err);
@@ -67,6 +73,7 @@ export async function requestPriceAction(f: FormData) {
   let extra = "";
   try {
     const { op } = await consoleActionOp(BACK, "billing.manage");
+    await requirePortalCsrf(f);
     const r = await requestPlanPriceApproval(op, { monthlyDppIdr: Number(text(f, "monthlyDppIdr")), reason: text(f, "reason") });
     extra = `&requested=${r.id}`;
   } catch (err) {
@@ -79,6 +86,7 @@ export async function changePriceAction(f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp(BACK, "billing.manage");
+    await requirePortalCsrf(f);
     await changePlanPrice(op, { monthlyDppIdr: Number(text(f, "monthlyDppIdr")), reason: text(f, "reason"), approvalId: Number(text(f, "approvalId")) });
   } catch (err) {
     error = userError(err);
@@ -94,6 +102,7 @@ export async function requestCompAction(f: FormData) {
   let extra = "";
   try {
     const { op } = await consoleActionOp(BACK, "billing.manage");
+    await requirePortalCsrf(f);
     const r = await requestCompApproval(op, { storeId: Number(text(f, "storeId")), periodIndex: Number(text(f, "periodIndex")), requestKey: compKey(f), reason: text(f, "reason") });
     extra = `&requested=${r.id}`;
   } catch (err) {
@@ -106,6 +115,7 @@ export async function grantCompAction(f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp(BACK, "billing.manage");
+    await requirePortalCsrf(f);
     await grantComp(op, { storeId: Number(text(f, "storeId")), periodIndex: Number(text(f, "periodIndex")), requestKey: compKey(f), reason: text(f, "reason"), approvalId: Number(text(f, "approvalId")) });
   } catch (err) {
     error = userError(err);

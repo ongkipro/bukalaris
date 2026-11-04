@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { sellerScope } from "@/lib/context";
 import {
   appendBlock,
@@ -42,12 +44,14 @@ async function edit(pageId: number, f: FormData, change: (doc: LandingDocument, 
 }
 
 export async function createLandingPageAction(f: FormData) {
+  await requirePortalCsrf(f, "/seller/landing-pages/new");
   const scope = await sellerScope();
   await run("/seller/landing-pages/new", (id) => `${editor(id as number)}?saved=1`, () => createLandingPage(scope, { title: text(f, "title"), slug: text(f, "slug") }));
 }
 
 /** Title/slug live on the page row; accent and font scale are part of the versioned document. */
 export async function updateSettingsAction(pageId: number, f: FormData) {
+  await requirePortalCsrf(f, editor(pageId));
   const scope = await sellerScope();
   await run(editor(pageId), () => `${editor(pageId)}?saved=1`, async () => {
     await updateLandingPageMeta(scope, pageId, { title: text(f, "title"), slug: text(f, "slug") });
@@ -60,6 +64,7 @@ export async function updateSettingsAction(pageId: number, f: FormData) {
 }
 
 export async function addBlockAction(pageId: number, f: FormData) {
+  await requirePortalCsrf(f, editor(pageId));
   const type = text(f, "type") as BlockType;
   await edit(pageId, f, async (doc, scope) => {
     if (!BLOCK_TYPES.includes(type)) throw new DomainError("bad_block", "Jenis blok tidak dikenal.");
@@ -75,11 +80,13 @@ export async function addBlockAction(pageId: number, f: FormData) {
 }
 
 export async function moveBlockAction(pageId: number, f: FormData) {
+  await requirePortalCsrf(f, editor(pageId));
   const dir = text(f, "dir") === "up" ? "up" : "down";
   await edit(pageId, f, (doc) => moveBlock(doc, text(f, "blockId"), dir));
 }
 
 export async function removeBlockAction(pageId: number, f: FormData) {
+  await requirePortalCsrf(f, editor(pageId));
   await edit(pageId, f, (doc) => removeBlock(doc, text(f, "blockId")));
 }
 
@@ -103,6 +110,7 @@ function blockFromForm(type: BlockType, id: string, f: FormData): unknown {
 }
 
 export async function saveBlockAction(pageId: number, f: FormData) {
+  await requirePortalCsrf(f, editor(pageId));
   await edit(pageId, f, (doc) => {
     const id = text(f, "blockId");
     const current = doc.blocks.find((b) => b.id === id);
@@ -112,11 +120,13 @@ export async function saveBlockAction(pageId: number, f: FormData) {
 }
 
 export async function publishAction(pageId: number, f: FormData) {
+  await requirePortalCsrf(f, editor(pageId));
   const scope = await sellerScope();
   await run(editor(pageId), () => `${editor(pageId)}?saved=published`, () => publishLandingPage(scope, pageId, text(f, "expectedRevisionId")));
 }
 
-export async function unpublishAction(pageId: number) {
+export async function unpublishAction(pageId: number, f: FormData) {
+  await requirePortalCsrf(f, editor(pageId));
   const scope = await sellerScope();
   await run(editor(pageId), () => `${editor(pageId)}?saved=unpublished`, () => unpublishLandingPage(scope, pageId));
 }

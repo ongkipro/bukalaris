@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { SubmitButton } from "@/components/submit-button";
 import { Button } from "@/components/ui/button";
@@ -37,22 +38,26 @@ export function BlockCard({ block: b, index, count, ctx }: { block: LandingBlock
         </div>
         <div className="flex gap-1">
           <form action={moveBlockAction.bind(null, ctx.pageId)}>
+        <CsrfField />
             {hidden}
             <input type="hidden" name="dir" value="up" />
             <Button type="submit" variant="outline" size="icon-sm" disabled={index === 0} aria-label={`Naikkan blok ${index + 1}`}><ArrowUpIcon aria-hidden /></Button>
           </form>
           <form action={moveBlockAction.bind(null, ctx.pageId)}>
+        <CsrfField />
             {hidden}
             <input type="hidden" name="dir" value="down" />
             <Button type="submit" variant="outline" size="icon-sm" disabled={index === count - 1} aria-label={`Turunkan blok ${index + 1}`}><ArrowDownIcon aria-hidden /></Button>
           </form>
           <form action={removeBlockAction.bind(null, ctx.pageId)}>
+        <CsrfField />
             {hidden}
             <ConfirmSubmit variant="destructive" size="icon-sm" message={`Hapus blok ${index + 1} (${blockLabel[b.type]})?`} aria-label={`Hapus blok ${index + 1}`}><Trash2Icon aria-hidden /></ConfirmSubmit>
           </form>
         </div>
       </header>
       <form action={saveBlockAction.bind(null, ctx.pageId)} className="grid gap-4">
+        <CsrfField />
         {hidden}
         <Fields block={b} f={f} ctx={ctx} />
         <div>
@@ -193,6 +198,7 @@ function Fields({ block: b, f, ctx }: { block: LandingBlock; f: (n: string) => s
 export function AddBlockForm({ pageId, expectedRevisionId, hasOrder }: { pageId: number; expectedRevisionId: number; hasOrder: boolean }) {
   return (
     <form action={addBlockAction.bind(null, pageId)} className="grid gap-3 rounded-lg border border-dashed p-4 sm:flex sm:items-end">
+        <CsrfField />
       <input type="hidden" name="expectedRevisionId" value={expectedRevisionId} />
       <div className="grid flex-1 gap-1.5">
         <Label htmlFor="add-type">Tambah blok</Label>

@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
@@ -50,6 +51,7 @@ export default async function AdminStoresPage({ searchParams }: PageProps<"/admi
                   </p>
                 </div>
                 <form action={setStoreStatusAction.bind(null, s.id, next)} className="flex flex-wrap items-center gap-2">
+        <CsrfField />
                   <label htmlFor={`reason-${s.id}`} className="sr-only">Alasan untuk {s.name}</label>
                   <Input id={`reason-${s.id}`} name="reason" required minLength={5} maxLength={500} placeholder="Alasan (wajib, tercatat di audit)" className="w-64 max-w-full" />
                   {next === "suspended" ? (

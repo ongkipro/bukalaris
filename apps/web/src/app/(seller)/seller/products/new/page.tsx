@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
@@ -17,6 +18,7 @@ export default async function NewProductPage({ searchParams }: PageProps<"/selle
       />
       <Notice error={error} />
       <form action={createProductAction} className="grid gap-6">
+        <CsrfField />
         <ProductFields />
         <fieldset className="grid gap-3 rounded-lg border p-4">
           <legend className="px-1 text-sm font-medium">Varian pertama</legend>

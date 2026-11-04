@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { consoleActionOp } from "@/lib/console-gate";
 import { userError, withError } from "@/lib/errors";
 import { applyLedgerAdjustment, requestLedgerAdjustment } from "@bukalaris/db";
@@ -14,6 +16,7 @@ export async function requestAdjustmentAction(f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/money", "ledger.adjust");
+    await requirePortalCsrf(f);
     await requestLedgerAdjustment(op, input(f));
   } catch (err) {
     error = userError(err);
@@ -25,6 +28,7 @@ export async function applyAdjustmentAction(f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/money", "ledger.adjust");
+    await requirePortalCsrf(f);
     await applyLedgerAdjustment(op, { ...input(f), approvalId: Number(text(f, "approvalId")) });
   } catch (err) {
     error = userError(err);

@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
@@ -59,7 +60,8 @@ export default async function BatchPage({ params, searchParams }: PageProps<"/ad
               <span className="tabular-nums text-muted-foreground">Diharapkan (COD pesanan) {rupiah(i.codAmountIdr)} · bukti {rupiah(i.evidenceAmountIdr)}{i.brk && !i.voided ? " · SELISIH" : ""}{i.voided ? " · dihapus" : ""}{i.reconciledAt ? " · direkonsiliasi" : ""}</span>
             </div>
             {batch.status === "draft" && mine && !i.voided && (
-              <form action={voidItemAction.bind(null, id, i.id)}><SubmitButton variant="outline" pendingText="Menghapus…">Hapus baris</SubmitButton></form>
+              <form action={voidItemAction.bind(null, id, i.id)}>
+        <CsrfField /><SubmitButton variant="outline" pendingText="Menghapus…">Hapus baris</SubmitButton></form>
             )}
           </li>
         ))}
@@ -68,6 +70,7 @@ export default async function BatchPage({ params, searchParams }: PageProps<"/ad
 
       {batch.status === "draft" && mine && (
         <form action={submitBatchAction.bind(null, id)} className="grid gap-2 rounded-lg border p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" data-testid="submit-batch">
+        <CsrfField />
           <div className="grid gap-1.5"><Label htmlFor="submit-reason">Alasan pengajuan</Label><Input id="submit-reason" name="reason" required minLength={5} maxLength={500} /></div>
           <SubmitButton pendingText="Mengajukan…" disabled={breaks.length > 0 || live.length === 0}>Ajukan untuk persetujuan</SubmitButton>
         </form>
@@ -76,12 +79,14 @@ export default async function BatchPage({ params, searchParams }: PageProps<"/ad
         <div className="grid gap-2 rounded-lg border p-4" data-testid="pending-batch">
           <p className="text-sm">Menunggu persetujuan orang kedua di <Link href="/admin/approvals" className="underline underline-offset-4">Persetujuan</Link> (permintaan #{batch.approvalRequestId}). Penyiap batch tidak bisa menyetujui batchnya sendiri.</p>
           {mine && (
-            <form action={applyBatchAction.bind(null, id)}><SubmitButton pendingText="Menerapkan…">Terapkan batch yang disetujui</SubmitButton></form>
+            <form action={applyBatchAction.bind(null, id)}>
+        <CsrfField /><SubmitButton pendingText="Menerapkan…">Terapkan batch yang disetujui</SubmitButton></form>
           )}
         </div>
       )}
       {stale && (
         <form action={voidStaleBatchAction.bind(null, id)} className="grid gap-2 rounded-lg border border-destructive/40 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" data-testid="void-stale-batch">
+        <CsrfField />
           <p className="text-sm sm:col-span-2">
             Batch ini dibuat sebelum akun pengiriman dicatat per batch dan tidak bisa diterapkan lagi ({stale === "no_account" ? "tanpa akun pengiriman" : "isinya tidak cocok lagi dengan persetujuan"}). Siapa pun pemegang izin rekonsiliasi dapat membatalkannya tanpa persetujuan orang kedua (tidak ada uang yang bergerak); lalu siapkan ulang dari bukti yang sama.
           </p>
@@ -91,6 +96,7 @@ export default async function BatchPage({ params, searchParams }: PageProps<"/ad
       )}
       {(batch.status === "draft" || batch.status === "pending_approval") && mine && (
         <form action={voidBatchAction.bind(null, id)} className="grid gap-2 rounded-lg border p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+        <CsrfField />
           <div className="grid gap-1.5"><Label htmlFor="void-reason">Batalkan batch (alasan)</Label><Input id="void-reason" name="reason" required minLength={5} maxLength={500} /></div>
           <SubmitButton variant="outline" pendingText="Membatalkan…">Batalkan batch</SubmitButton>
         </form>

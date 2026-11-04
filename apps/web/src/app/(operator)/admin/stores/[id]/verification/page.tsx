@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
@@ -49,6 +50,7 @@ export default async function StoreVerificationPage({ params, searchParams }: Pa
       <PageHeader back={{ href: `/admin/stores/${storeId}`, label: "Detail toko" }} title="Verifikasi toko" description="Catatan opsional dan informasional: tidak ada status di sini yang menghalangi pembuatan, persetujuan, aktivasi, penagihan atau pencairan toko. Versi yang sudah diajukan tidak bisa diubah; perubahan adalah versi baru." />
       <Notice error={error} saved={saved} savedText={savedText(saved)} />
       <form action={submitVerificationAction.bind(null, storeId)} className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2" aria-labelledby="ajukan">
+        <CsrfField />
         <h2 id="ajukan" className="text-base font-semibold sm:col-span-2">Ajukan versi baru</h2>
         <div className="grid gap-1.5"><Label htmlFor="kind">Jenis</Label><NativeSelect id="kind" name="kind" defaultValue="identity"><option value="identity">Identitas</option><option value="business">Usaha</option></NativeSelect></div>
         <div className="grid gap-1.5"><Label htmlFor="verifiedName">Nama (opsional)</Label><Input id="verifiedName" name="verifiedName" maxLength={200} autoComplete="off" /></div>
@@ -88,6 +90,7 @@ export default async function StoreVerificationPage({ params, searchParams }: Pa
                   )}
                   {NEXT[v.status] && (
                     <form className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" aria-label={`Keputusan versi ${v.version}`}>
+        <CsrfField />
                       <div className="grid gap-1.5"><Label htmlFor={`alasan-${v.id}`}>Alasan keputusan</Label><Input id={`alasan-${v.id}`} name="reason" required minLength={5} maxLength={500} /></div>
                       <div className="flex flex-wrap gap-2">
                         {NEXT[v.status]!.map(([to, label]) => <SubmitButton key={to} formAction={reviewVerificationAction.bind(null, storeId, v.id, to as "verified")} variant={to === "verified" || to === "in_review" ? "default" : "outline"} pendingText="Menyimpan…">{label}</SubmitButton>)}
@@ -98,6 +101,7 @@ export default async function StoreVerificationPage({ params, searchParams }: Pa
                     <details className="rounded-md border p-3">
                       <summary className="cursor-pointer text-sm font-medium">Ungkap satu kolom</summary>
                       <form action={revealVerificationAction.bind(null, storeId, v.id)} className="mt-2 grid gap-2 sm:grid-cols-2">
+        <CsrfField />
                         <div className="grid gap-1.5"><Label htmlFor={`kolom-${v.id}`}>Kolom</Label><NativeSelect id={`kolom-${v.id}`} name="field">{(Object.keys(FIELD_LABEL) as (keyof typeof FIELD_LABEL)[]).map((k) => <option key={k} value={k}>{FIELD_LABEL[k]}</option>)}</NativeSelect></div>
                         <div className="grid gap-1.5"><Label htmlFor={`kasus-${v.id}`}>Nomor kasus terbuka</Label><Input id={`kasus-${v.id}`} name="caseRef" required placeholder="C-000123" pattern="C-\d{6,}" /></div>
                         <div className="grid gap-1.5 sm:col-span-2"><Label htmlFor={`tujuan-${v.id}`}>Alasan (tujuan: tinjauan verifikasi)</Label><Input id={`tujuan-${v.id}`} name="reason" required minLength={5} maxLength={500} /></div>

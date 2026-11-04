@@ -1,5 +1,6 @@
 "use client";
 
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { useActionState, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +31,7 @@ export function PromotionEditor(p: Props) {
   };
   const check = (name: string, label: string) => <label className="flex min-h-9 items-center gap-2"><input type="checkbox" name={name} defaultChecked={initial[name] === "true"} className="size-4 accent-foreground" />{label}</label>;
   return <form action={action} className="grid max-w-4xl gap-4 text-sm" aria-label={p.type === "voucher" ? "Aturan voucher" : p.type === "flash" ? "Aturan flash sale" : "Pengaturan hub promo"}>
+        <CsrfField />
     <input type="hidden" name="type" value={p.type} />
     {p.id && <input type="hidden" name="id" value={p.id} />}
     {state.error && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">{state.error}</p>}

@@ -1,4 +1,6 @@
 import { Pixels } from "@/components/pixels/pixels";
+import { cartCsrfToken } from "@/lib/auth-csrf";
+import { CsrfProvider } from "@/lib/auth-csrf-form";
 import { MessageCircleIcon, ShoppingBagIcon } from "lucide-react";
 import Link from "next/link";
 import { SearchForm } from "./_components/search-form";
@@ -19,6 +21,7 @@ export default async function StoreLayout({ children, params }: LayoutProps<"/s/
     ...pages.map((p) => ({ href: `${base}/pages/${p.slug}`, label: p.title })),
   ];
   return (
+    <CsrfProvider token={await cartCsrfToken(scope)}>
     <div data-theme={profile.theme} className="sf flex flex-1 flex-col">
       <Pixels storeId={scope.storeId} />
       <a href="#sf-main" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-background focus:px-3 focus:py-2 focus:ring-3 focus:ring-ring/50">
@@ -86,5 +89,6 @@ export default async function StoreLayout({ children, params }: LayoutProps<"/s/
         </footer>
       </div>
     </div>
+    </CsrfProvider>
   );
 }

@@ -22,6 +22,9 @@ export function CaptureProgress({ store }: { store: string }) {
     const send = () => {
       const data = new FormData();
       data.set("store", store);
+      const csrf = form.elements.namedItem("_csrf");
+      if (!(csrf instanceof HTMLInputElement)) return;
+      data.set("_csrf", csrf.value);
       for (const k of FIELDS) data.set(k, String((form.elements.namedItem(k) as HTMLInputElement | null)?.value ?? ""));
       const body = FIELDS.map((k) => data.get(k)).join("\u0000");
       if (body === last) return;

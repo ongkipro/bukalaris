@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { consoleActionOp } from "@/lib/console-gate";
 import { userError, withError } from "@/lib/errors";
 import { applyReconciliationBatch, submitReconciliationBatch, voidReconciliationBatch, voidReconciliationItem, voidStaleReconciliationBatch } from "@bukalaris/db";
@@ -12,6 +14,7 @@ export async function submitBatchAction(batchId: number, f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/money/cod-reconciliation/[batchId]", "payouts.reconcile");
+    await requirePortalCsrf(f);
     await submitReconciliationBatch(op, batchId, text(f, "reason"));
   } catch (err) {
     error = userError(err);
@@ -19,10 +22,11 @@ export async function submitBatchAction(batchId: number, f: FormData) {
   redirect(error ? withError(back(batchId), error) : `${back(batchId)}?saved=submitted`);
 }
 
-export async function applyBatchAction(batchId: number) {
+export async function applyBatchAction(batchId: number, f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/money/cod-reconciliation/[batchId]", "payouts.reconcile");
+    await requirePortalCsrf(f);
     await applyReconciliationBatch(op, batchId);
   } catch (err) {
     error = userError(err);
@@ -30,10 +34,11 @@ export async function applyBatchAction(batchId: number) {
   redirect(error ? withError(back(batchId), error) : `${back(batchId)}?saved=applied`);
 }
 
-export async function voidItemAction(batchId: number, itemId: number) {
+export async function voidItemAction(batchId: number, itemId: number, f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/money/cod-reconciliation/[batchId]", "payouts.reconcile");
+    await requirePortalCsrf(f);
     await voidReconciliationItem(op, itemId);
   } catch (err) {
     error = userError(err);
@@ -45,6 +50,7 @@ export async function voidBatchAction(batchId: number, f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/money/cod-reconciliation/[batchId]", "payouts.reconcile");
+    await requirePortalCsrf(f);
     await voidReconciliationBatch(op, batchId, text(f, "reason"));
   } catch (err) {
     error = userError(err);
@@ -57,6 +63,7 @@ export async function voidStaleBatchAction(batchId: number, f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/money/cod-reconciliation/[batchId]", "payouts.reconcile");
+    await requirePortalCsrf(f);
     await voidStaleReconciliationBatch(op, batchId, text(f, "reason"));
   } catch (err) {
     error = userError(err);

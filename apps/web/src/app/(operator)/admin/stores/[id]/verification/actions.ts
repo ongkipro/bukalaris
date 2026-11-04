@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { consoleActionOp } from "@/lib/console-gate";
 import { userError, withError } from "@/lib/errors";
 import { reviewVerification, revealVerificationField, submitVerification } from "@bukalaris/db";
@@ -14,6 +16,7 @@ export async function submitVerificationAction(storeId: number, f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/stores/[id]/verification", "tenants.verify");
+    await requirePortalCsrf(f);
     await submitVerification(op, storeId, { kind: text(f, "kind"), verifiedName: opt(f, "verifiedName"), contactEmail: opt(f, "contactEmail"), contactPhone: opt(f, "contactPhone"), registrationNumber: opt(f, "registrationNumber"), evidenceRef: opt(f, "evidenceRef"), reasonCode: "verification_submitted", reason: text(f, "reason") });
   } catch (err) {
     error = userError(err);
@@ -25,6 +28,7 @@ export async function reviewVerificationAction(storeId: number, versionId: numbe
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/stores/[id]/verification", "tenants.verify");
+    await requirePortalCsrf(f);
     await reviewVerification(op, versionId, { to, reasonCode: text(f, "reasonCode") || "verification_decision", reason: text(f, "reason") });
   } catch (err) {
     error = userError(err);
@@ -37,6 +41,7 @@ export async function revealVerificationAction(storeId: number, versionId: numbe
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/stores/[id]/verification", "accounts.reveal");
+    await requirePortalCsrf(f);
     await revealVerificationField(op, versionId, { field: text(f, "field"), caseRef: text(f, "caseRef").trim(), reason: text(f, "reason") });
   } catch (err) {
     error = userError(err);

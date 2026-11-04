@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { consoleActionOp } from "@/lib/console-gate";
 import { userError, withError } from "@/lib/errors";
 import { createStoreForOwnerEmail, setStoreStatus } from "@bukalaris/db";
@@ -12,6 +14,7 @@ export async function createStoreAction(f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/stores/new", "tenants.manage");
+    await requirePortalCsrf(f);
     id = await createStoreForOwnerEmail(op, { slug: text(f, "slug"), name: text(f, "name"), ownerEmail: text(f, "ownerEmail") });
   } catch (err) {
     error = userError(err);
@@ -24,6 +27,7 @@ export async function setStoreStatusDetailAction(storeId: number, status: "activ
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/stores/[id]", "tenants.manage");
+    await requirePortalCsrf(f);
     await setStoreStatus(op, storeId, { status, reason: text(f, "reason"), reasonCode: text(f, "reasonCode") || "operator_decision", caseId: text(f, "caseId").trim() || undefined });
   } catch (err) {
     error = userError(err);
@@ -37,6 +41,7 @@ export async function setStoreStatusAction(storeId: number, status: "active" | "
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/stores", "tenants.manage");
+    await requirePortalCsrf(f);
     await setStoreStatus(op, storeId, { status, reason: text(f, "reason"), reasonCode: text(f, "reasonCode") || "operator_decision", caseId: text(f, "caseId").trim() || undefined });
   } catch (err) {
     error = userError(err);

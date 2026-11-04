@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { applyApprovedMargin, applyShippingSettings, queueShippingAccountRecovery, requestMarginRule, requestShippingSettings, saveCashbackRule, setCourierPolicy, DomainError, marginRuleInput } from "@bukalaris/db";
 import { consoleActionOp } from "@/lib/console-gate";
 import { userError, withError } from "@/lib/errors";
@@ -32,6 +34,7 @@ export async function requestMarginAction(f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/shipping", "shipping.manage");
+    await requirePortalCsrf(f);
     await requestMarginRule(op, margin(f));
   } catch (err) {
     error = userError(err);
@@ -43,6 +46,7 @@ export async function applyMarginAction(f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/shipping", "shipping.manage");
+    await requirePortalCsrf(f);
     await applyApprovedMargin(op, margin(f), approvalId(f));
   } catch (err) {
     error = userError(err);
@@ -54,6 +58,7 @@ export async function requestSettingsAction(f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/shipping", "shipping.manage");
+    await requirePortalCsrf(f);
     await requestShippingSettings(op, settings(f));
   } catch (err) {
     error = userError(err);
@@ -65,6 +70,7 @@ export async function applySettingsAction(f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/shipping", "shipping.manage");
+    await requirePortalCsrf(f);
     await applyShippingSettings(op, approvalId(f), settings(f));
   } catch (err) {
     error = userError(err);
@@ -76,6 +82,7 @@ export async function saveCashbackRuleAction(f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/shipping", "shipping.manage");
+    await requirePortalCsrf(f);
     await saveCashbackRule(op, { courierCode: text(f, "courierCode"), serviceCode: text(f, "serviceCode"), sellerShareBps: percentBps(f, "sellerSharePercent"), fixedSellerBonusIdr: text(f, "fixedSellerBonusIdr"), revision: text(f, "revision") || "0", reason: text(f, "reason") });
   } catch (err) {
     error = userError(err);
@@ -87,6 +94,7 @@ export async function setCourierPolicyAction(f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/shipping", "shipping.manage");
+    await requirePortalCsrf(f);
     await setCourierPolicy(op, { courierCode: text(f, "courierCode"), serviceCode: text(f, "serviceCode"), codAllowed: flag(f, "codAllowed"), returnFree: flag(f, "returnFree"), status: text(f, "status") || "active", reason: text(f, "reason") });
   } catch (err) {
     error = userError(err);
@@ -98,6 +106,7 @@ export async function recoverAccountAction(f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/shipping", "shipping.manage");
+    await requirePortalCsrf(f);
     await queueShippingAccountRecovery(op, { accountId: text(f, "accountId"), revision: text(f, "revision"), reason: text(f, "reason") });
   } catch (err) {
     error = userError(err);

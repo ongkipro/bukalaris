@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { openWhatsAppRecovery } from "@bukalaris/db";
 import { surfaceOriginsFromEnv } from "@bukalaris/db/host";
 import { sellerScope } from "@/lib/context";
@@ -14,6 +16,7 @@ const PAGE = "/seller/customers/carts";
  * signed 7-day resume link on the checkout origin (DOM-5). The session id is a row id of THIS store (RLS); another store's id is simply not found.
  */
 export async function openWhatsApp(f: FormData) {
+  await requirePortalCsrf(f, "/seller/customers/carts");
   const scope = await sellerScope();
   let url: string | undefined;
   let error: string | undefined;

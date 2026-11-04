@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import {
   addVariant,
   changeMember,
@@ -44,6 +46,7 @@ async function run(back: string, done: (result: unknown) => string, op: () => Pr
 }
 
 export async function switchStore(f: FormData) {
+  await requirePortalCsrf(f, "/seller/products");
   // Only a preference: sellerContext() honours it only with membership.
   (await cookies()).set(STORE_COOKIE, text(f, "storeId"), {
     httpOnly: true,
@@ -55,6 +58,7 @@ export async function switchStore(f: FormData) {
 }
 
 export async function createProductAction(f: FormData) {
+  await requirePortalCsrf(f, "/seller/products/new");
   const scope = await sellerScope();
   await run("/seller/products/new", (id) => `/seller/products/${id}?saved=1`, () =>
     createProduct(scope, { ...productFields(f), variant: { ...variantFields(f, "variant_"), stock: text(f, "variant_stock") } }),
@@ -62,24 +66,28 @@ export async function createProductAction(f: FormData) {
 }
 
 export async function updateProductAction(productId: number, f: FormData) {
+  await requirePortalCsrf(f, `/seller/products/${productId}`);
   const scope = await sellerScope();
   const back = `/seller/products/${productId}`;
   await run(back, () => `${back}?saved=1`, () => updateProduct(scope, productId, productFields(f)));
 }
 
 export async function addVariantAction(productId: number, f: FormData) {
+  await requirePortalCsrf(f, `/seller/products/${productId}`);
   const scope = await sellerScope();
   const back = `/seller/products/${productId}`;
   await run(back, () => `${back}?saved=1`, () => addVariant(scope, productId, { ...variantFields(f, "new_"), stock: text(f, "new_stock") }));
 }
 
 export async function updateVariantAction(productId: number, variantId: number, f: FormData) {
+  await requirePortalCsrf(f, `/seller/products/${productId}`);
   const scope = await sellerScope();
   const back = `/seller/products/${productId}`;
   await run(back, () => `${back}?saved=1`, () => updateVariant(scope, variantId, variantFields(f, `v${variantId}_`)));
 }
 
 export async function changeMemberAction(userId: string, f: FormData) {
+  await requirePortalCsrf(f, "/seller/members");
   const scope = await sellerScope();
   const role = text(f, "role");
   await run("/seller/members", () => "/seller/members?saved=1", () =>
@@ -88,6 +96,7 @@ export async function changeMemberAction(userId: string, f: FormData) {
 }
 
 export async function inviteMemberAction(f: FormData) {
+  await requirePortalCsrf(f, "/seller/members");
   const scope = await sellerScope();
   const base = surfaceOriginsFromEnv(process.env).appOrigin;
   await run("/seller/members", () => "/seller/members?saved=1", () =>
@@ -95,7 +104,8 @@ export async function inviteMemberAction(f: FormData) {
   );
 }
 
-export async function revokeInvitationAction(invitationId: number) {
+export async function revokeInvitationAction(invitationId: number, f: FormData) {
+  await requirePortalCsrf(f, "/seller/members");
   const scope = await sellerScope();
   await run("/seller/members", () => "/seller/members?saved=1", () => revokeInvitation(scope, invitationId));
 }

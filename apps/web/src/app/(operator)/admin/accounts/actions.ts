@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { consoleActionOp } from "@/lib/console-gate";
 import { userError, withError } from "@/lib/errors";
 import { savedKey } from "@/lib/governance";
@@ -15,6 +17,7 @@ export async function revokeSessionsAction(userId: string, f: FormData) {
   let saved: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/accounts/[kind]/[id]", "accounts.support");
+    await requirePortalCsrf(f);
     saved = savedKey(await revokeUserSessions(op, userId, base(f)));
   } catch (err) {
     error = userError(err);
@@ -28,6 +31,7 @@ export async function startRecoveryAction(userId: string, f: FormData) {
   let saved: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/accounts/[kind]/[id]", "accounts.support");
+    await requirePortalCsrf(f);
     saved = savedKey(await startSupportRecovery(op, userId, base(f)));
   } catch (err) {
     error = userError(err);
@@ -40,6 +44,7 @@ export async function suspendAction(userId: string, suspend: boolean, f: FormDat
   let saved: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/accounts/[kind]/[id]", "accounts.suspend");
+    await requirePortalCsrf(f);
     saved = savedKey(await setIdentitySuspension(op, userId, { ...base(f), suspend }));
   } catch (err) {
     error = userError(err);
@@ -52,6 +57,7 @@ export async function requestMfaResetAction(userId: string, f: FormData) {
   let saved: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/accounts/[kind]/[id]", "accounts.support");
+    await requirePortalCsrf(f);
     saved = savedKey(await requestMfaReset(op, userId, base(f)));
   } catch (err) {
     error = userError(err);
@@ -60,11 +66,12 @@ export async function requestMfaResetAction(userId: string, f: FormData) {
 }
 
 /** Only the requester can execute, after a different holder approved (the approvals inbox). */
-export async function executeMfaResetAction(userId: string, supportActionId: number) {
+export async function executeMfaResetAction(userId: string, supportActionId: number, f: FormData) {
   let error: string | undefined;
   let saved: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/accounts/[kind]/[id]", "accounts.support");
+    await requirePortalCsrf(f);
     saved = savedKey(await executeMfaReset(op, supportActionId));
   } catch (err) {
     error = userError(err);
@@ -78,6 +85,7 @@ export async function revealAction(userId: string, f: FormData) {
   try {
     // The page capability gates the entry; the service itself requires accounts.reveal or a valid break-glass grant for this exact target and case.
     const { op } = await consoleActionOp("/admin/accounts/[kind]/[id]", "accounts.read");
+    await requirePortalCsrf(f);
     const grant = Number(text(f, "breakGlassGrantId"));
     await revealAccountField(op, "seller", userId, { field: text(f, "field"), purposeCode: text(f, "purposeCode"), caseRef: text(f, "caseRef").trim(), reason: text(f, "reason"), breakGlassGrantId: Number.isSafeInteger(grant) && grant > 0 ? grant : undefined });
   } catch (err) {
@@ -95,10 +103,11 @@ export type SearchState = { result: AccountSearchResult | null; problem: string 
 export async function searchAccountsAction(_prev: SearchState, f: FormData): Promise<SearchState> {
   const { op } = await consoleActionOp("/admin/accounts", "accounts.read");
   try {
+    await requirePortalCsrf(f);
     return { result: await searchAccounts(op, { query: text(f, "q") }), problem: null, searched: true };
   } catch (err) {
     // Expected refusals are shown; the query text is never echoed into the message.
-    if (err instanceof DomainError && ["query_invalid", "rate_limited"].includes(err.code)) return { result: null, problem: err.message, searched: true };
+    if (err instanceof DomainError && ["csrf", "query_invalid", "rate_limited"].includes(err.code)) return { result: null, problem: err.message, searched: true };
     throw err;
   }
 }

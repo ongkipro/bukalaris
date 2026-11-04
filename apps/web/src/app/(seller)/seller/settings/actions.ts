@@ -1,10 +1,13 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { sellerScope } from "@/lib/context";
 import { updateStoreSettings } from "@bukalaris/db";
 import { run, text } from "../_run";
 
 export async function updateSettingsAction(f: FormData) {
+  await requirePortalCsrf(f, "/seller/settings");
   const scope = await sellerScope();
   await run("/seller/settings", () => "/seller/settings?saved=1", () =>
     updateStoreSettings(scope, {

@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
@@ -14,6 +15,7 @@ export default async function NewLandingPagePage({ searchParams }: PageProps<"/s
       <PageHeader back={{ href: "/seller/landing-pages", label: "Semua landing page" }} title="Buat landing page" description="Mulai dari judul dan alamat; blok dan tampilan diatur di langkah berikutnya. Halaman tersimpan sebagai draf sampai Anda publikasikan." />
       <Notice error={error} />
       <form action={createLandingPageAction} className="grid gap-6">
+        <CsrfField />
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="grid gap-2">
             <Label htmlFor="title">Judul</Label>

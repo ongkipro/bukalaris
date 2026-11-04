@@ -1,4 +1,6 @@
 import { Notice } from "@/components/notice";
+import { portalCsrfToken } from "@/lib/auth-csrf";
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { SubmitButton } from "@/components/submit-button";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,6 +25,7 @@ export default async function InvitePage({ params, searchParams }: PageProps<"/i
   const { error } = await searchParams;
   const inv = await previewInvitation(db(), token);
   const user = await currentUser();
+  const csrfToken = user ? await portalCsrfToken() : null;
   const roleLabel = inv.status === "pending" && inv.role === "owner" ? "pemilik" : "staf";
 
   return (
@@ -45,6 +48,7 @@ export default async function InvitePage({ params, searchParams }: PageProps<"/i
               {user ? (
                 user.email.toLowerCase() === inv.email ? (
                   <form action={acceptAsCurrentUser.bind(null, token)}>
+                    <CsrfField token={csrfToken} />
                     <SubmitButton pendingText="Bergabung…">Gabung ke {inv.storeName}</SubmitButton>
                   </form>
                 ) : (
@@ -53,6 +57,7 @@ export default async function InvitePage({ params, searchParams }: PageProps<"/i
                       Anda sedang masuk sebagai {user.email}. Undangan ini ditujukan ke {inv.email}; keluar dulu lalu masuk dengan alamat tersebut.
                     </p>
                     <form action={signOut}>
+                      <CsrfField token={csrfToken} />
                       <Button type="submit" variant="outline">Keluar</Button>
                     </form>
                   </>

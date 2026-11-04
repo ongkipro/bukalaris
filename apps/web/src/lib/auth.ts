@@ -50,7 +50,7 @@ export function authOrigin(surface: AuthSurface, env: NodeJS.ProcessEnv = proces
 const ORIGIN_ENV: Record<Exclude<AuthSurface, "local">, string> = { owner: "OWNER_ORIGIN", seller: "APP_ORIGIN", affiliate: "AFFILIATE_ORIGIN", buyer: "BUYER_ORIGIN" };
 
 /** Distinct secret per surface: an explicit `AUTH_SECRET_<SURFACE>`, else derived from the base secret by domain separation. */
-function surfaceSecret(surface: AuthSurface, env: NodeJS.ProcessEnv): string | undefined {
+export function surfaceSecret(surface: AuthSurface, env: NodeJS.ProcessEnv): string | undefined {
   const base = env.BETTER_AUTH_SECRET;
   if (surface === "local") return base;
   const explicit = env[`AUTH_SECRET_${surface.toUpperCase()}`];

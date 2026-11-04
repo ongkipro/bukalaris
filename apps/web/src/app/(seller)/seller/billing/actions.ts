@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { paySubscription } from "@bukalaris/db";
 import { sellerScope } from "@/lib/context";
 import { userError, withError } from "@/lib/errors";
@@ -13,6 +15,7 @@ const text = (f: FormData, k: string) => String(f.get(k) ?? "");
  * the same live instruction (database unique indexes). The return page says "menunggu verifikasi": a browser returning is never settlement.
  */
 export async function payAction(f: FormData) {
+  await requirePortalCsrf(f, "/seller/billing");
   const scope = await sellerScope();
   const invoiceId = text(f, "invoiceId");
   const back = invoiceId ? `/seller/billing/invoices/${encodeURIComponent(invoiceId)}` : "/seller/billing";

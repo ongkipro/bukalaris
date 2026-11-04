@@ -381,6 +381,7 @@ The web image stores uploads on local disk under `MEDIA_DIR` (default
   rate-limit storage is in memory per process (one web replica, or configure
   `secondaryStorage`); confirm the client-IP header the reverse proxy sets so
   the per-IP checkout limits (`x-forwarded-for` last hop / `x-real-ip`) cannot be forged.
+- Host forwarding (D-25): through Cloudflare and Traefik, `GET /api/health` on every surface host must not answer `421`. A `421` means the proxy chain rewrites `Host` while keeping the original name in `X-Forwarded-Host`, which also breaks host-selected sessions (DOM-6); fix the proxy configuration, do not relax the rule.
 - RLS and separate DB roles: implemented (ADR-0005, T-27); the production roles
   still have to be created by hand (see "Database roles").
 - Log System and audit are implemented (T-23); an external log sink/alerting

@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
@@ -33,6 +34,7 @@ export default async function CollectionPage({ params, searchParams }: PageProps
       />
       <Notice error={error} saved={saved} />
       <form action={updateCollectionAction.bind(null, c.id)} className="grid gap-6">
+        <CsrfField />
         <CollectionFields d={c} products={products} />
         <div>
           <SubmitButton>Simpan koleksi</SubmitButton>

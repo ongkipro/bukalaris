@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
@@ -90,6 +91,7 @@ export default async function SellerShippingPage({ searchParams }: PageProps<"/s
                 <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 text-sm">
                   <span>{a.label}</span>
                   <form action={setPickupAreaAction}>
+        <CsrfField />
                     <input type="hidden" name="areaId" value={a.id} />
                     <input type="hidden" name="areaLabel" value={a.label} />
                     <SubmitButton size="sm" aria-label={`Pilih ${a.label}`} pendingText="Memilih…">Pilih</SubmitButton>
@@ -100,6 +102,7 @@ export default async function SellerShippingPage({ searchParams }: PageProps<"/s
           )}
 
           <form action={setPickupAddressAction} className="grid gap-2">
+        <CsrfField />
             <Label htmlFor="addressText">Alamat lengkap pickup</Label>
             <Textarea
               id="addressText"

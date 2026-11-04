@@ -1,4 +1,6 @@
 import { fieldClass, Notice } from "@/components/notice";
+
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { SubmitButton } from "@/components/submit-button";
 import { buttonVariants } from "@/components/ui/button";
 import { SignalEvent } from "@/components/pixels/runtime";
@@ -49,6 +51,7 @@ export default async function CartPage({ params, searchParams }: PageProps<"/s/[
                     {l.quantity > l.stock && <p className="mt-1 text-sm text-destructive" role="alert">Stok tersisa {l.stock}; jumlah akan ditolak saat checkout.</p>}
                   </div>
                   <form action={updateCart.bind(null, store)} className="col-start-2 flex items-center gap-2 @xl:col-start-3">
+                    <CsrfField />
                     <input type="hidden" name="variantId" value={l.variantId} />
                     <label htmlFor={`qty-${l.variantId}`} className="sr-only">Jumlah {l.productTitle}</label>
                     <input id={`qty-${l.variantId}`} name="quantity" type="number" inputMode="numeric" min={0} max={99} defaultValue={l.quantity} className={`${fieldClass} w-20 tabular-nums`} />

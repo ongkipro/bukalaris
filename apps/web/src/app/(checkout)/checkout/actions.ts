@@ -1,5 +1,7 @@
 "use server";
 
+import { requireCartCsrf } from "@/lib/auth-csrf";
+
 import { captureCheckoutSession, checkoutPromotionPreview, db, placeOrder, storefrontScope } from "@bukalaris/db";
 import { userError, withError } from "@/lib/errors";
 import { referralContext } from "@/lib/referral";
@@ -29,10 +31,12 @@ export async function previewVoucher(f: FormData): Promise<VoucherPreview> {
  * and nothing but the four contact fields is read from the form (price, store and cart come from the server).
  */
 export async function captureProgress(f: FormData): Promise<void> {
+  if (!(f instanceof FormData)) return;
   try {
     const scope = await storefrontScope(db(), String(f.get("store") ?? ""));
     if (!scope) return;
     const cartId = (await cookies()).get(cartCookie(scope.storeId))?.value;
+    await requireCartCsrf(scope, f);
     await captureCheckoutSession(db(), cartId, Object.fromEntries(["buyerName", "buyerPhone", "buyerEmail", "shippingAddress"].map((k) => [k, String(f.get(k) ?? "")])), { clientIp: await clientIp() });
   } catch {
     // Capture is optional; the order flow does not depend on it.
@@ -40,6 +44,7 @@ export async function captureProgress(f: FormData): Promise<void> {
 }
 
 export async function submitCheckout(f: FormData) {
+  if (!(f instanceof FormData)) redirect("/checkout");
   const jar = await cookies();
   const slug = String(f.get("store") ?? "");
   const scope = await storefrontScope(db(), slug);
@@ -55,6 +60,7 @@ export async function submitCheckout(f: FormData) {
   let orderId: number | undefined;
   let error: string | undefined;
   try {
+    await requireCartCsrf(scope, f);
     ({ orderId } = await placeOrder(db(), cartId, input, undefined, { clientIp: await clientIp(), signal: await requestSignalContext(), referral: await referralContext() }));
   } catch (err) {
     error = userError(err);

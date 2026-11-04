@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { CopyButton } from "@/components/copy-button";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
@@ -48,6 +49,7 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
       </div>
       <Notice error={error} saved={saved} />
       <form action={updateProductAction.bind(null, p.id)} className="grid gap-4">
+        <CsrfField />
         <ProductFields d={p} idHint={p.catalogId} />
         <div>
           <SubmitButton>Simpan produk</SubmitButton>
@@ -63,6 +65,7 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
         </div>
         {p.variants.map((v) => (
           <form key={v.id} action={updateVariantAction.bind(null, p.id, v.id)} className="grid gap-3 rounded-lg border p-4">
+        <CsrfField />
             <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               ID varian <span className="font-mono tabular-nums text-foreground" data-testid="variant-catalog-id">{v.catalogId}</span>
               <CopyButton value={v.catalogId} label={`ID varian ${v.title}`} />
@@ -74,6 +77,7 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
           </form>
         ))}
         <form action={addVariantAction.bind(null, p.id)} className="grid gap-3 rounded-lg border border-dashed p-4">
+        <CsrfField />
           <h3 className="text-sm font-medium">Tambah varian</h3>
           <VariantFields prefix="new_" />
           <div>

@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { consoleActionOp } from "@/lib/console-gate";
 import { DomainError, reportConsoleIssue } from "@bukalaris/db";
 import { headers } from "next/headers";
@@ -12,10 +14,11 @@ type Result = { ok: true; id: number } | { ok: false; message: string; field?: "
  * browser payload is untrusted input: the service validates it against the versioned schema, resolves the page id from the
  * route registry and scrubs the text. The user agent comes from this request, not from the body.
  */
-export async function reportIssueAction(payload: unknown): Promise<Result> {
+export async function reportIssueAction(csrfInput: unknown, payload: unknown): Promise<Result> {
   let gate;
   try {
     gate = await consoleActionOp("/admin", "ops.issues.report");
+    await requirePortalCsrf(csrfInput);
   } catch (err) {
     if (err instanceof DomainError) return { ok: false, message: err.message };
     throw err;

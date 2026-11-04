@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
@@ -57,6 +58,7 @@ export default async function AdminShippingPage({ searchParams }: PageProps<"/ad
       <section aria-labelledby="margin" className="grid gap-3">
         <h2 id="margin" className="text-lg font-semibold">Margin</h2>
         <form className="grid gap-4 rounded-lg border p-4 md:grid-cols-3" aria-label="Aturan margin">
+        <CsrfField />
           <div className="grid min-w-0 gap-2">
             <Label htmlFor="fixedIdr">Margin tetap (Rp)</Label>
             <Input id="fixedIdr" name="fixedIdr" type="number" inputMode="numeric" min={0} max={100000} step={1} defaultValue={rule.fixedIdr} required className="tabular-nums" aria-describedby="fixed-help" />
@@ -114,6 +116,7 @@ export default async function AdminShippingPage({ searchParams }: PageProps<"/ad
       <section aria-labelledby="kebijakan" className="grid gap-3">
         <h2 id="kebijakan" className="text-lg font-semibold">Diskon ongkir dan rute akun</h2>
         <form className="grid gap-4 rounded-lg border p-4 md:grid-cols-3" aria-label="Kebijakan pengiriman">
+        <CsrfField />
           <input type="hidden" name="revision" value={settings.revision} />
           <div className="grid gap-2">
             <Label htmlFor="discountIdr">Diskon ongkir tetap (Rp)</Label>
@@ -160,6 +163,7 @@ export default async function AdminShippingPage({ searchParams }: PageProps<"/ad
           </ul>
         )}
         <form action={saveCashbackRuleAction} className="grid gap-3 rounded-lg border p-4 md:grid-cols-3" aria-label="Draf aturan cashback">
+        <CsrfField />
           <div className="grid gap-2"><Label htmlFor="cb-courier">Kode kurir (kosong = semua)</Label><Input id="cb-courier" name="courierCode" maxLength={40} /></div>
           <div className="grid gap-2"><Label htmlFor="cb-service">Kode layanan (kosong = semua)</Label><Input id="cb-service" name="serviceCode" maxLength={40} /></div>
           <div className="grid gap-2"><Label htmlFor="cb-share">Bagian seller (%)</Label><Input id="cb-share" name="sellerSharePercent" type="number" min={0} max={100} step={0.01} defaultValue={0} className="tabular-nums" /></div>
@@ -188,6 +192,7 @@ export default async function AdminShippingPage({ searchParams }: PageProps<"/ad
           </ul>
         )}
         <form action={setCourierPolicyAction} className="grid gap-3 rounded-lg border p-4 md:grid-cols-3" aria-label="Kebijakan layanan kurir">
+        <CsrfField />
           <div className="grid gap-2"><Label htmlFor="cp-courier">Kode kurir</Label><Input id="cp-courier" name="courierCode" required maxLength={40} /></div>
           <div className="grid gap-2"><Label htmlFor="cp-service">Kode layanan (kunci estimasi persis, mis. SAPLite; kosong = kurir itu sendiri). Aturan layanan mengalahkan aturan kurir.</Label><Input id="cp-service" name="serviceCode" maxLength={40} /></div>
           <div className="grid gap-2"><Label htmlFor="cp-status">Status</Label><NativeSelect id="cp-status" name="status" defaultValue="active"><option value="active">Aktif</option><option value="disabled">Nonaktif</option></NativeSelect></div>
@@ -220,6 +225,7 @@ export default async function AdminShippingPage({ searchParams }: PageProps<"/ad
                   <TableCell>
                     {a.kind === "partner_managed" && a.status !== "disabled" ? (
                       <form action={recoverAccountAction} className="flex flex-wrap items-center gap-1">
+        <CsrfField />
                         <input type="hidden" name="accountId" value={a.id} />
                         <input type="hidden" name="revision" value={a.revision} />
                         <Input name="reason" aria-label={`Alasan pemulihan akun ${a.id}`} minLength={5} maxLength={300} required placeholder="Alasan" className="h-8 w-32" />

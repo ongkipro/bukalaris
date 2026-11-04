@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { consoleActionOp } from "@/lib/console-gate";
 import { userError, withError } from "@/lib/errors";
 import { decideConsoleApproval } from "@bukalaris/db";
@@ -15,6 +17,7 @@ export async function decideApprovalAction(approvalId: number, decision: "approv
   let error: string | undefined;
   try {
     const { op, sessionId } = await consoleActionOp("/admin/approvals");
+    await requirePortalCsrf(f);
     await decideConsoleApproval(op, sessionId, { approvalId, decision, reason: String(f.get("reason") ?? "") });
   } catch (err) {
     error = userError(err);

@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
@@ -33,6 +34,7 @@ export default async function PageEditor({ params, searchParams }: PageProps<"/s
       />
       <Notice error={error} saved={saved} />
       <form action={updatePageAction.bind(null, p.id)} className="grid gap-6">
+        <CsrfField />
         <PageFields d={p} />
         <div>
           <SubmitButton>Simpan halaman</SubmitButton>

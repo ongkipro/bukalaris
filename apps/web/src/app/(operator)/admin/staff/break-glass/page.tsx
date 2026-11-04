@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
@@ -26,6 +27,7 @@ export default async function BreakGlassPage({ searchParams }: PageProps<"/admin
       <PageHeader back={{ href: "/admin/staff", label: "Staf dan izin" }} title="Akses darurat" description="Peningkatan akses baca dan ungkap yang dibatasi waktu untuk satu akun dan satu kasus, disetujui staf kedua (halaman Persetujuan). Berakhir sendiri, tidak pernah memberi izin tulis, dan semua pemegang audit.read diberi tahu saat diberikan." />
       <Notice error={error} saved={saved} savedText={savedText(saved)} />
       <form action={requestBreakGlassAction} className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2" aria-labelledby="minta">
+        <CsrfField />
         <h2 id="minta" className="text-base font-semibold sm:col-span-2">Minta akses darurat</h2>
         <div className="grid gap-1.5"><Label htmlFor="userId">ID akun seller</Label><Input id="userId" name="userId" required pattern="[A-Za-z0-9_-]{8,64}" /></div>
         <div className="grid gap-1.5"><Label htmlFor="caseRef">Nomor kasus terbuka</Label><Input id="caseRef" name="caseRef" required placeholder="C-000123" pattern="C-\d{6,}" /></div>
@@ -37,6 +39,7 @@ export default async function BreakGlassPage({ searchParams }: PageProps<"/admin
         <div><SubmitButton pendingText="Meminta…">Minta persetujuan</SubmitButton></div>
       </form>
       <form action={activateBreakGlassAction} className="grid gap-3 rounded-lg border p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" aria-labelledby="aktif">
+        <CsrfField />
         <h2 id="aktif" className="text-base font-semibold sm:col-span-2">Jalankan permintaan yang disetujui</h2>
         <div className="grid gap-1.5"><Label htmlFor="approvalId">ID persetujuan</Label><Input id="approvalId" name="approvalId" type="number" min={1} required /></div>
         <SubmitButton pendingText="Memberikan…">Mulai akses darurat</SubmitButton>
@@ -51,7 +54,8 @@ export default async function BreakGlassPage({ searchParams }: PageProps<"/admin
                   <span>#{e.id} · kasus <span className="font-mono">{e.caseId}</span> · <span className="break-all font-mono">{e.targetId}</span> · {e.capabilities.join(", ")} · <time dateTime={e.expiresAt.toISOString()}>{tanggal(e.startsAt)} — {tanggal(e.expiresAt)}</time> ({Math.max(1, Math.round((e.expiresAt.getTime() - e.startsAt.getTime()) / 60_000))} mnt){e.reviewedAt ? " · ditinjau" : ""}</span>
                   <StatusBadge label={e.state === "active" ? "Aktif" : e.state === "revoked" ? "Dicabut" : "Berakhir"} tone={e.state === "active" ? "warning" : e.state === "revoked" ? "destructive" : "secondary"} />
                 </span>
-                {e.state === "active" && <form action={revokeBreakGlassAction.bind(null, e.id)}><SubmitButton variant="outline" pendingText="Mencabut…">Cabut</SubmitButton></form>}
+                {e.state === "active" && <form action={revokeBreakGlassAction.bind(null, e.id)}>
+        <CsrfField /><SubmitButton variant="outline" pendingText="Mencabut…">Cabut</SubmitButton></form>}
               </li>
             ))}
           </ul>

@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { ConfirmSubmit } from "@/components/confirm-submit";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
@@ -90,6 +91,7 @@ export default async function StoreDetailPage({ params, searchParams }: PageProp
       </nav>
 
       <form action={setStoreStatusDetailAction.bind(null, s.id, next)} className="grid gap-3 rounded-lg border p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+        <CsrfField />
         <div className="grid gap-2">
           <Label htmlFor="reasonCode">Kode alasan</Label>
           <NativeSelect id="reasonCode" name="reasonCode" defaultValue="operator_decision">{REASON_CODES.map(([c, l]) => <option key={c} value={c}>{l}</option>)}</NativeSelect>
@@ -133,6 +135,7 @@ export default async function StoreDetailPage({ params, searchParams }: PageProp
         )}
         {canCase && (
           <form action={openCaseAction} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end" aria-label="Buka kasus untuk toko ini">
+        <CsrfField />
             <input type="hidden" name="subjectKind" value="store" /><input type="hidden" name="subjectId" value={s.id} /><input type="hidden" name="back" value={`/admin/stores/${s.id}`} /><input type="hidden" name="kind" value="risk" />
             <div className="grid gap-1.5"><Label htmlFor="case-title">Judul kasus</Label><Input id="case-title" name="title" required minLength={3} maxLength={200} /></div>
             <div className="grid gap-1.5"><Label htmlFor="case-reason">Alasan</Label><Input id="case-reason" name="reason" required minLength={5} maxLength={500} /></div>

@@ -1,5 +1,7 @@
 "use client";
 
+import { CsrfField } from "@/lib/auth-csrf-form";
+
 import { ensureInit, fire } from "@/components/pixels/runtime";
 import { rupiah } from "@/lib/format";
 import type { BrowserSignals } from "@bukalaris/db";
@@ -54,6 +56,7 @@ export function OrderForm({
 
   return (
     <form ref={formRef} action={preview ? undefined : action} onSubmit={preview ? (e) => e.preventDefault() : onSubmit} className="grid gap-5">
+      {!preview && <CsrfField />}
       <fieldset className="grid gap-2">
         <legend className="lp-sm mb-2 font-semibold">Pilih varian</legend>
         {variants.map((v) => (

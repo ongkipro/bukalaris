@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { EmptyState } from "@/components/empty-state";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
@@ -90,6 +91,7 @@ export default async function FinancePage({ searchParams }: PageProps<"/seller/f
         )}
         {owner && (
           <form action={setDestinationAction} className="grid gap-3 rounded-lg border p-4 sm:grid-cols-2" aria-label="Ganti rekening tujuan">
+        <CsrfField />
             <div className="grid gap-1.5">
               <Label htmlFor="bankCode">Bank</Label>
               <NativeSelect id="bankCode" name="bankCode" defaultValue="BCA">{BANKS.map((b) => <option key={b} value={b}>{b}</option>)}</NativeSelect>
@@ -125,6 +127,7 @@ export default async function FinancePage({ searchParams }: PageProps<"/seller/f
           <p role="note" className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground" data-testid="no-active-destination">Belum ada rekening tujuan yang aktif{held ? " (rekening baru masih ditahan)" : ""}. Simpan rekening di atas; penarikan baru bisa diminta setelah masa tahan selesai.</p>
         ) : (
           <form action={requestPayoutAction} className="grid gap-3 rounded-lg border p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end" aria-label="Minta penarikan dana">
+        <CsrfField />
             <input type="hidden" name="requestKey" value={requestKey} />
             <div className="grid gap-1.5">
               <Label htmlFor="amountIdr">Jumlah (Rp)</Label>

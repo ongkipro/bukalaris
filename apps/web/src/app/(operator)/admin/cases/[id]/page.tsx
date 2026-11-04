@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
@@ -53,6 +54,7 @@ export default async function CaseDetailPage({ params, searchParams }: PageProps
       <Notice error={error} saved={saved} savedText={savedText(saved)} />
       {canWrite && moves.length > 0 && (
         <form className="grid gap-3 rounded-lg border p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end" aria-label="Ubah status kasus">
+        <CsrfField />
           <div className="grid gap-1.5"><Label htmlFor="reason">Alasan perubahan</Label><Input id="reason" name="reason" required minLength={5} maxLength={500} /></div>
           <div className="grid gap-1.5"><Label htmlFor="resolutionCode">Kode penyelesaian (untuk Selesaikan)</Label><Input id="resolutionCode" name="resolutionCode" maxLength={64} placeholder="answered" /></div>
           <div className="flex flex-wrap gap-2">
@@ -74,6 +76,7 @@ export default async function CaseDetailPage({ params, searchParams }: PageProps
         )}
         {canWrite && c.status !== "closed" && (
           <form action={addNoteAction.bind(null, c.id)} className="grid gap-2">
+        <CsrfField />
             <Label htmlFor="body">Tambah catatan</Label>
             <Textarea id="body" name="body" required maxLength={2000} rows={3} aria-describedby="body-help" />
             <p id="body-help" className="text-xs text-muted-foreground">Rujuk data sensitif dengan ID saja. Email, nomor telepon, tautan, token dan nomor panjang dihapus saat disimpan. Catatan tidak bisa diubah atau dihapus.</p>

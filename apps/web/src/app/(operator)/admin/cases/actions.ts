@@ -1,5 +1,7 @@
 "use server";
 
+import { requirePortalCsrf } from "@/lib/auth-csrf";
+
 import { consoleActionOp } from "@/lib/console-gate";
 import { userError, withError } from "@/lib/errors";
 import { addCaseNote, moveCase, openCase, type CaseStatus } from "@bukalaris/db";
@@ -16,6 +18,7 @@ export async function openCaseAction(f: FormData) {
   const back = text(f, "back").startsWith("/admin/") ? text(f, "back") : "/admin/cases";
   try {
     const { op } = await consoleActionOp("/admin/cases", "cases.write");
+    await requirePortalCsrf(f);
     id = (await openCase(op, { kind: text(f, "kind") || "support", subjectKind, subjectId, title: text(f, "title"), priority: text(f, "priority") || "normal", reasonCode: "case_opened", reason: text(f, "reason") })).id;
   } catch (err) {
     error = userError(err);
@@ -27,6 +30,7 @@ export async function addNoteAction(caseId: number, f: FormData) {
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/cases/[id]", "cases.write");
+    await requirePortalCsrf(f);
     await addCaseNote(op, caseId, text(f, "body"));
   } catch (err) {
     error = userError(err);
@@ -39,6 +43,7 @@ export async function moveCaseAction(caseId: number, from: CaseStatus, to: CaseS
   let error: string | undefined;
   try {
     const { op } = await consoleActionOp("/admin/cases/[id]", "cases.write");
+    await requirePortalCsrf(f);
     await moveCase(op, caseId, { from, to, resolutionCode: text(f, "resolutionCode") || undefined, reason: text(f, "reason") });
   } catch (err) {
     error = userError(err);

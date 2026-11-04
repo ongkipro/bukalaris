@@ -1,3 +1,4 @@
+import { CsrfField } from "@/lib/auth-csrf-form";
 import { Notice } from "@/components/notice";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/submit-button";
@@ -13,6 +14,7 @@ export default async function NewPagePage({ searchParams }: PageProps<"/seller/p
       <PageHeader back={{ href: "/seller/pages", label: "Semua halaman" }} title="Tambah halaman" description="Teks biasa dengan format ringan; simpan sebagai draf sampai siap dipublikasikan." />
       <Notice error={error} />
       <form action={createPageAction} className="grid gap-6">
+        <CsrfField />
         <PageFields />
         <div>
           <SubmitButton>Simpan halaman</SubmitButton>

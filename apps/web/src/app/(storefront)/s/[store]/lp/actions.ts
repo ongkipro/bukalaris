@@ -1,5 +1,7 @@
 "use server";
 
+import { requireCartCsrf } from "@/lib/auth-csrf";
+
 import { userError, withError } from "@/lib/errors";
 import { HOST_STORE_HEADER } from "@/lib/host-header";
 import { cartCookie, clientIp, cookieOpts } from "@/lib/storefront";
@@ -20,6 +22,7 @@ export async function orderFromLanding(storeSlug: string, lpSlug: string, f: For
   let error: string | undefined;
   try {
     const current = jar.get(cartCookie(scope.storeId))?.value;
+    await requireCartCsrf(scope, f);
     await limitCartMutation(db(), { clientIp: await clientIp(), cartId: current }); // T-30
     const cartId = await setCartLine(scope, current, { variantId: f.get("variantId"), quantity: f.get("quantity") }, "add");
     jar.set(cartCookie(scope.storeId), cartId, cookieOpts);
