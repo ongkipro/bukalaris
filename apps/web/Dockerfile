@@ -25,6 +25,9 @@ RUN pnpm --filter @bukalaris/db deploy --prod --legacy /out && rm -rf /out/docke
 #   docker build -f apps/web/Dockerfile --target migrate -t bukalaris-migrate .
 #   docker run --rm -e MIGRATION_DATABASE_URL=... bukalaris-migrate   # owner role (ADR-0005)
 FROM node:24-alpine AS migrate
+# The worker and cleanup also run from this stage (T-84, DEPLOY-COOLIFY "Worker and cleanup"). Without
+# NODE_ENV=production they would silently pick local mail and the fake shipping partner; migrate.ts does not read it.
+ENV NODE_ENV=production
 WORKDIR /app
 RUN addgroup -S -g 10001 app && adduser -S -u 10001 -G app app
 COPY --from=migrate-build --chown=app:app /out ./

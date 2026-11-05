@@ -50,10 +50,10 @@ Values live only in Coolify secrets; never in the repository or image. The
 table is the complete list of `process.env.*` reads in `apps/web` and
 `packages/db` on `main` (2026-10-07; grep `process\.env\.` and the
 `env.MENGANTAR_*` reads in `packages/db/src/mengantar/adapter.ts` and
-`mengantar/booking.ts`; re-checked after the wave 4 merge at `c1adf27`). Three
-processes share the image: **Web** (`node server.js`), **Worker**
-(`node packages/db/src/worker.ts`) and **Cleanup** (`node packages/db/src/cleanup.ts`);
-**Migrate** is the separate `migrate` image stage.
+`mengantar/booking.ts`; re-checked after the wave 4 merge at `c1adf27`). Two images
+from one Dockerfile: **Web** (`runner` stage, `node apps/web/server.js`), and the `migrate` stage, which runs
+**Migrate** (`node src/migrate.ts`), the **Worker** (`node src/worker.ts`) and **Cleanup** (`node src/cleanup.ts`);
+the web image carries no `packages/db/src` (checked by `verify:docker` since T-84).
 
 Variables that only planned tasks will read are listed separately under
 "Planned variables" below; they do not exist in the current build.
@@ -86,7 +86,7 @@ Variables that only planned tasks will read are listed separately under
 | `CART_IDLE_HOURS` | — | optional (cleanup) | — | Idle-cart age for `cleanup.ts` (default 168, integer ≥ 1) |
 | `BUYER_DATA_RETENTION_DAYS` | — | optional (cleanup) | — | Enables the buyer-data retention step of `cleanup.ts` (T-43): redacts contact data of `completed`/`cancelled` orders not updated for this many days (integer ≥ 1; junk fails loudly). Unset = disabled; set only with the privacy owner's approved period (Q-11). Not in `.env.example` yet |
 | `DEV_OUTBOX` | never in production | — | — | `1` exposes `/dev/outbox` (stored dev mail) in a production build. Leave unset |
-| `NODE_ENV` | preset | preset | preset | `production` in the image; guards `seed.ts`, `local-roles.ts`, cookie `secure`, CSP dev allowances |
+| `NODE_ENV` | preset | preset | preset | `production` in both images (`runner` and, since T-84, `migrate`, so the worker never silently falls back to local mail or the fake shipping partner); guards `seed.ts`, `local-roles.ts`, cookie `secure`, CSP dev allowances |
 | `PORT`, `HOSTNAME` | preset | — | — | Image defaults `3000`, `0.0.0.0` |
 
 Test-only variables (never set in a deployment): `TEST_DATABASE_URL`,
@@ -194,10 +194,10 @@ rehearsal are in 14-SLA-DISASTER-RECOVERY.
 
 ## Worker and cleanup (not yet planned in Coolify)
 
-The outbox worker is a long-running second process of the same image
-(`packages/db/src/worker.ts`, T-32): one Coolify application or service from
-the same Dockerfile with the command overridden to
-`node packages/db/src/worker.ts`, no domain, exactly one replica (claims use
+The outbox worker is a long-running second process (`packages/db/src/worker.ts`, T-32). It runs from the
+**`migrate` image stage**, not the web image: the web image holds only the Next.js standalone output and has no
+`packages/db/src` (T-84 runs the worker and cleanup this way in `pnpm verify:docker`, with `NODE_ENV=production` coming from the image). One Coolify application or
+service from the same Dockerfile, target stage `migrate`, with the command overridden to `node src/worker.ts`, no domain, exactly one replica (claims use
 `FOR UPDATE SKIP LOCKED`, so more replicas are safe but unnecessary), env
 `PLATFORM_DATABASE_URL`, the per-surface origins (`OWNER_ORIGIN`, `APP_ORIGIN`, `CHECKOUT_ORIGIN`; `BETTER_AUTH_URL` only as the local fallback), `ORDER_LINK_SECRET`,
 `INTEGRATION_TOKEN_KEY`, optional `SIGNALS_LIVE`, `WORKER_POLL_MS`,
@@ -207,12 +207,12 @@ locked without `MENGANTAR_WRITE_ENABLED=1`; COD needs `ALLOW_COD_BOOKING=1`). It
 while the database is unreachable. Without it, transfer orders never receive a
 payment instruction, no order e-mail is sent and no ad signal is delivered, and no shipment is booked or tracked.
 
-Cleanup (`node packages/db/src/cleanup.ts`, T-30/T-38) runs once and exits:
+Cleanup (`node src/cleanup.ts` in the `migrate` image, T-30/T-38) runs once and exits:
 schedule it at least every 15 minutes (Coolify scheduled task or cron; T-45) with
 `PLATFORM_DATABASE_URL` and optional `CART_IDLE_HOURS`; the buyer-data
 retention step runs only when `BUYER_DATA_RETENTION_DAYS` is set. The worker and
 cleanup command paths do not move when T-51 reorganises `packages/db/src`
-(ADR-0008 keeps `worker.ts` and `cleanup.ts` as root entry points). The worker now runs JOB-21's periodic enqueuer and scheduler heartbeat (T-74) in its normal loop; `--once` does not tick it. Only imported registrations run: ARCH-5 lists actual handlers and disabled/stub boundaries. Future Compliance, statement and Update Log jobs do not exist merely because a scheduler exists. Cleanup stays an external one-shot; its heartbeat is not implemented (T-79). Neither process is part of `verify:docker` yet (T-84).
+(ADR-0008 keeps `worker.ts` and `cleanup.ts` as root entry points). The worker now runs JOB-21's periodic enqueuer and scheduler heartbeat (T-74) in its normal loop; `--once` does not tick it. Only imported registrations run: ARCH-5 lists actual handlers and disabled/stub boundaries. Future Compliance, statement and Update Log jobs do not exist merely because a scheduler exists. Cleanup stays an external one-shot; its heartbeat is not implemented (T-79). Since T-84, `pnpm verify:docker` runs both processes from the built `migrate` image as `bukalaris_platform` on its scratch database: the worker must complete one safe queued job (`approval.expire` on an expired fixture request), record the scheduler heartbeat and stop on SIGTERM with exit 0 and no process-level error lines (individual job outcomes are info-level, so this does not mean every scheduled job succeeded); cleanup must exit 0, delete exactly the one idle fixture cart and report buyer-data retention disabled. `VERIFY_BREAK=worker|effect|cleanup` proves each check fails.
 
 ## Database roles (once per database, before the first migration)
 

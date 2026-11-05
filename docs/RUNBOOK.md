@@ -61,7 +61,7 @@ constraint no longer accepts. The migration also needs the five roles of `docs/D
 | Command | What it proves | Typical duration (2026-10-06, this machine) |
 |---|---|---|
 | `pnpm verify` | `lint` → `typecheck` → `test` (Vitest, `*_test` DB) → `build` → `e2e` (Playwright against the standalone build and the `*_e2e` DB); stops at the first failure | ~110 s |
-| `pnpm verify:docker` | builds `bukalaris-web:local` and `bukalaris-migrate:local`, creates a throwaway `bukalaris_verify_<id>` DB owned by `bukalaris_owner`, migrates it as the owner (`MIGRATION_DATABASE_URL`), counts the `tenant_isolation` policies (≥ 26; T-59 changes the policy set and updates this count, the role SQL and the restore `rls_ok` check in the same change), starts the web image as `bukalaris_app` + `bukalaris_platform`, checks `/api/health` 200, `/s/nope` 404 (DB-backed route), `/login` 200, Docker `HEALTHCHECK` healthy, process user `app`, writable `MEDIA_DIR` volume; drops the DB, container and volume afterwards | ~175 s (≈160 s of it image builds; cached layers make reruns faster) |
+| `pnpm verify:docker` | builds `bukalaris-web:local` and `bukalaris-migrate:local`, creates a throwaway `bukalaris_verify_<id>` DB owned by `bukalaris_owner`, migrates it as the owner (`MIGRATION_DATABASE_URL`), counts the `tenant_isolation` policies (≥ 26; T-59 changes the policy set and updates this count, the role SQL and the restore `rls_ok` check in the same change), starts the web image as `bukalaris_app` + `bukalaris_platform`, checks `/api/health` 200, `/s/nope` 404 (DB-backed route), `/login` 200, Docker `HEALTHCHECK` healthy, process user `app`, writable `MEDIA_DIR` volume; then (T-84) runs the worker and cleanup from the `migrate` image as `bukalaris_platform`: one `approval.expire` job done and its fixture request expired, scheduler heartbeat, graceful SIGTERM (exit 0, no error lines), cleanup exit 0 removing exactly one idle fixture cart with buyer-data retention off; `VERIFY_BREAK=worker\|effect\|cleanup` must make it fail; drops the DB, containers and volume afterwards | ~175 s (≈160 s of it image builds; cached layers make reruns faster) |
 
 `.github/workflows/ci.yml` runs the same two gates on GitHub (file only until a
 remote exists). `VERIFY_PORT=3170 pnpm verify:docker` also publishes the
@@ -325,8 +325,8 @@ with a recorded command and result before the first live deploy.
       `docs/DEPLOY-COOLIFY.md` "Required environment variables"; T-70 is implemented
       locally, not deployed; after T-48 also the key rings from
       "Planned variables", and a missing secret stops the process in production).
-- [ ] Worker process deployed from the same image (`node packages/db/src/worker.ts`)
-      and cleanup scheduled (`docs/DEPLOY-COOLIFY.md` "Worker and cleanup").
+- [ ] Worker process deployed from the `migrate` image stage (`node src/worker.ts`)
+      and cleanup (`node src/cleanup.ts`) scheduled (`docs/DEPLOY-COOLIFY.md` "Worker and cleanup").
 - [ ] Database roles created by hand with generated passwords and the database
       owned by `bukalaris_owner` (`docs/DEPLOY-COOLIFY.md` "Database roles");
       `DATABASE_URL` = app role, `PLATFORM_DATABASE_URL` = platform role,
