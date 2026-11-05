@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ACCOUNT_PROJECTIONS, accountDiagnostics, canonicalizeQuery, searchAccounts } from "../src/ops/accounts-governance-accounts.ts";
-import { maskEmail, maskName } from "../src/ops/accounts-governance.ts";
+import { maskEmail, maskName, queryFingerprint } from "../src/ops/accounts-governance.ts";
 import { openCase, moveCase } from "../src/ops/accounts-governance-cases.ts";
 import { activeRevealedFields, activateBreakGlass, breakGlassReviewQueue, requestBreakGlass, revealAccountField, reviewBreakGlass, revokeBreakGlass } from "../src/ops/accounts-governance-reveal.ts";
 import { executeMfaReset, recoverStoreOwnership, redeemSupportRecovery, requestMfaReset, revokeUserSessions, setIdentitySuspension, startSupportRecovery } from "../src/ops/accounts-governance-support.ts";
@@ -106,6 +106,24 @@ describe("SA-23 search: canonical forms, masked hits, rate limit, no raw query i
     const [e] = await consoleAccessEvents(op);
     expect(e).toMatchObject({ actorUserId: op.userId, targetKind: "account_search", accessLevel: "masked" });
     expect(e!.targetId).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it("T-99: a search fingerprint that happens to contain 8+ consecutive digits is shown verbatim, not scrubbed", async () => {
+    // Deterministic: pick a canonical query whose keyed fingerprint has a run of 8 digits (the scrubber's [digits] shape).
+    let query = "";
+    for (let i = 0; i < 200_000 && !query; i++) {
+      const candidate = `cari-${i}@contoh.test`;
+      const c = canonicalizeQuery(candidate)!;
+      const fp = queryFingerprint(`${c.kind}:${c.value}`);
+      if (fp && /\d{8}/.test(fp)) query = candidate;
+    }
+    expect(query, "found a fingerprint with an 8-digit run").not.toBe("");
+    const op = await makeOperator(SUPPORT);
+    await searchAccounts(op, { query });
+    const [e] = await consoleAccessEvents(op);
+    const c = canonicalizeQuery(query)!;
+    expect(e!.targetId).toBe(queryFingerprint(`${c.kind}:${c.value}`));
+    expect(e!.targetId).not.toContain("[digits]");
   });
 });
 

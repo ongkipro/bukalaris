@@ -246,6 +246,9 @@ export interface AccessEventView {
   expiresAt: Date | null;
   createdAt: Date;
 }
+/** Opaque identifiers shown verbatim in access evidence: a UUID, or a lowercase hex fingerprint of 16 to 64 characters. */
+export const isOpaqueId = (v: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) || /^[0-9a-f]{16,64}$/.test(v);
+
 export async function consoleAccessEvents(op: OperatorScope, raw: unknown = {}): Promise<AccessEventView[]> {
   await requirePlatformCap(op, "audit.read");
   const f = z.object({ before: optional(z.coerce.number().int().positive()), limit: optional(z.coerce.number().int().min(1).max(200)) }).parse(raw);
@@ -254,7 +257,8 @@ export async function consoleAccessEvents(op: OperatorScope, raw: unknown = {}):
       sql`select * from console_access_events(${f.limit ?? 50}, ${f.before ?? null}::bigint)`,
     );
     await tx.insert(auditLog).values({ actorUserId: op.userId, actorCapability: "audit.read", action: "access.read", accessLevel: "masked", outcome: "allowed", reason: `count:${rows.length}` });
-    // A UUID is an id, not free text: the scrubber would read digit runs inside it as numbers.
-    return [...rows].map((r) => ({ id: Number(r.id), actorUserId: r.actor_user_id, targetKind: r.target_kind, targetId: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(r.target_id) ? r.target_id : scrubText(r.target_id, 80), fieldClass: r.field_class, purposeCode: r.purpose_code, caseId: r.case_id, accessLevel: r.access_level, expiresAt: toDate(r.expires_at), createdAt: toDate(r.created_at)! }));
+    // A UUID or a keyed hex fingerprint (account search, 16 hex) is an id, not free text: the scrubber would read digit runs
+    // inside it as numbers (T-99: a fingerprint with 8+ consecutive digits rendered as "e[digits]a7…").
+    return [...rows].map((r) => ({ id: Number(r.id), actorUserId: r.actor_user_id, targetKind: r.target_kind, targetId: isOpaqueId(r.target_id) ? r.target_id : scrubText(r.target_id, 80), fieldClass: r.field_class, purposeCode: r.purpose_code, caseId: r.case_id, accessLevel: r.access_level, expiresAt: toDate(r.expires_at), createdAt: toDate(r.created_at)! }));
   });
 }

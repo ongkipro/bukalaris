@@ -815,3 +815,7 @@ dummy content.
 ## T-98 window-aligned limiter tests (2026-11-05)
 
 - T-85 rerun bd192aaff at 7c76402: DB 1427/1428 — checkout2 per-phone limit test let the 11th order through once; verify:docker green; build/E2E not reached. Not reproduced in 5 isolated runs or 2 near-boundary starts (cause unproven). Test aligned to a fresh database window before counting (freshDbWindow), 90 s timeout; near-boundary x3 pass, off-by-one limit mutant fails, 12/12 restored. Test-only change.
+
+## T-99 access-evidence fingerprints (2026-11-05)
+
+- T-85 GREEN locally at 141e030 (run b89148283: DB 1428/1428, build, E2E 261 passed / 2 skipped / 0 failed, verify:docker with worker). GitHub CI 42001611408 for the same commit failed t63-accounts:108: consoleAccessEvents scrubbed the 16-hex account-search fingerprint whenever it contained 8+ digits. Fixed by showing UUIDs and hex fingerprints verbatim (isOpaqueId); deterministic regression test fails on the old code, passes on the fix (57/57).

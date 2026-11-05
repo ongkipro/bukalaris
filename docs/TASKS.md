@@ -1307,7 +1307,7 @@ Common contract for T-80 to T-94: Allowed Paths are scope ceilings, not instruct
 - Done when: `pnpm verify:docker` starts the built worker on its disposable DB, proves one safe queued effect plus scheduler heartbeat, executes bounded cleanup with retention off and checks intended roles and shutdown. Deliberately failed worker/effect/cleanup fails the gate; use bounded condition waits. No live provider or non-scratch database is touched. Record image/tree identity, commands and observed effects.
 
 ### T-85 — Re-establish full verification on the current integrated tree
-- Status: Planned (Post-UX full build/E2E were stopped; older green runs are not current proof)
+- Status: Done locally 2026-11-05 — run b89148283 on a clean detached worktree at 141e030 (identity: web 4961fe329cfd, migrate d0b4800bb8df; frozen install; isolated DBs bukalaris_t85_test/_e2e; dev placeholder secrets; no provider credentials, fake adapters; MAIL_MODE local): `pnpm verify` — map ok, lint, typecheck, DB 76 files / 1428 tests passed, build ok, E2E 263 = 261 passed, 2 skipped (pre-existing environment-bound cases: ops DB-unreachable page, HSTS behind a TLS proxy), 0 failed at mobile-320, desktop and host-mode; `pnpm verify:docker` passed incl. worker/cleanup. Earlier runs found and fed T-95 (unmapped WWW route), T-97 (T-82 duplicate-submit regression) and T-98 (limiter test window). The same commit then failed GitHub CI on a CI-secret-dependent fingerprint scrub (T-99). Changed-surface narrow/wide inspection is covered by the E2E viewports; the independent public design review remains open under T-28.
 - Primary requirement: PR-14
 - Constraints: D-24; TEN-1, DEL-3; existing live/approval gates stay unchanged
 - Dependencies: T-28
@@ -1443,3 +1443,11 @@ Common contract for T-80 to T-94: Allowed Paths are scope ceilings, not instruct
 - Finding: `packages/db/test/checkout2.test.ts` "order submission is limited per cart … and per phone" failed once in the full T-85 run under host load (the 11th same-phone order resolved). Five isolated runs and two deliberate near-boundary starts did NOT reproduce it, so the root cause is unproven; the test is structurally exposed because it counts up to fixed-window limits (`hit`, database clock: phone 600 s, cart 60 s, IP 600 s) and a run that straddles a boundary restarts the count.
 - Change: `freshDbWindow(windowSec, needSec)` waits for a fresh database window when too little of the current one remains, before the per-phone/per-cart and IP-boundary counts; the two affected tests get a 90 s timeout. No assertion relaxed.
 - Evidence (t98-proof): three near-boundary starts passed; a mutant raising the per-phone limit by one (10 → 11) failed the named test; restored by fingerprint, `checkout2.test.ts` 12/12. If T-85 fails here again, the cause is something else and is investigated, not retried.
+
+### T-99 — Show keyed search fingerprints verbatim in access evidence
+- Status: Done locally 2026-11-05 (found by GitHub CI run 42001611408)
+- Primary requirement: PR-14 (T-62/T-63 access evidence, DATA-14)
+- Risk Level: R1
+- Finding: `consoleAccessEvents` scrubbed every `target_id` that was not a UUID with `scrubText`, whose `[digits]` rule replaces 8+ digit runs. The account-search target id is a 16-hex HMAC fingerprint; whenever it happened to contain 8 consecutive digits the Owner console audit view showed it mangled (`e[digits]a7ba90`). Stored data was never affected. Present since T-63; surfaced on CI only because its secret yields different fingerprints.
+- Change: `isOpaqueId` (UUID or lowercase hex 16–64) is shown verbatim; other target ids are still scrubbed.
+- Evidence (t99-proof): a new deterministic test that picks a query whose fingerprint has an 8-digit run fails on the unfixed code (`'[digits]af7a394'` vs `'748121035af7a394'`) and passes on the fix; t63-accounts, ops, t62-console 57/57.
