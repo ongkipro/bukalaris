@@ -112,3 +112,13 @@ Regenerated evidence PNGs from the full run were restored (`git checkout -- docs
 - Development mode (`next dev`) CSP (`'unsafe-eval'`, `'unsafe-inline'` styles) was not exercised by a test; a quick manual `pnpm dev` check is advisable when the next person works on the overlay.
 - `preload` for HSTS and per-store framing allowances are owner decisions, not taken.
 - The remaining moderate advisory needs an upstream move off `@esbuild-kit` (drizzle-kit/better-auth); nothing to do in this repository.
+
+## Dependency audit after T-96 (2026-11-05)
+
+Trigger: GitHub CI run 41968197087 (push of df04f49) failed `pnpm audit --prod --audit-level high`: 11 production-tree advisories (2 critical, 3 high, 5 moderate, 1 low) — next >=16.0.0 <=16.4.0 (critical RCE via Image Optimization with SVG; critical RCE in `use cache` returning typed arrays; high Server Actions DoS), zod <4.6.6 (high, memory exhaustion), vite >=8.3.0 <=8.3.2 (high, reached through better-auth's optional vitest peer). The app imports neither `next/image` nor `"use cache"`, but `/_next/image` and the Server Actions surface exist regardless, so the exposure was real for any deployment (none exists yet).
+
+Change: next and eslint-config-next 16.3.8 → 16.4.5, zod 4.6.5 → 4.6.7 (apps/web, packages/db), pnpm override for vite (dev, see pnpm-workspace.yaml).
+
+`pnpm audit --prod` after: 1 moderate — esbuild <=0.24.2 via better-auth → drizzle-kit (unchanged; dev-server flaw, reachability above). No high or critical.
+
+Full `pnpm audit` (dev tooling, not shipped, not the CI gate) still reports highs only under the `shadcn` CLI (undici <7.30.1, body-parser <2.4.0, systeminformation <5.33.16) and `eslint-config-next` → `eslint-plugin-react-hooks` → zod 4.6.5. None ships: the runner image copies only `.next/standalone` and `.next/static`, the migrate image is `deploy --prod` of packages/db, and `apps/web/src` imports none of these packages. Tracked as dev-tooling noise; revisit with the next tooling bump.

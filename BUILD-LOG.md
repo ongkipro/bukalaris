@@ -803,3 +803,7 @@ dummy content.
 ## T-95 WWW route Log System module (2026-11-05)
 
 - T-85 run b95ddaf63 (clean tree 03fa5ef) failed ops.test.ts "maps each page.tsx/route.ts": `/api/internal/www-redirect` (added by T-82, HTTP-33) had no ROUTE_PREFIXES entry; T-82 verification missed it because it never ran the full DB suite. Fixed by mapping it to module `api.www` → HTTP-33 (no exemption). ops.test.ts 7/7, typecheck clean. Same T-85 run: two notify.test.ts cases timed out at 20 s under load 6–7 from another project; isolation rerun pending, not classified as flaky. T-85 is NOT green; pushed main does not yet carry full verification.
+
+## T-96 security upgrade (2026-11-05)
+
+- GitHub CI run 41968197087 (push of df04f49) failed the production audit: next critical RCE x2 + high Server Actions DoS (<=16.4.0), zod high (<4.6.6), vite high (8.3.0-8.3.2 via vitest peer). Upgraded next/eslint-config-next 16.4.5, zod 4.6.7, vite override 8.3.5. Prod audit now 1 moderate (exit 0 at high). Full verify be1f96845: DB 1427/1427, build ok, E2E 259 passed / 2 skipped / 2 failed (t52 duplicate submit, 320+desktop) — a T-82 regression (CSRF binding uses ownsOpenCart, so the second concurrent submit of a just-ordered cart is refused instead of replaying idempotently; data stays correct: one order, one attribution), tracked as T-97; host-mode and verify:docker green on 16.4.5. Review 3ef33d6b ACCEPT WITH NOTES. T-85 remains not green until T-97 is fixed and the full run is repeated.

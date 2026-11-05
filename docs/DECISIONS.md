@@ -11,7 +11,7 @@ minimum). Exact pins, checked against the npm registry on 2026-10-06:
 
 | Package | Version | Note |
 |---|---|---|
-| next / eslint-config-next | 16.3.8 | App Router, Turbopack default, `proxy.ts` replaces middleware |
+| next / eslint-config-next | 16.4.5 | App Router, Turbopack default, `proxy.ts` replaces middleware. Security bump from 16.3.8 on 2026-11-05 (T-96: GHSA critical RCE in Image Optimization/`use cache`, high Server Actions DoS; vulnerable >=16.0.0 <=16.4.0) |
 | react / react-dom | 19.2.8 | Version paired by `create-next-app@16.3.8` |
 | typescript | 6.0.3 | 7.x (native) only exposes an `unstable/*` API; typescript-eslint 8.71 supports `<6.1` |
 | eslint | 9.39.5 | eslint-config-next plugins not yet verified on ESLint 10 |
@@ -20,7 +20,7 @@ minimum). Exact pins, checked against the npm registry on 2026-10-06:
 | drizzle-orm / drizzle-kit | 0.45.3 / 0.31.11 | Stable lines; 1.0 is still RC |
 | postgres (postgres.js) | 3.4.9 | Pure JS driver, no native build |
 | better-auth | 1.7.7 | See ADR-0004 |
-| zod | 4.6.5 | |
+| zod | 4.6.7 | Security bump from 4.6.5 on 2026-11-05 (T-96: high, memory exhaustion on oversized constrained collections, fixed in 4.6.6) |
 | vitest | 5.0.3 | |
 | @playwright/test | 1.63.0 | |
 | PostgreSQL (compose) | 17-alpine | Local dev; host port 5442 |
@@ -404,6 +404,8 @@ Revisit when: a task's focused verification disproves a research claim, the owne
 Context: after a successful hydrated Server Action that redirects, Next (16.3.8) renders the target through an internal fetch to its listener origin. On a multi-host deployment that request reaches the app with the listener `Host` (locally `localhost`, surface `local`) while the browser's real host survives only in `x-forwarded-host`. Auth and CSRF are selected from `Host` (DOM-6), so the render used the wrong surface: no session, login rendered, wrong CSRF binding (proof: T-82 track, runs ba615e88b and b68c9673e).
 
 Baseline 283f322 (pre-T-82) reproduces the same symptom (probe b7d3ffedc), so this is an inherited T-70 defect surfaced by T-82.
+
+Re-verified on Next 16.4.5 (T-96, source review 3ef33d6b): `x-forwarded-host ??= host` (base-server.js:601), `initURL` from `fetchHostname:port` (next-server.js:1304), `createRedirectRenderResult` internal fetch with only `text/x-component` streamed and anything else returning EMPTY (action-handler.js:266-338), and the client hard navigation without Flight data (server-action-reducer.js:268-274) are unchanged; runtime proof in the T-96 verification.
 
 Decision (owner-approved): `proxy.ts` answers `421` (no-store, empty) when the first `x-forwarded-host` value resolves to a different surface than `Host`. Next then returns the redirect without Flight data and the browser performs a hard navigation with its real `Host`. `x-forwarded-host` is used only to refuse; it never selects a surface or grants authority, so a forged value can only deny the forger's own request.
 

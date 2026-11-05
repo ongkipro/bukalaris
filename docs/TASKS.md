@@ -1421,3 +1421,17 @@ Common contract for T-80 to T-94: Allowed Paths are scope ceilings, not instruct
 - Allowed Paths: `packages/db/src/ops/ops.ts` (`ROUTE_PREFIXES`, `MODULE_MAP`), BUILD-LOG/STATUS/TASKS
 - Done when: `packages/db/test/ops.test.ts` "maps each page.tsx/route.ts … to a known module" passes with the WWW route mapped to HTTP-33 (not exempted); the full DB suite passes.
 - Evidence: ops.test.ts 7/7 and db typecheck clean on 2026-11-05. The full suite rerun is part of the repeated T-85.
+
+### T-96 — Close the Next.js/zod/vite audit advisories
+- Status: Done locally 2026-11-05 (found by GitHub CI run 41968197087)
+- Primary requirement: PR-14 (SEC-15)
+- Risk Level: R3
+- Change: next/eslint-config-next 16.3.8 → 16.4.5, zod 4.6.5 → 4.6.7, pnpm override vite 8.3.5 (dev peer of vitest).
+- Evidence: `pnpm audit --prod --audit-level high` exit 0 (1 moderate esbuild via drizzle-kit, unchanged). Full verify on the upgraded tree (run be1f96845): map ok, lint, typecheck, DB 76 files / 1427 tests passed (notify.test.ts included; the earlier T-85 timeouts were load), build ok, E2E 259 passed / 2 skipped (pre-existing ops DB-down and HSTS proxy cases) / 2 failed — `t52.spec.ts` "a duplicate submit yields one order…" at 320 and desktop, a T-82 regression tracked as T-97, not caused by the upgrade; host-mode incl. #31/D-25 421 matrix and all T-82 cases passed on 16.4.5; verify:docker with worker passed (web 10d30b259af6, migrate 21f436ca7c32). Independent review 3ef33d6b ACCEPT WITH NOTES: lockfile consistent, D-25/#31/T-82 framework assumptions unchanged in 16.4.5 source; P1 docs applied (DECISIONS D-1 rows, D-25 re-verification, hardening.md audit-after section); P2 override removal condition recorded. Remaining full-audit highs are dev tooling only (shadcn CLI, eslint-plugin-react-hooks) and do not ship.
+
+### T-97 — Keep the idempotent duplicate checkout submit after T-82
+- Status: In progress
+- Primary requirement: PR-1 (checkout), PR-15
+- Risk Level: R4 (money + CSRF)
+- Dependencies: T-82
+- Done when: a double submit of one rendered checkout form shows the same order confirmation (one order, one attribution, one deduction) while every T-82 checkout refusal (forged, foreign/closed cart, cross-store) still refuses; named mutation evidence and independent review.

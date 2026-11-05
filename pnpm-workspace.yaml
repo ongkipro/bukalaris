@@ -5,3 +5,7 @@ allowBuilds:
   esbuild: true
   sharp: false
   unrs-resolver: false
+# T-96: vitest pulls vite in as a peer; pin it to the patched release (GHSA-587h-7wmj-h5pm, fixed in 8.3.3).
+# Remove this override once vitest's own resolution is vite >= 8.3.3 (it pins every vite range while present).
+overrides:
+  vite: 8.3.5
