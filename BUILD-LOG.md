@@ -811,3 +811,7 @@ dummy content.
 ## T-97 idempotent duplicate checkout submit (2026-11-05)
 
 - Regression from T-82 found by the full run be1f96845 (t52 duplicate submit, 320+desktop): the cart CSRF binding follows the live open cart, so the second in-flight submit of one rendered form after the order closed the cart was refused and the buyer saw "Keranjang kosong" (data stayed correct: one order, one attribution). Fix: requireCartCsrf(..., { idempotentCheckout: true }) in submitCheckout only; replay accepted iff same-origin + MAC of this exact cart + existing order for (store, cart, idempotencyKey). Evidence bb084acf1 (40/40 at 320+desktop, DB 37/37); mutations M1/M2/M3 detected and restored (bc216343e, b29a1201b; artifacts t97-mutation/). Review 976a47cb ACCEPT WITH NOTES. T-82 verification gap: its runs never included t52; T-85 full run remains the gate.
+
+## T-98 window-aligned limiter tests (2026-11-05)
+
+- T-85 rerun bd192aaff at 7c76402: DB 1427/1428 — checkout2 per-phone limit test let the 11th order through once; verify:docker green; build/E2E not reached. Not reproduced in 5 isolated runs or 2 near-boundary starts (cause unproven). Test aligned to a fresh database window before counting (freshDbWindow), 90 s timeout; near-boundary x3 pass, off-by-one limit mutant fails, 12/12 restored. Test-only change.

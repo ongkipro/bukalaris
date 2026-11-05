@@ -1435,3 +1435,11 @@ Common contract for T-80 to T-94: Allowed Paths are scope ceilings, not instruct
 - Risk Level: R4 (money + CSRF)
 - Dependencies: T-82
 - Done when: a double submit of one rendered checkout form shows the same order confirmation (one order, one attribution, one deduction) while every T-82 checkout refusal (forged, foreign/closed cart, cross-store) still refuses; named mutation evidence and independent review.
+
+### T-98 — Keep the fixed-window limiter tests inside one window
+- Status: Done locally 2026-11-05 (found by T-85 run bd192aaff)
+- Primary requirement: PR-14 (T-30, SEC-16 tests)
+- Risk Level: R1 (test-only; no limiter or application change)
+- Finding: `packages/db/test/checkout2.test.ts` "order submission is limited per cart … and per phone" failed once in the full T-85 run under host load (the 11th same-phone order resolved). Five isolated runs and two deliberate near-boundary starts did NOT reproduce it, so the root cause is unproven; the test is structurally exposed because it counts up to fixed-window limits (`hit`, database clock: phone 600 s, cart 60 s, IP 600 s) and a run that straddles a boundary restarts the count.
+- Change: `freshDbWindow(windowSec, needSec)` waits for a fresh database window when too little of the current one remains, before the per-phone/per-cart and IP-boundary counts; the two affected tests get a 90 s timeout. No assertion relaxed.
+- Evidence (t98-proof): three near-boundary starts passed; a mutant raising the per-phone limit by one (10 → 11) failed the named test; restored by fingerprint, `checkout2.test.ts` 12/12. If T-85 fails here again, the cause is something else and is investigated, not retried.

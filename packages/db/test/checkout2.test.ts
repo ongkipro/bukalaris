@@ -214,6 +214,17 @@ describe("COD confirmation and risk (T-35, PR-19)", () => {
   });
 });
 
+/**
+ * T-98: the abuse counters use fixed windows computed from the DATABASE clock (`hit`, platform/rate-limit.ts). A test that
+ * counts up to a limit must not straddle a window boundary, or the count restarts and the "refused" assertion fails
+ * (seen in T-85 run bd192aaff). Wait for a fresh window when less than `needSec` remains in the current one.
+ */
+async function freshDbWindow(windowSec: number, needSec = 30) {
+  const [row] = (await platform.execute(sql`select ${windowSec} - (extract(epoch from now())::numeric % ${windowSec}) as left_sec`)) as unknown as { left_sec: string }[];
+  const left = Number(row!.left_sec);
+  if (left < needSec) await new Promise((resolve) => setTimeout(resolve, Math.ceil(left * 1000) + 250));
+}
+
 describe("abuse controls (T-30, SEC-16)", () => {
   const cartFor = (s: Awaited<ReturnType<typeof makeStore>>, qty = 1) => setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: qty }, "add");
 
@@ -231,12 +242,16 @@ describe("abuse controls (T-30, SEC-16)", () => {
     await platform.update(rateLimit).set({ windowStart: sql`${rateLimit.windowStart} - interval '2 minutes'` });
     expect((await hit(db, "t:a", rule)).count).toBe(1);
     // The IP rule boundary (60 per 10 min) holds exactly.
+    await freshDbWindow(LIMITS.orderIp.windowSec);
     for (let i = 1; i <= LIMITS.orderIp.limit; i++) await enforceLimits(db, [{ key: "order:ip:203.0.113.7", rule: LIMITS.orderIp }]);
     await expect(enforceLimits(db, [{ key: "order:ip:203.0.113.7", rule: LIMITS.orderIp }])).rejects.toMatchObject({ code: "rate_limited" });
-  });
+  }, 90_000); // T-98: may wait up to one 60 s window for a fresh counter window
 
   it("order submission is limited per cart (attempts) and per phone (across carts); failures count, invalid input does not", async () => {
     const s = await makeStore("toko-a", { stock: 50 });
+    // Per-cart (60 s) and per-phone (600 s) windows must both stay open for the whole test (~1-3 s, more under load).
+    await freshDbWindow(LIMITS.orderPhone.windowSec, 60);
+    await freshDbWindow(LIMITS.orderCart.windowSec);
     const cartId = await cartFor(s);
     // 5 failing attempts on one cart (COD on a courier that refuses it), then the 6th is refused before quoting.
     for (let i = 0; i < LIMITS.orderCart.limit; i++) await expect(placeOrder(db, cartId, buyer({ courier: "SiCepat" }))).rejects.toMatchObject({ code: "courier_cod" });
@@ -260,7 +275,7 @@ describe("abuse controls (T-30, SEC-16)", () => {
     await expect(limitCartMutation(db, { clientIp: "198.51.100.1", cartId })).rejects.toMatchObject({ code: "rate_limited" });
     await expect(limitCartMutation(db, { clientIp: "198.51.100.1" })).resolves.toBeUndefined();
     await expect(limitCartMutation(db, {})).resolves.toBeUndefined(); // nothing to count without IP or cart
-  });
+  }, 90_000); // T-98: may wait up to one 60 s window for a fresh counter window
 
   it("a cart holds at most 30 distinct variants; existing lines still change; quantity stays capped at 99", async () => {
     const s = await makeStore("toko-a", { stock: 100 });
