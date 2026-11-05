@@ -60,7 +60,8 @@ export async function submitCheckout(f: FormData) {
   let orderId: number | undefined;
   let error: string | undefined;
   try {
-    await requireCartCsrf(scope, f);
+    // T-97: a duplicate submit of this same rendered form after the order was created is accepted only as an idempotent replay.
+    await requireCartCsrf(scope, f, { idempotentCheckout: true });
     ({ orderId } = await placeOrder(db(), cartId, input, undefined, { clientIp: await clientIp(), signal: await requestSignalContext(), referral: await referralContext() }));
   } catch (err) {
     error = userError(err);

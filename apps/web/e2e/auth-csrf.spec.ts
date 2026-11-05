@@ -425,18 +425,18 @@ test("T82 a checkout form rendered for one cart cannot order a foreign or closed
     expect(body.length > 0 && Boolean(headers["next-action"]), "captured hydrated checkout submission").toBe(true);
     expect(await orders(own.cookie.value), "capture did not submit").toBe(0);
     const origin = new URL(baseURL!).origin;
-    const send = async (cartId: string) => {
+    const send = async (cartId: string, payload: Buffer = body) => {
       const ctx = await browser.newContext({ baseURL });
       try {
         const res = await ctx.request.post(new URL(request.url()).pathname + new URL(request.url()).search, {
           headers: { origin, cookie: `${own.cookie.name}=${cartId}`, "content-type": headers["content-type"]!, "next-action": headers["next-action"]!, accept: headers.accept ?? "text/x-component" },
-          data: body,
+          data: payload,
           maxRedirects: 0,
         });
         // Cause isolation (review 4d65c038 P2): the refusal must be the CSRF refusal, which submitCheckout raises
-        // before placeOrder; the recovery redirect carries that message. Only a boolean leaves this function.
+        // before placeOrder; the recovery redirect carries that message. Only booleans leave this function.
         const location = decodeURIComponent((res.headers()["x-action-redirect"] ?? res.headers().location ?? "").replaceAll("+", " "));
-        return { csrfRefused: location.includes("Sesi formulir berubah") };
+        return { csrfRefused: location.includes("Sesi formulir berubah"), confirmation: location.includes("/checkout/confirmation?order=") };
       } finally { await ctx.close(); }
     };
     const foreignBefore = await orders(foreign.cookie.value);
@@ -447,6 +447,22 @@ test("T82 a checkout form rendered for one cart cannot order a foreign or closed
     expect(await orders(own.cookie.value), "refusals did not order the rendered cart").toBe(0);
     expect((await send(own.cookie.value)).csrfRefused, "own cart passes the CSRF binding").toBe(false);
     expect(await orders(own.cookie.value), "identical submission with its own cart creates exactly one order").toBe(1);
+    // T-97: the identical submission again (the duplicate submit of one rendered form) after its cart was closed by that
+    // order is accepted only as the idempotent replay of the same order: confirmation, no CSRF refusal, still one order.
+    const replay = await send(own.cookie.value);
+    expect(replay.csrfRefused, "duplicate submit of the same rendered form is not refused").toBe(false);
+    expect(replay.confirmation, "duplicate submit lands on the order confirmation").toBe(true);
+    expect(await orders(own.cookie.value), "duplicate submit replays the same order, never a second one").toBe(1);
+    // The same body and key with a FORGED token is still a CSRF refusal: the replay needs this cart's own MAC (review 976a47cb P2).
+    const forgedToken = Buffer.from(body.toString("latin1").replace(/(name="[^"]*_csrf"\r\n\r\n)v1\.[A-Za-z0-9_-]{43}/, `$1v1.${"A".repeat(43)}`), "latin1");
+    expect(forgedToken.equals(body), "forged body differs only by its token").toBe(false);
+    expect((await send(own.cookie.value, forgedToken)).csrfRefused, "closed own cart with the right key but a forged token is refused").toBe(true);
+    expect(await orders(own.cookie.value), "forged-token replay creates nothing").toBe(1);
+    // The same token with ANOTHER idempotency key for the closed cart is still a CSRF refusal (no replay to honour).
+    const rekeyed = Buffer.from(body.toString("latin1").replace(/(name="[^"]*idempotencyKey"\r\n\r\n)[0-9a-f-]{36}/, `$1${crypto.randomUUID()}`), "latin1");
+    expect(rekeyed.equals(body), "rekeyed body differs only by its idempotency key").toBe(false);
+    expect((await send(own.cookie.value, rekeyed)).csrfRefused, "closed own cart with a new idempotency key is refused").toBe(true);
+    expect(await orders(own.cookie.value), "rekeyed submit creates nothing").toBe(1);
   } finally { await own.ctx.close(); await foreign.ctx.close(); await closedCart.ctx.close(); await sql.end(); }
 });
 

@@ -178,6 +178,22 @@ export async function cartStore(exec: Executor, cartId: string | undefined): Pro
   return resolveCartStore(exec, cartId);
 }
 
+/**
+ * T-97: the order this store already created for `cartId` with exactly this idempotency key, or null. Lets the checkout
+ * CSRF check accept a duplicate submit of the same rendered form after the first submit closed the cart, so the buyer
+ * gets the same order instead of a refusal. Read-only; never creates or changes anything.
+ */
+export async function orderForIdempotentReplay(scope: StorefrontScope, cartId: string | undefined, idempotencyKey: unknown): Promise<number | null> {
+  if (!cartId || !z.uuid().safeParse(cartId).success || !z.uuid().safeParse(idempotencyKey).success) return null;
+  return withStore(scope.exec, scope.storeId, async (tx) => {
+    const [o] = await tx
+      .select({ id: order.id })
+      .from(order)
+      .where(and(eq(order.storeId, scope.storeId), eq(order.cartId, cartId), eq(order.idempotencyKey, idempotencyKey as string)));
+    return o?.id ?? null;
+  });
+}
+
 /** Cart id → store id, only for a cart that has not been checked out yet. In a store context it also answers "is this cart ours". */
 export async function openCartStore(exec: Executor, cartId: string | undefined): Promise<number | null> {
   if (!cartId || !z.uuid().safeParse(cartId).success) return null;

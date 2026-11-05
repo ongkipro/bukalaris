@@ -1,5 +1,5 @@
 import "server-only";
-import { DomainError, ownsOpenCart, type StorefrontScope } from "@bukalaris/db";
+import { DomainError, orderForIdempotentReplay, ownsOpenCart, type StorefrontScope } from "@bukalaris/db";
 import { normalizeHostname, resolveHostSurface, surfaceOriginsFromEnv } from "@bukalaris/db/host";
 import { createCookieGetter, getCookies, parseCookies } from "better-auth/cookies";
 import { cookies, headers } from "next/headers";
@@ -72,7 +72,7 @@ async function cartCsrfContext(scope: StorefrontScope) {
   if (duplicatedCookie(h.get("cookie") ?? "", cartCookie(scope.storeId))) throw refuse();
   const id = (await cookies()).get(cartCookie(scope.storeId))?.value;
   const binding: CsrfBinding = { kind: "cart", surface: surface.kind, origin, storeId: scope.storeId, id: id && await ownsOpenCart(scope, id) ? id : null };
-  return { binding, secret: process.env.BETTER_AUTH_SECRET ?? "", hostMatches };
+  return { binding, secret: process.env.BETTER_AUTH_SECRET ?? "", hostMatches, cartId: id };
 }
 
 export async function cartCsrfToken(scope: StorefrontScope): Promise<string> {
@@ -80,9 +80,24 @@ export async function cartCsrfToken(scope: StorefrontScope): Promise<string> {
   return createCsrfToken(binding, secret);
 }
 
-export async function requireCartCsrf(scope: StorefrontScope, data: unknown): Promise<void> {
-  const { binding, secret, hostMatches } = await cartCsrfContext(scope);
+export async function requireCartCsrf(scope: StorefrontScope, data: unknown, opts: { idempotentCheckout?: boolean } = {}): Promise<void> {
+  const { binding, secret, hostMatches, cartId } = await cartCsrfContext(scope);
   // Strict request-host matching belongs to mutation enforcement, not read-only token issuance during an internal redirect render.
-  if (!hostMatches || !validCsrfOrigin(await headers(), binding.origin) || !validCsrfToken(csrfFormToken(data), binding, secret)) throw refuse();
+  if (!hostMatches || !validCsrfOrigin(await headers(), binding.origin)) throw refuse();
+  const token = csrfFormToken(data);
+  if (!validCsrfToken(token, binding, secret) && !(opts.idempotentCheckout && await idempotentCheckoutReplay(scope, data, cartId, token, binding, secret))) throw refuse();
   if (data instanceof FormData) data.delete("_csrf");
+}
+
+/**
+ * T-97: a duplicate submit of one rendered checkout form arrives after the first submit closed the cart, so the live binding
+ * is now the empty-cart binding and the form's token no longer matches. It is still accepted when ALL hold: the token is the
+ * MAC of this same cart while it was open (same surface, origin, store and cart id: a token rendered for another cart, store,
+ * host or an anonymous cart cannot match), and this store already holds the order for this cart under the form's own
+ * idempotency key. `placeOrder` then only replays that order; it never creates one for a closed cart.
+ */
+async function idempotentCheckoutReplay(scope: StorefrontScope, data: unknown, cartId: string | undefined, token: string | undefined, binding: CsrfBinding, secret: string): Promise<boolean> {
+  if (!cartId || binding.kind !== "cart" || binding.id !== null || !(data instanceof FormData)) return false;
+  if (!validCsrfToken(token, { ...binding, id: cartId }, secret)) return false;
+  return (await orderForIdempotentReplay(scope, cartId, data.get("idempotencyKey"))) !== null;
 }

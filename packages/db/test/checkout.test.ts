@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { updateVariant } from "../src/seller/commerce/catalog.ts";
-import { getBuyerOrder, placeOrder } from "../src/seller/commerce/checkout.ts";
+import { getBuyerOrder, orderForIdempotentReplay, placeOrder } from "../src/seller/commerce/checkout.ts";
 import { runOnce } from "../src/ops/jobs/jobs.ts";
 import { FakeAutoLaris } from "../src/payments/fake.ts";
 import { fakeProviders } from "../src/payments/providers.ts";
@@ -39,6 +39,21 @@ describe("checkout (PR-4, DATA-2, NFR-2)", () => {
     const { orderId } = await placeOrder(db, cartId, buyer());
     expect(await getBuyerOrder(db, orderId, randomUUID())).toBeNull();
     expect(await getBuyerOrder(db, orderId, undefined)).toBeNull();
+  });
+
+  it("T-97: an idempotent replay is found only for this store, this cart and this exact key", async () => {
+    const a = await makeStore("toko-a", { stock: 10 });
+    const b = await makeStore("toko-b", { stock: 10 });
+    const cartId = await setCartLine(a.sf, undefined, { variantId: a.variantId, quantity: 1 }, "add");
+    const input = buyer();
+    expect(await orderForIdempotentReplay(a.sf, cartId, input.idempotencyKey), "no order yet").toBeNull();
+    const { orderId } = await placeOrder(db, cartId, input);
+    expect(await orderForIdempotentReplay(a.sf, cartId, input.idempotencyKey), "same store, cart and key").toBe(orderId);
+    expect(await orderForIdempotentReplay(a.sf, cartId, randomUUID()), "another key").toBeNull();
+    expect(await orderForIdempotentReplay(a.sf, randomUUID(), input.idempotencyKey), "another cart").toBeNull();
+    expect(await orderForIdempotentReplay(b.sf, cartId, input.idempotencyKey), "another store").toBeNull();
+    for (const bad of [undefined, "", "not-a-uuid", 42]) expect(await orderForIdempotentReplay(a.sf, cartId, bad)).toBeNull();
+    expect(await orderForIdempotentReplay(a.sf, "not-a-uuid", input.idempotencyKey)).toBeNull();
   });
 
   it("is idempotent for sequential and concurrent duplicate submits", async () => {
