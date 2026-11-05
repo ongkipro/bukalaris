@@ -1,11 +1,26 @@
 # Bukalaris — status
 
-Updated: 2026-11-04 (local development resumed task by task; latest owner boundary prohibits commit, push and deploy). Approved backlog committed and pushed as `70a97c1`; GitHub repository visibility verified PUBLIC by explicit owner decision. T-80 is verified Done (local commit `dd7511e`, not pushed). T-81 is verified Done locally from isolated `task/t81-store-column-grants` over that commit; next is T-82. Neither development task authorizes another push or deployment. M3 chain A delivered locally and chain B partly against fake adapters. Nothing is deployed. Task status is scoped delivery, not production acceptance.
+Updated: 2026-11-05 (session paused by the owner). `main` = `origin/main` = `daef65b`, repository PUBLIC on GitHub, nothing deployed. Owner direction during 2026-11-05: commit and push each verified task; production/deploy, DNS, live provider calls and secret access remain gated.
 This file owns current status. Evidence: `BUILD-LOG.md`, `docs/TASKS.md`
 ("M1 implementation evidence", M2 task statuses, M3 planned tasks) and the track reports in
 `docs/tracks/`. Historical checkpoints below describe evidence at their recorded time; backlog code/docs are now pushed at `70a97c1`, not deployed. Existing local evidence screenshots remain excluded from that push.
 
 ## Current development
+
+### Session checkpoint 2026-11-05 (paused here by the owner)
+
+**Pushed to `origin/main` (all local-verified, independently reviewed):** T-80 `dd7511e`, T-81 `283f322`, T-82 `cc151b0`, T-83 `e6ffd7c`, T-84 `03fa5ef`, T-95 `df04f49`, T-96 `5fad8b6`, T-97 `7c76402`, T-98 `141e030`, T-99 `daef65b`.
+
+**Full local baseline:** T-85 GREEN at `141e030` (run b89148283: DB 1428/1428, build, E2E 261 passed / 2 skipped / 0 failed at 320, desktop and host-mode, `verify:docker` incl. worker/cleanup). T-99 after it changed one service mapping and its tests (57/57).
+
+**GitHub CI is not green yet.** Run 42009751259 (`daef65b`): install and the production audit gate PASS (first time since T-96), DB 76/76 files, build PASS, then the job was CANCELLED by `timeout-minutes: 30` at E2E test 206/263. Two mobile-320 E2E cases had failed by then: `content.spec.ts:44` and `feeds.spec.ts:48` (both upload a product image first; both PASS at desktop in the same CI run and PASS at 320 and desktop locally). Their error text and traces were not produced: the reporter prints details at the end and the artifact upload step is skipped when the job is cancelled. Cause UNKNOWN; not classified as flaky.
+
+**Next task — T-100 (not started):** see docs/TASKS.md.
+
+**Open owner decisions:** rotate the Mengantar Partner Secret (pasted in chat 2026-10-27; still not rotated) before any provider call; then decide whether to add a sandbox Mengantar path like geraiexpress (`MENGANTAR_ENV=sandbox`, signed Partner client, opt-in sandbox E2E). Repository is PUBLIC: decide whether it should stay public. 97+ `docs/evidence` PNGs changed by test runs stay unstaged (noise per AGENTS.md); restoring them needs owner approval. Old worktrees (t80–t99, t82-www-*) can be pruned once confirmed on `origin`, with owner approval.
+
+**Known residuals (not blocking):** render-side "destination stream closed early" GET observation (unattributed); E2E harness starts the worker before global setup re-migrates, so `relation "job" does not exist` lines at suite start are harness noise (fix lives in playwright.config/global-setup); D-25/D-26 deploy gates (no 421 through Cloudflare/Traefik, `CLIENT_IP_HEADER=cf-connecting-ip`); dev-only audit highs under the shadcn CLI and eslint-plugin-react-hooks.
+
 
 **Latest execution constraints (supersede earlier commit permission):** local only; NO commit, push or deploy. Run `uptime` before every heavy suite/stage and wait while one-minute load >4. Never overlap browser and integration suites. If corrupt Git objects or a missing commit are discovered, STOP/report; no repair writing `.git`. Final report must separate completed work with observed results per viewport, blockers and owner-decision questions.
 

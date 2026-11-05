@@ -819,3 +819,7 @@ dummy content.
 ## T-99 access-evidence fingerprints (2026-11-05)
 
 - T-85 GREEN locally at 141e030 (run b89148283: DB 1428/1428, build, E2E 261 passed / 2 skipped / 0 failed, verify:docker with worker). GitHub CI 42001611408 for the same commit failed t63-accounts:108: consoleAccessEvents scrubbed the 16-hex account-search fingerprint whenever it contained 8+ digits. Fixed by showing UUIDs and hex fingerprints verbatim (isOpaqueId); deterministic regression test fails on the old code, passes on the fix (57/57).
+
+## Session checkpoint (2026-11-05, owner paused)
+
+- main = origin/main = daef65b (T-80..T-84, T-95..T-99 pushed). T-85 GREEN locally at 141e030 (b89148283). GitHub CI 42009751259 on daef65b: audit PASS, DB 76/76, build PASS, cancelled at E2E 206/263 by timeout-minutes 30; content.spec:44 and feeds.spec:48 failed at mobile-320 only, cause unknown (no error text: job cancelled before the reporter summary and artifact upload). Next: T-100 (docs/TASKS.md). Owner decisions open: Mengantar Partner Secret rotation, sandbox path, public visibility, evidence PNGs, worktree pruning. Local servers started by this session: none left running.

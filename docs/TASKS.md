@@ -1451,3 +1451,11 @@ Common contract for T-80 to T-94: Allowed Paths are scope ceilings, not instruct
 - Finding: `consoleAccessEvents` scrubbed every `target_id` that was not a UUID with `scrubText`, whose `[digits]` rule replaces 8+ digit runs. The account-search target id is a 16-hex HMAC fingerprint; whenever it happened to contain 8 consecutive digits the Owner console audit view showed it mangled (`e[digits]a7ba90`). Stored data was never affected. Present since T-63; surfaced on CI only because its secret yields different fingerprints.
 - Change: `isOpaqueId` (UUID or lowercase hex 16–64) is shown verbatim; other target ids are still scrubbed.
 - Evidence (t99-proof): a new deterministic test that picks a query whose fingerprint has an 8-digit run fails on the unfixed code (`'[digits]af7a394'` vs `'748121035af7a394'`) and passes on the fix; t63-accounts, ops, t62-console 57/57.
+
+### T-100 — Make GitHub CI able to finish and diagnose its two mobile-320 failures
+- Status: Planned (next task; found by CI run 42009751259 on `daef65b`, 2026-11-05)
+- Primary requirement: PR-14
+- Risk Level: R2
+- Allowed Paths: `.github/workflows/ci.yml`; test or application files only for an evidenced root cause of the two failures
+- Finding: the `verify` job has `timeout-minutes: 30`, but DB tests + build + 263 E2E need more than that on the GitHub runner (E2E alone ~27 min locally), so CI is cancelled before finishing and can never be green. In that run `content.spec.ts:44` and `feeds.spec.ts:48` failed at mobile-320 only (pass at desktop in the same run; pass at 320 and desktop locally in T-85); no error text or trace was produced because the job was cancelled.
+- Done when: (1) the `verify` job timeout fits the measured suite with margin (e.g. 60 min) and Playwright traces/report upload also on failure; (2) a CI run shows the real error of the two 320 failures; (3) their root cause is fixed and proven (no retry/flaky label without evidence); (4) a green CI run on `main` incl. the `image` (`verify:docker`) job is recorded with its run id.
