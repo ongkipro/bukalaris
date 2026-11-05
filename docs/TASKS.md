@@ -1411,3 +1411,13 @@ Common contract for T-80 to T-94: Allowed Paths are scope ceilings, not instruct
   - Slice 1 — Readiness checklist: the Owner console shows the five entry criteria as an informational checklist next to the PPN switch (never a gate), each with the recorded reference and date; recording a criterion needs `tax.manage` and is audited. Tests: the switch still works with an empty checklist, and the checklist changes are audited.
   - Slice 2 — Invoice documents: PPN invoices (DPP, PPN, total shown separately, a tax document number from `tax_document_sequence`) and credit notes for the subscription, plus the export for the accountant, produced from stored invoice snapshots. Document format and e-Faktur compatibility stay UNVERIFIED until the accountant confirms them; nothing is sent to any tax system.
   - Execute Vitest/PostgreSQL through `pnpm --filter @bukalaris/db test` and Playwright through `pnpm --filter @bukalaris/web e2e` in a test environment with fixture policies only: toggle OFF to ON with all criteria, invoice totals equal DPP plus policy PPN under the policy's rounding, no literal rate in source (the T-65 literal-scan test covers this module), the export equals stored snapshots. Record observed results only after execution; no statutory result is claimed.
+
+### T-95 — Map the WWW redirect route to a Log System module
+- Status: Done locally 2026-11-05 (found by T-85)
+- Primary requirement: PR-14
+- Constraints: D-24; existing live/approval gates stay unchanged
+- Dependencies: T-82 (added `/api/internal/www-redirect`, HTTP-33)
+- Risk Level: R1
+- Allowed Paths: `packages/db/src/ops/ops.ts` (`ROUTE_PREFIXES`, `MODULE_MAP`), BUILD-LOG/STATUS/TASKS
+- Done when: `packages/db/test/ops.test.ts` "maps each page.tsx/route.ts … to a known module" passes with the WWW route mapped to HTTP-33 (not exempted); the full DB suite passes.
+- Evidence: ops.test.ts 7/7 and db typecheck clean on 2026-11-05. The full suite rerun is part of the repeated T-85.

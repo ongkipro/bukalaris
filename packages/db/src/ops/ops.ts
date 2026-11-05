@@ -116,6 +116,7 @@ export const MODULE_MAP: Record<string, { pageId: string; label: string }> = {
   "api.referral": { pageId: "HTTP-27", label: "Tautan afiliasi (penangkap klik)" },
   feeds: { pageId: "HTTP-15", label: "Feed katalog" },
   "api.health": { pageId: "HTTP-02", label: "Health/readiness" },
+  "api.www": { pageId: "HTTP-33", label: "Pengalihan WWW" },
 };
 // Longest prefix first: the first match wins.
 const ROUTE_PREFIXES: [string, string][] = [
@@ -171,6 +172,7 @@ const ROUTE_PREFIXES: [string, string][] = [
   ["/feeds", "feeds"],
   ["/api/health", "api.health"],
   ["/api/ready", "api.health"],
+  ["/api/internal/www-redirect", "api.www"],
 ];
 /** Module for a Next route template such as `/app/s/[store]/page` or `/s/[store]`. Unknown → "unknown". */
 export function moduleForRoute(routePath: string | undefined): string {
