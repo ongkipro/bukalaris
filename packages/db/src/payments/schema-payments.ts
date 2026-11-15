@@ -1,7 +1,50 @@
 import { sql } from "drizzle-orm";
 import { bigint, check, foreignKey, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
-import { order } from "../schema.ts";
+import { order, store } from "../schema.ts";
+import { PROVIDER_ENVIRONMENTS } from "../shipping/schema-accounts.ts";
 import type { PaymentCustomer, PaymentInstruction } from "./contract.ts";
+
+/**
+ * T-104 (ADR-0013 decisions 2, 5, 8, 10 and 13): the store's own AutoLaris H2H connection, one per store. The key is sealed under the
+ * `payment_credentials` keyring and opened only inside the server-side provider client; the application role never holds SELECT on the
+ * sealed columns (it reads them only through `provider_key_envelope`, for its own store). No provider URL column exists: `environment`
+ * maps to a fixed origin in server configuration. The readiness inputs of decision 13 sit next to the key.
+ */
+export const storePaymentAccount = pgTable("store_payment_account", {
+  id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+  storeId: bigint("store_id", { mode: "number" }).notNull().references(() => store.id),
+  environment: text("environment", { enum: PROVIDER_ENVIRONMENTS }).notNull(),
+  status: text("status", { enum: ["active", "needs_key"] }).notNull().default("needs_key"),
+  sealedKey: text("sealed_key"),
+  keyId: text("key_id"),
+  sealedAt: timestamp("sealed_at", { withTimezone: true }),
+  keyFingerprint: text("key_fingerprint"),
+  keyHint: text("key_hint"),
+  lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+  lastResult: text("last_result"),
+  /** Decision 13: the AutoLaris order fields the account needs, the sender address and the recorded payment-only profile confirmation. */
+  originAreaId: text("origin_area_id"),
+  destinationAreaId: text("destination_area_id"),
+  shipperEmail: text("shipper_email"),
+  senderAddress: text("sender_address"),
+  paymentOnlyConfirmedAt: timestamp("payment_only_confirmed_at", { withTimezone: true }),
+  paymentOnlyConfirmedBy: text("payment_only_confirmed_by"),
+  stepUpRef: uuid("step_up_ref"),
+  revision: integer("revision").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  unique("payment_account_store_uq").on(t.storeId),
+  unique("payment_account_store_id_uq").on(t.storeId, t.id),
+  check("payment_account_env_chk", sql`${t.environment} in ('sandbox', 'production') and ${t.status} in ('active', 'needs_key')`),
+  check("payment_account_sealed_chk", sql`(${t.status} = 'active') = (${t.sealedKey} is not null)
+    and ((${t.sealedKey} is null and ${t.keyId} is null and ${t.sealedAt} is null and ${t.keyFingerprint} is null and ${t.keyHint} is null)
+      or (${t.sealedKey} is not null and ${t.keyId} is not null and ${t.sealedAt} is not null and ${t.keyFingerprint} is not null and ${t.keyHint} is not null))`),
+  check("payment_account_result_chk", sql`${t.lastResult} is null or ${t.lastResult} in ('ready', 'AUTH_FAILED', 'PROVIDER_UNAVAILABLE', 'INVALID_RESPONSE')`),
+  check("payment_account_fields_chk", sql`(${t.originAreaId} is null or ${t.originAreaId} ~ '^[A-Za-z0-9_-]{1,64}$') and (${t.destinationAreaId} is null or ${t.destinationAreaId} ~ '^[A-Za-z0-9_-]{1,64}$')
+    and (${t.shipperEmail} is null or length(${t.shipperEmail}) between 3 and 254) and (${t.senderAddress} is null or length(${t.senderAddress}) between 10 and 500)
+    and ((${t.paymentOnlyConfirmedAt} is null) = (${t.paymentOnlyConfirmedBy} is null))`),
+]);
 
 /** Buyer-order attempts only. Subscription attempts remain separate rows/tables (T-50). */
 export const paymentAttempt = pgTable("payment_attempt", {

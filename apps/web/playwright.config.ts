@@ -23,6 +23,10 @@ process.env.AUTOLARIS_CALLBACK_SECRET = "e2e-only-autolaris-callback-secret-0123
 // Buyer contact fingerprint ring (T-57): a fixed e2e-only placeholder so checkout never depends on a developer's local secret.
 process.env.KEYRING_BUYER_FINGERPRINT = "e2e1:ZTJlLW9ubHktYnV5ZXItZmluZ2VycHJpbnQta2V5ISE=";
 process.env.KEYRING_SHIPPING_CREDENTIALS = "e2eship:ZTJlLW9ubHktc2hpcHBpbmcta2V5LXNlcGFyYXRlISE=";
+// T-104: the seller AutoLaris key ring (e2e-only placeholder, purpose-separated from the shipping ring).
+process.env.KEYRING_PAYMENT_CREDENTIALS = "e2epay:ZTJlLW9ubHktcGF5bWVudC1rZXktc2VwYXJhdGUhISE=";
+// T-104 review: the production build answers seller connection checks with the FAKE only under this explicit e2e flag (no live transport yet).
+process.env.PROVIDER_CHECK_FAKE = "1";
 // Signed checkout resume links (T-45): a fixed e2e-only placeholder ring; specs sign and tamper with links using the same key.
 process.env.KEYRING_CHECKOUT_RESUME = "e2er1:ZTJlLW9ubHktY2hlY2tvdXQtcmVzdW1lLWtleS0wMSE=";
 // T-73: the production build the suite runs against has no mail provider; local mode is allowed only on a loopback origin.

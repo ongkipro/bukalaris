@@ -22,6 +22,9 @@ const BRAND = /mengantar|autolaris/i;
 const INTERNAL_IDS = [/\bOPEN-[A-Z]?\d+\b/, /\bQ-\d+\b/, /\bD-\d{2}\b/, /\bADR-\d+\b/, /\b(?:BILL|PR|UX|SF|SC|SA|IAM|DATA|ARCH|SEC|DOM|JOB|HTTP|PRIV|OBS)-\d+\b/, /\bT-\d{2,3}[a-z]?\b/, /master[- ]key/i, /\bfail[- ]closed\b/i];
 
 const WEB_SKIP = [/\/\(operator\)\//, /\/api\//, /\/route\.ts$/, /\.test\.tsx?$/, /\/node_modules\//, /\/\.next\//];
+/** Brand rule only (internal ids are still refused): ADR-0013 section 8 — Seller Admin names Mengantar and AutoLaris on the screens where the seller connects
+ *  their OWN accounts (T-104). The wider seller copy boundary moves with T-107. */
+const WEB_BRAND_NAMED = [/\/\(seller\)\/seller\/payments\//];
 /** Message-scan exemptions from the BRAND rule only: transport/adapter code whose messages are scrubbed by `whiteLabel` at display (internal ids are still refused). */
 const BRAND_EXEMPT_MESSAGE_FILES = [/^packages\/db\/src\/shipping\/mengantar\//, /^packages\/db\/src\/payments\//];
 
@@ -64,7 +67,7 @@ describe("T-48 fix 4: seller and buyer copy never names the provider or an inter
     const web = files(join(ROOT, "apps/web/src"), (p) => /\.tsx?$/.test(p) && !WEB_SKIP.some((r) => r.test(p)));
     expect(web.length).toBeGreaterThan(100); // the walk really reached the surfaces
     expect(web.some((f) => f.includes("(seller)")) && web.some((f) => f.includes("(public-services)")) && web.some((f) => f.includes("(checkout)"))).toBe(true);
-    expect(violations(web.flatMap((f) => literals(f, false)), () => true)).toEqual([]);
+    expect(violations(web.flatMap((f) => literals(f, false)), (file) => !WEB_BRAND_NAMED.some((r) => r.test(file)))).toEqual([]);
   });
 
   it("db: no DomainError or MengantarError message, and no mail template string, names the provider (outside the scrubbed adapters) or an internal id", () => {

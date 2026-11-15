@@ -14,6 +14,8 @@ export default defineConfig({
       AUTOLARIS_CALLBACK_SECRET: "test-only-autolaris-callback-secret-0123456789abcdef",
       KEYRING_BUYER_FINGERPRINT: "t1:dGVzdC1vbmx5LWJ1eWVyLWZpbmdlcnByaW50LWtleSE=",
       KEYRING_SHIPPING_CREDENTIALS: "testship:dGVzdC1vbmx5LXNoaXBwaW5nLWtleS1zZXBhcmF0ZSE=",
+      // T-104: the seller AutoLaris key ring, purpose-separated from the shipping ring (dev/test placeholder).
+      KEYRING_PAYMENT_CREDENTIALS: "testpay:dGVzdC1vbmx5LXBheW1lbnQta2V5LXNlcGFyYXRlISE=",
       // T-45 signed checkout resume links: dev/test placeholder; the missing-ring path is tested with an explicit empty environment.
       KEYRING_CHECKOUT_RESUME: "tr1:dGVzdC1vbmx5LWNoZWNrb3V0LXJlc3VtZS1rZXktMDE=",
       // The Mengantar entry gate is CLOSED here like everywhere else (T-48 fix 5): a test that drives a stubbed client opens it for itself with vi.stubEnv.

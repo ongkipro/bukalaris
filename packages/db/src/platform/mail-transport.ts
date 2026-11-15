@@ -17,17 +17,20 @@ export type MailConfiguration = { mode: "local" } | { mode: "provider"; provider
 const providerName = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/);
 export const MAIL_TRANSPORT_TIMEOUT_MS_DEFAULT = 30_000;
 
+/** True when every surface origin is a loopback host (`*.localhost` is loopback by RFC 6761): the explicit local production-build harness. */
+export function surfaceOriginsAreLoopback(env: Environment = process.env): boolean {
+  return Object.values(surfaceOriginsFromEnv(env as NodeJS.ProcessEnv)).every((origin) => {
+    try { const host = new URL(origin).hostname; return LOOPBACK_HOSTS.includes(host) || host.endsWith(".localhost"); } catch { return false; }
+  });
+}
+
 export function requireMailConfiguration(env: Environment = process.env): MailConfiguration {
   const mode = env.MAIL_MODE ?? (env.NODE_ENV === "production" ? "provider" : "local");
   if (mode === "local") {
     // Explicit local production-build harness only. DEV_OUTBOX alone must never change delivery mode.
     if (env.NODE_ENV === "production") {
       // Every surface origin must be loopback: since T-70 BETTER_AUTH_URL is only a fallback and the real origins are the *_ORIGIN variables.
-      const origins = Object.values(surfaceOriginsFromEnv(env as NodeJS.ProcessEnv));
-      const loopback = (origin: string) => {
-        try { const host = new URL(origin).hostname; return LOOPBACK_HOSTS.includes(host) || host.endsWith(".localhost"); } catch { return false; } // *.localhost is loopback by RFC 6761 (host-mode e2e)
-      };
-      if (env.MAIL_MODE !== "local" || !origins.every(loopback)) throw new Error("local mail is forbidden outside the explicit loopback harness");
+      if (env.MAIL_MODE !== "local" || !surfaceOriginsAreLoopback(env)) throw new Error("local mail is forbidden outside the explicit loopback harness");
     }
     return { mode };
   }

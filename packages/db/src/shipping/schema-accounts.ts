@@ -1,10 +1,16 @@
 // T-48: one Bukalaris-managed account binding per store and kind. Credentials never belong to a seller DTO.
+// T-104 (ADR-0013 sections 1 and 2): `seller_owned` is the store's own Mengantar account. Its key is entered by the store owner with a fresh
+// step-up, sealed under `shipping_credentials`, and the row carries a fixed `environment` instead of any provider URL.
 import { sql } from "drizzle-orm";
-import { bigint, boolean, check, integer, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, integer, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 import { store } from "../schema.ts";
 
-export const SHIPPING_ACCOUNT_KINDS = ["partner_managed", "platform_master"] as const;
-export type ShippingAccountKind = (typeof SHIPPING_ACCOUNT_KINDS)[number];
+export const SHIPPING_ACCOUNT_KINDS = ["partner_managed", "platform_master", "seller_owned"] as const;
+/** The kinds an order runs on today (T-48). A `seller_owned` account (T-104) carries orders only once T-105 routes them to it. */
+export type ShippingAccountKind = "partner_managed" | "platform_master";
+/** The only way a seller account names a provider origin: the platform maps it to a fixed origin from server configuration (ADR-0013 decision 10). */
+export const PROVIDER_ENVIRONMENTS = ["sandbox", "production"] as const;
+export type ProviderEnvironment = (typeof PROVIDER_ENVIRONMENTS)[number];
 const at = (name: string) => timestamp(name, { withTimezone: true });
 export const storeShippingAccount = pgTable("store_shipping_account", {
   id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
@@ -23,6 +29,14 @@ export const storeShippingAccount = pgTable("store_shipping_account", {
   nextRetryAt: at("next_retry_at"),
   /** Failed provisioning rounds since the last success or owner recovery: drives the exponential back-off and the per-store cap on repeated 409s. */
   registrationAttempts: integer("registration_attempts").notNull().default(0),
+  /** `seller_owned` only (T-104). */
+  environment: text("environment", { enum: PROVIDER_ENVIRONMENTS }),
+  keyFingerprint: text("key_fingerprint"),
+  keyHint: text("key_hint"),
+  /** Set when the pickup address was registered with this account (T-105); cleared when the key changes to another account. */
+  pickupRegisteredAt: at("pickup_registered_at"),
+  /** The step-up proof consumed by the last key or environment change (provider_account_guard). */
+  stepUpRef: uuid("step_up_ref"),
   revision: integer("revision").notNull().default(0),
   createdAt: at("created_at").notNull().defaultNow(),
   updatedAt: at("updated_at").notNull().defaultNow(),
@@ -30,11 +44,16 @@ export const storeShippingAccount = pgTable("store_shipping_account", {
   unique("shipping_account_store_id_uq").on(t.storeId, t.id),
   unique("shipping_account_store_kind_uq").on(t.storeId, t.kind),
   unique("shipping_account_identity_uq").on(t.storeId, t.id, t.kind),
-  check("shipping_account_kind_chk", sql`${t.kind} in ('partner_managed', 'platform_master')`),
+  check("shipping_account_kind_chk", sql`${t.kind} in ('partner_managed', 'platform_master', 'seller_owned')`),
   check("shipping_account_status_chk", sql`${t.status} in ('pending', 'active', 'needs_key', 'disabled')`),
   check("shipping_account_external_chk", sql`${t.externalUserId} = 'store:' || ${t.storeId}::text`),
-  check("shipping_account_sealed_chk", sql`(${t.sealedKey} is null and ${t.keyId} is null and ${t.sealedAt} is null) or (${t.sealedKey} is not null and ${t.keyId} is not null and ${t.sealedAt} is not null and ${t.kind} = 'partner_managed')`),
-  check("shipping_account_active_chk", sql`${t.status} <> 'active' or ${t.kind} = 'platform_master' or (${t.sealedKey} is not null and ${t.mengantarSellerId} is not null)`),
+  check("shipping_account_sealed_chk", sql`(${t.sealedKey} is null and ${t.keyId} is null and ${t.sealedAt} is null) or (${t.sealedKey} is not null and ${t.keyId} is not null and ${t.sealedAt} is not null and ${t.kind} in ('partner_managed', 'seller_owned'))`),
+  check("shipping_account_active_chk", sql`${t.status} <> 'active' or ${t.kind} = 'platform_master' or (${t.sealedKey} is not null and (${t.mengantarSellerId} is not null or ${t.kind} = 'seller_owned'))`),
+  // A seller-owned row: an environment always, `active` exactly while a key is sealed, and fingerprint and hint exactly with the key.
+  check("shipping_account_seller_chk", sql`(${t.kind} = 'seller_owned') = (${t.environment} is not null) and (${t.environment} is null or ${t.environment} in ('sandbox', 'production'))
+    and (${t.kind} <> 'seller_owned' or (${t.status} in ('active', 'needs_key') and (${t.status} = 'active') = (${t.sealedKey} is not null)))
+    and (${t.sealedKey} is null or ${t.kind} <> 'seller_owned' or (${t.keyFingerprint} is not null and ${t.keyHint} is not null))
+    and (${t.sealedKey} is not null or (${t.keyFingerprint} is null and ${t.keyHint} is null and ${t.pickupRegisteredAt} is null))`),
   check("shipping_account_attempts_chk", sql`${t.registrationAttempts} >= 0`),
 ]);
 

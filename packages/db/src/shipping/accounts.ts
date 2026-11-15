@@ -9,7 +9,7 @@ import { consoleMutation } from "../ops/console.ts";
 import { enqueue } from "../ops/jobs/jobs.ts";
 import { shippingControl, storeShippingAccount, type ShippingAccountKind } from "./schema-accounts.ts";
 import { courierServicePolicy, order } from "../schema.ts";
-import { sealShippingKey, shippingKeyring, unsealShippingKey } from "./credentials.ts";
+import { keyFingerprint, sealShippingKey, shippingKeyring, unsealShippingKey } from "./credentials.ts";
 import { FakePartnerTransport, PartnerClient, PartnerError, PARTNER_CONFLICT_ROUNDS_MAX, PARTNER_EMAIL_ATTEMPTS, PARTNER_MAX_PAGES, PARTNER_PROVISION_LEASE_MS, partnerRetryDelayMs, PARTNER_SWEEP_BATCH, type PartnerCredentials } from "./mengantar/partner.ts";
 import { mengantarRotationRecorded } from "./mengantar/gate.ts";
 
@@ -49,7 +49,7 @@ export async function selectShippingAccount(scope: Pick<SellerScope | Storefront
     const chosen = (control?.preferPartner ? accounts.find((a) => a.kind === "partner_managed" && a.status === "active") : undefined)
       ?? accounts.find((a) => a.kind === "platform_master" && a.status === "active");
     if (!chosen) throw new DomainError("awaiting_account", "Akun Bukalaris Kirim belum siap; tunggu pemulihan oleh Bukalaris.");
-    return chosen;
+    return chosen as ShippingAccountView;
   });
 }
 export async function sellerShippingAccounts(scope: SellerScope) {
@@ -68,7 +68,7 @@ export async function orderShippingAccount(exec: Executor, storeId: number, orde
     return a;
   });
   if (!account || account.status !== "active") throw new DomainError("awaiting_account", "Akun pengiriman pesanan ini perlu dipulihkan. Pesanan tidak dialihkan ke akun lain.");
-  return account;
+  return account as ShippingAccountView; // joined on the order snapshot, whose kind is never `seller_owned` yet
 }
 
 /** Worker entry; one durable claim, no provider I/O in the claim/save transaction. A concurrent invocation returns the SAME binding. */
@@ -158,8 +158,11 @@ export async function resealShippingCredentials(db: Db, limit = 100) {
     const resealed = await db.transaction(async (tx) => {
       const [a] = await tx.select().from(storeShippingAccount).where(sql`${storeShippingAccount.sealedKey} is not null and ${storeShippingAccount.keyId} <> ${current.keyId}`).orderBy(asc(storeShippingAccount.id)).limit(1).for("update", { skipLocked: true });
       if (!a) return false;
-      const sealed = sealShippingKey(unsealShippingKey(a.sealedKey!, a.keyId!, a.storeId, a.id), a.storeId, a.id);
-      await tx.update(storeShippingAccount).set(sealed).where(eq(storeShippingAccount.id, a.id));
+      // The envelope's kind is part of its additional data: a seller's own key (T-104) is re-sealed as `seller_owned`, never as a Partner key.
+      const value = unsealShippingKey(a.sealedKey!, a.keyId!, a.storeId, a.id, a.kind);
+      const sealed = sealShippingKey(value, a.storeId, a.id, a.kind);
+      // A seller key's fingerprint is keyed by the current ring key (T-104 review): it moves with the envelope. Partner rows carry none.
+      await tx.update(storeShippingAccount).set({ ...sealed, ...(a.kind === "seller_owned" ? { keyFingerprint: keyFingerprint("shipping_credentials", value) } : {}) }).where(eq(storeShippingAccount.id, a.id));
       return true;
     });
     if (!resealed) break;
