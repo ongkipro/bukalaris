@@ -131,3 +131,79 @@ phase is relaxed on tax, KYC and compliance (ADR-0011, ADR-0012). The
 jurisdiction and sector rows above stay Unknown and are advisor items, not
 startup blockers. `logs.bukalaris.com` is reserved for the public Update Log
 (ADR-0008).
+
+## Development-document update — 2026-11-14 (D-27 to D-31)
+
+Decision (owner, 2026-11-14; accepted as decisions, not implementation evidence):
+four direction changes are recorded in DECISIONS D-27 to D-30, and D-31 accepts
+the recommended defaults for their open items. The code still implements the
+earlier model on fake adapters; nothing is deployed. Tasks T-102 to T-113 carry
+the work. Earlier rows and sections of this record are not rewritten; the notes
+below say how to read them.
+
+| Decision | What changes | Record | Tasks |
+|---|---|---|---|
+| D-27 | Each store connects its own Mengantar and AutoLaris account; buyer money and COD cash go to the seller; Bukalaris holds no order money and earns the subscription only | [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md) | T-104 to T-107 |
+| D-28 | Platform on `bukalaris.com`; storefronts on `<store-slug>.bukalaris.id`; custom domains CNAME to `cname.bukalaris.id`; checkout on the store host | [ADR-0014](adr/ADR-0014-two-registrable-domains-and-custom-domain-target.md) | T-102, T-103 |
+| D-29 | Affiliate programme run by the seller: one platform affiliate account, membership per store, commission owed and paid by the seller and recorded | [ADR-0015](adr/ADR-0015-seller-run-store-affiliate-programme.md) | T-108 to T-110 |
+| D-30 | Digital products beside physical ones: prepaid only, no shipment, access links granted on payment, no file stored on the platform | [ADR-0016](adr/ADR-0016-digital-products.md) | T-111, T-112 |
+| D-31 | Owner accepted the defaults for the open items of the four ADRs; seller bank transfer added (ADR-0013 section 10) | DECISIONS D-31 | T-113 |
+
+### Status notes on context facts (rows above are unchanged)
+
+| ID | Status note, 2026-11-14 |
+|---|---|
+| CTX-3 | Still Mengantar for shipping and AutoLaris for payment. The account model changed: the store's own accounts, not platform-managed ones (D-27). The platform's own AutoLaris account is used for subscription invoices only |
+| CTX-5 | Repository evidence is unchanged by these decisions: they are documents only, and the code runs the platform-managed model |
+| CTX-16 | `bukalaris.com` now carries platform surfaces only; native storefronts move to `bukalaris.id` (D-28). Both domains are registered per owner statement of 2026-11-14 (D-31; not checked by an agent); no DNS record exists |
+
+### Status notes on Q-items (the table lives in 02-PRD.md)
+
+| ID | Status note, 2026-11-14 |
+|---|---|
+| Q-1 | Superseded for buyer payments: they run on the store's own AutoLaris key (D-27), so a commercial platform account no longer gates a `seller_owned` store. The platform account is still needed for subscription invoices (PR-18, T-50). The payment-only profile is requested from AutoLaris by hand for each seller and confirmed per store (D-31, ADR-0013 decision 13) |
+| Q-2 | Superseded by D-27 for `seller_owned` stores, the only mode in the first release (D-31): the seller's own Mengantar key replaces the Partner-provisioned account. The cashback mechanics no longer gate such a store |
+| Q-8 | Partly decided by D-28 and D-31: two registrable domains, one CNAME target `cname.bukalaris.id`, custom domains as subdomains only until T-15 verifies apex support. The provider, quotas and cost stay open (T-15) |
+| Q-12 | Subscription plan unchanged. Superseded part: there is no Bukalaris shipping margin, payment-fee margin, cashback share or affiliate platform fee; the subscription is the only platform revenue (D-27; D-31, former OPEN-P6 and OPEN-A3) |
+| Q-17 | No longer gates a `seller_owned` store: COD cash is remitted by the provider to the seller's own account, and Bukalaris holds no seller funds (ADR-0013 section 8). It stays relevant only if a platform-held account returns |
+| Other Q-items | Not changed by D-27 to D-31 |
+
+### Status notes on OPEN items of ADR-0006 (no longer gating a `seller_owned` store)
+
+| ID | Status note, 2026-11-14 |
+|---|---|
+| OPEN-F3 | Not applicable: no shipping debit is written against a seller balance for a `seller_owned` store |
+| OPEN-F6 | Not applicable: no courier debit is carried in a seller ledger for a `seller_owned` store; the parcel runs on the seller's own courier account |
+| OPEN-F7 | No longer a gate: the return-free restriction protected a platform ledger; COD is allowed on any courier the seller enabled for COD (ADR-0013 decision 32) |
+| OPEN-F8 | No longer a gate: no reconciliation batch releases money for a `seller_owned` store |
+| OPEN-F9 | No longer a gate: Partner settlement and cashback sweep are unused for a `seller_owned` store |
+
+These five items and Q-17 are not closed as questions: they stay UNVERIFIED and
+apply again to any money Bukalaris holds if a platform-held mode returns
+(ADR-0013 section 8, D-31).
+
+### Former open items decided by D-31
+
+Each ID keeps its meaning; the decision text is in the table "Owner decisions on
+the former open items (2026-11-14, D-31)" of the named ADR. Decided, not
+implemented.
+
+| IDs | Topic | Decided in |
+|---|---|---|
+| OPEN-P1 to OPEN-P6 | Single `seller_owned` mode, seller bank transfer, no waiting period after a key change, COD-blocked province suggestion, no per-courier province exclusion, no per-order platform charge | ADR-0013 |
+| OPEN-P7 | Sandbox origins for Mengantar and AutoLaris: not an owner choice; UNVERIFIED until read from each provider's official documentation in T-105 and T-106 | ADR-0013 |
+| OPEN-D1 to OPEN-D3 | Affiliate storefront host deferred with T-54/T-55; custom domains subdomain only until T-15; `bukalaris.id` registered per owner statement, no DNS record yet | ADR-0014 |
+| OPEN-A1 to OPEN-A5 | Rate bounds 100 to 5000 bps, attribution window 7 days, no platform fee on commission, affiliate bank details shown only to the paying store's finance role, auto-approval off by default | ADR-0015 |
+| OPEN-G1 to OPEN-G8 | Access-link caps, no platform file storage, digital products excluded from catalog feeds, no default grant expiry, no upload scanning, no licence-key pools, member-area direction, fixed embed allow-list | ADR-0016 |
+
+### Owner answers recorded with D-31 (2026-11-14)
+
+- The Mengantar Partner Secret pasted in chat on 2026-10-27 is not rotated; the
+  owner accepts the exposure. No `seller_owned` store uses it, and the T-48 entry
+  gate in the code still refuses the Partner path without rotation evidence.
+- The GitHub repository stays public for now; the question is asked again before
+  any production secret, customer data or deployment configuration is added.
+- `bukalaris.com` and `bukalaris.id` are registered (owner statement; not checked
+  by an agent). No DNS record is created until the deployment work.
+- The AutoLaris payment-only profile is requested by hand from AutoLaris for each
+  seller; Bukalaris automates no part of that request.

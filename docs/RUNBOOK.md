@@ -7,6 +7,8 @@ executed). Commands run from the repository root unless stated. Scripts in
 (`bukalaris-db-1` on network `bukalaris_default`), because the database
 listens on `127.0.0.1:5442` only.
 
+> **Direction change (D-27 to D-31, 2026-11-14, ADR-0013 to ADR-0016):** the commands and local behaviour in this runbook describe the code as it runs today (one root domain, platform-managed shipping and payments on fake adapters, platform payouts) and stay valid until the named tasks land. The target differs in four places, each marked at its section: a store's own Mengantar and AutoLaris keys instead of platform credentials (T-104 to T-107), bank transfer to the seller's own account (T-113), two root domains with checkout on the store host (T-102, T-103), and no platform payout or COD reconciliation for a `seller_owned` store. No command changes.
+
 ## Start / stop
 
 ```bash
@@ -89,6 +91,8 @@ docker rm -f web-smoke
 Containers must join `bukalaris_default` and use host `db:5432`; `localhost:5442`
 does not exist inside a container.
 
+> **Direction change (D-28, 2026-11-14, ADR-0014):** the smoke test above sets one root (`STORE_ROOT_DOMAIN=localhost`), which stays valid: local development keeps one root for both jobs. In production the target is two settings, `PLATFORM_ROOT_DOMAIN` (`bukalaris.com`) and `STORE_ROOT_DOMAIN` (`bukalaris.id`). Not implemented (T-102, T-103).
+
 ## Media volume
 
 Product images are files under `MEDIA_DIR` (web image default `/data/media`,
@@ -141,6 +145,8 @@ rules).
 
 ### After any real restore (not a rehearsal)
 
+> **Direction change (D-27, D-29, 2026-11-14, ADR-0013, ADR-0015):** the payout freeze and the reconciliation of seller and affiliate payouts in steps 1 and 4 apply only to money Bukalaris holds. A store on seller-owned accounts has no platform payout, refund or COD batch, and affiliate commission is paid by the seller outside Bukalaris; T-53 is superseded, so the affiliate freeze named in step 1 is not added. The billing freeze for subscription invoices and steps 2 and 3 stand. The steps below describe the earlier model and remain correct for the code as it runs today. Not implemented (T-107, T-109).
+
 1. Keep the web application and the worker stopped, or payout, billing and
    provider-write jobs frozen, until step 4 is done. The payout freeze exists (T-37: `payout_control.frozen`, switch on `/admin/payouts`;
    the database refuses payout and refund transitions and COD batch apply while it is on). A restored dump normally carries the
@@ -176,6 +182,8 @@ prompt. Never write a secret into docs, memory or the repository.
 
 ## Rotating the Mengantar Partner Secret (entry gate of T-48)
 
+> **Direction change (D-27, D-31, 2026-11-14, ADR-0013):** the owner chose on 2026-11-14 not to rotate this secret and accepts the exposure (D-31, owner answer 1). The Partner model is superseded: no `seller_owned` store uses the Partner Secret, and a call made with a seller's own key is not gated by it. The secret stays valid at the provider, and the T-48 entry gate in the code still refuses every Partner call without rotation evidence; both are left as they are. This procedure is therefore not a launch gate for a `seller_owned` store. It is kept because it is the only way to open the Partner path if a platform-held mode ever returns. Not implemented (T-104 to T-107).
+
 The Partner Secret was pasted into a chat on 2026-10-27 (ADR-0007), so it counts
 as exposed and is replaced before the first partner call, sandbox included.
 
@@ -195,6 +203,8 @@ deploy web and worker, let the re-seal job (JOB-23) rewrite the envelopes, verif
 that no envelope carries the old id, and drop the old key only after every
 retained backup that holds envelopes under it has expired. Keep the offline key
 backup in step (14, secrets and keys backup).
+
+> **Direction change (D-27, 2026-11-14, ADR-0013):** the `shipping_credentials` ring will seal each store's own Mengantar key and a new `payment_credentials` ring each store's own AutoLaris key. The same rotation procedure applies to both; losing either ring without a backup means every affected seller re-enters that key. Not implemented (T-104).
 
 ## Console bootstrap and recovery (T-60: script exists; the two named people are an owner action)
 
@@ -230,6 +240,8 @@ procedure is out of band by design.
   `system_recovery`.
 
 ## COD reconciliation batch (built locally by T-37 and T-48 against fake adapters: `packages/db/src/ledger/reconciliation.ts`, Owner console `/admin/money/cod-reconciliation`; not run on real provider evidence yet)
+
+> **Direction change (D-27, 2026-11-14, ADR-0013):** this procedure does not apply to a store on seller-owned accounts, the only mode in the first release (D-31): COD cash goes from the provider to the seller's own account, no sale is held or released by Bukalaris and no reconciliation batch exists for such a store (ADR-0013 section 8). The sentence "There is no seller-owned account COD" is reversed. The built code stays, unused; this runbook applies only to money Bukalaris holds, which is none for order payments in the first release. The text below describes the earlier model. Not implemented (T-105, T-107).
 
 Rule (ADR-0006): the seller's sale for a COD order is released to
 the seller's available balance only when the parcel is delivered **and** the cash
@@ -300,6 +312,8 @@ reads from the provider statement, and JOB-33 stays off.
 
 Cross-link: `docs/DEPLOY-COOLIFY.md` (nothing executed yet). Tick every row
 with a recorded command and result before the first live deploy.
+
+> **Direction change (D-27, D-28, D-31, 2026-11-14, ADR-0013, ADR-0014):** read the rows below with these changes. (1) Root domain: production needs `PLATFORM_ROOT_DOMAIN` and `STORE_ROOT_DOMAIN`, two zones and two wildcard certificates (T-102). (2) Partner Secret: the rotation row is no longer a launch gate for `seller_owned` stores; the owner accepted the exposure and the gate in the code keeps the Partner path closed (D-31). (3) Key rings: add `payment_credentials` beside `shipping_credentials` (T-104). (4) Egress IP: the allow-list row concerned Partner calls; whether AutoLaris applies an IP allow-list to calls on seller keys from this hosting is UNVERIFIED (ADR-0013 "Consequences"). (5) Payout freeze: applies only to money Bukalaris holds. (6) Mengantar production readiness: the quote runs on a store's own key after a recorded sandbox pass and an Owner console switch per provider (ADR-0013 decisions 33 and 34). The rows below describe the earlier model. Not implemented (T-102 to T-107).
 
 - [ ] `pnpm verify` and `pnpm verify:docker` green at the release commit.
 - [ ] CI workflow executed on the remote at least once; action pins moved from

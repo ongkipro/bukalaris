@@ -4,7 +4,7 @@
 |---|---|
 | Status | Active specification — M1 & M2 waves 1–4 implemented locally (`../STATUS.md` owns current status) |
 | Owner | Bukalaris product owner |
-| Updated | 2026-10-27 |
+| Updated | 2026-11-14 (direction change D-27 to D-30; earlier body text dated 2026-10-27) |
 | Market | Indonesia (`id-ID`, integer IDR) |
 | Evidence boundary | `CONTEXT-RECORD.md`, [`../STATUS.md`](../STATUS.md), [`../BUILD-LOG.md`](../BUILD-LOG.md), [`TASKS.md`](TASKS.md) |
 | Product name | Bukalaris |
@@ -23,9 +23,22 @@ measurable guarantee of seller revenue.
 
 Bukalaris develops two product chains in sequence. Chain A is Owner console →
 Seller Admin → Storefront: extend the existing seller-commerce foundation with
-platform subscription billing, unified Partner Mengantar shipping accounts, and structural
-reorganisation. Chain B is Owner console → Affiliate → seller products →
-Affiliate Storefront, a new platform-owned programme (PR-28, PR-29).
+platform subscription billing, seller-owned shipping and payment accounts, digital
+products and structural reorganisation. Chain B is the store affiliate programme
+run by each seller (PR-28); the cross-store affiliate storefront (PR-29) is deferred.
+
+Direction change, owner decisions of 2026-11-14 (accepted as decisions, not
+implementation evidence; the code still implements the earlier model):
+
+| Decision | What changes | Record |
+|---|---|---|
+| D-27 | Each store connects its own Mengantar and AutoLaris account. Buyer money and COD cash go to the seller; Bukalaris holds no seller money and earns the subscription only | [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md) |
+| D-28 | Platform on `bukalaris.com`; storefronts on `<store-slug>.bukalaris.id`; custom domains point at `cname.bukalaris.id`; checkout on the store host | [ADR-0014](adr/ADR-0014-two-registrable-domains-and-custom-domain-target.md) |
+| D-29 | Affiliate programme run by the seller: one platform affiliate account, membership per store, commission paid by the seller and recorded | [ADR-0015](adr/ADR-0015-seller-run-store-affiliate-programme.md) |
+| D-30 | Digital products beside physical ones: prepaid only, no shipment, access granted on payment | [ADR-0016](adr/ADR-0016-digital-products.md) |
+
+Where a requirement below carries a "Decision (D-27..D-30)" line, that line
+overrides any older sentence in the same requirement that conflicts with it.
 
 New requirements marked Proposed are contracts, not implementation evidence.
 Provider write approval, marketplace split settlement, and unresolved tax/legal
@@ -42,19 +55,26 @@ Phase naming: "Phase 1" in this section is the seller-commerce foundation. "Phas
   menus, branding tokens, enabled delivery/payment methods, and order handling.
 - Two built-in storefront themes are available: a responsive storefront as the
   default, and a mobile-first alternative capped at 480 CSS px (PR-8).
-- A storefront resolves one store by subdomain; a custom-domain path is
-  supported per seller through domain ownership verification and TLS activation;
+- A storefront resolves one store by its subdomain `<store-slug>.bukalaris.id`
+  (D-28); a custom domain is supported per seller through a CNAME to
+  `cname.bukalaris.id`, domain ownership verification and TLS activation;
   this is a requirement, not a claim of a live integration.
+- A store sells physical products, digital products or both (D-30). A digital
+  product has no shipment, is prepaid, and is delivered as seller-hosted access links or
+  an access note once payment is proven. Bukalaris stores no file.
 - Buyer can browse, add to cart and complete friction-free checkout without a
   registration step. The server auto-detects/creates a platform buyer by canonical
   phone/WA first, then email; later portal access requires proof of possession.
 - A checkout contains items from exactly one store.
 - The platform calls Mengantar only from a trusted backend for estimates and
-  shipment work; it calls AutoLaris H2H only from a trusted backend for payment
-  instruction and reconciliation.
-- Chain A adds the all-feature store subscription (PR-18) and unified Partner Mengantar shipping
-  accounts (PR-27); Chain B then adds the affiliate programme and storefront
-  (PR-28, PR-29). These are proposed additions, not M2 implementation claims.
+  shipment work, and AutoLaris H2H only from a trusted backend for payment
+  instruction and status checks, in both cases with the store's own sealed
+  account key (D-27). The platform's own AutoLaris account is used for
+  subscription invoices only.
+- Chain A adds the all-feature store subscription (PR-18), seller-owned shipping
+  and payment accounts (PR-27) and digital products (PR-32); Chain B then adds
+  the seller-run store affiliate programme (PR-28). These are accepted
+  decisions, not implementation claims.
 
 ### Future scope — Storefront landing-page builder
 
@@ -70,8 +90,11 @@ Phase naming: "Phase 1" in this section is the seller-commerce foundation. "Phas
 - Cross-seller cart and a combined marketplace checkout.
 - Buyer wallet, stored payment credentials, escrow, cross-seller split
   settlement, external affiliate product connectors (T-56), and unconfirmed
-  tax/legal policy. Seller ledger/payouts (PR-23) and affiliate wallet/payouts
-  (PR-28) are separately proposed, not covered by this deferral.
+  tax/legal policy. Since D-27 and D-29 the platform holds no seller money and
+  no affiliate money: the seller ledger and payouts (PR-23) apply only to money
+  Bukalaris holds, and the affiliate wallet and platform payouts are dropped.
+- Cross-store affiliate storefront and discovery (PR-29), licence-key pools,
+  subscriptions sold by sellers, streaming or DRM for digital goods.
 - Open third-party app/plugin marketplace and free-form HTML/CSS theme code.
 - Direct arbitrary access to seller-owned databases.
 
@@ -82,7 +105,7 @@ Phase naming: "Phase 1" in this section is the seller-commerce foundation. "Phas
 | Owner console staff (formerly Super Admin) | Operate the platform | A seller is approved/suspended with auditable reason; sellers, affiliates and user accounts are managed from one capability-gated console | Global; explicit capabilities only |
 | Seller Owner/Staff | Run a store | Storefront content and sellable catalog are current | Assigned tenant/store |
 | Buyer | Discover and buy | Confirmed single-store order with clear payment/shipping state | Storefront/global identity |
-| Affiliate | Promote opted-in products from many sellers | Attributed outcomes and platform wallet without buyer PII | Platform-owned account; separate portal and storefront (Proposed) |
+| Affiliate | Promote the products of stores that accepted them | Attributed outcomes and a per-store commission statement without buyer PII; paid by the seller (D-29) | One platform account, membership per store; separate portal |
 | Provider service | Quote, create, reconcile | Idempotent provider interaction linked to a local record | Narrow service scope |
 
 ## Requirements
@@ -98,6 +121,7 @@ Phase naming: "Phase 1" in this section is the seller-commerce foundation. "Phas
 - Evidence: Implemented on `main` by T-26 (store creation with an existing owner account, `/admin/stores/[id]`) and T-3 (SA-02/SA-03 suspend and reactivate with reason; a suspended store blocks storefront, checkout and Seller Admin with an audit row; `e2e/super-admin.spec.ts`). The approve step and the PR-30 governance scope (T-62, T-63) are not built. The owner accepted the requirement on 2026-10-28 (D-21); that acceptance does not make the unbuilt parts implemented.
 
 ### PR-2 — Seller commerce CMS
+- Decision (D-30, 2026-11-14, ADR-0016): a product is `physical` or `digital`. A digital product needs delivery content (access links to content the seller hosts, or an access note) instead of a weight, and has unlimited stock unless the seller switches counting on. Not implemented (T-111, T-112).
 - Status: Accepted (owner 2026-10-28, D-21)
 - Owner: Bukalaris product owner
 - Statement: An authorized Seller user shall manage only its store's products,
@@ -108,6 +132,7 @@ Phase naming: "Phase 1" in this section is the seller-commerce foundation. "Phas
 - Evidence: Implemented on `main`: products, variants, media, inventory, collections, CMS pages, settings and themes, members and catalog audit (T-21, T-24, T-25, T-28, T-31, T-17/T-22); cross-tenant denial is proven by `test/tenant-isolation.test.ts` and `test/rls.test.ts` (T-27). Menus (SC-09) and domains (SC-18) are not built. The owner accepted the requirement on 2026-10-28 (D-21); that acceptance does not make the unbuilt parts implemented.
 
 ### PR-3 — Tenant storefront
+- Decision (D-28, 2026-11-14, ADR-0014): the native storefront host is `<store-slug>.bukalaris.id`; platform surfaces stay on `bukalaris.com`; platform labels are reserved on the store domain as well. Cart, checkout, confirmation and order status are served on the store host. Not implemented (T-102, T-103).
 - Status: Proposed
 - Owner: Bukalaris product owner
 - Statement: A buyer request shall resolve exactly one active store from a
@@ -118,6 +143,7 @@ Phase naming: "Phase 1" in this section is the seller-commerce foundation. "Phas
 - Evidence: Implemented for `<slug>.<STORE_ROOT_DOMAIN>` host resolution and path mode with database row security (T-2 partial, T-27; `test/tenant-isolation.test.ts`, `e2e/content.spec.ts`). Known gaps: reserved platform labels are not enforced yet (CRSEC-01, T-70) and custom domains are not built (T-15). Status stays Proposed until the owner accepts the evidence.
 
 ### PR-4 — Single-store checkout
+- Decision (D-27, D-30, 2026-11-14): checkout runs on the store host (ADR-0014). Delivery and payment eligibility come from one server function that applies the seller's courier, COD, province and payment-channel filters and is called again at submit (ADR-0013 section 4). Shipping is computed from physical lines only; an order without a physical line has no address, courier or shipping fee; any digital line makes the order prepaid and requires an e-mail (ADR-0016). Not implemented (T-103, T-105, T-106, T-111).
 - Status: Accepted (owner 2026-10-28, D-21)
 - Owner: Bukalaris product owner
 - Statement: A cart and checkout shall be bound to one store; the server shall
@@ -128,6 +154,7 @@ Phase naming: "Phase 1" in this section is the seller-commerce foundation. "Phas
 - Evidence: Implemented on `main`: single-store carts and checkout with server-derived totals, idempotent submit and atomic stock (M1 evidence; T-21), abuse controls (T-30), shipping quotes with margin (T-34), COD confirmation (T-35) and buyer data export and redaction (T-43). `order_financials`, the discount split and the ledger are not built (T-37, T-46). The owner accepted the requirement on 2026-10-28 (D-21); that acceptance does not make the unbuilt parts implemented.
 
 ### PR-5 — Shipping and payment orchestration
+- Decision (D-27, 2026-11-14, ADR-0013): quotes, bookings, payment instructions and status checks use the store's own Mengantar and AutoLaris account keys. The buyer is charged the provider's public rate with no platform margin; submit re-quotes and refuses a stale price; booking is a seller action and an unknown provider outcome blocks rebooking until a person resolves it; a payment callback is evidence only. COD is allowed on any courier the seller enabled for COD. This overrides the D-15 line below (allow-list, platform-managed accounts). Not implemented (T-104 to T-106).
 - Status: Accepted for implementation (Mengantar part, owner direction 2026-10-06); AutoLaris part Proposed
 - Owner: Bukalaris product owner
 - Statement: The platform shall obtain delivery eligibility from Mengantar and
@@ -152,7 +179,7 @@ Phase naming: "Phase 1" in this section is the seller-commerce foundation. "Phas
 ### PR-7 — Buyer identity and affiliate attribution
 - Status: Proposed
 - Owner: Bukalaris product owner
-- Source: Owner decisions 2026-10-27; [ADR-0010](ADR-0010-global-buyer-identity.md); PR-28/ADR-0009 for attribution.
+- Source: Owner decisions 2026-10-27; [ADR-0010](adr/ADR-0010-global-buyer-identity.md); PR-28/ADR-0009 for attribution.
 - Statement: One platform buyer identity shall work across all Bukalaris sellers
   without a checkout registration step. Checkout auto-detects/creates the buyer
   by canonical phone/WA number first, then email. When phone and email resolve
@@ -266,6 +293,7 @@ Phase naming: "Phase 1" in this section is the seller-commerce foundation. "Phas
 - Change history: 2026-09-18 — accepted automatic concise IDs and ad identity.
 
 ### PR-13 — Seller custom domains
+- Decision (D-28, 2026-11-14, ADR-0014): the seller is shown exactly one DNS record, a CNAME to `cname.bukalaris.id`; the default store host is `<store-slug>.bukalaris.id`. Custom domains are subdomains only until T-15 verifies apex support (D-31). Provider and lifecycle stay T-15.
 - Status: Accepted
 - Owner: Bukalaris product owner
 - Source: Paduka Ongki's per-seller custom-domain request on 2026-09-18.
@@ -335,11 +363,12 @@ Requirements added since the 2026-10-06 decisions change that gate as follows; e
 | Requirement | Gate before real use |
 |---|---|
 | PR-19 COD risk control (P0 since Q-13) | Part of the first release: confirm, hold or reject before any COD booking (T-35, implemented). |
-| PR-23 seller ledger and COD remittance (T-37) | P0 gate for any live COD shipment: T-37 delivered with its Owner console payout and refund approval path (PR-30 four-eyes), the Q-17 legal review closed and an approved Mengantar write test; until then `ALLOW_COD_BOOKING` stays off. |
+| PR-23 seller ledger and COD remittance (T-37) | Since D-27 this gates only money Bukalaris holds; a store on seller-owned accounts is paid by its own providers and is not gated by it. For platform-held money: T-37 delivered with its Owner console payout and refund approval path (PR-30 four-eyes), the Q-17 legal review closed and an approved Mengantar write test; until then `ALLOW_COD_BOOKING` stays off. |
 | PR-30 Owner console, Phase 1 startup core (T-62, T-63, T-68, T-72) | Part of the first release: it is the operator surface for store approval and for the four-eyes money actions. The Update Log (T-69) and the Compliance center (T-64) are not gate items. |
 | PR-18 platform subscription billing (T-50) | The owner chose the single all-feature plan; billing is enforced for real sellers once T-49 and T-50 are accepted. OPEN (owner decision; recommended, not decided): the first pilot may run trial-only with no live invoice until T-49 and T-50 pass. |
-| PR-27 Partner Mengantar shipping accounts (T-48) | Needed for every store: one unified Bukalaris-managed system (D-15), each store has a Bukalaris-provisioned Partner account (`partner_managed`) with `platform_master` as fallback; there are no seller-owned or own-key accounts. Live partner calls need the T-48 entry gate (rotated Partner Secret) and the provider write approvals. |
-| PR-28, PR-29, PR-31, PR-7 buyer portal | Not part of the first technical release; each follows its own gates in ADR-0009, ADR-0010 and ADR-0012 (startup mode: no withholding, no tax gate). |
+| PR-27 seller-owned Mengantar and AutoLaris accounts (T-104 to T-107) | Needed for every store (D-27): a store takes real orders only with its own sealed, checked account keys; production calls on seller keys are switched on per provider in the Owner console after a recorded sandbox pass. The Partner Secret rotation still gates every call with platform Mengantar credentials. |
+| PR-32 digital products (T-111, T-112) | Each selling store's AutoLaris account has its payment-only profile confirmed. Digital delivery uses no platform file storage. |
+| PR-28, PR-29, PR-31, PR-7 buyer portal | Not part of the first technical release. PR-28 follows ADR-0015 (seller-paid, no platform money); PR-29 is deferred; the others follow ADR-0010 and ADR-0012 (startup mode: no withholding, no tax gate). |
 | Hardening these depend on: T-51, T-59, T-60, T-70, T-73 | Required before the Owner console and any affiliate or buyer surface run on their own hosts and before one-time links go through a real mailer. |
 | Restore and four-eyes proof | SEC-23 (a restore reapplies grants and erasure records, and the rehearsal asserts both) and the IAM-15 four-eyes matrix tests (requester cannot approve, one execution, payload hash, bank snapshot shown at approve-for-transfer, break-glass never satisfies four-eyes) pass before any real payout or refund. |
 
@@ -478,6 +507,7 @@ Revenue decisions as of 2026-10-27:
 | Affiliate platform fee | OPEN; no fee is assumed or charged before a decision | PR-28, BILL-8 |
 
 ### PR-18 — Plans, entitlements and platform billing
+- Decision (D-27, 2026-11-14, ADR-0013): the subscription is the platform's only revenue; there is no shipping margin, no cashback split and no fee on buyer payments. Subscription invoices are the only use of the platform's own AutoLaris account.
 - Status: Proposed (revised by owner direction 2026-10-27; replaces deferral)
 - Owner: Bukalaris product owner
 - Source: Owner decisions 2026-10-27; BILL-7, DATA-10.
@@ -620,6 +650,7 @@ implementation. The PR-18 deferral recorded then is superseded by the
 | Etalashop pattern adoption | Adopt proven specification modules that accelerate Bukalaris development | Added canonical specifications for net seller proceeds & append-only ledger (`PR-23`, `ADR-0006`, `BILL-4`, `BILL-5`, `T-37`), standard Google Product Category taxonomy (`PR-24`, `T-44`), abandoned checkout capture & 1-click WhatsApp recovery (`PR-25`, `T-45`), store promotions/vouchers/flash sales (`PR-26`, `T-46`), Cloudflare for SaaS custom domains (`DOM-2`, `DOM-3`, `T-15`), Puck custom image/link pickers (`TD-4`, `T-11`), and Coolify zero-downtime + R2 offsite backups (`DEPLOY-COOLIFY.md`, `DR-1`). |
 
 ### PR-23 — Seller ledger, COD remittance, and payouts
+- Decision (D-27, 2026-11-14, ADR-0013): for a store on seller-owned accounts the platform holds no money, so no `ledger_entry`, balance, payout, reconciliation batch or platform refund exists for it. `order_financials` is still frozen once per order, with `payment_fee_bearer` and `cod_fee_bearer` (`buyer` or `seller`) and no platform margin, cashback or affiliate deduction. Seller screens name Mengantar and AutoLaris; the white-label rule below no longer applies to them. The ledger rules below stay the contract for any money Bukalaris does hold. Not implemented (T-107).
 - Status: Proposed
 - Owner: Bukalaris finance owner
 - Source: Q-17, ADR-0006, ADR-0007, and Etalashop `FINANCE.md` / `0015-net-seller-proceeds-and-shipping-reconciliation.md` (adapted for Mengantar on 2026-10-26/27).
@@ -681,45 +712,32 @@ implementation. The PR-18 deferral recorded then is superseded by the
 | Issue-report screenshots (D-18) | None in Phase 1; text and captured technical context only | PR-30, UX-22, T-68. |
 | Security, recovery & SLA/DR baselines (D-19) | Mandatory 72-hour hold on new/changed payout bank destinations + step-up + old-contact notice + holder-name check; staff-executed store-ownership recovery and buyer merge disabled in Phase 1 (self-service only); startup SLA/DR baseline = 99.5% availability, hourly encrypted dumps (RPO 1 h), RTO 4 h proven by restore rehearsal | PR-23, PR-28, PR-30, BILL-5, BILL-8, IAM-9, IAM-13, IAM-15, DR-1, T-18, T-37, T-53, T-63, T-72. |
 
-### PR-27 — Platform-managed Partner Mengantar shipping accounts, discounts, and cashback
-- Status: Proposed
+### PR-27 — Seller-owned Mengantar and AutoLaris accounts
+- Status: Accepted (owner 2026-11-14, D-27); not implemented
 - Owner: Bukalaris product owner
-- Source: Owner decisions 2026-10-27 (D-15); [ADR-0007](ADR-0007-hybrid-mengantar-shipping-accounts.md).
-- Statement: Bukalaris shall automatically provision a Partner-managed Mengantar seller account (`POST /api/partner/v1/sellers`, `partner_managed`) for every store — even sellers who previously had an external Mengantar account must use the new Bukalaris-generated account — with the platform master Mengantar account (`platform_master`) as fallback, and the Owner console (`SA-07`) shall centrally govern courier service eligibility (`courier_service_policy`), shipping discounts, platform margin, and shipping cashback split rules (`cashback_rule`).
-- Acceptance: Sellers never paste an external API key (`own_key` does not exist) and there is only one unified Bukalaris money system. Disabled/inactive accounts are not quoted; checkout fixes its selected account and booking never silently switches it. If a store owner's email returns `409 EMAIL_ALREADY_REGISTERED` on the Partner API, Bukalaris provisions the Partner account using a platform-managed store routing email or requires a fresh email dedicated to the Bukalaris Partner account. Seller share of shipping cashback (`seller_cashback_idr`) is booked as a `cashback` ledger entry (`ledger_one_cashback_per_order`) and released to `available` only when the parcel is delivered and reconciled (D-14). Foreign-store account reads/mutations are denied, and sealed keys never appear in any DTO, log, or export.
-- Constraints: PR-5, BILL-6, DATA-7, DATA-9, UX-17, TEN-1, TEN-3, ADR-0007.
-- Evidence: Specification only; T-48/T-49 and live-write / partner-sweep (`OPEN-F9`) gates apply.
+- Source: Owner decision 2026-11-14 (D-27); [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md). Replaces the platform-managed Partner Mengantar requirement of 2026-10-27 (D-15, [ADR-0007](adr/ADR-0007-hybrid-mengantar-shipping-accounts.md)).
+- Statement: Each store shall connect its own Mengantar account and its own AutoLaris account. The store owner enters, replaces, checks and removes each key; the platform seals it, uses it only inside server-side provider calls and never shows it again. Each account has a fixed environment (`sandbox` or `production`). The seller controls which couriers, COD options, provinces and payment channels the store offers and who bears the payment fee and the COD fee.
+- Acceptance: A key change needs the store owner's capability and a fresh step-up, is audited and notifies store owners; an empty field keeps the stored key and removal is an explicit action; a failed connection check keeps the previous key. No key appears in any response, log, audit row or export. No provider URL is built from seller input. A payment or shipping method is offered only when its account is ready, and every filter of ADR-0013 section 4 is enforced at order submit, including a direct request for a hidden method and COD to an unresolved province. Foreign-store account reads, uses and changes are denied. Sandbox orders are marked as test orders.
+- Constraints: PR-4, PR-5, PR-19, BILL-1, BILL-2, DATA-7, DATA-9, UX-17, TEN-1, TEN-3, SEC-3, ADR-0013.
+- Decision (owner, 2026-11-15, ADR-0013 section 11): Mengantar is the only shipping aggregator and is locked; no other can be connected and AutoLaris is never used for shipping. Each store connects a new Mengantar account used only by that store. Parcel state is kept equal to Mengantar's from creation through pickup, delivery and return (a verified webhook triggers a tracking read; the read is the only writer), and Mengantar's balance and invoices are mirrored read-only, with per-parcel money figures only where the official documentation exposes them. Shipping money itself stays between the seller and Mengantar; Bukalaris is a written record of platform transactions. Not implemented (T-115).
+- Evidence: Specification only; T-104, T-105, T-106, T-107 and T-113 (bank transfer to the seller's account, D-31). The delivered Partner account work (T-48) is unused for these stores and stays in the code (D-31).
+- Change history: 2026-10-27 — platform-managed Partner accounts (D-15). 2026-11-14 — replaced by seller-owned accounts (D-27).
 
-### PR-28 — Platform-owned affiliate programme
-- Status: Accepted (owner 2026-10-28, D-21)
+### PR-28 — Store affiliate programme run by the seller
+- Status: Accepted (owner 2026-11-14, D-29); identity and attribution delivered locally in T-52, the rest not implemented
 - Owner: Bukalaris product owner
-- Source: Owner decisions 2026-10-27; [ADR-0009](ADR-0009-platform-owned-affiliate-programme.md).
-- Statement: Bukalaris shall own affiliate accounts, links, clicks, attributions,
-  commissions, append-only wallet and payouts. One Owner console-approved affiliate
-  may promote many sellers' opted-in products, subject to individual seller
-  blocks. Sellers fund commissions through store-default basis-point rates and
-  product overrides within Owner console bounds; opted-in offers are open-access.
-- Acceptance: Non-opted-in products never become affiliate offers; checkout
-  freezes one commission per order and its rate/base snapshots in
-  `order_financials`. The base is net goods after store-funded discounts, excluding
-  shipping and gateway/platform fees. Explicit checkout code beats a captured
-  link; otherwise last-click wins within the configured window. Invalid/expired
-  codes and normalized phone self-referrals are ignored without failing checkout.
-  Commission is earned only for delivered parcels across all opted-in prepaid and COD orders (D-16): an order in transit, returned or cancelled earns nothing; the wallet credit needs delivered, the seller sale released by delivered-and-reconciled (D-14), and then `affiliate_hold_days` (decided default: **3 days**, Owner-configurable); cancellation/return before delivery voids unpaid commission. Affiliate views
-  expose aggregates, never buyer PII; payout tax treatment is policy-controlled
-  (PR-31, ADR-0012): the startup default withholds nothing and requires no tax
-  identity, while an identity check before payout applies only when the policy
-  flag `tax_identity_required_for_payout` is ON (default OFF) and withholding
-  only when `withholding_enabled` is ON (Phase 2, dormant); no rate is hard-coded.
-- Constraints: PR-7, PR-4, TD-5, BILL-8, DATA-11, IAM-3, PRIV-2, UX-19, UX-20,
-  ADR-0009. Attribution window and any platform commission fee remain OPEN;
-  `affiliate_hold_days` is decided at 3 days default (Owner-configurable).
-- Evidence: Specification only; Chain B T-52/T-53/T-54, no implementation claim.
+- Source: Owner decision 2026-11-14 (D-29); [ADR-0015](adr/ADR-0015-seller-run-store-affiliate-programme.md). Replaces the platform-funded programme of 2026-10-27 ([ADR-0009](adr/ADR-0009-platform-owned-affiliate-programme.md)), whose identity, attribution and privacy rules stand.
+- Statement: An affiliate shall register once on the platform and apply to individual stores. Each seller switches the programme on for their store, sets the commission rate (store default with product overrides, within Owner console bounds) and approves, rejects or suspends members. The system attributes orders and computes commission. A commission is the seller's obligation: the seller pays it outside Bukalaris and records the payment with proof. Bukalaris holds no affiliate money.
+- Acceptance: Only an affiliate with an active membership of that store can be attributed. Checkout freezes one commission per order with its base and rate; the base is net goods after store-funded discounts, excluding shipping and gateway or platform fees, and nothing is deducted from the seller's proceeds. An explicit code beats a captured link; otherwise last click wins inside the window. Invalid codes and phone self-referrals are ignored without failing checkout. A commission becomes payable only after delivery (for a digital line, after access is granted) plus `affiliate_hold_days` (default 3, D-16); cancel or return before that voids it. A recorded payment equals the sum of the commissions it covers and cannot be edited. Seller and affiliate see the same statement. A payable commission older than `affiliate_arrears_days` (default 14) is in arrears and the Owner console can freeze that store's programme. Affiliate views never contain buyer personal data or order numbers. The application screen and the statement state that the seller, not Bukalaris, pays.
+- Constraints: PR-7, PR-4, TD-5, BILL-8, DATA-11, IAM-3, PRIV-2, PRIV-7, UX-19, ADR-0009, ADR-0015. Decided defaults (D-31): rate 100 to 5000 bps, window 7 days, no platform fee, bank details visible to the paying store's finance role, auto-approval off by default.
+- Evidence: T-52 (identity, links, codes, click route, attribution) delivered locally with a commission deduction that T-108 removes; T-108, T-109, T-110 planned. T-53 is superseded and T-54 re-scoped.
+- Change history: 2026-10-27 — platform-owned programme with wallet and payouts. 2026-11-14 — replaced by the seller-run programme (D-29).
 
 ### PR-29 — Affiliate storefront and discovery
+- Decision (D-29, 2026-11-14, ADR-0015): deferred until the seller-run programme (PR-28) has run in a pilot. Its host is decided with T-54/T-55 (D-31). T-55 is not scheduled.
 - Status: Proposed
 - Owner: Bukalaris product owner
-- Source: Owner decisions 2026-10-27; PR-6, PR-28, [ADR-0009](ADR-0009-platform-owned-affiliate-programme.md).
+- Source: Owner decisions 2026-10-27; PR-6, PR-28, [ADR-0009](adr/ADR-0009-platform-owned-affiliate-programme.md).
 - Statement: An approved affiliate shall curate a platform-owned storefront from
   the `affiliate_catalog` projection of eligible opted-in seller products and
   generate attributable links. Phase 1 supports `source=bukalaris` only.
@@ -736,7 +754,7 @@ implementation. The PR-18 deferral recorded then is superseded by the
 ### PR-30 — Owner console (platform back-office)
 - Status: Proposed (owner decisions 2026-10-27; startup-phase direction applies)
 - Owner: Bukalaris product owner
-- Source: Owner decisions 2026-10-27; PR-1, PR-11, PR-15; [ADR-0011](ADR-0011-owner-console-scope-and-account-governance.md).
+- Source: Owner decisions 2026-10-27; PR-1, PR-11, PR-15; [ADR-0011](adr/ADR-0011-owner-console-scope-and-account-governance.md).
 - Statement: Bukalaris staff shall operate the platform from one Owner console
   (formerly Super Admin / Bos, `owner.bukalaris.com`) that manages stores,
   affiliate accounts, user accounts of every kind, money queues, platform
@@ -785,9 +803,17 @@ implementation. The PR-18 deferral recorded then is superseded by the
 ### PR-31 — Platform tax workflows and earnings statements
 - Status: Proposed (owner decisions 2026-10-27; startup-phase relaxation applies, Phase 2 dormant)
 - Owner: Bukalaris product owner with the finance owner and qualified tax advisors
-- Source: Owner decisions 2026-10-27 (tax on commissions and related items is handled by the platform; later the same day: Bukalaris is an online-store platform, sellers handle their own sales taxes, startup obligations are relaxed); [ADR-0012](ADR-0012-platform-tax-workflows.md); verified DJP release SP-23/2026 (marketplace collection regime; Bukalaris not designated).
+- Source: Owner decisions 2026-10-27 (tax on commissions and related items is handled by the platform; later the same day: Bukalaris is an online-store platform, sellers handle their own sales taxes, startup obligations are relaxed); [ADR-0012](adr/ADR-0012-platform-tax-workflows.md); verified DJP release SP-23/2026 (marketplace collection regime; Bukalaris not designated).
 - Statement: In the startup phase the platform withholds nothing, collects nothing, gates no payout on tax identity and requires no PKP/e-Faktur or seller tax KYC; sellers handle their own sales taxes and affiliates handle tax on their own commission. The platform provides transparent earnings statements (per affiliate, per calendar month and per year, PDF and CSV), a seller invoice-register export and an Owner platform invoice register, plus optional voluntary tax identity capture. The PPN toggle on subscription invoices (BILL-7) is OFF by default and switchable in the Owner console; its rate is always an effective confirmed `vat_output` policy value, no 11% is computed in startup mode, and no PPN invoice or e-Faktur is issued until the company (PT) documents, PKP status and an accountant exist (D-17, readiness task T-75, deferred). The full tax design (versioned, effective-dated, advisor-confirmed policy engine; withholding computation at payout; append-only tax liability ledger by period; remittance batches with opaque payment evidence; tax evidence documents; monthly filing pack; period close; VAT documents; corrections) is specified as a dormant Phase 2 capability, disabled by default and activated only by an Owner setting after the ADR-0012 criteria hold.
 - Acceptance: With default `tax_setting` a payout needs no tax identity and has `tax_idr = 0` and `net = gross`; no code path, seed or default contains a tax rate, base fraction, bracket or deadline; each affiliate month and year has an earnings statement whose figures equal the ledger and whose monthly values sum to the annual one; statements contain no buyer data, order identifier or full tax identifier; the Owner console shows the tax mode as off with the activation checklist; withholding cannot be switched on without an activation reference, a confirmed platform tax-entity profile and an advisor-confirmed policy version; once activated (test environment only), each payout has one immutable computation and `gross = tax + net` in integer IDR with replay safety. Marketplace collection (PMK 37/2025) is not built: Bukalaris is not a designated collector.
 - Constraints: PR-18, PR-28, PR-30, BILL-7, BILL-8, BILL-9, DATA-10, DATA-11, DATA-15, IAM-15, PRIV-6, PRIV-10, UX-23, ADR-0009, ADR-0011, ADR-0012. All legal statements are UNVERIFIED secondary-source inputs until an advisor confirms them. OPEN owner inputs (ADR-0012 OPEN-T1 to T18): platform legal entity type, NPWP, PKP status, tax advisor and accountant, e-Bupot/e-Faktur access, bank accounts and billing-code procedure for tax deposits, any expectation of marketplace designation, activation timing, notice and statement wording, retention.
 - Evidence: Specification only; T-65, T-71 and T-66 (startup), deferred T-67 (Phase 2) and deferred T-75 (PPN activation readiness); no implementation claim.
 
+### PR-32 — Digital products
+- Status: Accepted (owner 2026-11-14, D-30); not implemented
+- Owner: Bukalaris product owner
+- Source: Owner decision 2026-11-14 (D-30); [ADR-0016](adr/ADR-0016-digital-products.md).
+- Statement: A store shall be able to sell digital products beside physical ones in the same catalog, cart and checkout. A digital product has no shipment and is prepaid through the store's own payment account. The buyer receives its access links (content the seller hosts elsewhere, for example Google Drive) or access note when payment is proven. Bukalaris stores no file.
+- Acceptance: An order without a physical line asks for no address and has no courier or shipping fee; a mixed order quotes shipping from physical lines only. COD is refused for any order with a digital line, including a direct request. Access is granted once per digital order line in the transaction that settles the order, never from a callback alone and never before payment. Access links and the access note appear only on the signed order-status page through a valid grant, never in storefront HTML, the Storefront API, feeds, e-mails or logs; a link is `https` only, opens with no referrer and is never requested by the server. The seller can extend and revoke access, audited; cancel or refund revokes it. Revoking hides the link on Bukalaris pages; sharing permissions on the seller's host stay the seller's responsibility, and the product screen says so. A digital-only order completes when paid. Cross-store access-item and grant access is denied. A later per-store member area with embedded video and webinars is prepared in the model (typed access items, grants bound to store and buyer identity) and not built.
+- Constraints: PR-2, PR-4, PR-5, PR-21, PR-27, BILL-1, BILL-2, DATA-3, TEN-1, TEN-3, SEC-3, ADR-0016. Decided defaults (D-31): 10 links per product, no default expiry, excluded from feeds, no licence-key pools; member area later on the buyer portal. Bank transfer to the seller's account is a prepaid method (ADR-0013 section 10, T-113).
+- Evidence: Specification only; T-111 and T-112.

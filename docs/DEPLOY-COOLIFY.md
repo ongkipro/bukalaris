@@ -5,6 +5,10 @@ Postgres, Cloudflare in front for DNS, proxy, WAF and TLS. **No Supabase**: the 
 Better Auth in the app, media sits on a volume (object storage later). **Not started on purpose:** the owner wants the local build polished first;
 the domain `bukalaris.com` is not bought yet, no Vultr instance, no Cloudflare zone, no Coolify instance exists.
 
+> **Direction change (D-28, D-31, 2026-11-14, ADR-0014):** the deployment target has two registrable domains: platform surfaces on `bukalaris.com`, native storefronts on `<store-slug>.bukalaris.id`, and seller custom domains as a CNAME to `cname.bukalaris.id`. Both domains are registered per owner statement of 2026-11-14 (not checked by an agent), which replaces "not bought yet" above; no DNS record, zone or certificate exists. Sections below that still show one root or `<slug>.bukalaris.com` describe the current build and carry their own note. Not implemented (T-102, T-103).
+>
+> **Direction change (D-27, D-31, 2026-11-14, ADR-0013):** shipping and buyer payments run on each store's own Mengantar and AutoLaris keys, sealed in the database, not on platform credentials from the environment. The platform keeps one provider credential in use: its own AutoLaris account for subscription invoices. Variables and gates for platform Mengantar keys, Partner credentials and platform payouts describe the current build and are unused for a `seller_owned` store. Not implemented (T-104 to T-107).
+
 Status: **Draft only, 2026-10-06. Nothing in this document has been executed.**
 No VPS, Coolify instance, database, DNS record, certificate, secret or
 deployment exists. Every step needs explicit owner approval (production/live
@@ -20,6 +24,8 @@ labels when executing.
 | Migrate | `docker build -f apps/web/Dockerfile --target migrate -t bukalaris-migrate .` | 273 MB (node:24-alpine + `packages/db` + 27 MB prod deps); applied all migrations to a fresh database and is safe to re-run (BUILD-LOG) |
 
 ## Chosen edge topology (D-23; nothing deployed)
+
+> **Direction change (D-28, 2026-11-14, ADR-0014):** the "Certificates" item below is right for platform hosts only. Storefronts need a second zone and a second wildcard certificate, `*.bukalaris.id`, and each verified custom domain needs its own certificate (provider and lifecycle stay T-15). The same Cloudflare-only origin rule and single trusted client-IP header apply to both zones. The `*.affiliate.bukalaris.com` remark concerns T-55, which is deferred (D-29). The text below describes the earlier one-root model. Not implemented (T-102, T-103).
 
 - **Cloudflare proxied (orange cloud) + Cloudflare Origin CA certificate on the origin, SSL mode Full (strict).** Traefik in Coolify serves the Origin
   certificate (valid only for Cloudflare, so a direct hit on the origin IP shows an untrusted certificate: intended). WAF and DDoS rules apply at the edge.
@@ -58,6 +64,17 @@ the web image carries no `packages/db/src` (checked by `verify:docker` since T-8
 Variables that only planned tasks will read are listed separately under
 "Planned variables" below; they do not exist in the current build.
 
+> **Direction change (D-27, D-28, 2026-11-14, ADR-0013, ADR-0014):** the table below lists what the current build reads and stays accurate for it. Target changes, by row:
+> - `STORE_ROOT_DOMAIN`: becomes the store root (`bukalaris.id`) beside a new `PLATFORM_ROOT_DOMAIN` (T-102; see the row).
+> - Per-surface origins: buyer order-status links (`/o/…`) and catalog feed URLs will use the store's primary host, not `CHECKOUT_ORIGIN` or `APP_ORIGIN`; `CHECKOUT_ORIGIN` remains for the hand-off of independent storefronts (ADR-0014 decisions 5 and 7, T-103).
+> - `MENGANTAR_API_KEY`, `MENGANTAR_PICKUP_ADDRESS_ID`, `MENGANTAR_PICKUP_TIME_ID`: platform-level values. For a `seller_owned` store the key is the store's own, sealed in the database, and the pickup address is the store's own, registered with Mengantar on that key (ADR-0013 decisions 1 and 12; T-104, T-105).
+> - `MENGANTAR_BASE_URL`: the target has no free-form base URL per account; each account's `environment` (`sandbox` or `production`) maps to a fixed origin from server configuration (ADR-0013 decision 10).
+> - `MENGANTAR_WRITE_ENABLED`: the target switch for production calls on seller keys is an Owner console setting per provider, after a recorded sandbox pass (ADR-0013 decision 34).
+> - `ALLOW_COD_BOOKING`: Q-17 no longer gates a `seller_owned` store (ADR-0013 section 8).
+> - `ENABLE_HSTS`: `includeSubDomains` is scoped per registrable domain, and a custom domain gets HSTS without it (ADR-0014 decision 6, T-94).
+>
+> Not implemented (T-102 to T-107).
+
 | Variable | Web | Worker / Cleanup | Migrate | Notes |
 |---|---|---|---|---|
 | `DATABASE_URL` | required | — | — | Postgres URL on the private network **as role `bukalaris_app`** (NOBYPASSRLS; row-level security applies to every request, ADR-0005). Never the owner or a superuser |
@@ -68,7 +85,7 @@ Variables that only planned tasks will read are listed separately under
 | `BETTER_AUTH_URL` | required | required | — | Origin of the one-host **local path mode** (plain `localhost`: `/admin`, `/seller`, `/s/<slug>` on one host) and the development fallback for every per-surface origin below. Since T-70 the web app has one Better Auth instance **per surface** (`owner`, `app`, `affiliate`, `buyer`; `apps/web/src/lib/auth.ts`), chosen from the request host, each with its own origin, derived secret and `__Host-` cookie names; with a non-local `STORE_ROOT_DOMAIN` the apex path mode is retired and this variable is no longer the sign-in origin. The worker still reads it for order and seller links only when the per-surface origins below are unset. Local-only behavior verified 2026-10-28; nothing here is deployed |
 | `PLATFORM_ORIGIN`, `OWNER_ORIGIN`, `APP_ORIGIN`, `CHECKOUT_ORIGIN`, `AFFILIATE_ORIGIN`, `BUYER_ORIGIN`, `LOGS_ORIGIN` | optional locally, **required in production per active surface** | required for e-mail links | — | Exact public origin of each surface without a trailing slash (08 DOM-5 "Base origin by link type"): `OWNER_ORIGIN` Owner console links and the Owner auth origin; `APP_ORIGIN` Seller Admin, member invitations (`seller/actions.ts`), catalog feed URLs and the Seller auth origin; `CHECKOUT_ORIGIN` buyer order-status links (`/o/…`) in mails and the checkout handoff URL; `PLATFORM_ORIGIN` the apex and the local path-mode storefront base; `AFFILIATE_ORIGIN` and `BUYER_ORIGIN` the future portals' auth origins; `LOGS_ORIGIN` the Update Log (not read yet, T-69). In production a missing `OWNER_ORIGIN`, `APP_ORIGIN`, `AFFILIATE_ORIGIN` or `BUYER_ORIGIN` makes that surface's auth instance refuse to start (fail closed); the other origins fall back to `PLATFORM_ORIGIN`, then `BETTER_AUTH_URL`. Storefront URLs come from the store's own host (`storeBaseUrl`), never from these |
 | `ORDER_LINK_SECRET` | required | required | — | HMAC-SHA256 key for buyer order-status links in e-mails (`/o/<id>.<expiry>.<hmac>`, 30-day expiry). Generate per environment (`openssl rand -base64 32`); rotating it invalidates every link already sent. Falls back to `BETTER_AUTH_SECRET` when unset (dev convenience). Removing that fallback in production is still open (see "Secrets in production"); T-70 did not change it |
-| `STORE_ROOT_DOMAIN` | required | — | — | e.g. `bukalaris.com`; `toko-a.bukalaris.com` serves store `toko-a` (`apps/web/src/proxy.ts`). Default `localhost`. Reserved platform labels (`owner`, `app`, `checkout`, `affiliate`, `buyer`, `logs`, `www`, `api`, `mail`, `status`, `docs`, `assets`, `cdn`, `cname`, `berkah`, `bos`) are refused as store slugs and never resolve as a store; exact platform hosts are matched before the store subtree and the host × path matrix of 08 DOM-5 decides what each host serves (T-70, `packages/db/src/platform/host.ts`, golden table `packages/db/test/host.test.ts`). The CRSEC-01 blocker is closed in code; DNS, TLS and wildcard certificates for these hosts remain UNVERIFIED, and an existing store already using a reserved label must be migrated by the owner before activation (there is no automatic reassignment) |
+| `STORE_ROOT_DOMAIN` | required | — | — | Target since D-28 (ADR-0014, not implemented): `bukalaris.id` for storefronts plus a new `PLATFORM_ROOT_DOMAIN` = `bukalaris.com`, a second wildcard certificate and zone, and `cname.bukalaris.id` as the custom-domain target (T-102). Current build, one root: e.g. `bukalaris.com`; `toko-a.bukalaris.com` serves store `toko-a` (`apps/web/src/proxy.ts`). Default `localhost`. Reserved platform labels (`owner`, `app`, `checkout`, `affiliate`, `buyer`, `logs`, `www`, `api`, `mail`, `status`, `docs`, `assets`, `cdn`, `cname`, `berkah`, `bos`) are refused as store slugs and never resolve as a store; exact platform hosts are matched before the store subtree and the host × path matrix of 08 DOM-5 decides what each host serves (T-70, `packages/db/src/platform/host.ts`, golden table `packages/db/test/host.test.ts`). The CRSEC-01 blocker is closed in code; DNS, TLS and wildcard certificates for these hosts remain UNVERIFIED, and an existing store already using a reserved label must be migrated by the owner before activation (there is no automatic reassignment) |
 | `INTEGRATION_TOKEN_KEY` | required | required | — | 32 bytes, base64 (`openssl rand -base64 32`) or 64 hex chars. AES-256-GCM key sealing the per-store Meta/TikTok server tokens (T-38). Today there is no key id in the sealed envelope, so rotating it makes stored tokens unreadable and sellers re-enter them; the planned key ring (T-48, "Key ring and rotation") fixes this and this key becomes entry `k1` of the `integration_tokens` ring. Never reuse the `.env.example` placeholder |
 | `SIGNALS_LIVE` | optional | optional (worker) | — | `1` lets the outbox worker call Meta Conversions API / TikTok Events API for real; the web app reads it only to label delivery mode on `/seller/marketing`. Unset = simulation (events recorded as `simulated`, nothing leaves the host). Enable only after the owner approves a test-event call and the provider contract is verified (docs/tracks/signals.md) |
 | `MENGANTAR_API_KEY` | optional | optional (worker) | — | When set, checkout area search and courier quotes call the real Mengantar API (read-only operations); unset = `fakeMengantar` fixture adapter. The worker's shipment booking/tracking (T-39) uses the real adapter only when this **and** `MENGANTAR_PICKUP_ADDRESS_ID` are set, else the fake booking adapter. Pass only through the secret store, never files or logs |
@@ -102,6 +119,8 @@ production): three database passwords (`bukalaris_owner`, `bukalaris_app`,
 
 All of these fail closed in production when required and missing; values only in Coolify secrets.
 
+> **Direction change (D-27, D-31, 2026-11-14, ADR-0013):** `KEYRING_SHIPPING_CREDENTIALS` will seal each store's own Mengantar key instead of Bukalaris-provisioned ones, and a second ring for the purpose `payment_credentials` seals each store's own AutoLaris key (see "Planned variables"). `MENGANTAR_PARTNER_SECRET_ROTATED_AT` and `MENGANTAR_PARTNER_OLD_SECRET_REVOKED` stay unset: the owner chose not to rotate the Partner Secret (D-31), so the gate keeps the Partner path closed, and no `seller_owned` store needs it. `MENGANTAR_ROUTING_EMAIL_DOMAIN` is unused for `seller_owned` stores. `AUTOLARIS_CALLBACK_SECRET` keeps its role; a callback stays evidence only. The table below describes the current build. Not implemented (T-104 to T-106).
+
 | Variable | Used by | Notes |
 |---|---|---|
 | `AUTOLARIS_CALLBACK_SECRET` | Web, Worker | HMAC of the signed AutoLaris callback reference (T-49), at least 32 bytes. Without it the instruction job and every callback fail closed |
@@ -127,8 +146,12 @@ names the task that introduces it; that task adds the row to the table above in
 the same change. Names are proposals until then. Values live only in Coolify
 secrets.
 
+> **Direction change (D-27 to D-29, 2026-11-14, ADR-0013 to ADR-0015):** the first two rows of the table are added by these decisions. Rows that are unused for a `seller_owned` store or deferred: `AFFILIATE_ROOT_DOMAIN` (T-55 deferred, D-29), the `MENGANTAR_PARTNER_*` variables (Partner model superseded, D-27). ADR-0013 does not say whether the Mengantar webhook (`MENGANTAR_WEBHOOK_SECRET`, HTTP-26) is used with seller-owned accounts; that row is left as it is. `CUSTOM_DOMAIN_CNAME_TARGET` has a decided value, `cname.bukalaris.id` (D-28). The AutoLaris platform credentials are used for subscription invoices only. The other rows describe the earlier plan. Not implemented (T-102, T-104).
+
 | Variable | Used by | Task | Notes |
 |---|---|---|---|
+| `PLATFORM_ROOT_DOMAIN` | Web | T-102 (D-28, ADR-0014 decision 2) | Root of the platform surfaces (`bukalaris.com`); `STORE_ROOT_DOMAIN` then holds only the store root (`bukalaris.id`). Local development keeps one root (`localhost`) for both |
+| Key ring for the purpose `payment_credentials` (variable name fixed by T-104) | Web, Worker | T-104 (D-27, ADR-0013 decision 5) | Seals each store's own AutoLaris H2H key; must differ from every other ring. The store's own Mengantar key uses the existing `shipping_credentials` ring |
 | `PLATFORM_ORIGIN`, `OWNER_ORIGIN`, `APP_ORIGIN`, `AFFILIATE_ORIGIN`, `BUYER_ORIGIN`, `LOGS_ORIGIN`, `CHECKOUT_ORIGIN` | Web, Worker | T-70 delivered (see the main table); `LOGS_ORIGIN` is first read by T-69 | Moved to the main table above |
 | `AUTH_SECRET_OWNER`, `AUTH_SECRET_SELLER`, `AUTH_SECRET_AFFILIATE`, `AUTH_SECRET_BUYER` | Web | T-70 delivered; the affiliate and buyer sessions are exercised by T-54, T-58 | Optional per-surface session-signing secrets. When unset each surface derives its secret from `BETTER_AUTH_SECRET` by HMAC domain separation (`bukalaris-auth-surface:<surface>`), so a cookie of one surface never verifies on another; set explicit values to rotate one surface independently |
 | `AFFILIATE_ROOT_DOMAIN` | Web | T-55 | Root of `<handle>.<root>`, normally `affiliate.<STORE_ROOT_DOMAIN>`; needs the `*.affiliate` certificate (see Domains) |
@@ -157,6 +180,8 @@ and assert a non-zero exit that names that variable.
 
 ### Key ring and rotation
 
+> **Direction change (D-27, 2026-11-14, ADR-0013):** a fourth sealing purpose, `payment_credentials`, is added for each store's own AutoLaris key, and `shipping_credentials` will hold each store's own Mengantar key. The ring format and the rotation steps below apply to both unchanged. Not implemented (T-104).
+
 Each sealing purpose (`integration_tokens`, `shipping_credentials`,
 `tax_identity`) has its own ring, so rotating one cannot strand another. A ring is
 a comma-separated list of `<key_id>:<base64 of 32 bytes>`; the first entry is the
@@ -179,6 +204,8 @@ rehearsal are in 14-SLA-DISASTER-RECOVERY.
 
 ### Partner calls: egress IP and budget
 
+> **Direction change (D-27, D-31, 2026-11-14, ADR-0013):** Partner calls are not made for a `seller_owned` store, the only mode in the first release, so the allow-list and the shared `partner:mengantar` budget below are not a launch requirement. Provider-side limits on calls made with seller keys become per-seller matters; whether AutoLaris applies an IP allow-list to this hosting is UNVERIFIED and is confirmed before production (ADR-0013 "Consequences"). The text below describes the earlier model. Not implemented (T-105, T-106).
+
 - Production Partner API calls are accepted only from an allow-listed source IP
   (ADR-0007). Production egress IP: **not recorded; no VPS exists.** When the VPS
   is provisioned, record the public IPv4 here (an address is not a secret) and in
@@ -193,6 +220,8 @@ rehearsal are in 14-SLA-DISASTER-RECOVERY.
   `next_attempt_at` instead of waiting out the 60 s lease.
 
 ## Worker and cleanup (not yet planned in Coolify)
+
+> **Direction change (D-27, D-28, 2026-11-14, ADR-0013, ADR-0014):** the worker environment below is the current build's. In the target the worker opens each store's sealed Mengantar and AutoLaris key through the `shipping_credentials` and `payment_credentials` rings instead of reading `MENGANTAR_API_KEY` and `MENGANTAR_PICKUP_ADDRESS_ID`, booking is a seller action on the order, and order-status links in e-mails use the store's primary host instead of `CHECKOUT_ORIGIN`. The commands do not change. Not implemented (T-103 to T-106).
 
 The outbox worker is a long-running second process (`packages/db/src/worker.ts`, T-32). It runs from the
 **`migrate` image stage**, not the web image: the web image holds only the Next.js standalone output and has no
@@ -286,6 +315,8 @@ failure does not fail the deploy. Plan instead:
 
 ## Domains, DNS and TLS (Q-8 open; needs DNS approval)
 
+> **Direction change (D-28, D-29, D-31, 2026-11-14, ADR-0014, ADR-0015):** storefronts are `<slug>.bukalaris.id`, not `<slug>.bukalaris.com`. The target needs two zones and two wildcard records and certificates: `*.bukalaris.com` is no longer needed for storefronts (exact platform hosts only), and `*.<STORE_ROOT_DOMAIN>` on `bukalaris.id` serves storefronts. `cname.bukalaris.id` is the one CNAME target for seller custom domains and never resolves to a store; custom domains are subdomains only until T-15 verifies apex support. The apex and `www` of `bukalaris.id` redirect to `https://bukalaris.com` for `GET`/`HEAD`. Cart, checkout, confirmation and order status are served on the store host; the platform checkout origin remains for the hand-off of independent storefronts. HSTS `includeSubDomains` is scoped per registrable domain. The affiliate storefront bullet (`*.affiliate`) concerns T-55, which is deferred with no host reserved. Both domains are registered per owner statement; no DNS record exists. The text below describes the earlier one-root model, which is what the code runs today. Not implemented (T-102, T-103).
+
 - Target host map (ADR-0008, Accepted 2026-10-28 as a decision; implemented locally only by T-51 and T-70, nothing deployed): `owner.bukalaris.com` Owner console
   (formerly Super Admin / Bos; the interim `berkah` and `bos` labels were never deployed), `app.bukalaris.com` Seller Admin,
   `affiliate.bukalaris.com` Affiliate portal, `buyer.bukalaris.com` Buyer portal,
@@ -327,6 +358,8 @@ failure does not fail the deploy. Plan instead:
 
 ## Media volume (product images)
 
+> **Direction change (D-30, 2026-11-14, ADR-0016):** digital products add nothing to this volume and need no private file storage or object store: delivery content is seller-hosted access links and a text note, and the platform stores no file. The volume below stays for product images only. Not implemented (T-111, T-112).
+
 The web image stores uploads on local disk under `MEDIA_DIR` (default
 `/data/media`, pre-created in the image and owned by the fixed uid/gid
 `10001:10001`, user `app`). Without a volume, images vanish on every deploy.
@@ -366,6 +399,8 @@ The web image stores uploads on local disk under `MEDIA_DIR` (default
   "Planned variables".
 
 ## Pre-go-live gates (status 2026-10-07)
+
+> **Direction change (D-27, D-28, D-31, 2026-11-14, ADR-0013, ADR-0014):** read the gates below with these changes. (1) Q-17 COD remittance no longer blocks the first real COD shipment of a `seller_owned` store; COD cash goes to the seller's own account. (2) The Mengantar Partner Secret is not rotated: the owner accepted the exposure on 2026-11-14 (D-31), the Partner path stays closed by the T-48 gate in the code, and the rotation is not a launch gate for `seller_owned` stores. (3) Provider gates become per provider and per store: production calls on seller keys are switched on per provider in the Owner console after a recorded sandbox pass, and each store's AutoLaris payment-only profile is requested by hand and confirmed before QRIS/VA is ready for it (ADR-0013 decisions 13 and 34). (4) The egress-IP gate for Partner calls does not apply; an AutoLaris IP allow-list for this hosting is UNVERIFIED. (5) Hosts: two zones and two wildcard certificates; the `*.affiliate` certificate gate concerns the deferred T-55. (6) The payout freeze in the restore gate applies only to money Bukalaris holds. (7) The GitHub repository stays public for now; the owner is asked again before any production secret, customer data or deployment configuration is added (D-31). The gates below describe the earlier model. Not implemented (T-102 to T-107).
 
 - Providers: Mengantar reads verified against the real API (sanitized evidence
   in `docs/tracks/shipping.md`); Mengantar writes locked until the owner approves

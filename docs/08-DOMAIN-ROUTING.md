@@ -3,13 +3,25 @@
 Decision, 2026-09-25: `bukalaris.com` is the selected primary product domain.
 The routing rules below are specifications; DNS and deployment are unverified.
 
+Decision, 2026-11-14 (D-28, [ADR-0014](adr/ADR-0014-two-registrable-domains-and-custom-domain-target.md)):
+platform surfaces stay on `bukalaris.com`; native storefronts move to
+`<store-slug>.bukalaris.id`; a seller custom domain is a CNAME to
+`cname.bukalaris.id`; cart, checkout, confirmation and order status are served on
+the store host. The single root setting becomes `PLATFORM_ROOT_DOMAIN` and
+`STORE_ROOT_DOMAIN`. Neither domain is registered or provisioned. The code still
+uses one root and refuses `/checkout` and `/o` on a store host (T-102, T-103).
+DOM-5 and DOM-6 below describe the one-root implementation and carry an
+amendment note each; where they conflict with ADR-0014, ADR-0014 is the target.
+
 ## DOM-1 — Host resolution
 
 - Owner: Bukalaris platform owner
 
-`<store-slug>.bukalaris.com` is the Phase 1 storefront shape. The platform
-normalizes a received host, rejects reserved/platform labels, and resolves it to
-one active store before any storefront data is fetched. `bukalaris.com` is
+`<store-slug>.bukalaris.id` is the Phase 1 storefront shape (D-28; it was
+`<store-slug>.bukalaris.com` until 2026-11-14). The platform
+normalizes a received host, rejects reserved/platform labels on the store domain
+too, and resolves it to one active store before any storefront data is fetched.
+`cname.bukalaris.id` is the custom-domain CNAME target and never a store. `bukalaris.com` is
 reserved for the platform front door (Bukalaris is an online-store platform, not
 a marketplace; any future discovery surface is a separate feature).
 
@@ -156,7 +168,7 @@ When implementing `T-15` with Cloudflare for SaaS:
 
 Proposal: A short-lived one-use handoff code is exchanged at `/checkout`,
 followed by a redirect to a clean URL. Redact that code at the CDN/proxy as well
-as the application. The recommended checkout origin is `https://checkout.bukalaris.com`;
+as the application. Since D-28 this hand-off serves independent storefronts only (PR-16): a native store or a seller custom domain runs its own checkout on the store host (ADR-0014 decision 5). The recommended checkout origin for the hand-off is `https://checkout.bukalaris.com`;
 its provisioning and handoff lifetime require deployment verification and are
 not seller-editable input. Proposed lifetime:
 five minutes; final value must be tested against buyer handoff/retry behavior.
@@ -170,12 +182,14 @@ five minutes; final value must be tested against buyer handoff/retry behavior.
 | `berkah.bukalaris.com`, `bos.bukalaris.com` | Retired/reserved-unused; interim names, never deployed, kept reserved so nobody can claim them; no active Owner console alias and not claimable by sellers or affiliates | User decision, 2026-10-27 |
 | `app.bukalaris.com` | Tenant admin; active store derived from membership; central commerce APIs | User decision for admin, API placement recommendation |
 | `checkout.bukalaris.com` | `/checkout`, confirmation and checkout-session API | Architecture recommendation |
-| `<store-slug>.bukalaris.com` | Native tenant storefront | Existing design baseline |
+| `<store-slug>.bukalaris.id` | Native tenant storefront, with its own cart, checkout, confirmation and order status | Owner decision 2026-11-14 (D-28); not registered, not implemented |
+| `cname.bukalaris.id` | CNAME target for seller custom domains; never resolves to a store | Owner decision 2026-11-14 (D-28) |
+| `bukalaris.id`, `www.bukalaris.id` | Redirect to `https://bukalaris.com` for GET/HEAD; no session surface | ADR-0014 |
 | Verified seller custom domain | Same tenant renderer and published content | Existing design baseline |
 | `affiliate.bukalaris.com` | Separate affiliate portal/login/account role; host root rewrites to `/affiliate/…`, not seller admin | Proposed — ADR-0008, PR-28, UX-19; DNS/TLS UNVERIFIED |
 | `buyer.bukalaris.com` | Separate Buyer account portal; `/buyer/…`; platform-level buyer identity under ADR-0010 and PR-7 | User decision, 2026-10-27; implementation and DNS/TLS UNVERIFIED |
 | `logs.bukalaris.com` | Public product Update Log (release notes, what's new); read-only; rewrites to `/updates/…`. **Not** the internal Log System (`/admin/logs`, PR-11). Authored only in the Owner console on `owner.bukalaris.com` | User decision, 2026-10-27 ("if needed"); implementation and DNS/TLS UNVERIFIED |
-| `<handle>.affiliate.bukalaris.com` | Platform-owned affiliate storefront; rewrites to `/a/<handle>/…`; selected seller checkout handoff with attribution | Proposed — ADR-0008, PR-29, UX-20; nested wildcard DNS/TLS UNVERIFIED |
+| `<handle>.affiliate.bukalaris.com` | DEFERRED by D-29 (ADR-0015); host decided with T-54/T-55 (D-31). Earlier text: Platform-owned affiliate storefront; rewrites to `/a/<handle>/…`; selected seller checkout handoff with attribution | Proposed — ADR-0008, PR-29, UX-20; nested wildcard DNS/TLS UNVERIFIED |
 
 Reserve `owner`, `app`, `checkout`, `affiliate`, `buyer`, `logs`,
 `www`, `api`, `mail`, `status`, `docs`, `assets`, `cdn`, `cname` (the custom-domain
@@ -216,7 +230,7 @@ to the Log System: it never exposes `system_log` or operator telemetry.
 
 ### Proposed affiliate and buyer namespaces and one-app dispatch
 
-- Status: ADR-0008 and ADR-0010 accepted 2026-10-28 (D-20); host dispatch implemented locally by T-70, the rest proposed — [ADR-0008](ADR-0008-platform-architecture-and-routing.md),
+- Status: ADR-0008 and ADR-0010 accepted 2026-10-28 (D-20); host dispatch implemented locally by T-70, the rest proposed — [ADR-0008](adr/ADR-0008-platform-architecture-and-routing.md),
   ADR-0010, PR-7, TD-7, T-51, T-54 and T-55; not evidence of implemented hosts.
 - Normalize store slugs and affiliate handles to lowercase ASCII DNS labels
   (letters/digits with internal hyphens; no dots, leading/trailing hyphens or
@@ -272,6 +286,8 @@ to the Log System: it never exposes `system_log` or operator telemetry.
 
 
 ## DOM-5 — Host × path matrix and link origins
+
+Amendment 2026-11-14 (D-28, ADR-0014 decisions 2, 5 and 7): the Storefront column becomes hosts on the store root `bukalaris.id` and verified custom domains, and gains `/checkout`, the confirmation and `/o/<token>` for its own store; platform columns stay on the platform root. Storefront, landing-page, feed, order-status and recovery links use the store's primary host; seller, operator, buyer-portal, affiliate-portal and account links use the platform host. The matrix below is the one-root implementation until T-102 and T-103.
 
 - Owner: Bukalaris platform owner
 - Status: Proposed as a product contract; **implemented locally 2026-10-28 by T-70**
@@ -377,6 +393,8 @@ under the matrix above.
 | Update Log permalinks and `feed.json` | Update Log origin | `LOGS_ORIGIN` |
 
 ## DOM-6 — Cookie and origin rules
+
+Amendment 2026-11-14 (D-28, ADR-0014 decision 6): no cookie is set on `.bukalaris.id` or `.bukalaris.com`; storefronts are cross-site to every platform surface; `includeSubDomains` on `bukalaris.id` covers storefronts only and a custom domain gets HSTS on its own host without it (T-94).
 
 - Owner: Bukalaris platform owner
 - Status: Proposed as a product contract; **implemented locally 2026-10-28 by T-70** for the

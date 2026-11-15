@@ -11,6 +11,8 @@ blocker (ADR-0011, ADR-0012). Privacy engineering controls in this document
 
 ## PRIV-1 — Data inventory before implementation
 
+> **Direction change (D-27 to D-31, 2026-11-14, ADR-0013 to ADR-0016):** each store connects its own Mengantar and AutoLaris account, and buyer payments and COD cash go straight to the seller, so Bukalaris no longer holds buyer payment money or a seller balance for a `seller_owned` store; the only money it holds is its own subscription revenue. The affiliate programme is run by each seller, who pays commission outside Bukalaris; the affiliate privacy boundary (PRIV-2, PRIV-7) is unchanged. Digital products are delivered by seller-hosted access links; the platform stores no file. The rows marked D-27 to D-31 at the end of the table are the data classes these decisions add; the rows above them describe the earlier model and still apply where unchanged. Not implemented (T-104 to T-113).
+
 - Owner: Bukalaris privacy owner
 
 | Data class | Purpose | Access | Status |
@@ -29,6 +31,14 @@ blocker (ADR-0011, ADR-0012). Privacy engineering controls in this document
 | Affiliate storefront profile (`affiliate_storefront` presentation fields) | Public promotion page | Own affiliate edits; public when published; suspension unpublishes (IAM-13) | Proposed |
 | Shipping-account consent evidence (`shipping_account_consent.email_shown`) | Evidence of the registration text shown | Seller owner and audited operator | Proposed |
 | Public report reporter contact (Phase 2, SF-13) | Report follow-up | Restricted; optional; finite retention OPEN; never fetched or shown to the reported seller by default (12-SECURITY SEC-21) | Proposed |
+| Seller provider credentials: the store's own Mengantar API key and AutoLaris H2H API key, with `environment`, `key_id`, fingerprint, masked hint and last check result | Run quotes, bookings, tracking, payment instructions and status checks on the seller's own accounts | Entered, replaced or removed by the store owner (`integrations.manage` plus fresh step-up); never read back by anyone; opened only inside the server-side provider client; sealed with AES-256-GCM under the `shipping_credentials` and `payment_credentials` keyrings; never in a page, DTO, log, audit row or export (12-SECURITY SEC-26) | Proposed (D-27, ADR-0013 section 2; T-104) |
+| Buyer proof of transfer for a `bank_transfer` order: up to three images uploaded by the buyer, which may show the buyer's name, bank and account number | Lets the seller match the transfer before confirming the payment by hand | The uploading buyer through the signed order-status page and the store's finance role only; private storage outside the public media route; deleted 90 days after the order closes (Owner-configurable; D-33); the only buyer upload on the platform | Proposed (D-32, ADR-0013 section 10 decision 39; T-113) |
+| Seller bank accounts for bank transfer: bank, account number, holder name, up to five per store | Destination shown to the buyer for a `bank_transfer` order | Listed and changed by the store owner (`integrations.manage` plus fresh step-up, audited); shown by design to the buyer of such an order on the confirmation and order-status pages and in the order e-mail; store-scoped | Proposed (D-31, ADR-0013 section 10; T-113) |
+| Affiliate store membership and commission obligation: membership state per store, frozen base, rate and commission per attributed order, obligation state | Seller approval of applicants; the shared seller and affiliate statement | The store (Seller Admin) and the own affiliate read the same per-store figures; the affiliate sees no buyer name, phone, e-mail, address or order number (PRIV-2, PRIV-7 unchanged) | Proposed (D-29, ADR-0015 decisions 1, 4 and 6; T-108, T-109) |
+| Affiliate bank details | Let the paying seller transfer commission outside Bukalaris | Stored on the platform; shown only to a seller with an active membership relation to that affiliate and the store's finance capability; masked everywhere else; no platform payout uses them (ADR-0015 decision 9, former OPEN-A4) | Proposed (D-29, D-31; T-109, T-110) |
+| Affiliate payment record: amount, date, method, covered commissions, and bank transaction data typed by the seller (banks, payer account name, masked receiving account, transaction reference, date and time) | Evidence that the seller paid; affiliate confirmation or dispute | The paying store and the paid affiliate; immutable, corrected only by a reversing record. No file is uploaded (owner, 2026-11-15, ADR-0015 decision 5). Retention of the record is OPEN for the privacy owner. A later complaint or ticket flow may add an uploaded transaction proof; it is not designed, and its storage, data class and retention are decided with it | Proposed (D-29, ADR-0015 decision 5; T-109) |
+| Buyer e-mail on a digital order | The order-status link, through which a digital purchase is reached, is sent there | Same access as buyer contact today (the store's order screens; mail recipient). Optional for a physical-only order, required when the order has a digital line (ADR-0016 decision 8) | Proposed (D-30; T-111) |
+| Digital access grants: store, order line, the order's platform buyer identity (ADR-0010), state, optional expiry | Single source of who may see a product's access links and access note | The store (extend or revoke, audited); the buyer only through the signed order-status page; the access links and note themselves are seller content and never appear in storefront HTML, the Storefront API, feeds, e-mails or logs (12-SECURITY SEC-27) | Proposed (D-30, ADR-0016 section 4; T-112) |
 
 Retention, deletion, rights request, legal basis, processor list, storage,
 backup, support-access locations, and cross-border transfer status are Unknown.
@@ -97,8 +107,18 @@ Not in the table because they hold no personal data by construction: `job.payloa
 `shipment` (T-47) and `checkout_session` (T-45) are in the table above, in `BUYER_DATA_INVENTORY`, in the buyer export (`orders[].shipment`, `checkoutSessions`) and in redaction. The booking payload sent to
 Mengantar still carries the buyer's name, phone and address; that is the provider's copy and outside this mechanism (processor list and retention are owner decisions, Q-11).
 
+> **Working position (D-33, 2026-11-15, ADR-0013):** for a `seller_owned` store the provider account is the seller's. The seller is responsible for its store's buyer data, including the copy in its own Mengantar and AutoLaris accounts, and for the terms, retention and deletion at each provider. Bukalaris sends buyer data only on the seller's instruction with the seller's key and answers for the copy stored on the platform. A redaction here does not reach the provider's copy; the seller privacy screen (SC-24) and the seller terms must say so. This is a product position, not a legal conclusion; a privacy adviser confirms it before real buyer data is processed (Q-11 stays open).
+
 Planned inventory additions (2026-10-26 specification pass):
 - `payout.{bank_code,bank_account_number,bank_account_holder}` (PR-23, T-37): seller financial data (like `store_pickup_area`), retained as part of the platform financial audit record and excluded from buyer redaction.
+
+Planned inventory additions (direction change of 2026-11-14, D-27 to D-31; nothing below exists in the schema yet, and each task adds its columns to this table and to `BUYER_DATA_INVENTORY` where they hold buyer data):
+- The `payout` row above is unused for a store on seller-owned accounts: no payout is written for it (ADR-0013 section 8, T-107). The code and the row stay (D-31).
+- `store_payment_account` and the `seller_owned` kind of `store_shipping_account` (T-104): sealed seller provider keys; seller data, never buyer data, excluded from buyer export and redaction.
+- The store bank-account table of T-113 (bank, account number, holder name): seller financial data, shown to buyers of bank-transfer orders. The order e-mail that lists the accounts is stored in `mail_outbox` bodies like any order mail.
+- `order.buyer_email` becomes required for an order with a digital line (T-111); its purpose, display and redaction rows above are otherwise unchanged.
+- `digital_grant` (T-112) references the order line and the platform buyer identity, not contact values. How a grant behaves when its order is redacted is not stated in ADR-0016 and stays open.
+- `affiliate_membership`, `affiliate_commission` and `affiliate_payment` (T-108, T-109): affiliate and seller financial data with no buyer contact data and no order number in any affiliate projection.
 
 Redaction record: each redacted order gets one `order_redaction` row (store,
 order, actor, `seller`/`retention`, override flag + reason) and each batch one
@@ -111,6 +131,8 @@ hashed key. Backups taken before a redaction still contain the data: a restore
 must re-apply `order_redaction` (PRIV-4), which is not automated yet.
 
 ## PRIV-2 — Buyer and affiliate boundary
+
+> **Direction change (D-29, 2026-11-14, ADR-0015):** the boundary itself is unchanged: one platform affiliate identity, and no buyer name, phone, e-mail, address or order number in anything an affiliate sees. What changes is the money wording. There is no platform wallet or payout; "own wallet/payout history" below becomes the affiliate's own commission lines and the per-store statement it shares with the seller, and "opted-in stores" becomes stores where the affiliate holds an `active` membership. One new disclosure is added: the affiliate's bank details are shown to the paying store's finance role only, masked elsewhere (decision 9). The text below describes the earlier model. Not implemented (T-108 to T-110).
 
 - Status: Proposed (refined by owner decision 2026-10-27)
 - Owner: Bukalaris privacy owner
@@ -143,6 +165,8 @@ or raw exports that reconstruct an individual buyer/order; grouping granularity
 and small-count disclosure controls require privacy-owner approval.
 
 ## PRIV-3 — Provider and telemetry minimization
+
+> **Direction change (D-27, 2026-11-14, ADR-0013):** order data is sent to Mengantar and AutoLaris on the store's own provider accounts, under the seller's agreement with each provider; the platform's own AutoLaris account is used for subscription invoices only. The minimization rule below is unchanged. Who is responsible, in privacy terms, for the provider's copy of buyer data on a seller-held account is not stated by the ADRs and stays a privacy-owner item. The text below describes the earlier model. Not implemented (T-104 to T-106).
 
 - Owner: Bukalaris privacy owner
 
@@ -196,6 +220,8 @@ operational incident process lives in 14-SLA-DISASTER-RECOVERY.md.
 
 ## PRIV-6 — Affiliate tax identity and platform withholding
 
+> **Direction change (D-29, 2026-11-14, ADR-0015):** Bukalaris pays no affiliate commission, so it withholds nothing: the T-53 payout tax hook, the 72-hour payout-destination hold and four-eyes payout approval do not apply to affiliate commission (decision 9), and tax withholding on commission is a non-goal of ADR-0015. The sentence "Sellers do not pay affiliates off-platform" is reversed: the seller pays the affiliate outside Bukalaris and records the payment (decision 5). The seller still obtains no affiliate tax identity through Seller Admin. Whether voluntary tax-identity capture and earnings statements (PRIV-10, ADR-0012) continue under the seller-run programme is not stated by ADR-0015. The text below describes the earlier model. Not implemented (T-108 to T-110).
+
 - Status: Proposed (refined 2026-10-27: policy-controlled, startup-phase relaxation)
 - Owner: Bukalaris finance owner with qualified tax/privacy advisors
 - Source: Owner decisions 2026-10-27; PR-28, PR-31, BILL-8, BILL-9, DATA-11, DATA-15, ADR-0009, ADR-0012.
@@ -248,6 +274,8 @@ is permitted while retaining only required financial evidence under PRIV-4.
 Account closure and buyer redaction must not cascade-delete wallet/payout
 records or silently alter tax snapshots.
 
+> **Direction change (D-27, D-29, D-31, 2026-11-14, ADR-0013, ADR-0015):** the premise of the paragraph below no longer holds for a `seller_owned` store, the only mode in the first release: Bukalaris does not manage order payments, holds no seller or affiliate balance and makes no seller or affiliate payout, and the seller does enter their own Mengantar and AutoLaris keys. The controls below apply only to money Bukalaris holds. Their counterpart for the new model is the change control on the seller's payment key and bank accounts: `integrations.manage` plus fresh step-up, audit entry and owner notification, with no waiting period (ADR-0013 decisions 6 and 36, former OPEN-P3). The text below describes the earlier model. Not implemented (T-104, T-107, T-113).
+
 Decided (D5): minimal non-KYC fraud controls on payout destinations stay
 mandatory under the relaxed startup posture. In plain terms: Bukalaris manages
 100% of order payments and shipping under one unified system (AutoLaris prepaid
@@ -265,6 +293,8 @@ only the bank snapshot already stored; they add no tax, licence or
 identity-document data (ADR-0011 §5).
 
 ## PRIV-7 — Affiliate click retention and minimization
+
+> **Direction change (D-29, D-31, 2026-11-14, ADR-0015):** the click minimization rules are unchanged. The attribution window is decided at 7 days, Owner-configurable (former OPEN-A2); the raw-click retention duration stays OPEN. In the planned inventory below, "Wallet/payout/tax snapshot" and "payout audit" no longer exist for the seller-run programme: the financial evidence is the commission obligation per attributed order and the seller's payment record (PRIV-1 rows added on 2026-11-14), and the affiliate's bank details are shown to the paying store's finance role only. The text below describes the earlier model. Not implemented (T-108, T-109).
 
 - Status: Proposed
 - Owner: Bukalaris privacy owner
@@ -427,6 +457,8 @@ codes (a fixed list, not free text): `support_case`, `verification_review`
 `tax_filing_export` (Phase 2). Each console capability maps to the
 purposes it may use; a purpose outside that map is refused.
 
+> **Direction change (D-27, D-29, 2026-11-14, ADR-0013, ADR-0015):** in the "Affiliate contact and bank" row, the platform payout processing flow (BILL-8) does not exist for the seller-run programme; outside the console, the affiliate's bank details are shown only to the paying store's finance role (ADR-0015 decision 9). The purposes `payout_review` and `finance_reconciliation` apply only to money Bukalaris holds. A seller's sealed Mengantar or AutoLaris key is never a revealable field: no console view, reveal or break-glass grant returns it (ADR-0013 decision 5). The table below describes the earlier model. Not implemented (T-104, T-109, T-110).
+
 | Data class | Default in console | Reveal | Never shown |
 |---|---|---|---|
 | Seller team member contact | Masked email and phone; role, status, last sign-in time, MFA yes/no | Field-level reveal with `support_case` or `verification_review` | Password, session or recovery material |
@@ -504,6 +536,8 @@ purposes it may use; a purpose outside that map is refused.
   secondary sources and is UNVERIFIED.
 
 ## PRIV-10 — Tax identity and tax evidence data handling
+
+> **Direction change (D-29, 2026-11-14, ADR-0015):** Bukalaris pays no affiliate commission and withholds nothing on it (decision 9; withholding on commission is a non-goal). Rows and sentences below that depend on a platform payout or on "the affiliate ledger" (earnings statement source, "no payout ... depends on it") describe the earlier model. ADR-0015 does not say whether voluntary identity capture and earnings statements continue, or from which figures a statement would be built; that stays open for the finance and privacy owners. The handling rules for tax identity values themselves are unchanged. Not implemented (T-108 to T-110).
 
 - Status: Proposed (2026-10-27; startup voluntary capture, Phase 2 dormant)
 - Owner: Bukalaris privacy owner with the finance owner and qualified tax/privacy advisors

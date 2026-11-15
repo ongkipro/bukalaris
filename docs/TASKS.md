@@ -4,6 +4,50 @@ Each task's Status line owns its scoped delivery state; Done locally or delivere
 
 Naming and ids: "Super Admin" and "Bos" in older task text mean the Owner console (`owner.bukalaris.com`, ADR-0011) and "Tenant Admin" means Seller Admin. Review ids from `docs/reviews/2026-10-27-code-vs-spec-gap-report.md` are written `CRMON-nn`, `CRSEC-nn`, `CRUXR-nn` and `CRDAT-nn` so they never collide with spec ids (`SEC-n`, `DATA-n`). Status and phase words follow the legend in the README. A `Dependencies:` line lists task ids only; explanations go in a `Notes:` line.
 
+## Open-task index (2026-11-15)
+
+A reading aid. Each task block below owns its own status and text; when the two disagree, the block wins and this index is corrected. Tasks that are Done are not listed. Task blocks stay in the order they were written, so search for `### T-<number>`.
+
+**1. Current work order (owner direction of 2026-11-14 and 2026-11-15; no development before T-114 is closed)**
+
+| Order | Task | What | State |
+|---|---|---|---|
+| 1 | T-101 | Align the specification pack with D-27 to D-33 | Partial; the rest is done by each building task |
+| 2 | T-114 | Tidy repository and documentation structure | In progress; file moves wait for owner approval |
+| 3 | T-100 | GitHub CI finishes and is green | Partial (pull request #1, CI pending) |
+| 4 | T-102 | Two root domains in host dispatch | Planned |
+| 5 | T-103 | Checkout and referral click on the store host; link origins | Planned |
+| 6 | T-104 | Seller provider accounts: sealed keys, environment, connection check | Planned |
+| 7 | T-105, T-106 | Mengantar and AutoLaris on the seller's key | Planned |
+| 8 | T-115 | Mengantar lock, dedicated account, parcel sync | Planned |
+| 9 | T-107 | Money boundary for seller-owned stores | Planned |
+| 10 | T-113 | Bank transfer to the seller's account, buyer proof upload | Planned |
+| 11 | T-116 | Seller terms, notices and privacy statements | Planned; adviser review before production |
+| 12 | T-111, T-112 | Digital products: kind and checkout rules, access links and grants | Planned |
+| 13 | T-117 | Seller setup guide and readiness checklist | Planned |
+| 14 | T-108, T-109, T-110 | Seller-run affiliate programme | Planned |
+
+**2. Open tasks from before the direction change** (each carries a dated direction note where the change touches it)
+
+| Group | Tasks |
+|---|---|
+| Specification and contract remainders | T-2, T-3, T-4, T-5, T-6, T-9, T-10, T-16, T-17, T-19, T-33, T-86, T-87 |
+| Delivered locally with deferred slices, not Done | T-45, T-46, T-47, T-49, T-50, T-52, T-57, T-59, T-60, T-62, T-63, T-65, T-68, T-70, T-73, T-74 |
+| Planned product work | T-44 (taxonomy), T-58 (buyer portal), T-66 and T-71 (statements, startup tax UI; re-scope first), T-72 (affiliate and buyer governance; re-scope first), T-69 (Update Log, optional), T-78 (scannable QRIS) |
+| Planned runtime and release work | T-76, T-77, T-79 |
+| Gated on a product, finance, security or integration decision | T-88, T-89, T-90, T-91, T-92, T-93, T-94 |
+| Decided in direction, provider still open | T-15 (custom domains: target `cname.bukalaris.id` decided by D-28, subdomain only by D-31; provider and lifecycle open, Q-8) |
+
+**3. Unused, superseded or deferred**
+
+| State | Tasks |
+|---|---|
+| Delivered but unused for `seller_owned` stores (code kept, D-31) | T-37 (ledger, payouts), T-48 (Partner Mengantar accounts) |
+| Superseded | T-8, T-53 (platform affiliate wallet; replaced by T-108 and T-109) |
+| Re-scoped into another task | T-54 (now T-110) |
+| Deferred until an entry criterion holds | T-55, T-56, T-64, T-67, T-75, T-118, T-119, T-120, T-121 |
+| Not accepted for development | T-7, T-11, T-20 |
+
 ### T-1 — Verify Bukalaris repository and baseline
 - Status: Done (M1, 2026-10-06; first commits on `main` 2026-10-06/07) — repository, pinned stack (DECISIONS D-1), schema, tests and docs recorded; see "M1 implementation evidence". Route/entry inventory is maintained in 04-SYSTEM-ARCHITECTURE ARCH-5 (T-12).
 - Primary requirement: PR-1
@@ -15,6 +59,7 @@ Naming and ids: "Super Admin" and "Bos" in older task text mean the Owner consol
 
 ### T-2 — Approve tenancy and host model
 - Status: Partial (re-checked 2026-10-28; report `docs/tracks/audit-partial.md`) — store/buyer/affiliate/audit-writer RLS contexts (`packages/db/src/platform/tenant.ts:45-64`, `scoped.ts:122-170`), 79-table isolation registry with `bukalaris_owner`/`bukalaris_app`/`bukalaris_platform` plus no-login `bukalaris_restricted`/`bukalaris_resolver` roles and `SECURITY DEFINER` resolvers (`packages/db/src/platform/isolation-registry.ts:53-406`, `resolvers.ts:21-60`, T-27/T-59), and DOM-5 exact-host dispatch, 16 reserved host labels and per-surface `__Host-` session cookies (`packages/db/src/platform/host.ts:6-44,210-423`, `apps/web/src/proxy.ts:15-75`, T-70; ADR-0005/ADR-0008 accepted in D-20) are implemented locally; proven by `test/tenant-isolation.test.ts` ("tenant isolation", "host resolution"), `test/rls.test.ts` (48 cases: "isolation registry: completeness and shape per class", "fail closed (TEN-3)"), `test/rls-contract.test.ts` ("contract step: grants"), `test/host.test.ts` ("T-70 host × path × method golden table (DOM-5)"), `e2e/host-mode.spec.ts` ("a session cookie of one surface never opens a session on another"), worker (`test/jobs.test.ts`) and media (`test/content.test.ts` "product media"). Still open: custom domains (T-15, Q-8: only the fail-closed `customDomainStore` seam in `host.ts:173-181` exists; unbuilt work + owner decision), T-59 contract migration revoking legacy table-wide platform grants and T-59b separate operator identity tables (owner deploy approval / unbuilt work), public HTML cache isolation (not verified: no public HTML cache exists yet; T-69 Update Log is unbuilt), and owner acceptance of PR-3 / ADR-0001 (owner decision).
+- Direction change 2026-11-15 (documents only): host model is two registrable roots (D-28, ADR-0014): platform on `bukalaris.com`, storefronts on `<slug>.bukalaris.id`, checkout on the store host. Built by T-102 and T-103.
 - Primary requirement: PR-3
 - Constraints: TEN-1, TEN-2, TEN-3, DOM-1, SEC-1
 - Dependencies: T-1, ADR-0001
@@ -31,6 +76,7 @@ Naming and ids: "Super Admin" and "Bos" in older task text mean the Owner consol
 
 ### T-4 — Produce versioned OpenAPI and state-machine contract
 - Status: Partial (re-checked 2026-10-28; report `docs/tracks/audit-partial.md`) — `docs/openapi.yaml` (50 paths, 63 operations) passes `docs/check-spec.py` with 11 `x-implemented` operations (Storefront API v1 `HTTP-05`..`HTTP-11` in `apps/web/src/app/api/storefront/v1/**` now carrying `catalog_id` and `product_slug_alias` resolution in `packages/db/src/storefront/storefront.ts:36-62`, channel actions `SC-21`, and `requestShipment` `T-39`). In code, the order state machine (`TRANSITIONS` and courier/four-eyes `applyProviderTransition` with `returned` in `packages/db/src/seller/commerce/orders.ts:32-40,264-304`, DB trigger `order_status_guard` in migration 0014, tested in `test/orders.test.ts` and `test/t37b-review.test.ts`), the AutoLaris payment attempt/callback/verify-by-pull state machine and `HTTP-17` `POST /api/payments/autolaris/callback` (`packages/db/src/payments/contract.ts:1`, `callback.ts:28`, `apps/web/src/app/(public-services)/api/payments/autolaris/callback/route.ts:15`, `test/t49-payments.test.ts`, `e2e/t49.spec.ts`), `HTTP-23` issue export (T-68), `HTTP-27` referral click (T-52), and `HTTP-32` checkout resume (T-45) are implemented. Still open: transcribing the T-37/T-49 order, payment and shipment state machines (`returned`, `unknown`, `awaiting_account`) and `HTTP-17`/`HTTP-23`/`HTTP-26`/`HTTP-27`/`HTTP-32` into `docs/openapi.yaml`, HTTP pagination and `Idempotency-Key` on Storefront/Seller/Admin routes (unbuilt work), live provider callback/webhook schemas (external fact), and owner acceptance of API-1/API-2 (owner decision).
+- Direction change 2026-11-15 (documents only): OpenAPI operations for seller provider accounts, bank transfer, digital access and the seller-run affiliate programme are written by the task that builds each (T-104 to T-113, T-115); `info.description` carries the direction note only (T-101).
 - Primary requirement: PR-5
 - Constraints: API-1, API-2, TD-3, SEC-4
 - Dependencies: T-1, T-2
@@ -40,6 +86,7 @@ Naming and ids: "Super Admin" and "Bos" in older task text mean the Owner consol
 
 ### T-5 — Decide payment and shipping account ownership
 - Status: Partial (re-checked 2026-10-28; report `docs/tracks/audit-partial.md`) — PR-4, ADR-0006 and ADR-0007 are Accepted (D-20, D-21), and D-14/D-15/D-19/D-20/D-21/D-22 decide the unified Bukalaris-managed money and shipping boundary (`Bukalaris Kirim` / `Bukalaris Bayar`, Partner-managed Mengantar seller account per store with `platform_master` fallback and no `own_key`, COD/cashback release only when delivered AND reconciled, 72-hour payout destination hold, full-payable buyer refunds, and verify-by-pull AutoLaris callbacks). Implemented locally on fake adapters: immutable `order_financials`/`order_line_financials`/`shipment_cost`, append-only `ledger_entry`, four-eyes `reconciliation_batch`, `payout`, `refund`, `payout_control` and `pnpm verify:ledger` (`packages/db/src/ledger/ledger.ts:1`, `payouts.ts:1`, `reconciliation.ts:1`, `verify.ts:1`, T-37; `test/t37-ledger.test.ts`, `test/t37-payouts.test.ts`, `test/t37b-money.test.ts`, `test/t37b-review.test.ts`), Partner Mengantar provisioning/policy (`packages/db/src/shipping/accounts.ts:1`, `policy.ts:1`, T-48; `test/t48-accounts.test.ts`, `test/t48-orders.test.ts`), and AutoLaris payment attempts/callbacks (`packages/db/src/payments/attempts.ts:1`, `callback.ts:1`, T-49; `test/t49-payments.test.ts`). Still open before live money/dispatches: Q-1 AutoLaris commercial account & `courir_id: 1` profile approval, Q-17 legal review of holding seller COD funds, Mengantar Partner Secret rotation, `OPEN-F7` SPX free-return terms, `OPEN-F8` reconciliation fields, `OPEN-F9` Partner settlement/cashback sweep, and effective cashback/COD-fee rates (owner decision + external fact; no live transaction created).
+- Direction change 2026-11-15 (documents only): decided by D-27 (ADR-0013): every store uses its own Mengantar and AutoLaris accounts, Mengantar is the only shipping aggregator (D-32) and AutoLaris is the payment gateway only. What remains open here is provider fact evidence, owned by T-105, T-106 and T-115.
 - Primary requirement: PR-4
 - Constraints: BILL-1, BILL-2, BILL-4, BILL-5, PRIV-3, Q-1, Q-2, ADR-0006
 - Dependencies: Current provider account documentation and finance owner review
@@ -49,6 +96,7 @@ Naming and ids: "Super Admin" and "Bos" in older task text mean the Owner consol
 
 ### T-6 — Create provider sandbox verification plan
 - Status: Partial (re-checked 2026-10-28; report `docs/tracks/audit-partial.md`) — Mengantar: server-only client (`packages/db/src/shipping/mengantar/client.ts:86`) with 5 sanitized read calls recorded in `docs/tracks/shipping.md` and fixture tests in `test/shipping.test.ts`; T-48 added the mandatory Partner Secret rotation entry gate (`mengantarRotationRecorded` in `packages/db/src/shipping/mengantar/gate.ts:1`, enforced in `client.ts:1` and `partner.ts:1` before any network read/write; tested in `test/t48-accounts.test.ts`) in addition to `MENGANTAR_WRITE_ENABLED=1` (`client.ts:57-62`). AutoLaris: T-49 implemented the full local contract, domain-tagged HMAC callback `?cb=<reff>.<hmac128>` and verify-by-pull inquiry on `FakeAutoLaris` with live settlement locked off (`ADVICE_SETTLED = []` in `packages/db/src/payments/settings.ts:2`, `contract.ts:1`, `fake.ts:1`; 46 tests in `test/t49-payments.test.ts`, `e2e/t49.spec.ts`), and T-50 wired subscription-invoice attempts (`packages/db/src/billing/attempts.ts:1`, `test/t50-payments.test.ts`). Still open: rotating the exposed Mengantar Partner Secret (`MENGANTAR_PARTNER_SECRET_ROTATED_AT`, `MENGANTAR_PARTNER_OLD_SECRET_REVOKED=1`), owner approval and sanitized sandbox capture for Mengantar writes/Partner API (`MENGANTAR_WRITE_ENABLED=1`, `OPEN-F7`..`OPEN-F9`), and AutoLaris sandbox credentials/calls (Q-1, `/submit` expiry & `callback_url` confirmation, vendor `advice` status/amount fields; not verified against live AutoLaris — owner decision + external fact).
+- Direction change 2026-11-15 (documents only): the sandbox plan is per seller key: origins are read from each provider's official documentation (D-31, OPEN-P7), AutoLaris has no IP allow-list (D-33, owner statement, proven by the first sandbox call), and opt-in sandbox runs belong to T-105, T-106 and T-115 with owner approval and a `secrets-env` test key.
 - Primary requirement: PR-5
 - Constraints: API-2, BILL-2, OBS-2, SEC-5, SEC-6
 - Dependencies: T-5
@@ -153,6 +201,7 @@ Naming and ids: "Super Admin" and "Bos" in older task text mean the Owner consol
   locators when implemented; no tracking match is claimed without provider proof.
 
 ### T-15 — Specify per-seller custom-domain lifecycle
+- Direction change 2026-11-14 (D-28, ADR-0014): the CNAME target is `cname.bukalaris.id` and native storefronts are `<store-slug>.bukalaris.id`; the provider choice and lifecycle stay here.
 - Status: Planned (re-checked 2026-10-28; report `docs/tracks/audit-partial.md`) — lifecycle and operation contracts drafted (API-6, UX-11) and hosting direction set to Vultr + Coolify + Cloudflare (DECISIONS D-23, not provisioned); T-70 implemented the reserved label `cname` (`RESERVED_HOST_LABEL_LIST` in `packages/db/src/platform/host.ts:20`) and the fail-closed `customDomainStore` resolver seam in `resolveHostSurface`/`dispatchHostPath` (`packages/db/src/platform/host.ts:135,173-181,249`, proven by `test/host.test.ts:138-165`), and T-62 reserved the dormant P2 `/admin/domains` (`SA-19`) route slot (`packages/db/src/ops/console-routes.ts:40`). No custom-domain table, DNS/TLS verification workflow, routing-version cache invalidation, or `SC-18`/`SA-19` page exists yet (blocked on owner decision Q-8 custom-domain/SaaS TLS contract + unbuilt work).
 - Primary requirement: PR-13
 - Constraints: DOM-1, DOM-2, DOM-3, UX-11, ARCH-5, TEN-2, SEC-3
@@ -424,6 +473,7 @@ findings, tasks below).
 
 ### T-33 — Buyer personal-data lifecycle
 - Status: Partial (re-checked 2026-10-28; report `docs/tracks/audit-partial.md`) — PR-4 is Accepted (D-21); the previous `shipment` inventory gap and the `D-10` `mail_outbox` app-role `UPDATE` ceiling are both closed: T-47 added `shipment.{tracking_history,provider_status,last_error}` to `BUYER_DATA_INVENTORY`, `exportBuyerData` and `redactOrders` (`packages/db/src/seller/commerce/privacy.ts:72-74`, `docs/13-COMPLIANCE-PRIVACY.md:73,97`), stripped new tracking polls on redacted orders (`packages/db/src/shipping/fulfillment.ts` `applyTracking`), and guarded `purchasePayload` in `packages/db/src/storefront/signals.ts` against hashing `[dihapus]` (`test/t47-shipment-privacy.test.ts`, 17 tests); T-45 added `checkout_session` to the inventory, export, redaction (`redactCheckoutSessions`, `SC-24`) and 30-day `cleanup.ts` purge (`privacy.ts:76-79`, `test/t45-abandoned.test.ts`); T-73 revoked all `bukalaris_app` privileges on `mail_outbox` and moved mail export/redaction to the store-bound `SECURITY DEFINER` functions `mail_privacy_export` and `mail_privacy_redact` (`packages/db/src/platform/isolation-registry.ts:194,348-349`, `test/t73-mailer.test.ts`); T-57 classified global `buyer*` tables as `handling: "global"` and keyed `rate_limit.key` phone lookups with `KEYRING_BUYER_FINGERPRINT` (`privacy.ts:85,97-102`, `test/t57-buyer.test.ts`). Still open: privacy-owner decision on `BUYER_DATA_RETENTION_DAYS` (Q-11; `redactStaleOrders` in `cleanup.ts` is implemented and tested in `test/privacy.test.ts` but stays off until set — owner decision), automated replay of `order_redaction`/erasure records in `scripts/db-restore-rehearsal.sh` (SEC-23/PRIV-4 — unbuilt work), and global buyer self-service export/deletion on `BA-06` (T-58, PRIV-8 — owner decision + unbuilt work).
+- Direction change 2026-11-15 (documents only): two additions (D-32, D-33): the buyer's proof of transfer is personal data kept 90 days after the order closes (T-113), and the copy of buyer data in a seller's own provider account is the seller's responsibility as a working position (T-116; privacy adviser confirmation still required, Q-11).
 - Primary requirement: PR-4
 - Constraints: SEC-19, PRIV-1, PRIV-4, PRIV-2
 - Dependencies: T-21
@@ -479,6 +529,7 @@ until an observed, sanitized call is recorded (skill `mengantar-api`).
   link shows only that order; tests prove at-most-once per event and link expiry.
 
 ### T-37 — Seller ledger, COD remittance, payouts, and buyer refunds
+- Direction change 2026-11-14 (D-27, ADR-0013): not used for stores on seller-owned accounts; T-107 defines the boundary. Delivered code stays, unused (D-31).
 - Status: Delivered locally 2026-10-28 against the fake Mengantar/AutoLaris adapters (working tree, not committed; migrations 0013 section T-37 and 0014; `packages/db/src/ledger/**`, seller `/seller/finance`, Owner `/admin/payouts`, `/admin/money`, `/admin/money/cod-reconciliation`, `/admin/stores/[id]/ledger`, `pnpm verify:ledger`; reports `docs/tracks/t37.md`, `t37b.md`). Independent security review done (BUILD-LOG); the P1 (release job starved stores beyond the first 200) and the P2 (a payout with an unknown transfer outcome could be re-claimed and re-credited) plus the P3s are fixed with named tests; 27 money invariants were each broken on purpose and a named test failed (table in `t37b.md`). DEFERRED (exact decision in `t37b.md`): shipping cashback (owner split rule and rate, T-48), affiliate commission in the sale amount (T-53), COD fee and its VAT and the store sales-tax price mode (owner COD fee schedule, T-65 wiring), transfer-evidence retention period (owner), HTTP-31 CSV export (no decision missing, not built), provider balance freshness on SA-26 (no source), a console setter for `destination_hold_hours` (SA-34 audited settings path), live COD (`ALLOW_COD_BOOKING=1`, Q-17), OPEN-F7/F8/F9, real transfers. The first four-eyes refund approval for a gateway-paid cancelled order is delivered (wave 2 review finding). Second independent review of the finish build (1 P2, 8 P3): fixed the P2 (the step-up code could be guessed without limit from a stolen owner session: 5 attempts per 15 minutes per user, 20 per store, every attempt counts, `limitStepUpAttempts`). DEFERRED P3s: restrict the platform grant on `payout_control` to the freeze columns with an UPDATE guard and make the hold hours owner-only, plus a restore step that freezes payouts as owner before the app starts (RUNBOOK note added); the demo-reset marker should also require the owner role; the DB should require an EXECUTED approval and a registry row for the evidence reference (today the service enforces both); `refunds_failed` counts a reopened-and-failed-again refund twice; the buyer refund form has no rate limit, audit row or notice; the payout holder-name check compares with `user.name`, which Better Auth `/update-user` can change (compare with a name the owner console fixed, or block the field); a dedicated authenticated upload route instead of the global 11 MB Server Action limit.
 - Primary requirement: PR-23
 - Constraints: PR-5, Q-17, BILL-1, BILL-4, BILL-5, DATA-7, DATA-14, TEN-1, TEN-3, NFR-2, UX-14, IAM-15, ADR-0006
@@ -658,6 +709,7 @@ until an observed, sanitized call is recorded (skill `mengantar-api`).
 
 ### T-44 — Standard product taxonomy (Google Product Category) and feed attributes
 - Status: Planned (specified 2026-10-26 in PR-24, DATA-8, UX-10)
+- Direction change 2026-11-15 (documents only): catalog feeds exclude digital products (ADR-0016 decision 22, T-111).
 - Primary requirement: PR-24
 - Constraints: PR-12, DATA-5, DATA-8, TEN-1, UX-10
 - Dependencies: T-14, T-40, T-51
@@ -781,6 +833,7 @@ Build order (canonical: 02-PRD, 03-TECHNICAL-DESIGN and 04-SYSTEM-ARCHITECTURE l
 Deferred and outside the order: T-56 (external affiliate sources), T-64 (Compliance center, after Compliance activation), T-67 (Phase 2 tax, after Tax activation), T-75 (PPN activation readiness). Chain names used elsewhere: Chain A = T-51, T-49, T-50, T-37, T-48 (with T-46); Chain B = T-52 → T-53 → T-54 → T-55; buyer identity = T-57 → T-58. T-59, T-60, T-61 and T-70 were review follow-ups and are accepted by the owner (2026-10-28, DECISIONS D-20); T-73 is still Proposed (pending owner confirmation). Accepted does not mean built: see each task's Status. All blocks other than the ones marked Done are Proposed specifications, not implementation evidence.
 
 ### T-48 — Unified Partner Mengantar shipping accounts and account-scoped reconciliation
+- Direction change 2026-11-14 (D-27, ADR-0013): sellers connect their own Mengantar key (T-104, T-105); Partner provisioning is unused for those stores. Owner answer 2026-11-14 (D-31): the exposed secret is not rotated and the owner accepts the exposure; the gate stays in the code and keeps blocking the Partner path.
 - Status: Delivered locally 2026-10-28 against fake adapters (working tree, not committed; migrations 0015 section T-48 and 0016; `packages/db/src/shipping/**`, SA-07, SA-53, SC-22; reports `docs/tracks/t48.md`, `t48-fix.md`; 25 + 24 mutation checks). Independent review done; fixed: the 0015 migration failed on any database that already had orders (the account foreign keys are now `NOT VALID` and validated after the backfill; proven on a populated copy of the dev database), tracking stopped for good and a shipped parcel showed `awaiting_account` while the account was being recovered (status kept, tracking re-queued), the platform shipping discount was partly paid by the seller on a courier price rise (frozen `platform_shipping_discount_idr`, one funding formula, `verify:ledger` recomputes it), COD policy per service, hex keys in the key-purpose check, copy gaps with a repo-wide copy-guard test, the Partner client gate checks identity and the test config no longer opens it, stale pending reconciliation batches can be voided, margin approvals are bound to a revision, production sweeps are no-ops without a live adapter and the 409 retry is capped with a daily registration budget. DEFERRED: live Partner transport (owner rotation of the Partner Secret, OPEN-F9, provider documentation or one sanitized sandbox response), live partner booking, COD settlement and cashback sweep (OPEN-F9, write-test approval), effective shipping cashback (owner split rule and rate), partner-terms consent table (notice text), owner prompt for a fresh e-mail after repeated 409 (mailer, Q-16), routing e-mail domain (Q-16), OPEN-F7 and OPEN-F8 gates, SA-35 per-account health, browser specs for the batch-void button. Partner routing defaults OFF (`shipping_control.prefer_partner = false`) until OPEN-F9.
 - Primary requirement: PR-27
 - Constraints: PR-5, PR-23, BILL-4, BILL-5, BILL-6, DATA-9, UX-17, TD-7, TEN-1, TEN-3, Q-2, Q-12, Q-17, ADR-0006, ADR-0007
@@ -835,6 +888,7 @@ Deferred and outside the order: T-56 (external affiliate sources), T-64 (Complia
   settlement/cashback sweep (`OPEN-F9`) remain UNVERIFIED live-use gates.
 
 ### T-49 — AutoLaris payment adapter contract and signed-reference callback
+- Direction change 2026-11-14 (D-27, ADR-0013): buyer payments run on the store's own AutoLaris key (T-106); the platform account remains for subscription invoices only.
 - Status: Delivered locally 2026-10-28 against the FAKE AutoLaris adapter (working tree, not committed; migration 0012 section T-49; `packages/db/src/payments/**`, callback route `/api/payments/autolaris/callback`; report `docs/tracks/t49.md`). Independent review done (BUILD-LOG); fixed: the demo-reset function is owner-connection only, app inserts start pending and empty, the app role cannot read callback bodies, callbacks are capped per attempt, the route checks the signature before rate limiting. DEFERRED: sandbox/real calls and vendor status codes (owner approval and a sanitized observed response), `/submit` details to confirm with AutoLaris (expiry, `callback_url` semantics, `courir_id: 1` account, IP whitelist), callback body retention period (privacy owner), QR image rendering, Owner console screens for unknown instructions and refund obligations (T-37), a refund obligation when a gateway-paid order is cancelled (T-37), subscription-invoice attempts (T-50), a per-reference live adapter wiring through ONE factory shared by handlers and reconcilers (a live adapter must not implement `recoverCreate`; until then only the fake exists).
 - Primary requirement: PR-5
 - Constraints: PR-18, BILL-1, BILL-2, BILL-4, BILL-7, DATA-10, TD-7, TEN-1, TEN-3, Q-17, ADR-0006
@@ -892,6 +946,7 @@ Deferred and outside the order: T-56 (external affiliate sources), T-64 (Complia
 
 ### T-50 — Platform subscription billing, invoices and seller access policy
 - Status: Delivered locally 2026-10-28 against the fake AutoLaris adapter and the fake mail transport (working tree, not committed; migration 0013 section T-50; `packages/db/src/billing/**`, seller `/seller/billing`, Owner `/admin/billing`; report `docs/tracks/t50.md`). Independent review done; fixed: an explicit invoice period is bounded by what is due now (one operator-created invoice for period 24 bought two years of coverage at the monthly price), a lapsed period cannot be paid by invoice id. DEFERRED: real dunning delivery (T-73 provider, Q-16), live VA/QRIS activation (T-49 gates), gateway-fee bearer (DATA-10 OPEN), annual plan and first-month promo (not decided), invoice CSV export (T-71/T-66), PPN tax-invoice documents (T-75), refund of duplicate or void-invoice payments (T-37), review P3s: one unique index per (store, period) across subscription and comp kinds plus the live-instruction check in `grantComp`, seller security clean-up while read-only (needs a split of `members.manage`, `integrations.manage` and `marketing.manage` into add and remove capabilities), `finance.payout` is refused while unpaid per BILL-7 (owner decision: allow payout requests or net the debt, recommended: allow, because the money is the seller's and the debt is a separate receivable), Local demo-operator capability scope was subsequently added in the UX pass (BUILD-LOG 2026-10-28); this does not grant production privileges. OWNER DEFAULT TAKEN: stores that exist when the migration runs start a fresh 3-day trial (nothing is deployed; reverse by editing the seed before the first production migration).
+- Direction change 2026-11-15 (documents only): unchanged and now the only use of platform-owned AutoLaris credentials (ADR-0013 decision 3); subscription is the only platform revenue (D-31).
 - Primary requirement: PR-18
 - Constraints: BILL-7, DATA-10, UX-17, UX-18, IAM-5, TEN-1, TEN-3, NFR-2, ADR-0008, TD-7; one all-feature Rp175.000/store/month DPP plan, global PPN default OFF, trial/grace defaults 3 days each, no annual/promo assumption; never mix platform invoices with buyer orders or seller proceeds.
 - Dependencies: T-51, T-60, T-49, T-65, T-74
@@ -913,6 +968,7 @@ Deferred and outside the order: T-56 (external affiliate sources), T-64 (Complia
 
 ### T-52 — Implement platform affiliate data model and checkout attribution
 - Status: Slices 1 to 3 and the added assertions delivered locally 2026-10-28 (working tree, not committed; migration 0016 section T-52; `packages/db/src/affiliate/**`, `GET /r/[token]`, checkout hook, JOB-20, JOB-27 registered OFF; report `docs/tracks/t52.md`; 33 mutation checks). DEFERRED: cross-origin click continuity (first-party storage and handoff decision; link attribution works on a shared origin, typed codes everywhere), window length (7 days placeholder), rate bounds (100 to 2000 bps placeholder), risk thresholds, platform fee on commission (not applied) and click retention period and notice text (owner decisions), the programme-limit writer and every screen (T-54), commission void/credit/hold/wallet (T-53), wiring the SA-18 queue to the fraud counters. Independent review done (2 P2, 5 P3): fixed: a buyer phone with no canonical Indonesian key (`+0812…`, `812…`) now suppresses and counts the commission (fail closed) instead of skipping the self-referral check, the click limiter checks the visitor's IP first and spends a link's budget only on capture-eligible navigations (HEAD, `<img>` and one noisy IP could use up a link's budget and flag its owner). DEFERRED P3s: a block or link revoke committed between the plan and the record can fail the order (lock the chosen link/code row or take a store-wide advisory lock), the variant touch trigger can deadlock orders that have no referral (enqueue an ID-only job instead of updating `affiliate_offer` inside the order transaction), the catalog projection keeps unpublished product data and does not react to store status changes, `blockAffiliate` reveals whether an affiliate id exists, the click retention sweep should also require `expires_at <= now()`.
+- Direction change 2026-11-15 (documents only): attribution rules stand; T-108 adds the active-membership requirement and removes the commission deduction from the seller sale, and the click route moves to the store host (C-D1, T-103, T-108).
 - Primary requirement: PR-28
 - Constraints: PR-7, DATA-11, IAM-3, IAM-13, PRIV-2, PRIV-7, BILL-8, TD-5, TD-7, ADR-0005, ADR-0009; one store per order, platform-owned affiliate identity, seller RLS unchanged, source `bukalaris` only. Attribution window, applicable platform-fee policy and production click retention/notice require owner acceptance; no imported defaults. Because all orders (prepaid and COD) run through Bukalaris's unified shipping and payment system (D-15, D-16), all opted-in seller orders are eligible for attribution and commission.
 - Dependencies: T-51, T-59, T-50, T-48, T-49, T-37, T-57, T-70, T-74
@@ -926,6 +982,7 @@ Deferred and outside the order: T-56 (external affiliate sources), T-64 (Complia
 - Added assertions (second documentation pass): the click entry point is HTTP-27 `GET /r/[token]` on the apex host, captured on top-level navigation only with Sec-Fetch checks and the `__Host-bl_click` cookie, limited by `RL-CLICK` and `RL-CODE` (SEC-20). This task owns JOB-20 `affiliate.catalog.project` and JOB-27 `retention.affiliate_click` (off until the retention period is decided); a full `affiliate_catalog` rebuild command comes from T-74. The commission base is read from `order_line_financials`. Phase 1 fraud counters (click flood, self-referral, repeated code failures) feed the SA-18 risk queue; tests cover non-navigation requests, cookie stuffing and the rate limits.
 
 ### T-53 — Implement affiliate wallet, commission release and payouts
+- Direction change 2026-11-14 (D-29, ADR-0015): SUPERSEDED in this form. No platform wallet or payout; replaced by T-108 and T-109. Do not start.
 - Status: Planned (Proposed; live release/payout gated on accepted hold/tax/fee policies)
 - Primary requirement: PR-28
 - Constraints: BILL-8, DATA-11, IAM-13, PRIV-2, PRIV-4, PRIV-6, PRIV-7, NFR-2, ADR-0006, ADR-0009. Commission is eligible across all opted-in orders (prepaid and COD) only when the order is delivered AND the seller's sale is released (D-14), then after `affiliate_hold_days` (decided default: **3 days**, Owner-configurable in `SA-12`); pending attribution is not wallet cash. Commission platform fee and payout minimum/method remain OPEN. Tax rates are advisor-confirmed, versioned settings, never hard-coded or inferred from unverified secondary summaries.
@@ -941,6 +998,7 @@ Deferred and outside the order: T-56 (external affiliate sources), T-64 (Complia
 - Added assertions (second documentation pass and owner decisions D-16 / D-19, 2026-10-27): the affiliate lock order is the two-key form in ADR-0009 (order row, store, affiliate); bank changes use the `affiliate_payout_destination` controls (step-up, notification of the old contact, account-holder-name check, and a mandatory **72-hour hold**, default 72 hours, Owner-configurable, D-19); four-eyes sits on approve-for-transfer under `affiliate.payout.process`, mark-paid only records evidence; JOB-26 `affiliate.commission.release` is enqueued by T-74 JOB-21; the payout-job freeze switch exists for restores. All opted-in orders (prepaid and COD) are eligible; an order in transit, returned or cancelled earns no commission; a credit is booked only after the order is delivered and its seller sale is released through T-37 reconciliation (D-14), then after `affiliate_hold_days` (decided default: **3 days**, Owner-configurable); a late claim after payout is an explicit manual correction (`adjustment`), never automatic.
 
 ### T-54 — Build affiliate portal, seller opt-in and Owner console affiliate administration
+- Direction change 2026-11-14 (D-29, ADR-0015): re-scoped to T-110 (store membership, shared statement, payment records, arrears queue). Do not start from this block.
 - Status: Planned (Proposed; consumes complete T-52/T-53 services and accepted UX-19/UX-20 screen contracts)
 - Primary requirement: PR-28
 - Constraints: DATA-11, BILL-8, IAM-1, IAM-3, IAM-13, PRIV-2, PRIV-6, PRIV-7, UX-19, UX-20, TD-7, ADR-0008, ADR-0009. Separate affiliate account/login/role, server-side authorization, platform ownership, aggregate-only referral outcomes and data-layer masking; no secret dashboard-link login or buyer-account substitute.
@@ -954,6 +1012,7 @@ Deferred and outside the order: T-56 (external affiliate sources), T-64 (Complia
 - Added assertions (second documentation pass): this task owns AF-11 `/affiliate/apply` (limit `RL-AFF-SIGNUP`) and AF-01; the session cookie is `__Host-bl_aff`; affiliate MFA is offered at sign-up and step-up applies to bank and payout actions (IAM-13); after recovery or an MFA reset a payout hold applies; suspension unpublishes the affiliate storefront and deactivates its links; fraud counters feed the SA-18 risk queue.
 
 ### T-55 — Build affiliate storefront and seller-checkout handoff
+- Direction change 2026-11-14 (D-29, ADR-0015): DEFERRED until the seller-run programme has run in a pilot; host decided with T-54/T-55 (D-31).
 - Status: Planned (Proposed; chain B follows approved portal/admin and UX-20 contracts)
 - Primary requirement: PR-29
 - Constraints: PR-6, PR-28, TD-5, TD-7, DATA-11, IAM-3, IAM-13, PRIV-2, PRIV-7, BILL-3, BILL-8, UX-20, ADR-0002, ADR-0008, ADR-0009. Cross-store discovery only; source `bukalaris` only; all purchases hand off to the selected seller's one-store checkout. No multi-seller cart, split order/settlement, external connector or affiliate buyer-data entitlement.
@@ -988,6 +1047,7 @@ Deferred and outside the order: T-56 (external affiliate sources), T-64 (Complia
 
 ### T-58 — Build buyer portal at buyer.bukalaris.com
 - Status: Planned (Proposed; chain requires accepted UX-21 screen contracts, selected proof channel and ADR-0008 host routing)
+- Direction change 2026-11-15 (documents only): the portal shows the refund the seller recorded on the order (C-P9, T-107). Digital content is reached from the signed order-status page in the first release; a buyer member dashboard is deferred (T-119).
 - Primary requirement: PR-7
 - Constraints: DATA-12, IAM-14, PRIV-2, PRIV-4, PRIV-5, PRIV-8, SEC-19, TD-7, ADR-0005, ADR-0008, ADR-0010, UX-21, BA-01 through BA-06. Passwordless means no signup form/password, not no proof. Buyer host has its own host-only cookie and grants no seller/admin/affiliate capability. OTP channel/provider/cost, authenticated prefill, merge UX, recycling policy, global deletion and minor handling are OPEN and must be resolved or explicitly gated before live use.
 - Dependencies: T-57, T-70, T-73
@@ -1070,6 +1130,7 @@ Owner console = the renamed Owner console (host `owner.bukalaris.com`). Startup 
 
 ### T-72 — Account governance: affiliate and buyer accounts (search, diagnostics, suspension, buyer identifier and merge requests)
 - Status: Planned (Proposed 2026-10-27; specification only; Phase 1 startup core; split from T-63 so that the store and seller-team slice does not wait for the affiliate and buyer portals)
+- Direction change 2026-11-15 (documents only): re-scope before starting: affiliate membership is per store and managed by the seller (T-108, T-110); the Owner console keeps platform-level suspension plus the arrears queue and programme freeze of T-109.
 - Primary requirement: PR-30
 - Constraints: IAM-15, IAM-10, IAM-3, IAM-13, IAM-14, PRIV-9, PRIV-2, PRIV-6, DATA-14, UX-22, ADR-0009, ADR-0010, ADR-0011, SA-23 to SA-25. No impersonation, no password or token display, no direct buyer identifier edit, no bulk personal-data export. Staff-executed buyer merge (`merge.execute`) is decided disabled (returns not-found) in Phase 1 (D-19; buyers merge only via self-service possession proof of both identifiers).
 - Dependencies: T-63, T-54, T-58
@@ -1084,6 +1145,7 @@ Owner console = the renamed Owner console (host `owner.bukalaris.com`). Startup 
 
 ### T-64 — Compliance center (Phase 2, deferred): verification queue, takedown notices, complaints, privacy requests, incident register, registrations
 - Status: Planned (Deferred, Phase 2; do not start until the activation criteria below are recorded; specification only)
+- Direction change 2026-11-15 (documents only): per-product takedown of a digital listing and a `suspended` grant state belong to this task's takedown slice (C-G1, D-32); the first release uses report intake and store suspension only.
 - Primary requirement: PR-30
 - Constraints: ADR-0011 §3 and §5, UX-22 (P2 screens), IAM-15 (P2 capabilities), PRIV-9, PRIV-4, PRIV-5, PRIV-8, DATA-14, SA-15, SA-21, SA-22, SA-29 to SA-33, SF-13, HTTP-18 to HTTP-20, JOB-11. Bukalaris is an online-store platform, not a marketplace; these workflows exist only for when licensing alignment or the owner's choice requires them. Statutory readings (PP 80/2019 notice and takedown, complaint handling, merchant identity; UU PDP 27/2022 breach notification, erasure and consent; PSE registration) are UNVERIFIED secondary-source items; the configured response and notification periods are advisor decisions and are never hard-coded. No automatic sending of notifications, no automatic closure.
 - Activation criteria (all required, recorded in `DECISIONS.md` and in an audited platform setting): (a) an owner or advisor decision that the workflows apply, because licensing alignment classifies the platform accordingly (UNVERIFIED) or the owner opts in; (b) PSE/TDPSE and related registration status recorded by the owner (OPEN, never invented); (c) intake channel, response-time policy and retention policy approved by the privacy owner with numeric values; (d) a named incident coordinator and privacy contact (PRIV-5); (e) T-63 delivered (cases, status history, audit extension).
@@ -1115,6 +1177,7 @@ Owner console = the renamed Owner console (host `owner.bukalaris.com`). Startup 
 
 ### T-71 — Earnings statements, seller invoice export and Owner invoice register
 - Status: Planned (Proposed; startup, small; ADR-0012 and BILL-9 specify the target, not implementation evidence; split from T-65 on 2026-10-27 because statements read the affiliate ledger delivered by T-53 and invoices delivered by T-50)
+- Direction change 2026-11-15 (documents only): re-scope before starting: the affiliate part is deferred (C-A5, T-121); for a `seller_owned` store the seller statement is built from order and payment records, not from `ledger_entry` (T-107).
 - Primary requirement: PR-31
 - Constraints: BILL-7, BILL-8, BILL-9, DATA-11, DATA-15, IAM-15, PRIV-6, PRIV-10, NFR-2, ADR-0009, ADR-0012. Integer-IDR arithmetic only; statements carry no buyer data, order identifier or full tax identifier; no tax rate in source.
 - Dependencies: T-65, T-53, T-50
@@ -1128,6 +1191,7 @@ Owner console = the renamed Owner console (host `owner.bukalaris.com`). Startup 
 
 ### T-66 — Startup tax UI: Owner tax overview, earnings statements, voluntary identity
 - Status: Planned (Proposed; startup UI only; consumes T-65 and T-71 services and accepted UX-23 screens TX-01 to TX-03 and TX-P1 to TX-P3)
+- Direction change 2026-11-15 (documents only): re-scope before starting: the affiliate earnings statement and affiliate tax identity are deferred (C-A5, T-121), and a `seller_owned` store has no ledger, so seller figures come from order and payment records (T-107).
 - Primary requirement: PR-31
 - Constraints: UX-23, UX-22, UX-19, UX-18, BILL-9, DATA-15, IAM-15, PRIV-9, PRIV-10, ADR-0011, ADR-0012. Data-layer masking, capability-gated controls absent (not disabled) for operators without them, the Phase 2 screens stay out of navigation and return the not-activated page. No tax rate or legal conclusion in UI copy; statement wording is OPEN-T10 and notice wording is OPEN-T9.
 - Dependencies: T-65, T-71, T-62, T-54, T-50
@@ -1213,6 +1277,7 @@ Owner console = the renamed Owner console (host `owner.bukalaris.com`). Startup 
 
 ### T-74 — Periodic enqueuer, job-system hardening and retention framework
 - Status: Delivered locally 2026-10-28 (working tree, not committed; migration 0011 section T-74; `ops/jobs/{scheduler,manage,observability,retention}.ts`, worker loop, `scripts/db-restore-rehearsal.sh` guards; report `docs/tracks/t74-jobs.md`). Independent review done; findings fixed (`ops.jobs.manage` enforced in every management service, retention periods only through the audited `retention_set_period()` and an append-only `retention_policy_event`, scheduler uses the database clock and reports `skewed`, `effect_absent` resets the attempt budget, the worker runs `reconcileUnknownJobs`). DEFERRED: a setter for the `audit_log` retention period (refused by the database until operator identity is restricted in T-59b and the change needs four-eyes), monthly partitioning of the log tables (not additive; owner approval at deploy), the access-event class (T-62), Owner console screens and alert delivery (T-62, OBS-6 sink OPEN), retention periods (owner decision; the purge stays OFF), the contract step for DELETE grants (T-59).
+- Direction change 2026-11-15 (documents only): new retention classes are named by their tasks and stay inside this framework: proof-of-transfer files at 90 days after the order closes (D-33, T-113), AutoLaris callback evidence (T-106), Mengantar webhook events and status history (T-115).
 - Primary requirement: PR-5
 - Constraints: SEC-18, TD-3, NFR-2, NFR-5, ARCH-5 (JOB-21, JOB-22, JOB-28 to JOB-32), IAM-15 (`ops.jobs.manage`), ADR-0005 (and amendment)
 - Dependencies: T-51, T-59
@@ -1240,6 +1305,7 @@ Owner console = the renamed Owner console (host `owner.bukalaris.com`). Startup 
 
 ### T-78 — Scannable QRIS instruction on checkout confirmation and subscription payment
 - Status: Planned (portfolio scan 2026-11-01, G4)
+- Direction change 2026-11-15 (documents only): the QRIS instruction of a buyer order comes from the store's own AutoLaris account (T-106); the subscription part is unchanged.
 - Primary requirement: PR-4
 - Constraints: UX-12 (QRIS instruction contract), NFR-3, BILL-2, BILL-7, UI-10
 - Dependencies: T-49, T-50
@@ -1247,6 +1313,7 @@ Owner console = the renamed Owner console (host `owner.bukalaris.com`). Startup 
 
 ### T-79 — Off-box monitoring, backup health and deploy proof before the pilot
 - Status: Planned (portfolio scan 2026-11-01, G5 to G7); needs hosting (D-23) before its production half can run
+- Direction change 2026-11-15 (documents only): production now needs two DNS zones and two wildcard certificates (ADR-0014, T-102) and a private file store with backup for proof-of-transfer images (ADR-0013 decision 39, T-113). No AutoLaris egress allow-list step exists (D-33).
 - Primary requirement: PR-14
 - Constraints: DR-1, DR-2, OBS-6, DEL-1, D-19, D-23
 - Dependencies: T-74; production half after provisioning is approved
@@ -1318,6 +1385,7 @@ Common contract for T-80 to T-94: Allowed Paths are scope ceilings, not instruct
 
 ### T-86 — Finish ADR, specification status and OpenAPI reconciliation
 - Status: Planned (Documentation remainder; owner disposition required for unaccepted ADRs)
+- Direction change 2026-11-15 (documents only): includes the status lines and supersession links of ADR-0006, ADR-0007, ADR-0008 and ADR-0009 after D-27 to D-29, and the ADR folder move if T-114 is approved.
 - Primary requirement: PR-14
 - Constraints: D-24; TEN-1, DEL-3; existing live/approval gates stay unchanged
 - Dependencies: T-1, T-12
@@ -1337,6 +1405,7 @@ Common contract for T-80 to T-94: Allowed Paths are scope ceilings, not instruct
 
 ### T-88 — Bound unpaid stock reservations and release them exactly once
 - Status: Planned (Gated: product/finance must approve Q-10 expiry, backorder, COD exclusion and late-payment policy in docs 05/11; provider timing needed before live use)
+- Direction change 2026-11-15 (documents only): a digital line with unlimited stock reserves nothing (ADR-0016 decision 19); a `bank_transfer` order expires after the store's payment window (ADR-0013 decision 37, T-113).
 - Primary requirement: PR-4
 - Constraints: D-24; TEN-1, DEL-3; existing live/approval gates stay unchanged
 - Dependencies: T-49, T-74, T-80
@@ -1346,6 +1415,7 @@ Common contract for T-80 to T-94: Allowed Paths are scope ceilings, not instruct
 
 ### T-89 — Make seller collected-money and order KPIs unambiguous
 - Status: Planned (Gated: product/finance approve metric recognition, refund and time basis in docs 11/17)
+- Direction change 2026-11-15 (documents only): for a `seller_owned` store, collected money is shown by method from order and payment state and labelled as paid to the seller's own accounts (T-107); sandbox test orders never count (ADR-0013 decision 11).
 - Primary requirement: PR-22
 - Constraints: D-24; TEN-1, DEL-3; existing live/approval gates stay unchanged
 - Dependencies: T-41, T-37
@@ -1356,6 +1426,7 @@ Common contract for T-80 to T-94: Allowed Paths are scope ceilings, not instruct
 
 ### T-90 — Specify and test rate-limit dependency failure behavior
 - Status: Planned (Gated: security/product approve per-bucket dependency-down policy in docs 12/16; blanket fail-open not adopted)
+- Direction change 2026-11-15 (documents only): the register additions of D-33 (doc 16) are in scope: each new bucket needs its dependency-down behaviour.
 - Primary requirement: PR-14
 - Constraints: D-24; TEN-1, DEL-3; existing live/approval gates stay unchanged
 - Dependencies: T-30
@@ -1366,6 +1437,7 @@ Common contract for T-80 to T-94: Allowed Paths are scope ceilings, not instruct
 
 ### T-91 — Deliver an operator payment-anomaly queue without state overrides
 - Status: Planned (Gated: product/finance approve categories, actions, capabilities and route in docs 11/17/ARCH-5; G10)
+- Direction change 2026-11-15 (documents only): a second settled attempt on one order raises the anomaly for the seller (ADR-0013 decision 27, T-106); the money is the seller's, so the operator queue shows it without any state override, as already required here.
 - Primary requirement: PR-14
 - Constraints: D-24; TEN-1, DEL-3; existing live/approval gates stay unchanged
 - Dependencies: T-49, T-50, T-62, T-37
@@ -1385,6 +1457,7 @@ Common contract for T-80 to T-94: Allowed Paths are scope ceilings, not instruct
 
 ### T-93 — Verify storefront activation gates before self-service onboarding
 - Status: Planned (Conditional: U75 is search-only evidence; product/security approve any new review lifecycle first)
+- Direction change 2026-11-15 (documents only): the activation gates are the readiness rules of ADR-0013 decisions 12 to 14 and ADR-0016 decision 21: one ready payment method to open, shipping ready for a physical product, a prepaid method ready for a digital product (T-104, T-111, T-113).
 - Primary requirement: PR-1
 - Constraints: D-24; TEN-1, DEL-3; existing live/approval gates stay unchanged
 - Dependencies: T-26, T-70
@@ -1394,6 +1467,7 @@ Common contract for T-80 to T-94: Allowed Paths are scope ceilings, not instruct
 
 ### T-94 — Define and prove a staged HSTS rollout
 - Status: Planned (Gated: platform approves full host/TLS inventory, duration, ramp and subdomain scope; D-23 not replaced)
+- Direction change 2026-11-15 (documents only): the host inventory covers both registrable domains and verified custom domains; `includeSubDomains` on `bukalaris.id` covers storefronts only (ADR-0014 decision 6).
 - Primary requirement: PR-14
 - Constraints: D-24; TEN-1, DEL-3; existing live/approval gates stay unchanged
 - Dependencies: T-29, T-70
@@ -1453,9 +1527,212 @@ Common contract for T-80 to T-94: Allowed Paths are scope ceilings, not instruct
 - Evidence (t99-proof): a new deterministic test that picks a query whose fingerprint has an 8-digit run fails on the unfixed code (`'[digits]af7a394'` vs `'748121035af7a394'`) and passes on the fix; t63-accounts, ops, t62-console 57/57.
 
 ### T-100 — Make GitHub CI able to finish and diagnose its two mobile-320 failures
-- Status: Planned (next task; found by CI run 42009751259 on `daef65b`, 2026-11-05)
+- Status: Partial (2026-11-15: root causes fixed and proven locally on branch `task/t100-ci`, commit `457662f`, pull request #1 opened on the owner's instruction; CI run 43709386002 pending, not merged). Found by CI run 42009751259 on `daef65b`, 2026-11-05
 - Primary requirement: PR-14
 - Risk Level: R2
 - Allowed Paths: `.github/workflows/ci.yml`; test or application files only for an evidenced root cause of the two failures
 - Finding: the `verify` job has `timeout-minutes: 30`, but DB tests + build + 263 E2E need more than that on the GitHub runner (E2E alone ~27 min locally), so CI is cancelled before finishing and can never be green. In that run `content.spec.ts:44` and `feeds.spec.ts:48` failed at mobile-320 only (pass at desktop in the same run; pass at 320 and desktop locally in T-85); no error text or trace was produced because the job was cancelled.
 - Done when: (1) the `verify` job timeout fits the measured suite with margin (e.g. 60 min) and Playwright traces/report upload also on failure; (2) a CI run shows the real error of the two 320 failures; (3) their root cause is fixed and proven (no retry/flaky label without evidence); (4) a green CI run on `main` incl. the `image` (`verify:docker`) job is recorded with its run id.
+- Outcome 2026-11-15 (local only, nothing committed or pushed):
+  - (1) Done in the branch: `verify` timeout 30 → 60 minutes (measured on the runner in run 42020996371: about 40 minutes for the whole job); traces upload on `failure() || cancelled()`.
+  - (2) Done without a new run: CI run 41992056535 (`7c76402`) finished its E2E and printed the errors. `content.spec.ts:44` step `36-storefront-page`: horizontal overflow 1 px. `feeds.spec.ts:48` step `97-marketing-feeds`: horizontal overflow 4 px. Both at mobile-320 only.
+  - (3) Root cause: the app uses the system font stack, and the runner's sans-serif is wider than the local one. Reproduced locally with the same numbers (1 px and 4 px) by forcing `"DejaVu Sans"` in a temporary helper override. Culprits: an unbreakable word in seller-written page text (`.prose-lite`), and the marketing card header (`Meta (Facebook/Instagram)` next to a non-shrinking badge in a non-wrapping row). Fix: `overflow-wrap: anywhere` on `.prose-lite` (`apps/web/src/app/globals.css`) and `flex-wrap` on that header row (`seller/marketing/page.tsx`). Proof: both tests fail before and pass after with the forced font, at mobile-320 and desktop. The temporary override was removed.
+  - Deviation (third failure, outside the two named ones): `catalog.spec.ts:6` fails now and then with a console error `429 (Too Many Requests)` (desktop in run 41992056535, mobile-320 in the local full run). Cause: the test recorded console errors before signing in, and the login helper waits out a sign-in 429 on purpose. Fix: sign in first, then attach the listeners. Proof: with three extra sign-ins forced before the test, the old order fails with that message and the new order passes.
+  - Local verification in the worktree with the CI variables and no `.env`: lint and typecheck pass; DB tests 1429/1429; build; E2E 260 passed, 2 skipped, 1 failed (the `catalog.spec.ts:6` case above, fixed afterwards and re-run alone). The full suite was not re-run after that last fix.
+  - Open: (4) a green CI run on `main` including the `image` job, which has never run on GitHub.
+
+## Direction change 2026-11-14 — seller-owned provider accounts, two domains, seller-run affiliate, digital products (D-27 to D-30)
+
+Source: [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md), [ADR-0014](adr/ADR-0014-two-registrable-domains-and-custom-domain-target.md), [ADR-0015](adr/ADR-0015-seller-run-store-affiliate-programme.md), [ADR-0016](adr/ADR-0016-digital-products.md). All blocks below are Planned specifications, not implementation evidence. Suggested order: T-101 → T-114 (owner, 2026-11-14: documents and folder structure are tidied before any development) → T-100 (CI) → T-102 → T-103 → T-104 → T-105 and T-106 → T-115 → T-107 → T-113 → T-116 → T-111 → T-112 → T-117 → T-108 → T-109 → T-110. Deferred, outside the order: T-118 to T-121. Existing rules apply to every task: local only, fake adapters by default, no live provider call or secret access without owner approval, mutation check for each money and authorisation invariant, independent review for R3 and R4, evidence in `BUILD-LOG.md` and a track report.
+
+### T-101 — Align the specification pack with D-27 to D-31
+- Status: Partial (2026-11-15, documents only, uncommitted). Done: every document of the pack carries the direction change. `02-PRD.md`, `08-DOMAIN-ROUTING.md` and the tables at the top of `05-DATA-MODEL.md` (13 rows) and `11-BILLING-PAYMENTS.md` (18 rows) state the target directly; each superseded section in docs 03, 04, 05, 06, 07, 09, 11, 12 (plus new SEC-26 to SEC-28 and THR-15 to THR-19), 13, 14, 16, 17, `CONTEXT-RECORD.md`, `RUNBOOK.md`, `DEPLOY-COOLIFY.md` and `DEMO.md` has a dated "Direction change" note naming the decision, the ADR and the task; `openapi.yaml` has a note in `info.description` only. No historical text was deleted and no ARCH-5 row was changed. `check-spec.py` and `map:check` pass. NOT done: (a) the superseded section bodies still stand under their notes and are rewritten by the task that builds each part; (b) `openapi.yaml` operations for the new features are written by T-104 to T-113; (c) closed 2026-11-15: the clarifications found during the alignment are accepted (D-32); (d) the final search of item (8) is repeated at the end of T-114.
+- Primary requirement: PR-10
+- Constraints: ADR-0013, ADR-0014, ADR-0015, ADR-0016; documents only, no code; do not change the acceptance status of ADR-0001..0003 or of any `PR-*` beyond what D-27..D-29 decide (that stays T-86)
+- Dependencies: none
+- Risk Level: R1
+- Allowed Paths: `docs/02-PRD.md`, `docs/03-TECHNICAL-DESIGN.md`, `docs/04-SYSTEM-ARCHITECTURE.md`, `docs/05-DATA-MODEL.md`, `docs/07-IAM-RBAC-ABAC.md`, `docs/08-DOMAIN-ROUTING.md`, `docs/11-BILLING-PAYMENTS.md`, `docs/12-SECURITY-ARCHITECTURE.md`, `docs/13-COMPLIANCE-PRIVACY.md`, `docs/17-UX-FLOWS-SCREEN-CONTRACTS.md`, `docs/openapi.yaml`, `docs/DEPLOY-COOLIFY.md`, `docs/RUNBOOK.md`, `docs/README.md`, `docs/CONTEXT-RECORD.md`, `docs/TASKS.md`, `STATUS.md`
+- Done when: (1) PR-5, PR-23 and PR-27 describe seller-owned Mengantar and AutoLaris accounts, the filter table and the fee bearers; PR-32 describes digital products (ADR-0016); PR-18 states subscription as the only platform revenue; PR-28 and PR-29 describe the seller-run programme and the deferred storefront; PR-3 and PR-13 use `<store-slug>.bukalaris.id` and `cname.bukalaris.id`. (2) BILL-1 to BILL-6 and BILL-8 and the "Provider ownership decision" section mark what applies only to platform-held money. (3) DATA-7, DATA-9 and DATA-11 list the new and unused tables named in T-104, T-107, T-108, T-109, T-111 and T-112. (4) The 08 platform domain map, DOM-1, DOM-5 and DOM-6 carry both roots and store-host checkout. (5) UX-17 and the seller shipping, payment and affiliate screen contracts match the ADRs, including the "paid by the seller" statement. (6) Q-1, Q-2, Q-12, Q-17 and OPEN-F3/F6..F9 are re-stated as not gating a `seller_owned` store; the former OPEN-P, OPEN-D, OPEN-A and OPEN-G items are listed as decided by D-31. (7) `STATUS.md` names this direction and the task order. (8) `python3 docs/check-spec.py` and `pnpm map:check` pass, and a search for `<store-slug>.bukalaris.com`, `Bukalaris Kirim` and "never paste" finds only superseded or historical text.
+
+### T-102 — Two root domains in host dispatch
+- Status: Planned
+- Primary requirement: PR-3
+- Constraints: ADR-0014 decisions 1 to 3 and 6; DOM-1, DOM-5, DOM-6, D-25; TEN-2; no DNS, no deploy
+- Dependencies: T-101
+- Risk Level: R3
+- Allowed Paths: `packages/db/src/platform/host.ts`, `apps/web/src/proxy.ts`, `apps/web/src/lib/{auth,auth-csrf,security-headers}.ts`, `apps/web/src/app/(platform)/api/internal/www-redirect/**`, `packages/db/src/ops/console.ts`, `.env.example`, `packages/db/test/host.test.ts`, `apps/web/e2e/host-mode*.spec.ts`, `docs/08-DOMAIN-ROUTING.md`, `docs/DEPLOY-COOLIFY.md`
+- Done when: `PLATFORM_ROOT_DOMAIN` and `STORE_ROOT_DOMAIN` are read separately, with one root still valid for local development. A platform label on the store root and a store slug on the platform root both fail closed; `cname.<store root>` is never a store; the store-root apex and `www` redirect to the platform apex for GET/HEAD. The CSRF audience and per-surface cookies are derived from the correct root. Tests: a two-root table in `host.test.ts`; host-mode E2E with two different roots at 320 px and desktop; the existing one-root suite still passes. Mutation checks: accept a platform label on the store root, and resolve `cname` as a slug; a named test fails for each.
+
+### T-103 — Checkout on the store host and link origins by link type
+- Status: Planned
+- Primary requirement: PR-4
+- Constraints: ADR-0014 decisions 5 and 7; DOM-4, DOM-6; PR-16 hosted hand-off unchanged; PR-20 first-party click ids; the store host serves the referral click route for its own store (C-D1) under RL-CLICK (doc 16, D-33)
+- Dependencies: T-102
+- Risk Level: R3
+- Allowed Paths: `apps/web/src/app/(storefront)/**`, `apps/web/src/app/(checkout)/**`, `apps/web/src/lib/storefront.ts`, `packages/db/src/platform/host.ts`, `packages/db/src/storefront/feeds.ts`, `packages/db/src/ops/jobs/**` (link builders only), `packages/db/src/seller/commerce/abandoned.ts`, related tests and E2E specs
+- Finding (2026-11-14): `dispatchHostPath` answers `404` on a store host for `/checkout`, `/o` and `/feeds` (`packages/db/src/platform/host.ts`, `case "store"`), and no cart hand-off to `checkout.<root>` exists, so host mode has no working buyer path to pay today.
+- Done when: cart, checkout, confirmation and the signed order-status page complete on `<slug>.<store root>` with the platform root set to a different domain, without any cart cookie on another host; the store host serves only its own store on those paths and still refuses seller, operator, auth and Storefront API paths. One link-origin function serves feeds, order-status links, abandoned-checkout recovery links and e-mails; none reads the request host. `checkout.<platform root>` still serves the one-use hand-off of PR-16 and refuses a cart that was not handed off. Tests: E2E order on two roots at 320 px and desktop; link-origin unit table (with and without a primary custom domain, resolver stubbed); the T-82 CSRF cases pass on the store host. Mutation check: build a feed URL from the request host; a named test fails.
+
+### T-104 — Seller provider accounts: sealed keys, environment, connection check
+- Status: Planned
+- Primary requirement: PR-27
+- Constraints: ADR-0013 sections 1 to 3; ADR-0005 (RLS, isolation registry); IAM step-up; SEC-3; no key in any response, log, audit row or export; no free-form provider URL; RL-PROVIDER-CHECK (doc 16, D-33)
+- Dependencies: T-101
+- Risk Level: R4
+- Allowed Paths: `packages/db/src/shipping/{schema-accounts,accounts,credentials}.ts`, `packages/db/src/payments/**` (new `store_payment_account`), `packages/db/src/platform/isolation-registry.ts`, `packages/db/drizzle/**` (new migration), `packages/db/drizzle-pending/t59-contract.sql` (regenerated GRANT block), `apps/web/src/app/(seller)/seller/{shipping,settings}/**`, a new `apps/web/src/app/(seller)/seller/payments/**`, `packages/db/src/ops/console-routes.ts` and ARCH-5 rows for new pages, `.env.example`, tests and E2E specs
+- Done when: `store_shipping_account.kind` accepts `seller_owned` and `store_payment_account` exists, both store-scoped under FORCE RLS with registry entries; each carries `environment` (`sandbox` | `production`), sealed key, `key_id`, fingerprint, last check time and result. Keys are sealed with the `shipping_credentials` keyring and a new `payment_credentials` keyring. Seller screens: connect, replace (empty field keeps the key), remove (explicit action), check now; the screen shows only state, masked hint and last check. A change needs `integrations.manage` plus fresh step-up, writes an audit row and notifies store owners. The provider origin comes only from the environment value and server configuration. Readiness functions for shipping and for QRIS/VA follow ADR-0013 decisions 12 to 14. Connection checks run against fake adapters locally. Tests: canary-key literal scan over responses, RSC payloads, logs and audit rows; cross-store read/use/replace refused under the application role; failed check keeps the previous key; no-step-up refused. Migration proven on a populated copy of the dev database. Mutation checks: return the opened key in a DTO, skip the step-up, and allow store B to open store A's key; a named test fails for each.
+
+### T-105 — Mengantar on the seller's key: quotes, filters and booking
+- Status: Planned
+- Primary requirement: PR-5
+- Constraints: ADR-0013 sections 4, 5 and 7; T-34, T-39, T-61 behaviour kept where the ADR does not change it; official Mengantar documentation is the contract (skill `mengantar-api`), the reference system is not; sandbox origin UNVERIFIED until read from the official documentation (D-31: read from the official documentation in this task); the per-provider production switch of ADR-0013 decision 34 for Mengantar is built here (C-P4): an audited Owner console setting, off by default, switchable only after the recorded sandbox pass
+- Dependencies: T-104
+- Risk Level: R4
+- Allowed Paths: `packages/db/src/shipping/**`, `packages/db/src/seller/commerce/checkout.ts` (quote and method checks only), `apps/web/src/app/(seller)/seller/{shipping,orders}/**`, `apps/web/src/app/(storefront)/**` and `(checkout)/**` (method list only), new migration for courier rules and COD province settings, isolation registry, tests and E2E specs
+- Done when: quotes, pickup-address registration, booking and tracking for a `seller_owned` store use that store's sealed key through one client that strips the key from every error. Seller settings exist for courier on/off, courier COD on/off, COD-blocked provinces, COD on/off and `cod_fee_bearer`. One eligibility function produces the buyer's method list and is called again at order submit; a courier without a rule row is closed; an unresolved province refuses COD. The buyer is charged the public rate; submit re-quotes and refuses a stale price; checkout quotes never request the provider COD fee. Booking is a seller action, one at a time per store; an unknown outcome blocks rebooking until released or linked; a provider COD refusal for the seller turns that courier's COD off and tells the seller. Tests: the full filter table of ADR-0013 section 4 through the shared function, including a direct submit of a hidden courier and of COD to a blocked province; parallel booking produces one shipment; unknown-outcome block and both recovery paths; key never present in a thrown error. An opt-in sandbox E2E is specified but runs only with owner approval and a `secrets-env` test key. Mutation checks: treat a missing rule row as enabled, skip the submit-time COD check, and retry after an unknown outcome; a named test fails for each.
+
+### T-106 — AutoLaris on the seller's key: instruction, status check, callback evidence
+- Status: Planned
+- Primary requirement: PR-5
+- Constraints: ADR-0013 sections 3, 4, 5 and 6; D-21 (callback is evidence, verify by pull); T-49 contract kept where the ADR does not change it; official AutoLaris documentation is the contract (skill `autolaris-h2h`); paid status words, fee rates and expiry time zone are UNVERIFIED until confirmed with the provider; AutoLaris has no IP allow-list (owner statement, D-33), recorded in the provider-fact table and proven by the first sandbox call; rate limits RL-AUTOLARIS-CB, RL-PROVIDER-CHECK and RL-PAY-RECHECK from doc 16 (D-33)
+- Dependencies: T-104
+- Risk Level: R4
+- Allowed Paths: `packages/db/src/payments/**`, `apps/web/src/app/(public-services)/api/payments/autolaris/**`, `apps/web/src/app/(seller)/seller/payments/**`, `apps/web/src/app/(checkout)/**` and `(public-services)/o/**` (method list, instruction and retry only), new migration, isolation registry, tests and E2E specs
+- Done when: an order of a `seller_owned` store creates its instruction on that store's key; the callback route resolves the store from the signed reference and only stores evidence; the scheduled status check uses the owning store's key and settles only on the paid code plus an allow-listed status word, covering pending attempts and those expired in the last 24 hours, newest first. Seller settings exist for AutoLaris on/off, per-channel exclusion and `payment_fee_bearer`; Owner console holds the locked channels and the versioned fee rates. Master switch, channel exclusion and lock are checked at order submit. Retry keeps the old attempt; a late payment of it settles the order; a second settled attempt raises an anomaly (T-91). The seller can confirm a payment by hand with reason and evidence, one immutable record per attempt. A provider error leaves the order pending with a retry. Subscription invoices keep using the platform account. Tests: callback alone never settles; unknown status word never settles; store A's status check never uses store B's key; excluded or locked channel refused at submit; fee-bearer amounts frozen. Mutation checks: settle from the callback, accept an unlisted status word, and check with the platform key; a named test fails for each.
+
+### T-107 — Money boundary for stores on seller-owned accounts
+- Status: Planned
+- Primary requirement: PR-23
+- Constraints: ADR-0013 sections 5 and 8; ADR-0006 ledger invariants unchanged for platform-held money; BILL-4, BILL-5; no deletion of the T-37 or T-48 code (D-31)
+- Dependencies: T-105, T-106
+- Risk Level: R4
+- Allowed Paths: `packages/db/src/seller/commerce/{checkout,orders,dashboard}.ts`, `packages/db/src/ledger/**` (guards only), `apps/web/src/app/(seller)/seller/{finance,orders,page.tsx,_dashboard}/**`, `apps/web/src/app/(operator)/admin/{money,payouts,shipping}/**` (visibility only), `scripts/verify-ledger.ts`, tests and E2E specs
+- Done when: an order of a `seller_owned` store writes `order_financials` once with both fee bearers and no platform margin, cashback or affiliate deduction, and writes no `ledger_entry`; ledger release, payout, reconciliation and platform-refund actions refuse such a store by rule, not by missing data. Seller Admin shows collected amounts by method from order and payment state, labelled as paid to the seller's own accounts, and hides balance and payout screens; a refund is recorded on the order as made by the seller. Seller screens name Mengantar and AutoLaris; the copy guard is updated to the new boundary. Owner console money screens list only platform-held money. `pnpm verify:ledger` passes with mixed data. Tests: fee-bearer matrix (`buyer`/`seller` × QRIS, VA, COD); no ledger row for a `seller_owned` order; payout request refused; dashboard totals equal the sum of paid and delivered orders. Mutation checks: write a `sale` entry for a `seller_owned` order and allow a payout request; a named test fails for each.
+
+### T-108 — Affiliate membership per store and commission as a seller obligation
+- Status: Planned
+- Primary requirement: PR-28
+- Constraints: ADR-0015 decisions 1 to 4; T-52 attribution rules unchanged; PRIV-2, PRIV-7; rate bounds 100 to 5000 bps and window 7 days, both Owner-configurable (D-31); RL-AFF-STORE-APPLY and RL-CLICK on the store host (doc 16, D-33)
+- Dependencies: T-107
+- Risk Level: R4
+- Allowed Paths: `packages/db/src/affiliate/**`, `packages/db/src/seller/commerce/{checkout,orders}.ts` (attribution and status hooks only), `packages/db/src/ops/jobs/**` (one release job), new migration, isolation registry, `packages/db/drizzle-pending/t59-contract.sql`, tests
+- Done when: `affiliate_membership` (store, affiliate, `pending` | `active` | `rejected` | `suspended`) exists under FORCE RLS; a store-level programme switch and default rate exist with per-product override. Attribution requires an `active` membership at order time. The commission deduction from the seller sale is removed, with the frozen base, rate and commission kept on the attribution. `affiliate_commission` holds one obligation per attributed order with the states of ADR-0015 decision 4; the order status writer voids on cancel or return before delivery; a scheduled job moves delivered orders to `payable` after `affiliate_hold_days`. Sandbox test orders earn nothing. Tests: one obligation per order under concurrent submits; no attribution without active membership; void and payable transitions at the exact boundary; store A cannot read or change store B's memberships or obligations; the seller's `order_financials` proceeds are identical with and without attribution. Migration proven on a populated copy of the dev database. Mutation checks: attribute without membership, release before delivery, and deduct commission from proceeds; a named test fails for each.
+
+### T-109 — Affiliate payment records, shared statement and arrears
+- Status: Planned
+- Primary requirement: PR-28
+- Constraints: ADR-0015 decisions 5 to 9; no provider call, no money movement; affiliate bank details shown only to the paying store's finance role (D-31)
+- Dependencies: T-108
+- Risk Level: R4
+- Allowed Paths: `packages/db/src/affiliate/**`, `packages/db/src/ops/**` (arrears queue and freeze under `requirePlatformCap`), new migration, isolation registry, tests
+- Done when: `affiliate_payment` records one seller payment to one affiliate (amount, date, method, typed bank transaction data per ADR-0015 decision 5, covered commissions; no file upload — proof upload belongs to a later complaint or ticket flow, not in this task) and is immutable; a correction is a reversing record. A payment's amount equals the sum of its covered commissions and recorded corrections, enforced in the database transaction. The affiliate can confirm or dispute. One statement query serves both the seller and the affiliate. A `payable` commission older than `affiliate_arrears_days` (default 14) is in arrears; the Owner console can freeze and unfreeze a store's programme, which stops new memberships and attributions and keeps existing obligations. Programme terms and the affiliate notice are stored with a version on acceptance. Tests: sum mismatch refused; double coverage of one commission refused under concurrency; edit and delete refused; seller and affiliate statements equal for the same data; arrears boundary; frozen store attributes nothing; no buyer contact data or order number in any affiliate projection. Mutation checks: allow a commission in two payments, allow an edit, and attribute while frozen; a named test fails for each.
+
+### T-110 — Affiliate screens: seller, affiliate portal and Owner console queue
+- Status: Planned
+- Primary requirement: PR-28
+- Constraints: ADR-0015 decisions 1, 2 and 5 to 8; UX-19 re-scoped by T-101; AGENTS.md UI rules (shared components, money format, 24 px targets, 320 px reflow); affiliate surface session per T-70
+- Dependencies: T-109, T-102
+- Risk Level: R3
+- Allowed Paths: a new `apps/web/src/app/(seller)/seller/affiliates/**`, the affiliate surface route group under `apps/web/src/app/`, `apps/web/src/app/(operator)/admin/**` (arrears queue and freeze, registered in `console-routes.ts`), `apps/web/src/components/**`, ARCH-5 rows, E2E specs, `docs/evidence/**`
+- Done when: the seller can switch the programme on, accept its terms, set rates, review applicants, suspend a member, see the statement and record a payment with proof. The affiliate can register once, apply to a store, get links and codes per store, read the statement across stores, and confirm or dispute a payment; the application screen and statement state that the seller pays. The Owner console shows stores in arrears and can freeze or unfreeze a programme behind the console gate. E2E at 320 px and desktop: apply → approve → attributed order → delivered → payable → payment recorded → confirmed; a dispute; arrears after the configured age; a frozen store. Responses inspected, not only visible text, for buyer data and unmasked bank details. Rendered evidence under `docs/evidence/`.
+
+### T-111 — Product kind and checkout rules for digital and mixed orders
+- Status: Planned
+- Primary requirement: PR-4
+- Constraints: ADR-0016 sections 1 to 3, 5 and decisions 19 to 22; ADR-0002 (one store per order); ADR-0013 section 4 (one eligibility function); T-61 weight rule for physical lines; money stays integer IDR and server-derived
+- Dependencies: T-105, T-106, T-107
+- Risk Level: R4
+- Allowed Paths: `packages/db/src/schema.ts` (`product`, `variant`, `order` columns and CHECKs), `packages/db/src/seller/commerce/{catalog,checkout,orders,dashboard}.ts`, `packages/db/src/storefront/{storefront,feeds,landing}.ts`, `packages/db/src/shipping/shipping.ts` (physical-lines weight only), `packages/db/src/promotions/**` (free-shipping threshold), `packages/db/src/ops/jobs/notify.ts`, new migration, isolation registry, `apps/web/src/app/(seller)/seller/products/**`, `apps/web/src/app/(storefront)/**`, `apps/web/src/app/(checkout)/**`, tests and E2E specs
+- Done when: `product.kind` is `physical` | `digital`, changeable only while no order line refers to the product; a digital variant has no weight and unlimited stock unless the seller switches counting on; database CHECKs make weight mandatory for physical variants and shipping columns nullable only for orders without a physical line. Checkout quotes from physical lines only; a digital-only order skips address, courier and shipping fee and requires e-mail; a digital line removes COD from the method list and the server refuses it at submit. Free-shipping thresholds ignore digital lines. A digital-only order becomes `completed` when paid; a mixed order follows the parcel. Feeds exclude digital products. E-mails, order pages and the seller dashboard show no shipping block for an order without a parcel. Activation follows ADR-0016 decision 21. Tests: digital-only, mixed and physical-only orders through the real checkout functions; direct COD submit with a digital line refused; kind change refused after a sale; lifecycle rows of ADR-0016 section 5; existing physical suites unchanged. Migration proven on a populated copy of the dev database. Mutation checks: include a digital line in the shipping weight, allow COD with a digital line, and complete a mixed order at payment; a named test fails for each.
+
+### T-112 — Access links, grants and digital delivery
+- Status: Planned
+- Primary requirement: PR-2
+- Constraints: ADR-0016 section 4, section 7 and decisions 18, 20, 23, 24; ADR-0013 section 6 (settlement is the only trigger); ADR-0005 (RLS, isolation registry); SEC-3; the platform stores no file and the server never requests an access link; the member area, embedded video and webinars are out of scope (direction in D-31, not scheduled); caps 10 links per product and 2,000 characters per link, no default expiry (D-31); RL-ACCESS-OPEN (doc 16, D-33); the seller's acceptance of the content-rights terms is stored by T-116
+- Dependencies: T-111
+- Risk Level: R4
+- Allowed Paths: a new `packages/db/src/seller/commerce/digital.ts` and its schema file, `packages/db/src/payments/**` (grant in the settle transaction only), `packages/db/src/seller/commerce/orders.ts` (revoke on cancel or refund), `packages/db/src/affiliate/**` (payable trigger for digital lines), `apps/web/src/app/(public-services)/o/**`, `apps/web/src/app/(seller)/seller/{products,orders}/**`, `packages/db/src/platform/host.ts` (reserved member paths), the reserved member-area folders, new migration, isolation registry, ARCH-5 rows, tests, E2E specs, `docs/evidence/**`
+- Done when: `product_access_item` (type `link` only; a CHECK or enum that refuses the reserved types `video_embed` and `live_session` until their task exists) and `digital_grant` (one per digital order line; store, order line, buyer identity, state, optional expiry) exist store-scoped under FORCE RLS. The seller can add, order and remove access links and write an access note; `https` only, no credentials, length and count caps enforced on the server; the product screen states that sharing permissions stay on the seller's host. The grant is created in the transaction that settles the order (status check or manual confirmation) and nowhere else. One function resolves a grant to its content and is the only reader. The signed order-status page shows label, destination host and link for an active grant, opening in a new tab with no referrer; nothing is shown after expiry or revocation. The seller can extend and revoke a grant, audited. Cancel or refund revokes. The payment-confirmed e-mail carries the order-status link, never an access link. Per-product takedown is not built (C-G1): while a store is suspended its access links are not shown. The member-area structure of ADR-0016 item 27 exists: module and route folders without pages or handlers, their paths reserved in the host dispatch and answering `404` on every host, absent from navigation, sitemap, feeds and the API description; a test proves each reserved path is unreachable. Tests: no grant before paid and none from a callback alone; one grant per line under concurrent and replayed settlement; access links and note absent from storefront HTML, Storefront API, feeds, e-mails and logs; invalid links refused on save; reserved types refused; no outbound request to a link; expired and revoked grants show nothing; access note with markup rendered as text; store A cannot read or revoke store B's access items and grants. A redacted order has its grants revoked (C-G3). E2E at 320 px and desktop: digital-only purchase to the access link, mixed purchase, seller grant actions. Mutation checks: grant on order creation, show the link for a revoked grant, and include an access link in the product API response; a named test fails for each.
+
+### T-113 — Bank transfer to the seller's own account
+- Status: Planned
+- Primary requirement: PR-5
+- Constraints: ADR-0013 section 10 and decisions 14, 24; D-31; ADR-0005 (RLS, isolation registry); no provider call, no bank statement check; the buyer's proof upload is private and never changes the order by itself; the existing `manual_transfer` value keeps its meaning (provider channel)
+- Dependencies: T-104, T-107
+- Risk Level: R4
+- Allowed Paths: `packages/db/src/schema.ts` (`payment_method` value `bank_transfer`, order CHECKs), a new store bank-account table in the payments schema file, `packages/db/src/payments/**`, `packages/db/src/seller/commerce/{checkout,orders}.ts`, `packages/db/src/ops/jobs/notify.ts`, `apps/web/src/app/(seller)/seller/{payments,orders}/**`, `apps/web/src/app/(checkout)/**`, `apps/web/src/app/(public-services)/o/**` (proof upload and private download), `apps/web/src/lib/media.ts` (private store beside the public one), `packages/db/src/cleanup.ts` (proof retention), `.env.example` (private store path), new migration, isolation registry, tests and E2E specs, `docs/evidence/**`
+- Done when: a store lists up to five bank accounts (bank, number, holder) with `integrations.manage` and a fresh step-up, audited, store-scoped under FORCE RLS. The method is offered only when one account is listed and the store has it switched on; the server refuses it at submit otherwise. Confirmation page, order-status page and order e-mail show the accounts and the exact total. Stock is reserved and the order expires after the payment window. The buyer can upload up to three proof images on the signed order-status page (type checked by content, size cap, rate limited); the files are stored outside the public media directory, readable only through that page and by the store's finance role, served as an attachment with the sandbox policy, and deleted by the cleanup job 90 days after the order closes (Owner-configurable setting, D-33); uploads are limited by RL-PROOF-UPLOAD (doc 16). The seller sees the proof on the order, confirms or rejects it with a reason; a rejected proof allows a new upload. Only the seller's manual confirmation (finance capability, reason, append-only record linking the proof) makes the order paid, and it triggers the same post-payment effects as a provider status check, including digital grants (T-112) once that task exists. Tests: method absent and refused without an account; a direct submit with the method on a store that has none is refused; no path other than the confirmation sets paid, including an upload; the public media route cannot serve a proof; store A's finance role and another buyer's token cannot read it; a non-image or oversized file is refused; retention deletes the file and keeps the confirmation record; a second confirmation changes nothing; expiry releases stock; store A cannot read or change store B's accounts. E2E at 320 px and desktop: order by bank transfer, seller confirms, buyer sees paid. Mutation checks: offer the method without an account, mark paid without a confirmation record, and serve a proof from the public route; a named test fails for each.
+
+### T-114 — Tidy the repository and documentation structure before development resumes
+- Status: Partial (2026-11-15, documents only, uncommitted). Done: step 1 inventory and proposed layout written (`docs/reviews/2026-11-15-t114-structure-inventory.md`), waiting for owner approval; step 3 (`STATUS.md` states the current state only, older sections moved unchanged to `docs/archive/STATUS-history-2026-11-05.md`); step 4 as an open-task index at the top of this file, with task blocks left in place. Owner approved the moves on 2026-11-15. Step 2: 16 ADRs moved to `docs/adr/`, `BRIEF-M1.md` and `docs/mockups/` to `docs/archive/`, links rewritten in 20 files, `check-spec.py` reads `adr/*.md` too, `.pi/` ignored. Deviation from the proposal: `RUNBOOK.md`, `DEPLOY-COOLIFY.md` and `DEMO.md` stay in `docs/`, because code comments, the Dockerfile, CI and two applied migrations (`0007`, `0011`) cite those paths and neither application code nor an applied migration may change in this task. Step 5: `docs/README.md` and `AGENTS.md` layout updated; the M2 table is archived. Step 7: `check-spec.py` and `map:check` pass; a link scan over every Markdown file finds no broken link (one literal placeholder target named "link" in a 2026-11-14 review is not a real link). NOT done: step 6, the final search for the superseded model described as current, which needs the section bodies that each building task rewrites (T-101 remainder); `git status` also shows the documentation edits of T-101 and the new tasks, not renames only. Path mentions inside `BUILD-LOG.md`, `docs/tracks/`, `docs/research/`, `docs/reviews/` and `docs/archive/` were left as written, as history. Not committed
+- Primary requirement: PR-10
+- Constraints: owner instruction 2026-11-14 (finish the documents, then tidy folders and documents, then develop); documents and file moves only, no application code or behaviour change; no decision, requirement or task text changes meaning; IDs (PR, T, D, ADR numbers, OPEN ids) and ADR file names stay stable; history is kept (`git mv`, nothing deleted without owner approval); `~/.config/ai/policies/planning-artifacts.md` (no rival document)
+- Dependencies: T-101
+- Risk Level: R1
+- Allowed Paths: `docs/**`, `STATUS.md`, `BUILD-LOG.md`, `REVIEW.md`, `docs/archive/BRIEF-M1.md`, `AGENTS.md`, `docs/check-spec.py` and `scripts/check-system-map*.mjs` (path constants only), `.gitignore`
+- Findings (2026-11-14, read from disk): `docs/` holds 47 entries in one level, 16 ADR files beside the numbered specifications; `STATUS.md` (233 lines) carries the current checkpoint above older sections that contradict it ("What works on `main`" dated 2026-10-07, "Current outstanding work" 2026-11-04, an open-decisions paragraph that predates D-31); `docs/TASKS.md` is about 1,600 lines of done, superseded and planned tasks in one file; `docs/archive/BRIEF-M1.md` sits in the repository root; `docs/DEMO.md` is stale (precision review F-items); the "Parallel tracks (M2)" table in `AGENTS.md` uses file names that no longer exist; `.pi/` and `docs/evidence/ux/` are untracked.
+- Done when: (1) An inventory lists every file under `docs/` and every root document with one verdict each (keep, move, merge, archive) and the target layout; the owner approves it before any file moves. Proposed layout to confirm: `docs/adr/` for ADR-0001 to ADR-0016, numbered specifications 02 to 17 and the contracts (`TASKS.md`, `DECISIONS.md`, `README.md`, `openapi.yaml`) stay in `docs/`, operations documents (`RUNBOOK.md`, `DEPLOY-COOLIFY.md`, `DEMO.md`) in `docs/ops/`, dated material (`reviews/`, `research/`, `tracks/`, `docs/archive/BRIEF-M1.md`, historical status sections) under `docs/archive/` or their existing dated folders. (2) Files are moved with `git mv` and every link, `AGENTS.md` path and check-script constant is updated in the same change. (3) `STATUS.md` states only the current state and the next task; older sections move to the archive unchanged. (4) `docs/TASKS.md` opens with an index of open tasks in work order; done and superseded tasks keep their IDs and text and are grouped after it, or moved to one archive file linked from the index, as the owner chooses in step 1. (5) `docs/README.md` maps the final layout; `AGENTS.md` "Layout" and "Source of truth" match it and the M2 table is marked or moved as history. (6) The T-101 search check is repeated: no document outside the archive describes the superseded money, domain, affiliate or file-upload model as current. (7) `python3 docs/check-spec.py`, `pnpm map:check` and a repository-wide broken-link search pass; `git status` shows renames and documentation edits only. Evidence in `BUILD-LOG.md`.
+
+### T-115 — Mengantar account lock, dedicated-account check and parcel sync
+- Status: Planned
+- Primary requirement: PR-5
+- Constraints: ADR-0013 section 11 (decisions 40 to 45) and decisions 30, 31; C-P1; official Mengantar documentation is the contract (skill `mengantar-api`), read again on the production and sandbox hosts before any design detail is fixed; no live or sandbox call without owner approval and a `secrets-env` test key; ADR-0005 (RLS, isolation registry); the Webhook Secret is sealed and never logged; RL-MENGANTAR-WH and RL-TRACK-REFRESH (doc 16, D-33)
+- Dependencies: T-105
+- Risk Level: R4
+- Allowed Paths: `packages/db/src/shipping/**`, `packages/db/src/ops/jobs/**` (scheduled read), `packages/db/src/seller/commerce/orders.ts` (state effects only), `packages/db/src/affiliate/**` (hold and void triggers), the Mengantar webhook route under `apps/web/src/app/(public-services)/api/`, `apps/web/src/app/(seller)/seller/{shipping,orders}/**`, `apps/web/src/app/(public-services)/o/**` (tracking display), new migration, isolation registry, ARCH-5 rows, doc 16 rate-limit register, tests and E2E specs, `docs/evidence/**`
+- Done when: no provider other than Mengantar can be connected for shipping by any seller or operator path. The connection check refuses an account that already holds orders and records the seller's dedicated-account confirmation; a parcel in the account that Bukalaris did not create is listed as foreign, not imported, and marks the store's sync as not exact. Every parcel stores Mengantar's status history; the state mapping of decision 42 is one table with a default branch that keeps an unknown category raw. The webhook route resolves the store, verifies signature, timestamp and environment, stores the event and only enqueues a tracking read; the read on the store's key is the single writer of parcel state. A scheduled read covers every non-final parcel with a fair order across stores and survives a paused webhook. State effects follow decision 44. Seller Admin shows Mengantar's balance and invoices read-only with the read time, and per-parcel money figures only for fields the official documentation exposes (the task records which ones exist; none is invented). Tests: forged, stale, replayed, out-of-order and sandbox-marked webhooks change nothing by themselves; a webhook for store A cannot move store B's parcel; missed webhooks are repaired by the scheduled read; each state of decision 42 including pickup failed, return in progress, returned, cancelled and both `CANCELED` and `CANCELLED` spellings; unknown category stays raw; a non-empty account is refused; a foreign parcel is flagged and not imported; the Webhook Secret never appears in an error or log. An opt-in sandbox run (create, simulate `ON DELIVERY`, `DELIVERED`, `RTS`) is specified and runs only with owner approval. Mutation checks: let the webhook write state directly, accept an unsigned webhook, and map an unknown category to delivered; a named test fails for each.
+
+### T-116 — Seller terms, notices and privacy statements for the seller-owned model
+- Status: Planned (added 2026-11-15 from the decision-coverage check; wording needs a privacy or legal adviser before production)
+- Primary requirement: PR-27
+- Constraints: ADR-0013 section 8 (financial role, shipping money) and its D-33 table; ADR-0015 decision 8; ADR-0016 decision 23; D-33 item 3 (working position, not a legal conclusion; Q-11 stays open); 13-COMPLIANCE-PRIVACY; no statement promises custody, guarantee or reconciliation that Bukalaris does not perform; texts are Indonesian UI copy, rendered as text
+- Dependencies: T-104, T-107
+- Risk Level: R3
+- Allowed Paths: a seller-terms module and schema file under `packages/db/src/platform/` (versioned text and acceptance record), `apps/web/src/app/(seller)/seller/{settings,privacy,payments,shipping}/**` (notices only), `apps/web/src/app/(checkout)/**` and `(public-services)/o/**` (payee notice only), new migration, isolation registry, ARCH-5 rows, `docs/13-COMPLIANCE-PRIVACY.md`, `docs/17-UX-FLOWS-SCREEN-CONTRACTS.md`, tests and E2E specs, `docs/evidence/**`
+- Done when: one versioned seller-terms text exists and a store's owner accepts it before a provider key or bank account can be saved; the acceptance stores version, user and time and is append-only. The text states: buyer payments and COD cash go to the seller's own accounts and never pass through Bukalaris; Bukalaris keeps a written record of platform transactions and reconciles no external account; shipping money is settled between the seller and Mengantar; the seller is responsible for its provider accounts and for buyer data held there; a redaction in Bukalaris does not reach a provider's copy; the seller holds the right to sell any digital content it lists. The seller privacy screen (SC-24) shows the provider-copy notice beside the redaction action. Checkout and the order-status page name the store as the party receiving the payment. A new terms version asks for acceptance again and blocks nothing already running. The adviser review is recorded (name, date, version) before the production switch of T-105 or T-106 is turned on; without it the texts stay marked as draft. Tests: saving a key or bank account without acceptance is refused on the server; store A's acceptance does not satisfy store B; an acceptance cannot be edited or deleted; the notices render at 320 px and desktop. Mutation check: allow a key save without acceptance; a named test fails.
+
+### T-117 — Seller setup guide and readiness checklist for provider accounts
+- Status: Planned (added 2026-11-15 from the decision-coverage check)
+- Primary requirement: PR-27
+- Constraints: ADR-0013 decisions 12 to 14, 36, 41 and 43; D-31 owner answer 4 (the AutoLaris payment-only profile is requested by hand per seller; the seller enters the received key); ADR-0016 decision 21; the checklist reads the readiness functions of T-104 and never keeps its own state; AGENTS.md UI rules; no step shows or asks for a key outside the T-104 forms
+- Dependencies: T-104, T-105, T-106, T-113, T-115
+- Risk Level: R2
+- Allowed Paths: `apps/web/src/app/(seller)/seller/{page.tsx,_dashboard,settings,shipping,payments}/**`, `apps/web/src/components/**`, `docs/RUNBOOK.md` (operator procedure), `docs/17-UX-FLOWS-SCREEN-CONTRACTS.md`, ARCH-5 rows, E2E specs, `docs/evidence/**`
+- Done when: Seller Admin shows one checklist with the state of each step taken from the readiness functions: open a new Mengantar account used only for this store, enter its key, register the pickup address, set the Bukalaris webhook address in Mengantar and enter the Webhook Secret; ask Bukalaris for the AutoLaris payment-only profile and enter the received key; list a bank account for bank transfer; accept the seller terms (T-116). Each step links to its screen and states what stays blocked until it is done (physical products, QRIS/VA, COD, digital products). `docs/RUNBOOK.md` gains the operator procedure for an AutoLaris profile request: who asks AutoLaris, what is sent, how the key reaches the seller without passing through chat or e-mail in clear text, and how the request is recorded. Tests: the checklist equals the readiness functions for every combination in a table test; a store with no step done can activate nothing. E2E at 320 px and desktop from an empty store to the first activatable product. Rendered evidence under `docs/evidence/`.
+
+### T-118 — Review removal of the unused platform-managed money and Partner code (deferred)
+- Status: Planned (Deferred; D-31 OPEN-P1 and ADR-0013 decision 4: reviewed after the pilot; do not start before the entry criteria hold)
+- Primary requirement: PR-23
+- Constraints: ADR-0006 and ADR-0007 stay as records; append-only migrations (no table is dropped without its own expand-contract plan and owner approval); subscription billing on the platform account (T-50) is not part of the removal
+- Dependencies: T-107
+- Risk Level: R4
+- Entry criteria: the pilot on `seller_owned` accounts has run; the owner decides whether a platform-held mode will ever return.
+- Done when: an inventory lists every module, table, route, job and Owner console page that only serves `partner_managed`, `platform_master`, the seller ledger, payouts, COD reconciliation and platform refunds (T-37, T-48), each with a verdict (keep, remove, keep dormant) and its callers. The owner decides per group. Only then are removal tasks created, one per bounded context, each with its own migration plan. This task removes nothing itself.
+
+### T-119 — Member area: buyer member dashboard and seller membership management (deferred)
+- Status: Planned (Deferred; ADR-0016 section 7; not scheduled; do not start before the entry criteria hold; specification only)
+- Primary requirement: PR-32
+- Constraints: ADR-0016 decisions 25 to 28; direction of D-31 OPEN-G7 (existing buyer portal with a per-store view and the platform buyer identity, ADR-0010) and OPEN-G8 (fixed provider allow-list, never a frame address typed by a seller); grants stay the single source of access; tenant isolation per store
+- Dependencies: T-112, T-58
+- Risk Level: R4
+- Entry criteria: the owner schedules the member area; a new ADR decides where it lives, who signs in and which video and webinar providers may be embedded; the content-security policy change for frames is reviewed.
+- Done when: defined by that ADR. Until then the reserved folders and paths of T-112 stay empty and answer `404` on every host, and the reserved access-item types `video_embed` and `live_session` stay refused.
+
+### T-120 — Affiliate payment complaints with uploaded proof (deferred)
+- Status: Planned (Deferred; D-32 item 2, owner 2026-11-15: a transaction proof is uploaded only later, in a complaint or ticket about a disputed payment; not designed)
+- Primary requirement: PR-28
+- Constraints: ADR-0015 decisions 5 and 6; the payment record itself stays typed bank data without a file; any upload reuses the private store and rules of ADR-0013 decision 39; Bukalaris judges no dispute and moves no money
+- Dependencies: T-109, T-110, T-113
+- Risk Level: R3
+- Entry criteria: the seller-run programme has run in a pilot and disputes occur; the owner decides who handles a complaint (seller and affiliate only, or with the Owner console) and how long proofs are kept.
+- Done when: defined after the entry criteria. Until then a disputed payment stays a state on the shared statement (T-109) with no file.
+
+### T-121 — Affiliate earnings statement and affiliate tax identity (deferred)
+- Status: Planned (Deferred; C-A5, D-32: not in the first release; the affiliate part of PR-31 waits)
+- Primary requirement: PR-31
+- Constraints: ADR-0015 decision 9 (Bukalaris pays no commission and withholds nothing); ADR-0012; not tax advice; no tax identity is collected from an affiliate before this task is un-deferred
+- Dependencies: T-109, T-71
+- Risk Level: R3
+- Entry criteria: a tax adviser states whether Bukalaris, as a record keeper that pays nothing, should issue any statement to an affiliate, and what the seller as payer needs; the owner accepts the answer.
+- Done when: defined after the entry criteria.
+

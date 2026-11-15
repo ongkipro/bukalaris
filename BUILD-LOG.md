@@ -823,3 +823,20 @@ dummy content.
 ## Session checkpoint (2026-11-05, owner paused)
 
 - main = origin/main = daef65b (T-80..T-84, T-95..T-99 pushed). T-85 GREEN locally at 141e030 (b89148283). GitHub CI 42009751259 on daef65b: audit PASS, DB 76/76, build PASS, cancelled at E2E 206/263 by timeout-minutes 30; content.spec:44 and feeds.spec:48 failed at mobile-320 only, cause unknown (no error text: job cancelled before the reporter summary and artifact upload). Next: T-100 (docs/TASKS.md). Owner decisions open: Mengantar Partner Secret rotation, sandbox path, public visibility, evidence PNGs, worktree pruning. Local servers started by this session: none left running.
+
+## T-114 structure tidy and decision coverage (2026-11-15, documents only, not committed)
+
+- Owner approved the proposed layout (`docs/reviews/2026-11-15-t114-structure-inventory.md`). Moved with `git mv`: ADR-0001..0012 to `docs/adr/`, `BRIEF-M1.md` and `docs/mockups/` to `docs/archive/`; ADR-0013..0016 (untracked) moved with `mv`. `RUNBOOK.md`, `DEPLOY-COOLIFY.md`, `DEMO.md` kept in `docs/`: their paths are cited in `apps/web/Dockerfile`, `.github/workflows/ci.yml`, `scripts/db-backup.sh`, code comments and migrations 0007 and 0011.
+- Links rewritten in 20 Markdown files by resolving each relative link against the old location; `docs/check-spec.py` now also reads `adr/*.md`; `.gitignore` gains `.pi/`; `AGENTS.md` layout row updated and the M2 track table moved to `docs/archive/AGENTS-m2-tracks.md`; `STATUS.md` reduced to the current state with history in `docs/archive/STATUS-history-2026-11-05.md`.
+- Decisions: D-33 recorded (AutoLaris without IP allow-list per owner statement, proof retention 90 days, privacy working position, starting rate limits in doc 16). Tasks: open-task index added, 23 older open tasks given a direction note, T-116 to T-121 added.
+- Checks run: `python3 docs/check-spec.py` PASS (50 paths, 63 operations, file links incl. `adr/`); `pnpm map:check` ok (103 route files, 125 rows); link scan over every Markdown file: 0 broken (one literal placeholder target named "link" in a dated review). No application code, test or migration changed; lint, typecheck, tests and E2E were not run.
+
+## T-100 CI timeout and three E2E failures (2026-11-15, local only, uncommitted)
+
+- Where: branch `task/t100-ci`, worktree `../bukalaris-wt/t100-ci`, from `938138b`. Files: `.github/workflows/ci.yml`, `apps/web/src/app/globals.css`, `apps/web/src/app/(seller)/seller/marketing/page.tsx`, `apps/web/e2e/catalog.spec.ts`.
+- Evidence read: CI runs 42020996371 (cancelled at 30 minutes, test 190 of 263) and 41992056535 (E2E finished, error text printed).
+- Findings: (a) the job needs about 40 minutes, the limit was 30; (b) `content.spec.ts:44` and `feeds.spec.ts:48` overflow by 1 px and 4 px at 320 px because the runner's sans-serif is wider than the local font; (c) `catalog.spec.ts:6` recorded the sign-in 429 that the login helper tolerates.
+- Changes: timeout 60 minutes and trace upload also on a cancelled job; `overflow-wrap: anywhere` on `.prose-lite`; `flex-wrap` on the marketing card header; sign in before attaching the console listeners.
+- Commands (CI variables, no `.env`, databases `bukalaris_t100*` on the compose container): `pnpm build`; `playwright test --project=mobile-320 --project=desktop content.spec.ts:44 feeds.spec.ts:48` with a temporary forced `"DejaVu Sans"`: 2 failed before the fix (overflow 1 and 4), 4 passed after; `pnpm verify`: lint, typecheck, DB 1429/1429, build, E2E 260 passed / 2 skipped / 1 failed (`catalog.spec.ts:6`, 429); forced-limit check of `catalog.spec.ts:6`: old order fails, new order passes; `pnpm lint` and `pnpm typecheck` pass after the last change.
+- Open: the full suite was not re-run after the catalog fix; no CI run yet (needs commit and push by owner decision); the `image` job has never run on GitHub. `chromium_headless_shell-1243` was downloaded to the user Playwright cache for this run.
+- Later on 2026-11-15, on the owner's instruction: committed as `457662f`, pushed as branch `task/t100-ci`, pull request #1; CI run 43709386002 started. Result not yet recorded.

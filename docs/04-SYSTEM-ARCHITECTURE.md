@@ -18,6 +18,10 @@ platform, not a marketplace (D-12). `apps/bos`, `apps/app`, `apps/storefront`,
 rendering recommendation are superseded; the three-role database isolation
 (ADR-0005) is implemented. ARCH-2 still holds.
 
+> **Direction change (D-28, 2026-11-14, ADR-0014):** platform surfaces stay on `bukalaris.com` (`PLATFORM_ROOT_DOMAIN`); native storefronts move to `<store-slug>.bukalaris.id` (`STORE_ROOT_DOMAIN`), and a seller custom domain is a CNAME to `cname.bukalaris.id`. Cart, checkout, confirmation and order status are served on the store host; `checkout.bukalaris.com` remains for the hand-off from independent storefronts. Host statements in this document that put storefronts under `bukalaris.com` describe the earlier single-root model. Not implemented (T-102, T-103).
+
+> **Direction change (D-27, 2026-11-14, ADR-0013):** the commerce core calls Mengantar and AutoLaris with each store's own sealed key; buyer money and COD cash go to the seller's own provider accounts and Bukalaris holds no order money. The platform's own AutoLaris account is used for subscription invoices only. Money-flow statements in this document that describe a seller ledger, payouts, Partner accounts, margin or cashback describe the earlier model, whose code stays, unused (D-31). Not implemented (T-104 to T-107).
+
 ```mermaid
 flowchart TB
   SA[Owner console] --> Core[Commerce Core]
@@ -42,6 +46,12 @@ flowchart TB
 | Jobs/webhooks | Provider/queue event | Authenticate before parse/side effect; deduplicate durable event/reference |
 | Admin operations | Operator identity and declared reason | Confirmation where risk warrants; immutable audit record |
 
+> **Direction change (D-27, 2026-11-14, ADR-0013 decisions 5 to 10):** the "Provider calls" boundary uses per-store credentials. A store's Mengantar key is sealed under the `shipping_credentials` keyring and its AutoLaris key under a new `payment_credentials` keyring (AES-256-GCM, `key_id` versioning); a sealed key is opened only inside the server-side provider client and never reaches a page, DTO, log line or export. The Mengantar key travels in the URL path, so the client strips the raw and URL-encoded key from every error, log entry and trace. The provider origin comes from the account's `environment` (`sandbox` or `production`) and server configuration, never from seller input. Not implemented (T-104 to T-107).
+
+> **Direction change (D-28, 2026-11-14, ADR-0014 decision 2):** "Storefront host resolution" works on two roots: exact platform hosts on the platform root first, then `<label>.<STORE_ROOT_DOMAIN>`, then a verified custom domain; anything else fails closed (D-25), and `cname.<STORE_ROOT_DOMAIN>` is never a store. Not implemented (T-102, T-103).
+
+> **Direction change (D-30, 2026-11-14, ADR-0016 decisions 14 and 15):** access links to seller-hosted content are untrusted seller input: `https` only, no credentials, never requested by the server, never present in storefront HTML, the Storefront API, feeds, e-mails or logs, and read only through a valid grant. Not implemented (T-111, T-112).
+
 ## Deliberate boundaries
 
 - A storefront has no ability to query cross-tenant administration.
@@ -51,6 +61,8 @@ flowchart TB
   product, payment, or settlement obligation.
 - A future connector ingests normalized records; it does not receive database
   superuser/network access.
+
+> **Direction change (D-27, 2026-11-14, ADR-0013):** a seller still cannot configure platform credentials, but the store owner now configures the store's own Mengantar and AutoLaris keys (`integrations.manage` plus a fresh step-up); store A cannot read, use or replace store B's key. Not implemented (T-104 to T-107).
 
 ## Stack and application boundaries
 
@@ -259,6 +271,8 @@ and form contract enforcement before claiming this architecture implemented.
   `(storefront)`, `(checkout)`, `(identity)`, `(public-services)`) and
   `packages/db/src` organized into bounded contexts (`platform/`,
   `seller/commerce/`, `storefront/`, `shipping/`, `payments/`, `ops/`, `ops/jobs/`).
+
+> **Direction change (D-27 to D-31, 2026-11-14, ADR-0013 to ADR-0016):** the ARCH-5 tables below describe the code as it exists and no code has changed, so no row was added, removed or edited for these decisions. The rows for the seller ledger and payouts (SA-08, SA-17, SA-26, SA-53, SC-25, JOB-24, JOB-33, JOB-36), Partner accounts and margin (SA-07, SC-22, JOB-08), checkout and order status (SF-07, SF-08, SF-11), bookings (SC-13, JOB-07) and the payment jobs (HTTP-17, JOB-25) describe the earlier platform-managed, single-root, physical-only model. Each task from T-102 to T-113 edits or adds its own rows together with its code. Not implemented (T-102 to T-113).
 
 ### Map conventions
 
@@ -471,7 +485,7 @@ source code or local filesystem paths are exposed in the public storefront.
 - Status: Proposed — owner direction recorded on 2026-10-27; this is not part
   of the implemented ARCH-5 route rows above.
 - Owner: Bukalaris architecture owner
-- Source: PR-7, PR-18, PR-27, PR-28, PR-29; [ADR-0008](ADR-0008-platform-architecture-and-routing.md);
+- Source: PR-7, PR-18, PR-27, PR-28, PR-29; [ADR-0008](adr/ADR-0008-platform-architecture-and-routing.md);
   ADR-0010; TD-7; DOM-1 through DOM-6.
 - Statement: Keep one Next.js application, `apps/web`, with route groups per
   surface and host dispatch in `src/proxy.ts`. This is the current target,
@@ -483,6 +497,12 @@ source code or local filesystem paths are exposed in the public storefront.
   inventory, unchanged URLs/layout/auth behavior and green implementation gates.
   New affiliate/subscription/buyer pages get actual locators only in their feature task.
 - Constraints: D-2, D-3, D-9, ADR-0005, TD-5, TD-7, BILL-3, IAM-3, PRIV-2.
+
+> **Direction change (D-28, 2026-11-14, ADR-0014):** in the table below, the Seller Storefront host is `<store-slug>.bukalaris.id` or a verified custom domain (a CNAME to `cname.bukalaris.id`), and that host also serves the store's cart, `/checkout`, confirmation and `/o/<token>`. The Checkout row (`checkout.bukalaris.com`) applies only to the hosted hand-off from independent storefronts. `bukalaris.id` and `www.bukalaris.id` redirect to `https://bukalaris.com` for `GET`/`HEAD` and hold no session surface. The other platform hosts are unchanged. The rows below describe the single-root model. Not implemented (T-102, T-103).
+
+> **Direction change (D-27, 2026-11-14, ADR-0013):** the Owner console row's "Partner Mengantar shipping" administration is not used for `seller_owned` stores; Seller Admin gains the store's own provider accounts, filters and, under D-31, bank accounts. Not implemented (T-104 to T-107; bank accounts T-113).
+
+> **Direction change (D-29, 2026-11-14, ADR-0015):** the Affiliate portal row is delivered by T-110 (memberships, links per store, shared statement), not T-54 in its earlier scope; Seller Admin gains membership approval and payment records. The Affiliate Storefront row is deferred: T-55 is not scheduled and its host is not decided (D-31). Not implemented (T-108 to T-110).
 
 | Planned surface | Proposed host / internal route | Delivery boundary |
 |---|---|---|
@@ -523,6 +543,10 @@ not a seller-RLS bypass. Product eligibility settings remain store-scoped.
 See ADR-0008 for the two-chain diagram, target route/context trees, three-role
 access boundary and move-only migration plan.
 
+> **Direction change (D-28, 2026-11-14, ADR-0014 decisions 3, 5 and 6):** the reserved labels above (plus `cname`, `www`, `api`, `mail`, `status`, `docs`, `assets`, `cdn`) are unclaimable as store slugs on the store root `bukalaris.id`. Sessions stay host-only; no cookie is set on `.bukalaris.id` or `.bukalaris.com`. `/checkout` is served on the store host for that store's own cart, in addition to the checkout host for hand-offs. Not implemented (T-102, T-103).
+
+> **Direction change (D-27 and D-29, 2026-11-14, ADR-0013, ADR-0015):** the build order above is replaced in TASKS.md by T-101 to T-113. T-48, T-49 and T-37 describe platform-managed money that `seller_owned` stores do not use; T-53 is superseded, T-54 is re-scoped to T-110 and T-55 is deferred. Affiliate identity, links, clicks and attribution stay platform data; memberships, commission obligations and payment records are store-scoped, and no affiliate wallet exists. Not implemented (T-104 to T-110).
+
 ### Proposed page register — stable ARCH-5 IDs
 
 All rows here are **Planned**, not executable route or file evidence. Paths and
@@ -532,6 +556,8 @@ implementation is asserted by a target locator. Before a row becomes Implemented
 replace intended locators with real files/exports/tests and a checked revision.
 Review findings and implementation tasks cite these IDs rather than create a
 second screen inventory.
+
+> **Direction change (D-27 to D-30, 2026-11-14, ADR-0013 to ADR-0016):** no row of this register was edited. Under ADR-0015 the planned rows SA-13 (affiliate payouts), AF-04 (wallet) and AF-05 (payouts) have no target, SA-11, SA-12, SC-30 and AF-01 to AF-03, AF-06, AF-09 and AF-11 are re-scoped to store memberships, the shared statement and payment records, and AF-07 and AF-08 (affiliate storefront) are deferred. Under ADR-0013 the planned money rows SA-27 and HTTP-31 have no target for `seller_owned` stores. New screens (seller provider accounts, bank accounts, affiliate membership and payment records, Owner console arrears queue, digital takedown) receive their ids and rows in T-104, T-110, T-112 and T-113. Not implemented (T-104 to T-113).
 
 The former Planned `BA-01..BA-03` and `AF-01` summary rows are relocated here,
 not allocated again. Buyer route intent changes from `/account/{orders,addresses,profile}`
@@ -614,9 +640,15 @@ and ship only with T-69. The `logs` host label is reserved for the public Update
 Log, which is not the internal Log System (SA-05); the host dispatch is owned by
 ADR-0008 and Domain Routing.
 
+> **Direction change (D-27, 2026-11-14, ADR-0013):** the planned extensions named above no longer apply to `seller_owned` stores: SA-07 and SC-22 do not gain Partner provisioning (SC-22 keeps the pickup area and address; the store's own accounts get new screens in T-104), and JOB-07 is not reworked for a platform ledger. Booking becomes a seller action on the store's own key, one at a time per store, with an unknown outcome blocking rebooking (T-105). Not implemented (T-104 to T-107).
+
+> **Direction change (D-28, 2026-11-14, ADR-0014 decisions 5 and 7):** `/o/[token]` and `/checkout` are served on the store host for that store, and feed links are built on the store's primary host, which replaces the example above (`/o/[token]` on the checkout host, `/feeds/…` on the Seller Admin host). The amended host matrix is 08 DOM-5. Not implemented (T-102, T-103).
+
 ### Proposed handler and job register
 
 These remaining entries are future contracts, not existing route coverage. Implemented registrations and partial/stub boundaries have moved into ARCH-5 with actual files and evidence locators. Keep each stable ID in exactly one register. Future rows never cover code in `map:check`.
+
+> **Direction change (D-27 and D-29, 2026-11-14, ADR-0013, ADR-0015):** no row below was edited. JOB-26 (`affiliate.commission.release` into an affiliate ledger) is replaced by a scheduled job that moves a commission obligation to `payable` after delivery plus `affiliate_hold_days` (T-108); its row is written with that task. HTTP-26 (Mengantar webhook) is specified for platform accounts; ADR-0013 does not say how a `seller_owned` account delivers webhooks, which is an open question. Not implemented (T-104 to T-110).
 
 | ID | Proposed entry | Target owner / data | Authorization and required proof | Task / source | Status |
 |---|---|---|---|---|---|
@@ -638,6 +670,12 @@ These remaining entries are future contracts, not existing route coverage. Imple
 | JOB-26 | `affiliate.commission.release` in JOB-01 | `affiliate/` handler; `affiliate_attribution`, `affiliate_ledger_entry` | Platform worker only; for any opted-in order (prepaid or COD) that is delivered AND whose seller sale is released (by JOB-24; reconciled where applicable), then once `eligible_at` (that instant plus the snapshotted `affiliate_hold_days`, default 3 days) has passed, inserts one available `commission_credit` and moves the attribution to credited atomically; duplicate jobs or deliveries cannot move it twice; never releases at shipped, in transit or before the hold; takes the order row then affiliate lock; enqueued per period by JOB-21 | T-53; ADR-0009, BILL-8 | Planned |
 
 ## ARCH-6 — Headless modular application and future seams
+
+> **Direction change (D-27, 2026-11-14, ADR-0013):** in the module table below, "Providers" also owns the per-store provider accounts (`store_shipping_account` kind `seller_owned`, `store_payment_account`) with sealed keys under the `shipping_credentials` and `payment_credentials` keyrings; adapters take the store's key per call. No seller ledger, payout or reconciliation module is on the path of a `seller_owned` order; `order_financials` is still written once per order. Not implemented (T-104 to T-107).
+
+> **Direction change (D-30, 2026-11-14, ADR-0016):** "Catalog" gains the product kind and access items, and "Checkout and orders" gains digital grants (one per digital order line, created in the settling transaction, read through one function). The platform stores no file. Not implemented (T-111, T-112).
+
+> **Direction change (D-29, 2026-11-14, ADR-0015):** the sentence below against commission engines and wallets holds for wallets: the affiliate module records attributions, seller-owed commission obligations and seller-recorded payments, and moves no money. Not implemented (T-108 to T-110).
 
 - Status: Proposed
 - Owner: Bukalaris architecture owner
@@ -692,6 +730,8 @@ Better Auth 1.7.7); RLS implemented (ADR-0005); jobs via a PostgreSQL outbox
 editor candidate because Puck requires React (T-42 landing pages v1 does not use it).
 
 ## ARCH-7 — External headless channel and hosted checkout
+
+> **Direction change (D-28, 2026-11-14, ADR-0014 decision 5):** this section now covers external (independent) storefronts only. The acceptance "all storefront types hand off the same canonical server cart to hosted checkout" is superseded for native themes, the LP and verified custom domains, which run checkout on the store host with the host-only cart cookie. The hosted checkout origin for hand-offs is `checkout.bukalaris.com` on the platform root; the checkout layout stays platform-owned on both paths. In the diagram below, the "Native Theme or LP" path does not pass through "Checkout Handoff". Not implemented (T-102, T-103).
 
 - Status: Proposed
 - Owner: Bukalaris architecture owner
@@ -798,6 +838,8 @@ the OpenAPI `operationId`s are HTTP contract identifiers; the TypeScript symbols
 are the functions that exist today in `packages/db/src/*.ts`. Where the two
 differ the page is served by a Next.js server component/action, not by the
 proposed HTTP route (09-API-SPECIFICATION "Implemented versus proposed").
+
+> **Direction change (D-27 to D-30, 2026-11-14, ADR-0013 to ADR-0016):** this table lists functions that exist in the code and was not edited. The margin functions of the SA-07 row and the checkout row (SF-07 / SF-08 / HTTP-12, served only on the checkout origin) describe the earlier model; T-102 to T-113 update the rows they change. Not implemented (T-102 to T-113).
 
 | Page / job | Application entry on `main` | Contract operations (`openapi.yaml`) | Implemented functions (`packages/db/src/`) | Core owner / data | Permission and proof | Task |
 |---|---|---|---|---|---|---|

@@ -13,3 +13,5 @@ test-results/
 playwright-report/
 # runtime data: database dumps (scripts/db-backup.sh), uploaded media (MEDIA_DIR)
 var/
+# local agent tool folder
+.pi/

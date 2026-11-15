@@ -29,6 +29,12 @@
 
 ## TD-3 — Provider orchestration boundary
 
+> **Direction change (D-27, 2026-11-14, ADR-0013):** the two server-only adapters stay, but each call runs on the store's own account: quotes, pickup-address registration, booking and tracking on the store's Mengantar key, payment instructions and status checks on the store's AutoLaris key. Keys are sealed with AES-256-GCM under two purpose-separated keyrings with `key_id` versioning, the existing `shipping_credentials` (Mengantar) and a new `payment_credentials` (AutoLaris), and are opened only inside the provider client. Each account has an `environment` (`sandbox` or `production`) that server configuration maps to a fixed provider origin; no URL is built from stored or submitted text. The platform's own AutoLaris account is used for subscription invoices only. The text below describes the earlier model. Not implemented (T-104 to T-107).
+
+> **Direction change (D-27, 2026-11-14, ADR-0013 sections 5, 6 and 8):** there is no platform shipping margin: the buyer pays the provider's public rate, and submit re-quotes and refuses a stale price. Who bears the payment fee and the COD fee is a store setting (`payment_fee_bearer`, `cod_fee_bearer`) frozen in `order_financials`, replacing the fixed `order_payable + admin_fee` bill. A callback is evidence only; an order becomes paid when a status check on the store's key returns the paid code and an allow-listed status word, or by the seller's manual confirmation. Seller Admin names Mengantar and AutoLaris and buyer screens show the courier and payment channel by their own names, so the white-label rule and its source check below change with T-107. Not implemented (T-104 to T-107).
+
+> **Direction change (D-31, 2026-11-14, ADR-0013 section 10):** bank transfer to the seller's own bank account (`bank_transfer`) is a prepaid method that uses no adapter and no platform account; the order becomes paid only by the seller's manual confirmation. Not implemented (T-113).
+
 - Status: Proposed
 - Owner: Bukalaris integration owner
 - Decision: Create a server-only shipping adapter (Mengantar aggregator) and
@@ -77,6 +83,12 @@
 
 ## Critical flow
 
+> **Direction change (D-27, 2026-11-14, ADR-0013):** the estimate and the payment instruction in the diagram below run on the store's own Mengantar and AutoLaris keys, and the delivery and payment options come from one eligibility function that is called again at submit. Reconciliation is a status check on the store's key (paid code plus allow-listed status word); a callback alone settles nothing. Money settles to the seller's own provider accounts and no seller ledger entry is written. Not implemented (T-104 to T-107).
+
+> **Direction change (D-28, 2026-11-14, ADR-0014):** "Storefront" in the diagram is the store host (`<store-slug>.bukalaris.id` or a verified custom domain), which also serves checkout, confirmation and order status. Not implemented (T-102, T-103).
+
+> **Direction change (D-30, 2026-11-14, ADR-0016):** an order with no physical line skips the Mengantar estimate (no address, courier or shipping fee) and is prepaid; a mixed order is quoted from its physical lines only. Access to digital content is granted in the transaction that settles the order. Not implemented (T-111, T-112).
+
 ```mermaid
 sequenceDiagram
   participant B as Buyer
@@ -98,6 +110,8 @@ sequenceDiagram
 ```
 
 ## Failure policy
+
+> **Direction change (D-27, 2026-11-14, ADR-0013 decisions 16, 21, 25, 27 and 30):** the table below is tightened as follows. Mengantar estimate: a changed price or a courier no longer offered is refused at submit with the new options. AutoLaris creation: a provider error leaves the order pending with a retry for the buyer; a retry after failure or expiry creates a new attempt with its own reference and keeps the old one, so a late payment of the old instruction still settles, and a second settled attempt on one order raises a payment anomaly. Shipment creation: booking is a seller action; a timeout, dropped connection, provider 5xx or unreadable success is an unknown outcome that blocks every further booking attempt until a person releases the order or links the shipment the provider accepted. Not implemented (T-104 to T-107).
 
 | Boundary | Expected rejection | Unknown/timeout | Forbidden shortcut |
 |---|---|---|---|
@@ -176,6 +190,8 @@ To prevent the Landing Page Builder (`T-11`, building on `T-42`'s typed blocks a
 
 ## Headless and checkout integration correction
 
+> **Direction change (D-28, 2026-11-14, ADR-0014 decision 5):** native themes and the LP no longer hand off: their cart, `/checkout`, confirmation and order status are served on the store host with the host-only cart cookie. Only external storefronts use the one-use hand-off to the hosted checkout on `checkout.bukalaris.com`. The checkout layout stays platform-owned on both paths. The text below describes the earlier model. Not implemented (T-102, T-103).
+
 Source: PR-16 and ARCH-7. Native themes, LP and external storefronts share
 catalog/cart services, then hand off to the platform-owned /checkout surface.
 Earlier references to a storefront purchase flow describe the buyer journey,
@@ -242,11 +258,17 @@ and [tools](https://modelcontextprotocol.io/specification/2025-06-18/server/tool
 
 ## TD-7 — Surface and package structure
 
+> **Direction change (D-28, 2026-11-14, ADR-0014):** the single root setting becomes two: `PLATFORM_ROOT_DOMAIN` (platform surfaces on `bukalaris.com`) and `STORE_ROOT_DOMAIN` (native storefronts `<store-slug>.bukalaris.id` and the custom-domain CNAME target `cname.bukalaris.id`). `src/proxy.ts` matches exact platform hosts on the platform root first, then `<label>.<STORE_ROOT_DOMAIN>`, then a verified custom domain, and fails closed otherwise; local development keeps one root. The store host serves its own `/checkout`, confirmation and `/o/<token>`; the reserved labels apply to the store root as well. Absolute links pick their origin by link type (store links on the store's primary host, admin, portal and account links on the platform host), never from the request host. The text below describes the single-root model. Not implemented (T-102, T-103).
+
+> **Direction change (D-27, 2026-11-14, ADR-0013):** within the same contexts, `shipping/` gains the `seller_owned` account kind and `payments/` a `store_payment_account`, each store-scoped with a sealed key (`shipping_credentials` and `payment_credentials` keyrings). The `ledger/` code and the Partner client stay in the repository, unused for `seller_owned` stores (D-31). Not implemented (T-104 to T-107).
+
+> **Direction change (D-29, 2026-11-14, ADR-0015):** the "platform-owned affiliate data" decision below is narrowed: identity, links, codes, clicks and attribution stay platform records, while memberships, commission obligations and payment records are store-scoped and no platform wallet or payout exists. The affiliate-storefront route group and cross-store discovery (PR-29) are deferred (T-55 not scheduled); ADR-0015 does not say what reads the delivered `affiliate_catalog` projection (T-52) in the meantime. T-53 is superseded and T-54 is re-scoped to T-110. Not implemented (T-108 to T-110).
+
 - Status: Accepted as a decision (ADR-0008, owner 2026-10-28; first recorded 2026-10-27);
   T-51 (one app with route groups) and T-70 (per-surface origins) are implemented locally
   and uncommitted, nothing is deployed. TD-6 remains the separate MCP content-gateway contract.
 - Owner: Bukalaris architecture owner
-- Source: [ADR-0008](ADR-0008-platform-architecture-and-routing.md); DECISIONS
+- Source: [ADR-0008](adr/ADR-0008-platform-architecture-and-routing.md); DECISIONS
   D-2, D-3, D-4, D-9; ADR-0005, ADR-0010; ARCH-5; PR-7, PR-18, PR-27, PR-28, PR-29.
 - Statement: Keep one Next.js App Router app, `apps/web`, with explicit route
   groups for platform/operator, seller, storefront, checkout, affiliate portal,

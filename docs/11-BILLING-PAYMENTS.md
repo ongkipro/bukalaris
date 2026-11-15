@@ -1,6 +1,43 @@
 # Bukalaris Billing, Payments, and Money Boundary
 
+## Direction change 2026-11-14 (D-27, D-29, D-30) — read first
+
+Owner decisions of 2026-11-14 (D-27, D-29, D-30; defaults accepted in D-31),
+accepted as decisions and not implemented:
+
+| Rule | Before | Now | Record |
+|---|---|---|---|
+| Mode | Platform-managed for every store | `seller_owned` is the only mode in the first release; the platform-managed code (seller ledger, payouts, Partner accounts) stays in the repository, unused | ADR-0013 OPEN-P1, D-31 |
+| Provider accounts | One platform AutoLaris account; a Partner Mengantar account per store, provisioned by Bukalaris | Each store connects its own Mengantar API key and its own AutoLaris H2H key, sealed, with a fixed `sandbox` or `production` environment. The platform's own AutoLaris account is used only for subscription invoices | ADR-0013 sections 1 and 2 |
+| Bukalaris's financial role | Holder of buyer money, ledger keeper, payer of sellers | A written record of platform transactions, kept as a backup for the seller: orders and totals, payment status with evidence, manual confirmations, recorded refunds, affiliate obligations and payment records. No money held or moved; no reconciliation of the seller's bank, gateway or aggregator accounts (owner, 2026-11-15) | ADR-0013 section 8 |
+| Shipping money | Reconciled and settled by Bukalaris | Between the seller and Mengantar: courier charges, balance, COD remittance, COD fees, returns, cashback. Bukalaris settles nothing; it mirrors Mengantar's balance and invoices read-only, and per-parcel figures only if the official documentation exposes them (owner, 2026-11-15) | ADR-0013 sections 8 and 11 |
+| Who holds buyer money and COD cash | Bukalaris, then paid out | The seller, on their own AutoLaris and Mengantar accounts | ADR-0013 |
+| Platform revenue | Subscription, shipping margin, platform share of cashback, payment-fee margin | Subscription only (BILL-7): no shipping margin, no cashback split, no fee on buyer payments, no per-order platform charge | ADR-0013 decision 3, OPEN-P6 |
+| Seller ledger, balance, payout, payout-destination hold, four-eyes payout approval, reconciliation batch, platform refund (BILL-5) | Every store | Only money Bukalaris holds; none for a store on seller-owned accounts | ADR-0013 section 8 |
+| Shipping price to the buyer | Tariff plus platform margin | Provider public rate, no margin; re-quoted at submit, and a stale price is refused | ADR-0013 section 5 |
+| Payment fee and COD fee | Platform-controlled | Seller chooses the bearer: `payment_fee_bearer`, `cod_fee_bearer` = `buyer` or `seller` (default `buyer`); frozen in `order_financials`. Checkout quotes never ask the provider to add its COD fee; the COD fee the buyer sees comes from the store's own fee setting | ADR-0013 decisions 17, 18 |
+| Provider fee rates | Constants or provider response | Versioned Owner console settings, verified with the provider | ADR-0013 decision 19 |
+| Prepaid settlement (QRIS/VA) | Verification by pull on the platform account | Status check on the store's own key: paid only on the paid code plus an allow-listed status word; a callback is evidence only (D-21 stands). The seller may confirm a payment by hand (reason, evidence, one append-only record, no four-eyes). A second settled attempt on one order raises a payment anomaly for the seller | ADR-0013 section 6 |
+| Seller bank transfer | Not offered | Prepaid method `bank_transfer` to the seller's own bank account (up to five listed accounts), with no provider and no platform account. The buyer is shown the accounts and the exact order total (no unique code). The buyer uploads a proof of transfer on the order-status page (private, deleted after retention; D-32). The order becomes paid only by the seller's manual confirmation; the upload alone changes nothing and Bukalaris checks no bank statement | ADR-0013 section 10, D-31, T-113 |
+| COD | Only on return-free courier services; cash remitted to the platform, reconciled, then released to the seller | On any courier the seller enabled for COD; the cash goes to the seller's own account; a returned COD parcel is the seller's own cost | ADR-0013 decision 32, section 8 |
+| Refund to a buyer | Paid by the platform (D-20) | Made by the seller outside Bukalaris and only recorded on the order; Bukalaris calls no refund endpoint and funds no refund | ADR-0013 decision 26 |
+| Affiliate commission (BILL-8) | Deducted from seller proceeds, platform wallet, platform payout, withholding hook | A seller obligation per attributed order, never in the seller ledger or a wallet. Payable after delivery plus `affiliate_hold_days` (default 3); the seller pays outside Bukalaris and records the payment with its bank transaction data (no file upload); arrears after `affiliate_arrears_days` (default 14). No platform fee on commission, no payout, no withholding | ADR-0015, D-31 |
+| Tax on commission (BILL-9 W3) | Payout tax hook, withholding dormant | Not applicable: Bukalaris pays no commission | ADR-0015 decision 9 |
+| Digital orders | Not specified | Prepaid only (QRIS/VA on the store's AutoLaris account, or seller bank transfer); COD refused when the order has a digital line; no shipping amount for an order without a physical line; access granted in the transaction that settles the order; a digital-only order completes when paid; cancelling or refunding a digital line revokes its grant | ADR-0016 |
+| Sandbox orders | Not specified | An order created under a `sandbox` account is a test order and never counts in sales figures or affiliate commission | ADR-0013 decision 11 |
+| Names on seller screens | `Bukalaris Kirim` / `Bukalaris Bayar` | Seller Admin names Mengantar and AutoLaris; buyer screens show the courier and the payment channel by their own names | ADR-0013 section 8 |
+| Launch gates | Q-17, OPEN-F3, OPEN-F6 to OPEN-F9 gate the first real order | They no longer gate a `seller_owned` store. The Partner Secret rotation gate still blocks every call made with platform Mengantar credentials | ADR-0013 section 8 |
+
+`order_financials` (BILL-4) is still written once per order. The sections below
+keep their text for money Bukalaris holds and for history; where a section
+conflicts with this table, the table and its ADR are the target, and the section
+carries a "Direction change" note. BILL-6 no longer applies to a store on
+seller-owned accounts. BILL-7 (subscription) is unchanged and is the only
+platform revenue.
+
 ## BILL-1 — Phase 1 order money
+
+> **Direction change (D-27, D-30, 2026-11-14, ADR-0013, ADR-0016):** for a `seller_owned` store the order is paid on the seller's own accounts. The delivery amount is the provider's public rate with no platform margin, re-quoted at submit; payment and COD fee amounts follow the versioned Owner console fee rates and the store's `payment_fee_bearer` and `cod_fee_bearer`, frozen in `order_financials`. An order without a physical line has no delivery amount. The server-side snapshot rule below is unchanged. Not implemented (T-104 to T-107, T-111).
 
 - Owner: Bukalaris finance owner
 
@@ -10,6 +47,8 @@ provider, and chosen fulfillment method. Client-posted totals are informational
 only and cannot be booked as money truth.
 
 ## BILL-2 — Payment state policy
+
+> **Direction change (D-27, D-31, 2026-11-14, ADR-0013 sections 6 and 10):** for a `seller_owned` store the payment instruction and the status check run on the store's own AutoLaris key: one instruction per attempt, a retry keeps the old attempt, and a callback is evidence only (D-21 stands). The seller may confirm a payment by hand with a reason and evidence (one append-only record, no four-eyes); a `bank_transfer` order becomes paid only by that confirmation. A second settled attempt on one order raises a payment anomaly for the seller (T-91), and any refund is made by the seller outside Bukalaris and recorded on the order. The state table below is unchanged; the platform-account wording and the platform refund obligation describe the platform-managed model, which stays in the code unused (D-31) and is not offered in the first release. Not implemented (T-106, T-113).
 
 - Owner: Bukalaris finance owner
 
@@ -49,6 +88,8 @@ Provider call and anomaly rules (portfolio scan 2026-11, G9 and G10):
 
 ## BILL-3 — Marketplace finance is not Phase 1
 
+> **Direction change (D-27, D-29, 2026-11-14, ADR-0013, ADR-0015):** the marketplace deferral below is unchanged. The sections it points to changed: BILL-4 to BILL-6 apply in full only to platform-held money, and the platform-owned affiliate finance of BILL-8 is replaced by a seller-run programme in which commission is a seller obligation. Not implemented (T-104 to T-110).
+
 - Owner: Bukalaris finance owner
 
 Multi-seller marketplace checkout and split settlement remain deferred: shared
@@ -59,6 +100,8 @@ affiliate finance in BILL-8. A discovery listing or affiliate handoff never
 authorizes a combined checkout.
 
 ## Provider ownership decision
+
+Superseded 2026-11-14 by D-27 (ADR-0013): each store connects its own Mengantar and AutoLaris account, and seller screens name both providers. The earlier text follows for history.
 
 Owner direction (2026-10-27, ADR-0007) keeps all shipping, payments, discounts,
 margin, and shipping cashback 100% Bukalaris-managed under one unified financial
@@ -76,6 +119,8 @@ console retains vendor names. Q-17 legal review, partner settlement/cashback
 sweep verification (`OPEN-F9`), and live provider write tests remain gates.
 
 ## BILL-4 — Immutable order financial allocation and Mengantar shipping reconciliation
+
+> **Direction change (D-27, D-29, 2026-11-14, ADR-0013, ADR-0015):** `order_financials` and `order_line_financials` are still frozen once per order for a `seller_owned` store, as the record of what the buyer was charged and who bore each fee. They carry the store's `payment_fee_bearer` and `cod_fee_bearer` with the resulting amounts and no platform shipping margin, cashback split or affiliate deduction; no `shipping_debit` or other ledger entry is reserved at booking. The buyer is charged the provider's public rate, order submit re-quotes and refuses a stale price, and booking is a seller action on the store's own Mengantar key. The text below describes the platform-managed model, which stays in the code unused (D-31) and is not offered in the first release. Not implemented (T-104 to T-107).
 
 - Status: Proposed (ADR-0006, 2026-10-26; revised 2026-10-27)
 - Owner: Bukalaris finance owner
@@ -113,6 +158,8 @@ sweep verification (`OPEN-F9`), and live provider write tests remain gates.
   acceptance keeps the debit until the provider confirms the void.
 - Constraints: BILL-1, BILL-2, DATA-2, DATA-7, NFR-2, ADR-0006.
 
+> **Direction change (D-27, D-30, D-31, 2026-11-14, ADR-0013, ADR-0016):** how the rows of the table below read for a `seller_owned` store. Shipping: public rate, no margin and no booking delta reconciled against a ledger. COD: allowed on any courier the seller enabled for COD (the `return_free` condition no longer applies); checkout quotes never ask the provider to add its COD fee, and the fee the buyer sees comes from the store's own fee setting and `cod_fee_bearer`. Gateway fee: the rates are versioned Owner console settings to verify with the provider, the bearer is `payment_fee_bearer`, and the instruction is created on the store's own key in the provider's payment-only profile, confirmed per account. Verification by pull runs on the store's key. The platform money position lists only platform-held money. A `bank_transfer` order has no gateway instruction, and an order without a physical line has no shipping row. Not implemented (T-105 to T-107, T-111, T-113).
+
 | Flow | Pure engine / rule | Enforced at | Stored in | Shown on |
 |---|---|---|---|---|
 | Order total & allocation | `calculateOrderFinance` (integer IDR; rounding rule per component in the table below, never a bare `Math.round`) | Checkout submit (server-authoritative) | `order` + `order_financials` + `order_line_financials` (frozen at creation) | `/checkout`, `/o/<token>`, `/seller/orders/[id]` |
@@ -123,6 +170,8 @@ sweep verification (`OPEN-F9`), and live provider write tests remain gates.
 | Platform money position | Read-only derived view, no second ledger, across the single unified Bukalaris financial system: seller pending/available (including `sale` and `cashback`), affiliate available and pending obligations, payouts requested/processing, open buyer refunds, platform shipping margin, platform shipping cashback, payment-fee margin (`admin_fee_idr - provider_fee_idr`), COD fee and its VAT | Scheduled read / Owner console money views | `platform_money_position` view (DATA-7) | `/admin/money` |
 
 ### Per-line allocation and rounding (one definition)
+
+> **Direction change (D-27, D-29, 2026-11-14, ADR-0013, ADR-0015):** the per-line allocation and the commission base below are kept. For a `seller_owned` order the affiliate commission is computed from the same base and frozen on the attribution, but it is a seller obligation and is not subtracted from the seller's sale amount. The "Platform shipping margin" row of the rounding table does not apply. Not implemented (T-107, T-108).
 
 Checkout, affiliate commission and reports reuse this single allocation. Lines are ordered by `line_no` (ascending, stable). For line `i`, `line_gross_i = unit_price_i x qty_i` (the price as entered; tax-inclusive when the store's price mode is `tax_included`), and `subtotal = sum(line_gross_i)`.
 
@@ -144,6 +193,8 @@ All arithmetic is integer (BigInt or PostgreSQL `numeric`), computed once at che
 | Platform shipping margin | T-34 margin rule (basis points plus a fixed amount) | rounded up to the configured step (`docs/tracks/shipping.md`) |
 
 ## BILL-5 — Append-only seller ledger, COD remittance, payouts, and buyer refunds
+
+> **Direction change (D-27, 2026-11-14, ADR-0013):** a `seller_owned` store has no seller ledger: no `sale`, `cashback` or `shipping_debit` entry, release, reconciliation batch, payout, payout-destination hold or four-eyes payout approval is written or shown, because the seller is paid by their own providers. Seller Admin shows collected amounts by method from order and payment state. A refund is made by the seller outside Bukalaris and recorded on the order; Bukalaris calls no refund endpoint and funds no refund (this replaces D-20 for these stores). The text below describes the platform-managed model, which stays in the code unused (D-31) and is not offered in the first release; its invariants stay the rule for any money Bukalaris holds. Not implemented (T-107).
 
 - Status: Proposed (ADR-0006, 2026-10-26; revised 2026-10-27)
 - Owner: Bukalaris finance owner
@@ -213,11 +264,15 @@ A typed phone/email cannot authorize a refund or expose its history.
 
 **COD reconciliation batch.** A COD `sale` (and any `cashback` entry) is booked `pending` at delivery and released only when its carrier cash/cashback is reconciled. Until the provider signal (`isReconciliated` / `typeReconciliation`, semantics UNVERIFIED, OPEN-F8) is observed and enabled, release happens through an Owner console `reconciliation_batch`: prepared by one operator (`payouts.reconcile`) from carrier invoice evidence (per line: order reference, COD amount, carrier invoice line reference, amount and date), bound by a payload hash, approved by a different operator (four-eyes action `cod.reconcile_release`) and applied once. Each item stamps `reconciled_at` and `reconciliation_source` (`owner_batch`, later `provider`), and `ledger.release` then releases the sale and cashback. A line whose amount differs from the order COD amount is a break and is never auto-released. Manual delivery completion (`cod.manual_complete`) is a separate four-eyes action and is never part of a batch.
 
+> **Direction change (D-27, D-30, 2026-11-14, ADR-0013 decision 26, ADR-0016 decision 18):** for a `seller_owned` store the platform funds and disburses no refund: the seller refunds the buyer by their own means and records it on the order. Cancelling or refunding a digital line revokes its access grant. The composition and disbursement rules below apply only to a refund Bukalaris pays. Not implemented (T-107, T-112).
+
 **Buyer refund composition and disbursement.** A refund exists only for a `paid` prepaid order that is `cancelled` or `returned` before delivery (a returned COD parcel collected no cash, so it has no buyer refund; post-delivery refunds are out of ledger scope). `refund.amount_idr = goods_refund_idr + shipping_refund_idr + fee_refund_idr`, where `goods_refund_idr = goods_proceeds + included_sales_tax + added_sales_tax`, `shipping_refund_idr = shipping_charged` and `fee_refund_idr` is the buyer-paid gateway admin fee, refunded in full (owner decision D-20, 2026-10-28, closes OPEN-F4); the goods and shipping components together equal the order `payable` and the settled `payment_attempt.amount_idr`, and `amount_idr` never exceeds `payment_attempt.total_idr`. The platform funds the refund; the seller's `return_reversal` and the affiliate attribution void are separate effects (ADR-0006, ADR-0009) and never restore the same funds twice. The disbursement method and the source of the buyer's destination are OPEN-F4 (recommended, not decided: manual transfer by Owner console staff to a destination the buyer supplies on the signed one-order status page, with its account-holder name compared to the order recipient; a typed phone or email alone never authorizes a refund).
 
 Change history: 2026-10-27 documentation audit pass: audit FIN-01..FIN-27 and SPV-04/SPV-05 applied across BILL-2, BILL-4 to BILL-9 (allocation identity and rounding table, billing period formula, refund composition, four-eyes on approve-for-transfer). Owner decisions of the same day then replaced the H+1 COD release with reconciliation-gated release, closed OPEN-F1, OPEN-F2, OPEN-A1 and OPEN-T19, removed the commission funding gate and its pending-state workaround, and added the two-money-systems principle.
 
 ## BILL-6 — Platform-managed Partner Mengantar provisioning, shipping discounts, and cashback ledger
+
+> **Direction change (D-27, 2026-11-14, ADR-0013):** this section does not apply to a `seller_owned` store. The seller connects their own Mengantar API key (account kind `seller_owned`); there is no Partner provisioning, no platform margin, no `cashback_rule` and no `cashback` ledger entry, and the account's discounted rate is the seller's own saving. The text below describes the platform-managed model (`partner_managed`, `platform_master`), which stays in the code unused (D-31) and is not offered in the first release. Not implemented (T-104, T-105, T-107).
 
 - Status: Proposed (2026-10-27; revised to unified Bukalaris-managed model)
 - Owner: Bukalaris finance owner
@@ -287,6 +342,8 @@ accepted until the mailer dependency is met.
 
 ## BILL-8 — Affiliate commission, wallet, payout, and withholding
 
+> **Direction change (D-29, 2026-11-14, ADR-0015):** the commission is an obligation of the seller, recorded per attributed order with the states `pending`, `void`, `payable`, `paid`, `confirmed` and `disputed`; it is not deducted from the seller's proceeds, not held by the platform and never enters `ledger_entry` or a wallet. It becomes `payable` after delivery plus `affiliate_hold_days` (default 3; the delivered-only rule of D-16 stands); the seller pays outside Bukalaris and records one immutable payment per affiliate with its bank transaction data, and seller and affiliate read the same statement. A `payable` commission older than `affiliate_arrears_days` (default 14) is in arrears, and the Owner console can freeze that store's programme. Bukalaris pays nothing, so there is no payout, no payout-destination hold, no four-eyes transfer approval and no withholding. The commission base, rounding, attribution and self-referral rules below stand; the wallet, payout and withholding text describes the platform-funded programme of ADR-0009, which is superseded (T-53 is not built) and not offered in the first release. Not implemented (T-108 to T-110).
+
 - Status: Proposed (2026-10-27)
 - Owner: Bukalaris finance owner
 - Source: PR-28, DATA-11, ADR-0009; owner decisions 2026-10-27.
@@ -319,6 +376,8 @@ accepted until the mailer dependency is met.
   PRIV-6, NFR-2, ADR-0009, ADR-0012. No subscription charge is deducted from
   these proceeds.
 
+> **Direction change (D-29, 2026-11-14, ADR-0015 decisions 3 to 5):** of the rows below, "Checkout" still applies (freeze the attribution, bases and rates) but only for an affiliate with an `active` membership of that store and without a deduction from the seller sale, and "Cancellation / return" still applies as the obligation becoming `void` before delivery. "Delivery, release and hold expiry" becomes a scheduled move to `payable` after delivery plus the hold, with no wallet credit and no dependence on a seller-sale release. "Payout request", "Approve for transfer", "Payout completion" and "Rejection" have no counterpart: the seller records a payment and the affiliate confirms or disputes it. A parcel returned after `payable` or `paid` is not reversed automatically; the seller records a manual correction against that affiliate's next payment. Not implemented (T-108, T-109).
+
 | Affiliate money event | Required atomic outcome |
 |---|---|
 | Checkout | Freeze attribution winner, source `bukalaris`, eligible net-goods bases/rates, total `affiliate_commission_idr` and policy versions in `order_financials`, independent of later rate edits |
@@ -344,6 +403,8 @@ reconcile in the order finance transaction so funds are never restored twice.
 Wallet balance queries do not inner-join orders; payout entries have no order
 reference.
 
+> **Direction change (D-29, D-31, 2026-11-14, ADR-0015):** Bukalaris pays no commission, so the payout tax fields, the tax-identity gate and the withholding activation in the paragraph below have no payout to act on (ADR-0015 decision 9). Decided and no longer OPEN: attribution window 7 days and seller rate bounds 100 to 5000 bps, both Owner-configurable, and no platform fee on commission. Minimum payout and transfer mechanism no longer arise. Not implemented (T-108, T-109).
+
 Tax treatment is policy-controlled (ADR-0012, BILL-9). Startup defaults:
 `withholding_enabled` OFF and `tax_identity_required_for_payout` OFF, so a payout
 carries `tax_idr = 0` and `net = gross`; affiliates are responsible for tax on
@@ -363,10 +424,15 @@ fee on commission (and its effect on a tax base, OPEN-T12), minimum payout and
 transfer mechanism are OPEN; no other product's default or provider payout
 endpoint is assumed.
 
+> **Direction change (D-29, D-31, 2026-11-14, ADR-0015):** in the two paragraphs below, the delivered-only rule and the 3-day hold stand, but the premise that Bukalaris manages all shipping and payments is superseded (D-27) and a released or reconciled seller sale is no longer a condition. The payout-destination controls do not apply to affiliate commission (ADR-0015 decision 9). Affiliate bank details are stored on the platform, shown only to the paying store's finance role and masked elsewhere. Not implemented (T-108, T-109).
+
 **Delivered-only commission across all opted-in orders (owner decision, closes OPEN-A1 and D-16).** Because Bukalaris manages 100% of shipping and payments in one unified system (ADR-0007), both prepaid and COD orders are commission-eligible. A commission is created and eligible only for orders that were DELIVERED and whose seller sale is released (reconciled), then after `affiliate_hold_days` (default 3 days). In-transit, returned-in-transit, refused or cancelled orders earn zero commission.
 
 **Payout-destination controls (anti-fraud, not tax or KYC; decided mandatory by owner decision D5 / D-19).** These apply to all affiliate payouts from Bukalaris. Creating or changing an affiliate payout destination needs a step-up and notifies the previous verified contact; a new or changed destination is `held` for **72 hours** (`hold_until`, default 72 hours, Owner-configurable) and payouts use only an `active` destination whose hold has elapsed; the account-holder name is compared with the affiliate's registered name and a mismatch is acknowledged in the approval payload.
+
 ## BILL-9 — Platform tax workflows
+
+> **Direction change (D-27, D-29, 2026-11-14, ADR-0013, ADR-0015):** Bukalaris pays no affiliate commission and holds no order money, so the commission withholding workflows (the payout gate of W1, W3, W4, W6 and the paid-commission rows of W10) have no payout to act on, and the W8 revenue lines other than the subscription do not exist for a `seller_owned` store. The subscription VAT workflow (W7) is unchanged. The earnings statements of W5 and W11 are specified as built from `affiliate_ledger_entry`, which is not built; ADR-0015 names no replacement source, so that part is open. The affiliate-payout text below describes the platform-funded programme of ADR-0009, which is superseded and not offered in the first release. Not implemented (T-108, T-109).
 
 - Status: Proposed (2026-10-27; startup-off defaults, Phase 2 dormant)
 - Owner: Bukalaris finance owner with qualified tax advisors
@@ -456,6 +522,8 @@ gross 130.000.000 gives base 65.000.000, cumulative base 65.500.000,
 
 ### W3 — Commission payout withholding computation
 
+> **Direction change (D-29, 2026-11-14, ADR-0015 decision 9):** there is no affiliate payout by Bukalaris, so this hook has no trigger and no `tax_computation` is written for commission. The text below describes the platform-funded programme of ADR-0009, which is superseded and not offered in the first release. Not implemented (T-108, T-109).
+
 - Phase: S hook (no-op), D computation.
 - Actors: affiliate (requests), platform payout service, finance (`affiliate.payout.process`, separate from `tax.*`).
 - Trigger: payout request inside the BILL-8 transaction.
@@ -479,6 +547,8 @@ gross 130.000.000 gives base 65.000.000, cumulative base 65.500.000,
 - Acceptance: concurrent accrual events insert one entry; two batches cannot together exceed outstanding; ledger sum equals computations recognized minus remitted for every period (reconciliation R1/R3).
 
 ### W5 — Documents: earnings statements (S) and tax evidence (D)
+
+> **Direction change (D-29, 2026-11-14, ADR-0015):** the statements below read `affiliate_ledger_entry`, which is not built. ADR-0015 decision 6 gives seller and affiliate one shared per-store statement of the obligation states; it names no source for a monthly or annual earnings statement, so that part is open (T-71 depends on T-53, which is superseded). Not implemented (T-109).
 
 - Phase: S for earnings statements, D for tax evidence.
 - Actors: system job (`tax.statement.generate`), `tax.documents.issue` holder, payee, accountant.
@@ -514,6 +584,8 @@ gross 130.000.000 gives base 65.000.000, cumulative base 65.500.000,
 
 ### W8 — Other platform revenue lines (tax treatment OPEN)
 
+> **Direction change (D-27, D-31, 2026-11-14, ADR-0013 decision 3):** for a `seller_owned` store Bukalaris earns no shipping margin, no payment-fee margin and no cashback share, and charges no platform fee on affiliate commission, so those rows have no amount; the COD fee is collected with the order on the seller's own account. The subscription is the only platform revenue. The table below describes the platform-managed model, which stays in the code unused (D-31) and is not offered in the first release. Not implemented (T-107).
+
 Not decided here. In startup mode the platform computes no tax on these lines beyond
 what DATA-7 and BILL-6 already snapshot. Phase 2 reports them per line as
 "unclassified" until a `vat_output` policy for the line, or an advisor note, exists.
@@ -531,6 +603,8 @@ what DATA-7 and BILL-6 already snapshot. Phase 2 reports them per line as
 The platform is not a designated marketplace collector (ADR-0012 F1: four named operators; Bukalaris not designated). No workflow is built. Revisit only if the authority designates Bukalaris or licensing alignment changes its classification, via a new ADR.
 
 ### W10 — Corrections, refunds and disputes
+
+> **Direction change (D-29, 2026-11-14, ADR-0015 decisions 4 and 5):** Bukalaris pays no commission, so the rows below about a commission already paid out, a fraud clawback and a payout wrongly marked paid have no platform payout or wallet to correct. A parcel returned after the commission became `payable` or `paid` is handled by the seller as a manual correction against that affiliate's next payment, and a wrongly recorded payment is fixed by a reversing record. The subscription-invoice row is unchanged. Not implemented (T-109).
 
 - Phase: S flag-only, D corrections.
 - Actors: finance, `tax.documents.issue`, `tax.approve`.

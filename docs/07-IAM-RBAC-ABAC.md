@@ -22,7 +22,13 @@ must have an explicit active context; browser UI visibility is never authority.
 | Affiliate (Proposed, IAM-13) | Own platform affiliate identity | Approved cross-store offers, own storefront, aggregate outcomes and wallet; no seller membership |
 | Buyer (Proposed, IAM-4/IAM-14) | Own platform buyer identity and confirmed links | Cross-seller own order history/tracking, own profile/address book; no seller/admin/affiliate power |
 
+> **Direction change (D-27, 2026-11-14, ADR-0013):** the Seller Owner also connects, replaces and removes the store's own Mengantar and AutoLaris keys and lists the store's bank accounts for bank transfer, under `integrations.manage` with a fresh step-up (IAM-8, IAM-9). Owner console "money queues" cover only money Bukalaris holds (subscription invoices); no seller payout, refund or COD reconciliation queue exists for a `seller_owned` store. The rows above describe the earlier model. Not implemented (T-104 to T-107).
+
+> **Direction change (D-29, 2026-11-14, ADR-0015):** the Affiliate row changes: one platform affiliate identity, membership per store approved by that store's seller, own links and codes per store, and one statement of seller-owed commissions; no wallet. The affiliate's own storefront and cross-store offers are deferred (T-55 not scheduled). The row above describes the earlier model. Not implemented (T-108 to T-110).
+
 ## IAM-3 — Marketplace and affiliate policy
+
+> **Direction change (D-29, 2026-11-14, ADR-0015):** the affiliate account (identity, links, codes, clicks, attribution) stays a platform record, but there is no platform wallet or payout: a commission is an obligation of the seller, recorded per attributed order. Owner console staff no longer approve an affiliate as the gate to earn; an affiliate applies to each store and that store's seller approves, rejects or suspends the membership (`pending`, `active`, `rejected`, `suspended`), and only an `active` membership at order time can be attributed. The programme is off until the seller switches it on. The Owner console can suspend an affiliate account platform-wide for abuse and can freeze a store's programme. Memberships, obligations and payment records are store-scoped: store A cannot read or change store B's, and affiliate A cannot read affiliate B's statement. The marketplace-review sentences and the privacy rules below are unchanged; the affiliate sentences describe the earlier model. Not implemented (T-108 to T-110).
 
 - Status: Proposed (affiliate extension, owner decision 2026-10-27)
 - Owner: Bukalaris product owner
@@ -88,6 +94,16 @@ seller membership cannot query whether the buyer also shops at another store.
 
 ## IAM-8 — Phase 1 capability assignments
 
+> **Direction change (D-27, 2026-11-14, ADR-0013 decisions 6 to 8):** `integrations.manage` (store owner) now also gates entering, replacing and removing the store's own Mengantar key and AutoLaris key. Each such change additionally needs a fresh step-up (IAM-9), writes an audit entry (who, when, which provider, key fingerprint, never the key) and notifies every store owner. A stored key is never returned to the browser; the screen shows only the connected state, a masked hint and the last successful check. The Platform operator column is unchanged: no Owner console capability reads, uses or changes a seller's sealed key. Not implemented (T-104 to T-107).
+
+> **Direction change (D-31, 2026-11-14, ADR-0013 section 10):** listing, changing or removing the store's bank accounts for bank transfer (up to five) needs the same `integrations.manage` plus a fresh step-up and is audited. Not implemented (T-113).
+
+> **Direction change (D-27, 2026-11-14, ADR-0013 decisions 24 and 38):** confirming a payment by hand (provider attempt or bank transfer) needs the store's finance capability, a reason and one append-only record; four-eyes does not apply because it is the seller's own money. ADR-0013 does not name that capability and this table has no seller finance row (the code in `packages/db/src/platform/scoped.ts` has owner-only `finance.read` and `finance.payout`; whether one of them is meant is not stated); the identifier is defined in T-106 and reused by T-113. The capability for the seller's courier, COD, province and payment-channel settings is likewise not named by the ADR; identifier defined in T-105 and T-106. Not implemented (T-104 to T-107).
+
+> **Direction change (D-29, 2026-11-14, ADR-0015 decisions 1, 5 and 9):** approving, rejecting and suspending affiliate memberships of the own store is a seller action, and recording an affiliate payment needs the store's finance capability; an affiliate's bank details are shown only to a seller with an active membership relation and that finance capability, masked elsewhere. Identifiers defined in T-108 (membership) and T-109 (payment record). Not implemented (T-108 to T-110).
+
+> **Direction change (D-30, 2026-11-14, ADR-0016 decision 17):** extending and revoking a digital access grant is an audited seller action; identifier defined in T-112. Not implemented (T-111, T-112).
+
 - Status: Proposed
 - Owner: Bukalaris security owner
 - Source: PR-1, PR-2, PR-11, PR-13; IAM-1, IAM-2, IAM-5.
@@ -146,6 +162,12 @@ CSRF protection is never cookie-only: mutations check `Origin` and
 `Sec-Fetch-Site` and carry a token bound server-side to the session (12-SECURITY
 SEC-9). A separate registrable domain for storefronts is OPEN (recommended, not
 decided; ADR-0008).
+
+> **Direction change (D-28, 2026-11-14, ADR-0014 decisions 5 and 6):** the separate registrable domain is decided: native storefronts are `<store-slug>.bukalaris.id`, so every storefront is cross-site to every platform surface. No cookie is set on `.bukalaris.id` or `.bukalaris.com`; session, CSRF and cart cookies stay host-only with the `__Host-` prefix. Cart and checkout cookies of a native store or custom domain live on the store host; `checkout.bukalaris.com` keeps its session only for the hand-off from an independent storefront. The "OPEN" sentence above is closed. Not implemented (T-102, T-103).
+
+> **Direction change (D-27, 2026-11-14, ADR-0013 decision 6 and OPEN-P3):** Bukalaris no longer holds seller balances, so the step-up section below is superseded for `seller_owned` stores (the only mode in the first release, D-31): there is no payout request, payout destination, 72-hour hold or holder-name check for them. A fresh step-up is instead required to enter, replace or remove a provider key (the payment key decides where buyer money goes and is treated like a payout destination) and, under D-31 and ADR-0013 section 10, to change the store's bank accounts for bank transfer. Each change is audited and notifies every store owner; there is no waiting period after a change. The text below describes the earlier model. Not implemented (T-104 to T-107; bank accounts T-113).
+
+> **Direction change (D-29, 2026-11-14, ADR-0015 decision 9):** Bukalaris pays no affiliate commission, so the payout step-up, the 72-hour destination hold, the holder-name check and four-eyes payout approval below do not apply to affiliate commission. Step-up for an affiliate's own contact or bank-detail change is not addressed by ADR-0015 and stays as written. Not implemented (T-108 to T-110).
 
 **Step-up and bank-destination payout controls (plain terms; decided, D5).**
 *Why:* Bukalaris manages 100% of order payments and shipping under one unified
@@ -206,6 +228,9 @@ store binding, and an audit trail. They cannot inherit unrestricted Owner consol
 access or bypass draft/publication/form protection.
 
 ## IAM-11 — Headless channel tokens and checkout authority
+
+> **Direction change (D-28, 2026-11-14, ADR-0014 decision 5):** the checkout session "created by handoff" below applies only to independent storefronts entering `checkout.bukalaris.com`. A native storefront or verified custom domain runs checkout on its own host with the store's host-only cart cookie and no hand-off token. Channel tokens are unchanged. Not implemented (T-102, T-103).
+
 - Status: Proposed
 - Owner: Bukalaris security owner
 - Source: PR-16.
@@ -258,6 +283,12 @@ access. Bulk operations inherit the narrowest per-object capability and limits.
 Owner console diagnostics and system-map access use separate platform grants.
 
 ## IAM-13 — Platform affiliate identity and capabilities
+
+> **Direction change (D-29, 2026-11-14, ADR-0015):** the separate affiliate account type, login surface, session cookie and the rule that a link, code or click id is never a grant all stand. What changes is who decides and who pays: Owner console approval and platform payout permissions no longer gate earning. An affiliate earns in a store only with an `active` membership of that store, decided by that store's seller; the Owner console keeps platform-wide suspension for abuse and gains a programme freeze per store, and does not approve store memberships. There is no wallet, payout request or payout processing, so `affiliate.wallet.read`, `affiliate.payout.request`, `affiliate.payout.process` and the payout part of `affiliate.identity.manage` in the table below have no target. The text below describes the earlier model. Not implemented (T-108 to T-110).
+
+> **Direction change (D-29, 2026-11-14, ADR-0015 decisions 1, 5 to 7 and 9):** permissions the new model needs, described in words because neither ADR-0015 nor this document names them. Seller: approve, reject and suspend memberships of the own store; switch the programme on and set rates (the existing `affiliate.offers.manage` / `affiliate.blocks.manage` row is the nearest current name); record an affiliate payment and read the affiliate's bank details under the store's finance capability. Affiliate: apply to a store, read the own statement, confirm or dispute a recorded payment. Owner console: read the arrears queue and freeze or unfreeze a store's programme; platform-wide suspension stays under `affiliate.accounts.review`. Identifiers defined in T-108 (membership), T-109 (payment record, statement, arrears and freeze). Not implemented (T-108 to T-110).
+
+> **Direction change (D-29 and D-31, 2026-11-14, ADR-0015):** the affiliate storefront host `<handle>.affiliate.bukalaris.com` and the storefront parts of the suspension effect below belong to the deferred storefront (T-55 not scheduled, host not decided). In "Affiliate authentication and hold period", the 3-day hold stands but runs from delivery (for a digital line, from the access grant), not from the release of a seller sale; the payout and bank-hold sentences have no target. Not implemented (T-108 to T-110).
 
 - Status: Proposed
 - Owner: Bukalaris security owner
@@ -383,7 +414,7 @@ claim buyer RLS protects an arbitrary platform-pool query.
 
 - Status: Proposed (owner decisions 2026-10-27; startup-phase relaxation applies)
 - Owner: Bukalaris security owner
-- Source: PR-30, PR-15; IAM-1, IAM-5, IAM-8, IAM-10, IAM-13, IAM-14; code review `CRSEC-02`, `CRSEC-06`; [ADR-0011](ADR-0011-owner-console-scope-and-account-governance.md); T-60, T-62, T-63.
+- Source: PR-30, PR-15; IAM-1, IAM-5, IAM-8, IAM-10, IAM-13, IAM-14; code review `CRSEC-02`, `CRSEC-06`; [ADR-0011](adr/ADR-0011-owner-console-scope-and-account-governance.md); T-60, T-62, T-63.
 - Statement: The platform operator surface is the **Owner console** (formerly
   Super Admin / Bos; the interim host label `berkah` was never deployed), host `owner.bukalaris.com`. Its staff are `platform_operator`
   identities with explicit capabilities in `operator_grant` (T-60). Roles below
@@ -409,6 +440,12 @@ claim buyer RLS protects an arbitrary platform-pool query.
 - Constraints: IAM-5, IAM-7, IAM-9, IAM-10, SEC-11, PRIV-9, DATA-14, TEN-3.
 
 ### Capability catalogue (proposed names, not implemented scopes)
+
+> **Direction change (D-27, 2026-11-14, ADR-0013):** for `seller_owned` stores (the only mode in the first release, D-31) the following have no target: the Partner account sync, platform margin, shipping discount and cashback parts of `shipping.manage`; `payouts.process`, `refunds.process`, `payouts.reconcile`; and `ledger.adjust` on a seller ledger. They stay defined for money Bukalaris holds and for the unused platform-managed code. `finance.read` covers platform-held money only. No capability in this table reads or changes a seller's sealed provider key. New Owner console settings (locked payment channels, versioned provider fee rates, the per-provider switch for production calls on seller keys) need a capability that ADR-0013 does not name; identifier defined in T-106 for channels and fee rates, and not assigned to any task yet for the production switch. The rows below describe the earlier model. Not implemented (T-104 to T-107).
+
+> **Direction change (D-29, 2026-11-14, ADR-0015):** in the Affiliates row, `affiliate.accounts.review` keeps platform-wide suspension and reactivation but its approve/reject no longer gates earning; `affiliate.payout.process` has no target; `affiliate.policy.manage` keeps the rate bounds (100 to 5000 bps, D-31) and `affiliate_hold_days`, and the attribution window (7 days) and `affiliate_arrears_days` (14) are Owner-configurable as well. Reading the arrears queue and freezing or unfreezing a store's programme are new Owner console permissions; identifier defined in T-109. The "Finance operator" and "Affiliate manager" presets below change accordingly. Not implemented (T-108 to T-110).
+
+> **Direction change (D-30, 2026-11-14, ADR-0016 decision 23):** the Owner console can take a digital product down and, when the takedown says so, suspend its grants. This table lists per-item takedown only as Phase 2 (`moderation.manage`); which capability gates the digital takedown is not stated by ADR-0016, identifier defined in T-112. Not implemented (T-111, T-112).
 
 Existing names `logs.read`, `tenants.manage`, `audit.read` (IAM-8) and the
 affiliate names of IAM-13 are kept. ◆ = four-eyes (a different staff member who
@@ -476,6 +513,10 @@ person.
 
 ### Four-eyes matrix (single source)
 
+> **Direction change (D-27, 2026-11-14, ADR-0013 decisions 24 and 38, section 8):** `payout.approve_transfer`, `refund.approve_transfer`, `payout.reject_processing`, `refund.fail`, `cod.manual_complete`, `cod.reconcile_release` and `shipping.margin` have no target for a `seller_owned` store. The seller's manual payment confirmation is a seller action and is not four-eyes. A provider key change needs step-up, audit and owner notification, not a second person. The rows below are not edited. Not implemented (T-104 to T-107).
+
+> **Direction change (D-29, 2026-11-14, ADR-0015 decision 9):** `affiliate_payout.approve_transfer` has no target; recording an affiliate payment is a seller action and is not four-eyes. ADR-0015 does not say whether `affiliate.rate_bounds` stays four-eyes or whether the programme freeze needs a second person; both are left as open questions. Not implemented (T-108 to T-110).
+
 This table is the only definition of which actions need a second person. The
 DATA-14 `four_eyes_rule` table is seeded from it and the CHECK on
 `support_action`/`approval_request` is derived from it (a migration changes the
@@ -539,6 +580,8 @@ holders cannot be created in the product. Bootstrap and recovery are out-of-band
   `audit.read` holder; they are reviewed at the next access review.
 
 ### Account-management powers by account kind
+
+> **Direction change (D-29, 2026-11-14, ADR-0015 decisions 1 and 9):** in the Affiliate account column, suspension is the platform-wide suspension for abuse (store memberships are suspended by the store's seller), "earned money" now means recorded commission obligations owed by sellers rather than a platform wallet, and the "payout and bank hold of IAM-9" after an MFA reset has no target. Not implemented (T-108 to T-110).
 
 | Action | Seller team member | Affiliate account | Buyer account |
 |---|---|---|---|

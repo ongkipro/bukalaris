@@ -10,6 +10,8 @@
 | SEC-6 | Bukalaris security owner | Webhook authenticity is verified before parsing or side effects; accepted events are durable-deduplicated. | Proposed |
 | SEC-7 | Bukalaris security owner | Owner console, role and capability-grant, suspension, financial, and marketplace-review changes produce protected audit records; impersonation stays disabled (IAM-10). | Proposed |
 
+> **Direction change (D-27 to D-31, 2026-11-14, ADR-0013 to ADR-0016):** four owner decisions change controls in this document: seller-owned Mengantar and AutoLaris accounts and seller bank transfer (D-27, D-31), two registrable domains with checkout on the store host (D-28), the seller-run affiliate programme (D-29) and digital products delivered by access links (D-30). Each affected section below carries its own note; the new controls are SEC-26 to SEC-28 and THR-15 to THR-19. SEC-5 now also covers seller provider keys (SEC-26). Accepted as decisions, not implemented (T-102 to T-113).
+
 ## Threat priorities
 
 1. Cross-tenant data/action access through IDs, caches, background jobs,
@@ -35,6 +37,8 @@
   enter ordinary logs/traces. Failures return stable safe messages.
 
 ## SEC-3 and SEC-9 — Surface isolation rules (normative)
+
+> **Direction change (D-28, 2026-11-14, ADR-0014):** native storefronts move to `<store-slug>.bukalaris.id` and custom domains point at `cname.bukalaris.id`, so every storefront is cross-site to every platform surface on `bukalaris.com`; rule 7 is decided, no longer OPEN. Cart, checkout, confirmation and the signed order-status page are served on the store host (ADR-0014 decision 5), which replaces rule 1 for native stores and custom domains; `checkout.bukalaris.com` remains only for the one-use hand-off of independent storefronts (PR-16, SEC-13). Rules 2 to 6 stand, read with two roots (SEC-28). The text below describes the earlier one-root model, which is what the code runs today. Not implemented (T-102, T-103).
 
 - Status: Proposed
 - Owner: Bukalaris security owner
@@ -79,6 +83,8 @@ All following controls are proposed requirements, not findings of deployed
 vulnerabilities. Sources are the accepted product requirements and the linked
 internal contracts; runtime/provider-specific implementation awaits T-1/T-5.
 
+> **Direction change (D-27, D-29, D-30, D-31, 2026-11-14, ADR-0013, ADR-0015, ADR-0016):** for a store on seller-owned accounts Bukalaris holds no order money, so the payout parts of the "Affiliate clicks and payouts" and "Restore and backups" rows (hold on bank changes, four-eyes before transfer, payout re-opened) apply only to money Bukalaris does hold; there is no platform affiliate payout (ADR-0015 decision 9). In the "Order/payment" row, "reconciliation" for such a store means the status check on the store's own key or the seller's manual confirmation, not a platform ledger. The last three rows are added for the new assets. The other rows describe the earlier model and still apply where unchanged. Not implemented (T-104 to T-113).
+
 | Asset / boundary | Adversarial or failed input | Authoritative control | Minimum proof |
 |---|---|---|---|
 | Seller records | Foreign numeric ID, role field, stale membership | Tenant + object + writable-field policy; app-role store UPDATE only on the four profile columns (T-81, TEN-3) | Authorized settings success; foreign write has no effect; direct app-role SQL cannot update store identity/lifecycle columns |
@@ -93,8 +99,15 @@ internal contracts; runtime/provider-specific implementation awaits T-1/T-5.
 | Affiliate clicks and payouts | Cookie stuffing, click flood, self-referral, account takeover then payout | SEC-20, step-up and hold on bank changes, four-eyes before transfer (IAM-9, IAM-15) | Sec-Fetch cases; payout cannot move without a second approver |
 | Public intake and Update Log | Stored XSS, malicious link, spoofed origin, malicious takedown, reporter data | SEC-21 | Sanitiser, canonical-origin and no-auto-takedown tests |
 | Restore and backups | Grants dropped, erasure resurrected, payout re-opened | SEC-23, PRIV-4 | Rehearsal asserts grants per role and erasure replay |
+| Seller provider credentials (D-27; planned, T-104 to T-106) | Key read back through a page, DTO, log, error text or export; use by a foreign store; replacement after account takeover; seller-supplied provider URL | SEC-26: sealed per store, opened only in the server-side provider client, `integrations.manage` plus fresh step-up, redaction, fixed origin per `environment` | Canary-key scan finds nothing; cross-store read, use and replace refused; change without step-up refused; no provider URL built from stored or submitted text |
+| Seller bank accounts and manual payment confirmation (D-31; planned, T-113) | Destination list changed after takeover; order marked paid without a record; foreign-store read | ADR-0013 section 10 and decision 24: `integrations.manage` plus fresh step-up and audit for the account list; one append-only confirmation record under the finance capability; store-scoped RLS | Change without step-up refused; no path other than the confirmation sets paid; store A cannot read or change store B's accounts |
+| Digital access links and grants (D-30; planned, T-112) | Link shown before payment or on a public surface; hostile link target; signed order token leaked through `Referer`; markup in the access note | SEC-27 | Links and note absent from storefront HTML, Storefront API, feeds, e-mails and logs; no outbound request to a link; no referrer; note rendered as text |
 
 ## SEC-8 — Safe publishing and uploads
+
+> **Direction change (D-32, 2026-11-15, ADR-0013 section 10):** one buyer upload exists: the proof of transfer for a `bank_transfer` order. It is accepted only on the signed order-status page of that order, limited to three images with the type checked by content and a size cap, rate limited, stored outside the public media directory, never served by the public media route, readable only by that buyer and the store's finance role, served as an attachment with a sandboxing content-security policy, and deleted after its retention period. An upload never changes an order. Not implemented (T-113).
+
+> **Direction change (D-30, 2026-11-14, ADR-0016):** digital products add no upload path. Delivery content is a list of seller-hosted access links plus an optional text note; the platform stores, copies, proxies, previews and scans no file, and the server never requests a link, so the bounded remote-fetch path at the end of this section is not used for them (SEC-27). The text below still applies to product media and rich text. Not implemented (T-111, T-112).
 
 - Status: Proposed
 - Owner: Bukalaris security owner
@@ -113,6 +126,8 @@ bounded fetch path checks destinations, redirects, resolved addresses, and
 response size to prevent private-network or metadata access.
 
 ## SEC-9 — Browser and public API boundary
+
+> **Direction change (D-28, 2026-11-14, ADR-0014):** storefronts are on their own registrable domain, so "subdomain" in the acceptance below means `<store-slug>.bukalaris.id`, checkout writes of a native store or custom domain are same-origin on the store host, and a storefront page can no longer set a parent-domain cookie that a platform host receives. The cookie, CSRF and CORS rules below stand unchanged (SEC-28). Not implemented (T-102, T-103).
 
 - Status: Proposed
 - Owner: Bukalaris security owner
@@ -170,6 +185,9 @@ response size to prevent private-network or metadata access.
   as runtime security proof. No product security tests have run in this pass.
 
 ## SEC-13 — Hosted checkout handoff
+
+> **Direction change (D-28, 2026-11-14, ADR-0014):** this hand-off serves independent storefronts only (PR-16). A native store or a verified custom domain runs cart, checkout, confirmation and order status on its own host with no hand-off token (ADR-0014 decision 5). The controls below stand for the hand-off on `checkout.bukalaris.com`. Not implemented (T-103).
+
 - Status: Proposed
 - Owner: Bukalaris security owner
 - Source: PR-16, IAM-11.
@@ -211,6 +229,8 @@ buyer identity, affiliate programme, public intake and key management. All are
 Proposed requirements; nothing here is built.
 
 ### SEC-20 — Referral click endpoint
+
+> **Direction change (D-29, D-31, 2026-11-14, ADR-0015):** the attribution window is decided at 7 days, Owner-configurable (former OPEN-A2), so the click-cookie lifetime below is no longer OPEN. Only an affiliate with an `active` membership of the store at order time can be attributed. Bukalaris pays no commission, so the "payout hold" action below does not exist for the seller-run programme; the Owner console actions are suspending an affiliate account platform-wide and freezing a store's programme (ADR-0015 decisions 1 and 7). The capture rules below stand. Not implemented (T-108 to T-110).
 
 - Status: Proposed
 - Owner: Bukalaris security owner
@@ -261,6 +281,8 @@ Proposed requirements; nothing here is built.
 
 ### SEC-22 — Key purposes, rotation and fail-closed secrets
 
+> **Direction change (D-27, D-31, 2026-11-14, ADR-0013):** sellers now enter their own Mengantar and AutoLaris keys, so "sellers never paste external keys" no longer applies. The `shipping_credentials` keyring seals the store's own Mengantar key and a new `payment_credentials` keyring seals its AutoLaris key (SEC-26). The Mengantar Partner Secret pasted in chat on 2026-10-27 is not rotated: the owner accepted the exposure on 2026-11-14 (D-31, owner answer 1); no `seller_owned` store uses it, and the T-48 entry gate in the code still refuses every Partner call without rotation evidence. The rule that an exposed secret is rotated before first use stands for every other secret. The text below describes the earlier model. Not implemented (T-104 to T-106).
+
 - Status: Proposed
 - Owner: Bukalaris security owner
 - Source: SEC-5, SEC-11, ADR-0007, ADR-0012; audit of 2026-10-27 (SPV-21).
@@ -280,6 +302,8 @@ Proposed requirements; nothing here is built.
   job leaves no version-1 value; the keyed fingerprint changes only under its own key.
 
 ### SEC-23 — Restore reapplies grants and erasure records
+
+> **Direction change (D-27, D-29, 2026-11-14, ADR-0013, ADR-0015):** the payout freeze and bank reconciliation below apply only to money Bukalaris holds (subscription billing, and the unused platform-managed ledger). A store on seller-owned accounts has no platform payout to freeze, and affiliate commission is paid by the seller outside Bukalaris. The grant and erasure rules stand, and a restore must also keep the sealed seller credentials readable under their `key_id` (SEC-26). Not implemented (T-107, T-109).
 
 - Status: Proposed
 - Owner: Bukalaris security owner with the operations owner
@@ -323,10 +347,163 @@ Proposed requirements; nothing here is built.
 - Acceptance: After delivery no row holds a usable link; the app role cannot
   read bodies; a recovery link action returns not-implemented before the fix.
 
+## Controls added by the direction change of 2026-11-14 (D-27 to D-31)
+
+Proposed requirements taken from ADR-0013, ADR-0014 and ADR-0016; nothing here is
+built. Where an ADR and this section differ, the ADR is the source.
+
+### SEC-26 — Seller provider credentials (new secret class)
+
+- Status: Proposed (D-27, D-31; not implemented, T-104 to T-106, T-113)
+- Owner: Bukalaris security owner
+- Source: ADR-0013 sections 2, 3, 6, 9 and 10; SEC-5, SEC-11, SEC-22; D-21.
+- Statement:
+  1. **Class.** Each store's own Mengantar API key and AutoLaris H2H API key are
+     seller secrets that Bukalaris holds for that store only. The payment key
+     decides where buyer money goes, so it is treated like a payout destination.
+  2. **Sealing.** A key is sealed with AES-256-GCM under a purpose-separated
+     keyring with `key_id` versioning: the existing `shipping_credentials` keyring
+     for Mengantar and a new `payment_credentials` keyring for AutoLaris. The
+     keyring rules of SEC-22 apply (distinct per purpose, fail closed, re-seal on
+     rotation). A sealed key is opened only inside the server-side provider
+     client and is never loaded into a page, a DTO, a log line or an export.
+  3. **Change control.** Entering, replacing or removing a key needs the store
+     capability `integrations.manage` (owner role) and a fresh step-up, writes an
+     audit entry (who, when, which provider, key fingerprint, never the key) and
+     notifies every store owner. There is no waiting period after a change
+     (D-31, former OPEN-P3).
+  4. **No read-back.** An empty field keeps the stored key; removal is an
+     explicit action. The screen shows only "connected", a masked hint and the
+     last successful check. A key shorter than 24 characters is fully masked; a
+     longer one shows its first and last four characters.
+  5. **Connection check.** A check runs on save and on demand; a failed check
+     stores nothing new and keeps the previous key.
+  6. **Redaction.** The Mengantar key travels in the URL path of every call, so
+     the client strips the raw and the URL-encoded key from every error, log
+     entry and trace before it leaves the function.
+  7. **Fixed provider origins.** There is no free-form base URL. Each account has
+     an `environment` of `sandbox` or `production`, mapped to a fixed provider
+     origin from server configuration; no code path builds a provider URL from
+     stored or submitted text, so a seller cannot point server-side requests at
+     another host. The sandbox origins are UNVERIFIED until read from each
+     provider's official documentation (former OPEN-P7, T-105, T-106).
+  8. **Isolation.** Accounts are store-scoped under row-level security: store A
+     cannot read, use or replace store B's key, and a status check for a store
+     runs on that store's key only.
+  9. **Callback is evidence only.** A provider callback never changes payment
+     state; an order becomes paid only by a status check on the store's key
+     (paid code and an allow-listed status word) or by the seller's manual
+     confirmation, one append-only record per attempt (D-21, ADR-0013 section 6).
+  10. **Live-call boundary.** Local development and CI keep fake adapters. A
+      sandbox run is opt-in with a test key supplied through `secrets-env`, never
+      a key in a file. Production calls on seller keys are switched on per
+      provider by an Owner console setting after a recorded sandbox pass.
+  11. **Seller bank accounts (D-31).** A store's own bank-transfer destinations
+      (up to five: bank, account number, holder name) are changed with
+      `integrations.manage` and a fresh step-up, audited. They are shown to the
+      buyer by design; Bukalaris checks no bank statement and takes no proof
+      upload from the buyer (ADR-0013 section 10).
+  12. **Platform credentials.** The only platform-owned provider credential in
+      use is the platform's own AutoLaris account for subscription invoices. The
+      Partner credentials stay in the code, unused for `seller_owned` stores.
+- Acceptance: a canary key never appears in any response body, RSC payload, log,
+  audit row or export; an empty field keeps the key; removal needs the explicit
+  action; a failed check keeps the previous key; a change without step-up is
+  refused; cross-store read, use and replace are refused under the application
+  role; an environment test proves no provider URL is built from stored or
+  submitted text; each invariant is broken once on purpose and its named test
+  fails (ADR-0013 "Confirmation").
+
+### SEC-27 — Digital access links
+
+- Status: Proposed (D-30, D-31; not implemented, T-111, T-112)
+- Owner: Bukalaris security owner
+- Source: ADR-0016 sections 4 and 7; SEC-8, SEC-9, SEC-21.
+- Statement:
+  1. **No file on the platform.** Delivery content is a list of access links to
+     content the seller hosts elsewhere plus an optional access note. Bukalaris
+     does not upload, copy, proxy, preview or scan what a link points to.
+  2. **No server-side request.** The server never requests an access link (no
+     reachability check, no preview fetch), so access links add no SSRF surface.
+  3. **Link rules.** `https` only, no credentials in the URL, at most 10 links
+     per product and 2,000 characters per link (Owner-configurable, D-31). A link
+     is shown with its label and destination host.
+  4. **No referrer.** A link opens in a new tab and is sent with no referrer,
+     because the order-status address contains the buyer's signed token.
+  5. **Never public.** Access links and the access note never appear in
+     storefront HTML, the Storefront API, feeds, e-mails or logs. They are read
+     only through a valid grant, by one function. The payment-confirmed e-mail
+     carries the order-status link, never a content link.
+  6. **Text only.** An access note is rendered as text, never as seller-supplied
+     HTML.
+  7. **Grants.** Access is granted in the transaction that settles the order
+     (status check or the seller's manual confirmation), once per digital order
+     line; a callback alone grants nothing. Grants are store-scoped under
+     row-level security; extending or revoking one is audited.
+  8. **Reserved types.** Only the access-item type `link` is accepted.
+     `video_embed` and `live_session` are refused, and no frame allow-list is
+     added to the content-security policy now. The later member area uses a
+     fixed platform allow-list, never a seller-supplied frame address (D-31).
+  9. **Limit of control.** Bukalaris controls only whether its own pages show a
+     link. It cannot count downloads, close a link the buyer already copied, or
+     tell what a link serves; a harmful or dead link is handled by the public
+     report intake and an Owner console takedown, not by scanning.
+- Acceptance: links and note are absent from storefront HTML, the Storefront API,
+  feeds, e-mails and logs; an expired or revoked grant shows no link; a
+  non-`https` link or one with credentials is refused on save; the rendered link
+  carries no referrer; the server makes no outbound request to a link; a note
+  containing markup is rendered as text; a reserved type is refused; store A
+  cannot read, attach or revoke store B's access items and grants (ADR-0016
+  "Confirmation").
+
+### SEC-28 — Two registrable domains: storefronts cross-site to platform sessions
+
+- Status: Proposed (D-28, D-31; not implemented, T-102, T-103; HSTS rollout T-94)
+- Owner: Bukalaris security owner
+- Source: ADR-0014; SEC-3, SEC-9; DOM-5, DOM-6; D-25.
+- Statement:
+  1. **Separation.** Platform surfaces (`owner`, `app`, `checkout`, `buyer`,
+     `affiliate`, `logs` and the apex) stay on `bukalaris.com`
+     (`PLATFORM_ROOT_DOMAIN`); native storefronts are `<store-slug>.bukalaris.id`
+     (`STORE_ROOT_DOMAIN`). Seller-controlled content is therefore cross-site to
+     every platform session, and storefront abuse cannot take the platform
+     domain's reputation or HSTS policy with it.
+  2. **Dispatch.** Exact platform hosts on the platform root are matched first,
+     then `<label>.<STORE_ROOT_DOMAIN>`, then a verified custom domain; anything
+     else fails closed (`421`, D-25). A platform label on the store root and a
+     store slug on the platform root both fail closed.
+  3. **Reserved labels on the store root.** `cname`, `www`, `api`, `mail`,
+     `status`, `docs`, `assets`, `cdn` and every platform label stay unclaimable
+     as store slugs on `bukalaris.id`.
+  4. **CNAME target.** `cname.bukalaris.id` is the only target a seller is told
+     to use; a request for that host itself is not a store and fails closed.
+     Custom domains are subdomains only until T-15 verifies apex support (D-31).
+  5. **No session surface on the store domain.** The apex and `www` of
+     `bukalaris.id` redirect to `https://bukalaris.com` for `GET`/`HEAD`.
+  6. **Cookies and HSTS.** No cookie is set on `.bukalaris.id` or
+     `.bukalaris.com`; session and CSRF cookies stay host-only with the `__Host-`
+     prefix. `includeSubDomains` on `bukalaris.id` covers storefronts only; a
+     custom domain receives HSTS on its own host without `includeSubDomains`.
+  7. **Checkout on the store host.** Cart, checkout, confirmation and the signed
+     order-status page are served on the storefront's own host; the cart cookie
+     is host-only and never crosses to `checkout.bukalaris.com`. The store host
+     still refuses seller, operator, auth and Storefront API paths.
+  8. **Link origins.** Storefront, landing-page, feed, order-status and recovery
+     links use the store's primary host; Seller Admin, Owner console, buyer
+     portal, affiliate portal and password or invite links use the platform host.
+     A feed or e-mail link is never built from the request host.
+- Acceptance: a two-root host table proves the fail-closed cases and that
+  `cname.<store root>` is never a store; cart, checkout and confirmation complete
+  on the store host with two different roots at 320 px and desktop; a link-origin
+  test covers a store with and without a primary custom domain (ADR-0014
+  "Confirmation").
+
 ## Threat register — Owner console, buyer identity, affiliate, payouts, intake (STRIDE)
 
 Proposed requirements, not findings of deployed vulnerabilities. Each row names
 the control that closes it.
+
+> **Direction change (D-27 to D-30, 2026-11-14, ADR-0013 to ADR-0016):** THR-6 applies only to money Bukalaris holds; a store on seller-owned accounts has no platform payout, and affiliate commission is paid by the seller (ADR-0015 decision 9). THR-9 concerns the affiliate storefront, which is deferred (D-29, T-55 not scheduled). THR-15 to THR-19 are added for the new surfaces. The other rows describe the earlier model and still apply where unchanged. Not implemented (T-102 to T-113).
 
 | ID | Surface | Threat (STRIDE) | Control |
 |---|---|---|---|
@@ -344,3 +521,8 @@ the control that closes it.
 | THR-12 | Public reports | Denial of service/tampering: malicious takedown, bot flood | SEC-21: friction, limits, no automatic action |
 | THR-13 | Database roles | Elevation: SQL injection reaches payouts through the public lookup path or directly changes store lifecycle | ADR-0005 amendment: lookups off the BYPASSRLS pool, restricted tables behind functions; T-81 app store-column UPDATE allowlist, verified independently of GUC context. Shared auth/platform-pool residual risks remain. |
 | THR-14 | Backups | Information disclosure/repudiation: unencrypted dump, grants and erasures lost on restore | SEC-23, PRIV-4; client-side encryption of offsite dumps is OPEN (14) |
+| THR-15 | Seller provider keys (D-27) | Information disclosure/elevation: key echoed to a page, logged with the request URL, used for another store, or replaced after an account takeover to redirect buyer money | SEC-26: sealing, no read-back, redaction, store-scoped RLS, `integrations.manage` plus step-up, audit and owner notification |
+| THR-16 | Provider origin (D-27) | Tampering (server-side request forgery): a seller-supplied provider URL points server requests at another host | SEC-26 item 7: fixed origin per `environment`, no URL from stored or submitted text |
+| THR-17 | Seller bank transfer and manual confirmation (D-31) | Tampering/repudiation: destination list changed after a takeover; an order marked paid with no record | SEC-26 items 9 and 11: step-up and audit on the account list, one append-only confirmation record per attempt |
+| THR-18 | Digital access links (D-30) | Information disclosure/tampering: link on a public surface or before payment, signed order token leaked by `Referer`, request forgery through a link check, markup in the access note | SEC-27 |
+| THR-19 | Storefront domain (D-28) | Spoofing/tampering: a store slug that imitates a platform label, a cookie tossed toward a platform host, a claimed CNAME target | SEC-28: two roots, reserved labels on the store root, host-only `__Host-` cookies, `cname` never a store |

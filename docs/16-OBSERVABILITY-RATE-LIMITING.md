@@ -7,6 +7,8 @@ Unknown; the limits and the diagnostic sink that exist on `main` are listed in
 
 ## Implemented on `main` (checked 2026-10-07)
 
+> **Direction change (D-27, D-28, 2026-11-14, ADR-0013, ADR-0014):** the table below describes the code as it runs today and stays accurate for it. Target changes: shipment booking is serialised per store on the store's own Mengantar key, not per platform account, and an unknown outcome blocks rebooking until a person releases or links it (ADR-0013 decisions 29 and 30; T-105); checkout and cart limits apply on the store host, where checkout is served (T-103). Not implemented.
+
 | Control | Implementation | Numbers | Proof |
 |---|---|---|---|
 | Correlation id | `apps/web/src/proxy.ts` mints `x-request-id` (UUID) per request, sets it on the response and in cookie `bl_rid` (5 min, readable by the client error boundary); an inbound id is kept only with `TRUST_PROXY_REQUEST_ID=1` and shape `^[A-Za-z0-9_-]{8,64}$` (`lib/request-id.ts`). Never identity or authorization | — | `e2e/ops.spec.ts` ("every response carries a request id"), `e2e/security-headers.spec.ts` (trust flag) |
@@ -40,6 +42,8 @@ rule is unverified until an approved write test.
 
 ## Signal contract
 
+> **Direction change (D-27, D-30, 2026-11-14, ADR-0013, ADR-0016):** two additions to the "never contain" list below. (1) A seller's Mengantar or AutoLaris key: the Mengantar key travels in the URL path of every call, so the provider client strips the raw and the URL-encoded key from every error, log entry and trace before it leaves the function; an audit entry holds the key fingerprint, never the key. (2) Digital access links and access notes never appear in logs. The contract below is otherwise unchanged. Not implemented (T-104 to T-106, T-112).
+
 Metrics use bounded operation/outcome/provider/environment labels only. Logs and
 traces may contain an internal tenant/order correlation reference only under
 restricted access and approved retention; they never contain credentials,
@@ -47,6 +51,8 @@ cookies, tokens, raw payment/provider payloads, address bodies, or arbitrary
 user input. Inbound trace/baggage values are untrusted and are never identity.
 
 ## Initial rate-limit policy
+
+> **Direction change (D-27, 2026-11-14, ADR-0013):** in the "Mengantar order booking" row the queue is per store on the store's own key: one booking at a time per store, a claimed order cannot be booked twice, and a timeout, dropped connection, provider 5xx or unreadable success is an unknown outcome that blocks every further attempt until a person resolves it. In the "Provider webhook/job" row a payment callback is evidence only and never changes state. The "On `main`" column describes the code as it runs today. Not implemented (T-105, T-106).
 
 | Operation | Key hierarchy | Policy | On `main` |
 |---|---|---|---|
@@ -61,6 +67,8 @@ prove terminal event, trace/log correlation, metric change, redaction, and
 provider/job stage behavior at the configured sink.
 
 ## Rate-limit register (proposed, 2026-10-27)
+
+> **Direction change (D-27, D-29, 2026-11-14, ADR-0013, ADR-0015):** RL-PARTNER-MENGANTAR is unused for a `seller_owned` store, the only mode in the first release; outbound calls run on each store's own key. RL-AUTOLARIS-CB stands, with the callback as evidence only: the route resolves the store from the signed reference and settlement comes from a status check on that store's key. RL-AFF-SIGNUP covers the one platform registration; an affiliate then applies to individual stores, and those applications are limited by RL-AFF-STORE-APPLY (D-33). Limits for the provider connection check and the other new actions are in "Rate-limit register additions (D-33)" below. The rows below describe the earlier model. Not implemented (T-104 to T-110).
 
 Status: Proposed; numbers are OPEN configuration values (measured before a
 pilot), the columns below are the contract. Source: ADR-0009 §8, ADR-0010 §5,
@@ -106,6 +114,24 @@ deployment document records the chosen topology and the trusted-proxy list.
 | RL-MENGANTAR-WH | Mengantar webhook (HTTP-26) | Signature check first → source IP → event key | as above | OPEN |
 | RL-PARTNER-MENGANTAR | Outbound partner calls (Mengantar) | One token bucket `partner:mengantar` (DB-backed), calls from the worker only | The job waits outside its lease and retries; never holds the lease while waiting | 60 / min shared (ADR-0007, UNVERIFIED) |
 | RL-PRIVACY-EXPORT | Privacy export (HTTP-18) | Subject → staff | 429 | OPEN |
+
+### Rate-limit register additions (D-33, 2026-11-15)
+
+Status: Decided as starting values (owner accepted the recommendation, D-33), not implemented. Each number is an Owner-configurable setting, measured again after the pilot. These rows answer the limits the direction-change note above left undefined and replace "OPEN" for RL-AUTOLARIS-CB and RL-MENGANTAR-WH. AutoLaris has no IP allow-list (D-33), so the source IP is a rate-limit dimension only, never an authentication check.
+
+| ID | Action | Dimensions | On limit | Starting value | Owning task |
+|---|---|---|---|---|---|
+| RL-AUTOLARIS-CB | AutoLaris payment callback | Signature check first (before DB) → source IP → provider reference | Invalid signature: 401, no side effect, counted; a valid repeat is a harmless duplicate | 120 / min per IP; 10 / 10 min per provider reference | T-106 |
+| RL-MENGANTAR-WH | Mengantar webhook | Signature check first → store → event key | as above; a dropped update is recovered by the scheduled tracking read | 600 / 10 min per store | T-115 |
+| RL-PROVIDER-CHECK | Seller saves or tests a Mengantar or AutoLaris key | Store → staff | 429 with `Retry-After`; nothing saved | 5 / 10 min per store | T-104 |
+| RL-PAY-RECHECK | Buyer or seller asks for a payment status check now | Order → IP | The page shows the last known status; the scheduled check still runs | 6 / min per order; 30 / 10 min per IP | T-106 |
+| RL-TRACK-REFRESH | Seller asks for a tracking read now | Parcel → store | Last known state shown; the scheduled read still runs | 1 / 5 min per parcel; 60 / 10 min per store | T-115 |
+| RL-PROOF-UPLOAD | Buyer uploads a proof of transfer (order-status page) | Order → IP | 429; nothing stored | 6 uploads / hour per order (three images each at most); 20 / hour per IP | T-113 |
+| RL-ACCESS-OPEN | Buyer opens a digital access link from the order-status page or portal | Order → IP | 429 with `Retry-After` | 60 / 10 min per order; 120 / 10 min per IP | T-112 |
+| RL-AFF-STORE-APPLY | Affiliate applies to one store's programme | Affiliate → store → day | 429; no hint about the store's decision | 20 stores / day per affiliate; 1 open application per affiliate and store | T-108 |
+| RL-CLICK (store host) | Referral click `GET /r/<token>` on the store host (C-D1) | as RL-CLICK | as RL-CLICK: redirect without capturing a click | as RL-CLICK | T-103, T-108 |
+
+No limit is added for the seller's manual payment confirmation or for recording an affiliate payment: both are authenticated finance actions behind a capability and step-up, each append-only and audited.
 
 Existing limits on `main` (checkout, cart, signals, feeds) are unchanged; their
 keys currently embed the raw phone and IP (`rate_limit.key`, PRIV-1) and are
@@ -159,6 +185,8 @@ reports use the same function, and synthetic canaries of each class are tested.
 
 ## Headless and hosted-checkout signal extension
 
+> **Direction change (D-28, 2026-11-14, ADR-0014):** the hand-off events below concern independent storefronts only (PR-16). A native store or a verified custom domain checks out on its own host with no hand-off, so its checkout keeps the first-party advertising cookies and has no cross-origin step. Not implemented (T-103).
+
 Source: PR-16, API-8 and SEC-13. Proposed events cover channel issue/revoke,
 cart mutation, handoff issued/exchanged/expired/rejected, checkout submit,
 provider pending and final outcome. Never log channel secrets, cart capability,
@@ -206,6 +234,8 @@ read-audit failure follows the separately documented audit policy.
 
 ## OBS-6 — Service-level objectives, alerts and probes
 
+> **Direction change (D-27, D-28, D-29, 2026-11-14, ADR-0013 to ADR-0015):** read the table and the probe below with these changes. "Per-host TLS": storefronts are covered by `*.bukalaris.id`, not `*.bukalaris.com`; `*.affiliate.bukalaris.com` belongs to the deferred T-55. "Partner budget" and "Payout age" apply only to the platform-managed model, which is unused for a `seller_owned` store. "Webhook signature failures": an AutoLaris callback is evidence only. The host-aware probe takes its sample storefront on the store root (`<store-slug>.bukalaris.id`) and its platform hosts on `bukalaris.com`; checkout still answers 404 on the `owner` and `app` hosts. Conditions introduced by the ADRs that have no signal defined here yet: failed connection checks per store, pending payment attempts not yet settled by the status check, bookings blocked by an unknown outcome, and affiliate commissions in arrears. The text below describes the earlier model. Not implemented (T-102 to T-110).
+
 - Status: Proposed
 - Owner: Bukalaris operations owner
 - Source: OBS-1 to OBS-5, 14-SLA-DISASTER-RECOVERY, ADR-0006, ADR-0007, ADR-0009; audit of 2026-10-27 (OPS-14).
@@ -240,6 +270,8 @@ bad signature, expire a certificate in a fixture, file a `blocking` report) and
 confirm the alert reaches the sink once, with no secret in the payload.
 
 ## OBS-7 — Job leases, priority, dead letters, replay and lag
+
+> **Direction change (D-27, D-29, 2026-11-14, ADR-0013, ADR-0015):** in the money priority class, ledger and payout jobs exist only for money Bukalaris holds; a `seller_owned` store has none. Shipment booking for such a store is never requeued blindly after an unknown outcome (ADR-0013 decision 30), which matches the rule below that money kinds are not blindly requeued. Two scheduled jobs are added by the ADRs: the payment status check on each store's key (pending attempts and those expired in the last 24 hours, newest first) and the move of delivered commissions to `payable` after the hold. The statement below is otherwise unchanged. Not implemented (T-105, T-106, T-108).
 
 - Status: Proposed
 - Owner: Bukalaris operations owner

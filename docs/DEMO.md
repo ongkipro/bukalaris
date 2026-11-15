@@ -6,6 +6,8 @@ ad destinations, a month of orders in every order status and a few Log System
 events. It is for development and presentations. It is not the e2e fixture
 (`pnpm db:seed`, unchanged) and both can live in the same database.
 
+> **Direction change (D-27 to D-31, 2026-11-14, ADR-0013 to ADR-0016):** the demo below shows the code as it runs today: platform-managed shipping and payments on fake adapters, one root domain, physical products only. It seeds no seller-owned Mengantar or AutoLaris account, no bank-transfer account, no digital product or access grant and no store affiliate membership; those arrive with T-104 to T-113. In the demo, "transfer" means the provider channel (`manual_transfer`), not the later bank transfer to the seller's own account (`bank_transfer`, T-113), and the "platform margin rule" under "Shipping" has no counterpart in the target (no platform margin, ADR-0013 decision 15). Local hosts (`<slug>.localhost`, `/s/<slug>`) are unchanged by D-28: local development keeps one root. No command changes.
+
 ## Run
 
 ```bash
@@ -98,24 +100,26 @@ store-owned tables are covered without changes.
 
 ## Mockups (static)
 
+> **Direction change (D-29, 2026-11-14, ADR-0015):** the affiliate mockups below were drawn for the platform-owned programme of ADR-0009 (commission paid out by the platform; the text below mentions payout deductions). In the target the seller approves memberships, owes and pays the commission outside Bukalaris and records it; there is no platform wallet or payout, and the public affiliate storefront (AF-08) is deferred. The mockups are kept as history and are not the target design. Not implemented (T-108 to T-110).
+
 The affiliate programme, the subscription screen and its Owner console counterpart
 have no code yet. They are shown as clickable static HTML mockups in
-`docs/mockups/` (plain HTML + one shared CSS, no build, no network; fictional data
+`docs/archive/mockups/` (plain HTML + one shared CSS, no build, no network; fictional data
 only; each page carries a "MOCKUP — data fiktif, belum diimplementasi" ribbon and
 a link to its spec).
 
-Open `docs/mockups/index.html` in a browser (`xdg-open docs/mockups/index.html`
+Open `docs/archive/mockups/index.html` in a browser (`xdg-open docs/archive/mockups/index.html`
 on Linux). It lists every page and what is real versus mockup.
 
 | Surface | Status | Where |
 |---|---|---|
 | Seller Admin, Batik Nusantara | **Real** (seeded) | `http://localhost:3001/seller` |
 | Storefront, Batik Nusantara | **Real** (seeded) | `http://localhost:3001/s/demo-batik-nusantara` |
-| Affiliate portal, @sari-picks (AF-01) | Mockup | `docs/mockups/affiliate-portal.html` |
-| Public affiliate storefront (AF-08) | Mockup | `docs/mockups/affiliate-storefront.html` |
-| Seller Admin: Affiliate (SC-30) | Mockup | `docs/mockups/seller-affiliate.html` |
-| Seller Admin: Subscription (SC-28) | Mockup | `docs/mockups/seller-subscription.html` |
-| Owner console: Affiliate (SA-11) | Mockup | `docs/mockups/admin-affiliate.html` |
+| Affiliate portal, @sari-picks (AF-01) | Mockup | `docs/archive/mockups/affiliate-portal.html` |
+| Public affiliate storefront (AF-08) | Mockup | `docs/archive/mockups/affiliate-storefront.html` |
+| Seller Admin: Affiliate (SC-30) | Mockup | `docs/archive/mockups/seller-affiliate.html` |
+| Seller Admin: Subscription (SC-28) | Mockup | `docs/archive/mockups/seller-subscription.html` |
+| Owner console: Affiliate (SA-11) | Mockup | `docs/archive/mockups/admin-affiliate.html` |
 
 The demo store is **Batik Nusantara** (`demo-batik-nusantara`); the mockups reuse
 its product names and prices plus the other three demo stores. The route IDs are

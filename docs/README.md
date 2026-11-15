@@ -19,7 +19,7 @@ roles, store-scoped services, the outbox worker `src/worker.ts`, the maintenance
 command `src/cleanup.ts`, the local demo seed `src/demo/` ([DEMO.md](DEMO.md)),
 integration tests). How to run and test:
 [`AGENTS.md`](../AGENTS.md) and [`RUNBOOK.md`](RUNBOOK.md). The Astro storefront
-is no longer planned ([ADR-0008](ADR-0008-platform-architecture-and-routing.md); history in [DECISIONS D-2](DECISIONS.md)). Nothing is deployed
+is no longer planned ([ADR-0008](adr/ADR-0008-platform-architecture-and-routing.md); history in [DECISIONS D-2](DECISIONS.md)). Nothing is deployed
 ([DEPLOY-COOLIFY.md](DEPLOY-COOLIFY.md) is a draft).
 
 ## Start here
@@ -83,14 +83,15 @@ and workflows; which screens exist on `main` is recorded in the UX document's
 | 15-DELIVERY-MIGRATIONS.md | Delivery, migration, verification and release gates |
 | 16-OBSERVABILITY-RATE-LIMITING.md | Signals, Log System and query/abuse controls |
 | 17-UX-FLOWS-SCREEN-CONTRACTS.md | Initial screen workflows, states and acceptance |
-| ADR-0001 through ADR-0012 | Architecture decisions (0001–0003 proposed; 0004 accepted for local M1; 0005 accepted and implemented, with the 2026-10-27 amendment accepted on 2026-10-28 (T-59, D-20); 0006–0012 accepted on 2026-10-28 (D-20, D-21) as decisions, not implementation evidence — 0006 platform-managed money, net seller ledger & Mengantar reconciliation; 0007 platform-managed Mengantar Partner seller provisioning, shipping discounts & cashback ledger; 0008 platform architecture and routing; 0009 platform-owned affiliate programme; 0010 global buyer identity; 0011 Owner console scope, navigation, naming rule and account governance, with the startup relaxation and the dormant Compliance center (Compliance activation); 0012 platform tax workflows: startup-off defaults (earnings statements, optional voluntary tax identity) and a dormant tax policy engine (Tax activation)) |
-| DECISIONS.md | Implementation decisions and deliberate ceilings (D-1..D-24; D-24 also records gated review dispositions) |
+| adr/ADR-0001 through ADR-0012 | Architecture decisions (0001–0003 proposed; 0004 accepted for local M1; 0005 accepted and implemented, with the 2026-10-27 amendment accepted on 2026-10-28 (T-59, D-20); 0006–0012 accepted on 2026-10-28 (D-20, D-21) as decisions, not implementation evidence — 0006 platform-managed money, net seller ledger & Mengantar reconciliation; 0007 platform-managed Mengantar Partner seller provisioning, shipping discounts & cashback ledger; 0008 platform architecture and routing; 0009 platform-owned affiliate programme; 0010 global buyer identity; 0011 Owner console scope, navigation, naming rule and account governance, with the startup relaxation and the dormant Compliance center (Compliance activation); 0012 platform tax workflows: startup-off defaults (earnings statements, optional voluntary tax identity) and a dormant tax policy engine (Tax activation)) |
+| adr/ADR-0013 through ADR-0016 | Owner direction change of 2026-11-14 (D-27..D-30), accepted as decisions, not implemented: 0013 seller-owned Mengantar and AutoLaris accounts (supersedes parts of 0006/0007); 0014 platform on `bukalaris.com`, storefronts on `bukalaris.id`, custom-domain target `cname.bukalaris.id` (supersedes host rows of 0008); 0015 seller-run store affiliate programme (supersedes the platform-funded parts of 0009); 0016 digital products beside physical ones (prepaid only, access granted on payment). Tasks T-101..T-112 |
+| DECISIONS.md | Implementation decisions and deliberate ceilings (D-1..D-33; D-24 also records gated review dispositions) |
 | TASKS.md | Only execution queue; planning versus verified status |
 | DEPLOY-COOLIFY.md / RUNBOOK.md | Deployment draft (unexecuted) / local operations and release gates |
 | tracks/*.md | Per-track implementation reports (what changed, commands, open issues); read-only history |
 | reviews/*.md | Dated code-versus-spec gap reports (evidence for rework/redevelop decisions; not specifications) |
 | research/*/ | Dated research on other projects and markets with its sources and verification (reference only; adopted items move into the owning document and TASKS.md) |
-| mockups/ | Static clickable mockups of surfaces that have no code yet (affiliate, subscription, seller affiliate settings, Owner console affiliate admin); see DEMO.md |
+| archive/ | Superseded material kept as history (T-114, 2026-11-15): `STATUS-history-2026-11-05.md`, `BRIEF-M1.md`, `AGENTS-m2-tracks.md`, and `mockups/` (static mockups of the platform-funded affiliate and subscription screens that D-29 replaced). Not current specification |
 | evidence/ | Playwright screenshots re-rendered by every e2e run |
 
 Note: the platform operator surface (formerly Super Admin / Bos) is the **Owner

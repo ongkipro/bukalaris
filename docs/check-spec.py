@@ -59,10 +59,10 @@ require({'service', 'environment', 'release_revision', 'operation_id'} <= set(lo
 require(log_event.get('additionalProperties') is False, 'Log projection permits arbitrary fields')
 require({'source_status', 'last_observed_at'} <= set(spec['components']['schemas']['LogEventList']['required']),
         'Log list cannot distinguish source completeness and freshness')
-for file in root.glob('*.md'):
+for file in [*root.glob('*.md'), *root.glob('adr/*.md')]:
     for target in re.findall(r'\]\(([^)]+)\)', file.read_text()):
         if '://' not in target and not target.startswith('#'):
-            require((file.parent / target.split('#')[0]).exists(), f'Broken file link: {file.name}: {target}')
+            require((file.parent / target.split('#')[0]).exists(), f'Broken file link: {file.relative_to(root)}: {target}')
 if errors:
     raise SystemExit('\n'.join(errors))
 print(f'PASS proposed API: {len(spec["paths"])} paths, {len(operations)} operations; refs, auth boundaries and local file links')

@@ -10,6 +10,8 @@ DECISIONS D-2). HTTP schema ownership stays in that file; this document
 explains boundaries, provider gaps, and acceptance. Do not create a competing
 route specification.
 
+> **Direction change (D-27 to D-31, 2026-11-14, ADR-0013 to ADR-0016):** `openapi.yaml` and this document predate these decisions. The contract has no operation yet for seller provider accounts (connect, replace, remove, check), seller bank transfer, store affiliate membership, commission statements and payment records, or digital products, access links and grants; those are specified with T-104 to T-113, and no path, operation or schema was changed by this note. The proposed `owner.`/`app.`/`checkout.bukalaris.com` origins stay on the platform domain; native storefronts move to `<store-slug>.bukalaris.id` (T-102, T-103). Sections affected below carry their own note. Not implemented.
+
 ## Implemented versus proposed (checked against `main`, 2026-10-07)
 
 | Contract area | OpenAPI operations | On `main` |
@@ -34,7 +36,7 @@ URL segment is now the catalog id (D-8). The `Theme` enum is `responsive` |
 | Seller CMS | Seller browser | Membership scope, pagination, validation, optimistic conflict handling |
 | Storefront commerce | Storefront/browser | Host/store binding, public catalog, server-authoritative cart/checkout |
 | Owner console | Platform operators | Platform role, audit reason for sensitive changes, target tenant visibility |
-| Provider adapters | Trusted backend only | Timeout, idempotency, stable local/provider references, sanitized errors |
+| Provider adapters | Trusted backend only | Timeout, idempotency, stable local/provider references, sanitized errors. Direction change (D-27, 2026-11-14, ADR-0013): each call runs on the owning store's sealed key against a fixed origin per `environment`; the key is stripped from every error. Not implemented (T-104 to T-106) |
 | Webhook/callback | Provider to backend | Verified authenticity before parse/side effect, durable deduplication |
 | Future connector | Seller system | Explicit data ownership, sync cursor, conflict/delete semantics, scoped credential |
 
@@ -50,6 +52,8 @@ no-secret error format. Authentication and tenant source must be declared per
 operation, not inferred from tag name.
 
 ## API-2 — Provider rules
+
+> **Direction change (D-27, D-30, D-31, 2026-11-14, ADR-0013, ADR-0016):** provider calls run on the store's own Mengantar and AutoLaris keys. AutoLaris is used as a payment gateway only, in its payment-only profile confirmed per store; one payment instruction is created per attempt with a reference unique per attempt, a retry keeps the old attempt, and a callback is evidence only: an order becomes paid by a status check on the store's key or by the seller's manual confirmation. Mengantar estimation applies the seller's courier, COD and province filters through one function that is called again at order submit, which re-quotes and refuses a stale price. A digital line removes COD and shipping; bank transfer to the seller's own account uses no provider. The text below describes the earlier model. Not implemented (T-104 to T-107, T-111, T-113).
 
 - Owner: Bukalaris integration owner
 
@@ -153,6 +157,8 @@ may include drafts only with capability checks.
 
 ## API-6 — Proposed seller domain operations
 
+> **Direction change (D-28, D-31, 2026-11-14, ADR-0014):** the "safe DNS instructions" returned by Read status are exactly one record, a CNAME from the seller's host to `cname.bukalaris.id`. Add domain accepts a subdomain only; an apex domain is refused with an explanation until T-15 verifies the provider's apex support. The operations below are otherwise unchanged; provider and lifecycle stay T-15. Not implemented (T-102; T-15).
+
 - Status: Proposed
 - Owner: Bukalaris API owner
 - Source: PR-13, DOM-2, UX-11.
@@ -200,6 +206,9 @@ policy, and future LP/MCP operations. A valid schema does not prove these flows
 exist. No GraphQL layer or public SDK is required merely to resemble Shopify.
 
 ## API-8 — External storefront to hosted checkout
+
+> **Direction change (D-28, 2026-11-14, ADR-0014):** this hand-off is the path for independent storefronts only (PR-16). A native store or a verified custom domain serves cart, checkout, confirmation and order status on its own host and requests no `checkout_url`. The contract below stands for the hand-off. Not implemented (T-103).
+
 - Status: Proposed
 - Owner: Bukalaris API owner
 - Source: PR-16.
@@ -245,6 +254,8 @@ MCP is later scope and is not represented as a deployed endpoint in OpenAPI.
 Published HTTP contracts remain owned by `openapi.yaml`.
 
 ## HTTP host ownership
+
+> **Direction change (D-28, 2026-11-14, ADR-0014):** the surface origins below stay on `bukalaris.com`. Native storefront cart and checkout endpoints are same-origin on `<store-slug>.bukalaris.id` or the verified custom domain, and the store host still refuses seller, operator, auth and Storefront API paths. Provider callbacks stay on the platform origin (08 DOM-5 "Base origin by link type") and remain evidence only (ADR-0013 decision 22). Not implemented (T-102, T-103, T-106).
 
 Proposal: Path-level OpenAPI servers declare each proposed surface origin.
 Seller Admin serves `/seller/*` and `/storefront/*`; the Owner console serves `/admin/*`; the

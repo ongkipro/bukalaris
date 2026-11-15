@@ -73,7 +73,14 @@ info:
 
     remain explicit gaps. This document is a reviewable initial HTTP boundary, not
 
-    a claim of a complete or implemented provider integration.'
+    a claim of a complete or implemented provider integration.
+
+
+    This contract predates the owner decisions D-27 to D-31 of 2026-11-14. Seller
+
+    provider-account, bank-transfer, affiliate-membership and digital-product
+
+    operations are not in it yet and are specified in T-104 to T-113.'
 servers:
 - url: /api/v1
   description: Proposed relative prefix on the authorized console or verified storefront

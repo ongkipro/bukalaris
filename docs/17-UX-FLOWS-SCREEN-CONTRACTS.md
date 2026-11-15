@@ -2,6 +2,67 @@
 
 ## Experience direction
 
+Direction change 2026-11-14 (D-27 to D-30; accepted decisions, no screen built):
+screen contracts written before that date describe the platform-managed model.
+The following are the targets, and T-101 follow-up work rewrites the affected
+contracts when each task starts:
+
+- **Seller shipping and payment settings (ADR-0013):** connect, replace, check
+  and remove the store's own Mengantar and AutoLaris account; choose `sandbox`
+  or `production`; a key is never shown again after saving; courier on/off, COD
+  per courier, COD-blocked provinces, payment-channel exclusions and the two
+  fee bearers. Seller screens name Mengantar and AutoLaris. Balance and payout
+  screens are hidden for a store on seller-owned accounts.
+- **Storefront and checkout (ADR-0014, ADR-0016):** checkout, confirmation and
+  order status on the store host; a digital-only order shows no address, courier
+  or shipping block and asks for e-mail; COD is absent when the cart has a
+  digital line; the order-status page lists each access link of an active grant
+  with its label and destination host, plus the access note, and shows nothing
+  for an expired or revoked grant. There is no download count or remaining
+  limit (ADR-0016 decisions 14 and 17; corrected 2026-11-15, the earlier wording
+  described the upload draft of that ADR).
+- **Seller affiliates (ADR-0015):** programme switch and terms, rates,
+  applicants, members, statement, record a payment with proof. The affiliate
+  portal shows memberships and one statement across stores, with the notice that
+  the seller pays. This replaces the sentence below that excludes a
+  seller-owned affiliate screen.
+- **Seller products (ADR-0016):** product kind, access links (seller-hosted,
+  for example Google Drive), access note, optional stock counting; extend and
+  revoke on the order. No upload. A signed-in member area is a later stage.
+- **Seller orders, SC-12/SC-13 (ADR-0013 sections 6 and 7, ADR-0016):** booking
+  is a seller action on the order (drop-off or scheduled pickup) on the store's
+  own Mengantar key, one booking at a time per store. An unknown provider
+  outcome blocks every further booking attempt until a person releases the
+  order or links the shipment the provider accepted. A prepaid parcel accepted
+  without a waybill because the courier balance was short is shown with the
+  action to take. The seller can confirm a payment by hand, record a refund
+  made outside Bukalaris, and extend or revoke a digital grant. An order with
+  no physical line has no booking section and completes when paid. A sandbox
+  order is marked as a test order. The Q-17 notice for COD no longer applies to
+  a `seller_owned` store.
+- **Buyer order status, SF-11 (ADR-0013, ADR-0014, ADR-0016):** served on the
+  store's primary host. It shows a retry when a payment instruction failed or
+  expired, the seller's bank accounts and exact total for a bank-transfer
+  order, the refund the seller recorded, and the access links and access note
+  of active grants. No shipping block for an order without a parcel.
+
+Target screens that have no contract in this document yet. Each is listed here
+only; its fields, states and ARCH-5 id are written by the task named, not
+before:
+
+| Target screen | Decision | What it must do (from the ADR) | Contract |
+|---|---|---|---|
+| Seller provider accounts (Mengantar, AutoLaris) | D-27, ADR-0013 decisions 5 to 11 | Connect, replace (an empty field keeps the stored key), remove (explicit action) and "check now"; `sandbox` or `production` environment, no URL field; shows only connected state, masked hint and last successful check; needs `integrations.manage` and a fresh step-up | contract written in T-104 |
+| Seller courier, COD and province filters | D-27, ADR-0013 section 4 | Courier on/off, COD per courier, COD-blocked provinces (suggested list the seller confirms), COD on/off, `cod_fee_bearer` | contract written in T-105 |
+| Seller payment channels and manual payment confirmation | D-27, ADR-0013 sections 4 to 6 | AutoLaris on/off, per-channel exclusion, `payment_fee_bearer`; confirm a payment by hand with a reason and evidence, one append-only record per attempt; payment anomaly notice | contract written in T-106 |
+| Seller bank accounts for bank transfer | D-31, ADR-0013 section 10 | Up to five destination accounts (bank, number, holder name); `integrations.manage` and a fresh step-up; method on/off | contract written in T-113 |
+| Seller access links and grant actions | D-30, ADR-0016 decisions 3, 15 to 17 | Access links (label and `https` link) and access note on the product; extend and revoke a grant on the order, audited; plain statement that sharing permissions stay on the seller's host | contract written in T-112 |
+| Seller affiliate membership approval | D-29, ADR-0015 decisions 1, 2 and 8 | Programme switch with terms acceptance, default rate and per-product override, applicants and members with approve, reject and suspend, optional auto-approval | contract written in T-110 |
+| Affiliate payment record with proof | D-29, ADR-0015 decision 5 | One payment for one affiliate: amount, date, method, covered commissions, proof; immutable, corrected by a reversing record | contract written in T-110 |
+| Shared affiliate statement (Seller Admin and affiliate portal) | D-29, ADR-0015 decisions 6 and 8 | Same per-store figures on both sides: `pending`, `payable`, `paid`, `confirmed`, `disputed`, age of the oldest `payable` item; affiliate confirms or disputes; notice that the seller pays | contract written in T-110 |
+| Owner console arrears queue and programme freeze | D-29, ADR-0015 decision 7 | Stores with `payable` commissions older than `affiliate_arrears_days`; freeze and unfreeze a store's programme | contract written in T-110 |
+| Owner console provider settings | D-27, ADR-0013 decisions 19 and 34, section 4 | Locked payment channels, versioned provider fee rates, per-provider switch for production calls on seller keys | locked channels and fee rates: contract written in T-106; the production switch has no task that names it (reported 2026-11-15) |
+
 Chain A comprises Owner console governance, Seller Admin store operations and
 Storefront single-store purchase. Chain B adds the separate affiliate portal and
 affiliate storefront (PR-28/PR-29), not a seller-owned affiliate screen. Navigation
@@ -23,6 +84,8 @@ journey IDs below own Bukalaris scope and acceptance.
 | Buyer completes a purchase | Catalog to product/options to editable cart and checkout | Native or external storefront hands off to the same hosted checkout; stale price/stock requires review and payment return is not proof of payment |
 | Operator governs a tenant | Tenant queue/detail, reasoned transition and audit context | Platform capability is enforced server-side; Log System exposes only permitted, redacted information |
 | Buyer manages a global account (Proposed) | Registration-free checkout association; separate passwordless proof then cross-seller history/profile/address book at `buyer.bukalaris.com` | Typed contact is not authentication; no prefill/account-existence leak before proof, no automatic account merge (PR-7, UX-21, ADR-0010) |
+
+> **Direction change (D-28, 2026-11-14, ADR-0014):** a native storefront (`<store-slug>.bukalaris.id`) or a verified custom domain serves its own cart, checkout, confirmation and order status on the store host. Only an independent (external) storefront hands off to the hosted checkout on `checkout.bukalaris.com` (PR-16). The "Buyer completes a purchase" row above describes the earlier model. Not implemented (T-102, T-103).
 
 Proposal: Refine each initial journey with a narrow and wide fixture plus
 loading, empty, failure, denied, stale/conflict and success variants where
@@ -55,6 +118,8 @@ Some requirements are carried by screens that sit under another contract. This t
 | PR-21 order notifications | SF-11 buyer order status page and the order e-mails; no seller screen |
 | PR-22 seller dashboard | SC-01 (Implemented screens table below) |
 
+> **Direction change (D-27, 2026-11-14, ADR-0013):** PR-5 is carried by the seller provider-account, filter and payment screens listed under "Experience direction" (contracts written in T-104 to T-106), and by SF-07/SF-08 and SC-13 on the store's own keys. The money screens UX-14 and UX-17 apply only to platform-held money. The PR-5 row above describes the earlier model. Not implemented (T-104 to T-107).
+
 ## Screen inventory
 
 | Surface | Screens/jobs | Primary data/action |
@@ -66,6 +131,12 @@ Some requirements are carried by screens that sit under another contract. This t
 | Buyer account portal (`buyer.bukalaris.com`, Proposed) | Passwordless sign-in, cross-seller own orders/tracking, profile, address book | Verified buyer scope, no unverified checkout prefill or affiliate access; UX-21 |
 | Affiliate portal / affiliate storefront (Chain B, Proposed) | Separate sign-in, cross-store eligible catalog, links, aggregate outcomes, wallet/payouts, own storefront | Platform-owned affiliate scope, no buyer-identifying data; UX-19/UX-20 |
 
+> **Direction change (D-28, 2026-11-14, ADR-0014):** checkout and confirmation are served on the store host for native storefronts and custom domains; the "Hosted Checkout" row applies only to the hand-off from an independent storefront. The layout stays platform-owned. The text above describes the earlier model. Not implemented (T-102, T-103).
+
+> **Direction change (D-29, 2026-11-14, ADR-0015):** the affiliate portal shows store memberships, links and codes per store and one statement across stores; it has no wallet and no payout screen. The affiliate storefront and cross-store discovery are deferred (T-55 not scheduled). Seller Admin gains affiliate screens. The "Affiliate portal" row above describes the earlier model. Not implemented (T-108 to T-110).
+
+> **Direction change (D-30, 2026-11-14, ADR-0016):** Seller CMS products have a kind (`physical` or `digital`) and digital products carry access links; the storefront labels digital products. Not implemented (T-111, T-112).
+
 ### Implemented screens (checked against `main`, 2026-10-07)
 
 Routes as served by the single Next.js app (DECISIONS D-2); contracts above
@@ -74,6 +145,8 @@ labels (`apps/web/src/lib/status.ts`). Browser evidence is captured at 320px
 and desktop by `apps/web/e2e/*.spec.ts` into `docs/evidence/m1/` (T-28 ui pass:
 skip link, `aria-current` navigation, pending submit state, confirm dialogs on
 destructive actions, empty/loading/error states). Full locators: ARCH-5.
+
+> **Direction change (D-27 to D-30, 2026-11-14, ADR-0013 to ADR-0016):** this table records the code as built on the platform-managed, physical-only, single-root model and is not edited until code changes. Rows SA-07, SC-02/SC-03/SC-17, SC-12/SC-13, SC-22, SF-01..SF-08 and SF-11 change with their tasks. Not implemented (T-102 to T-113).
 
 | Pages | Route on `main` | State evidence | Not yet |
 |---|---|---|---|
@@ -212,6 +285,8 @@ surrounding LP layout or tie it to a storefront theme.
 
 ## UX-10 — Product creation and discoverable identity
 
+> **Direction change (D-30, 2026-11-14, ADR-0016):** a product has a kind, `physical` (default) or `digital`, that applies to all its variants and can change only while no order line refers to it. A digital product has no weight, has unlimited stock unless the seller switches counting on, and cannot be activated without delivery content (access links, an access note, or both). A physical product can be activated only when shipping is ready and a digital one only when a prepaid method is ready. The text below describes the earlier physical-only model; the kind contract is written in T-111 and the access-link contract in T-112. Not implemented (T-111, T-112).
+
 - Owner: Bukalaris product owner
 - Source: PR-12, PR-24, DATA-5, DATA-8.
 - Contract: Product creation requires no manual ID/slug entry. After save, show
@@ -226,6 +301,8 @@ surrounding LP layout or tie it to a storefront theme.
   from store collections and free-text labels).
 
 ## UX-11 — Seller domain management
+
+> **Direction change (D-28, 2026-11-14, ADR-0014):** the default store host is `<store-slug>.bukalaris.id`, and the seller is shown exactly one DNS record: a CNAME from their host to `cname.bukalaris.id`. Custom domains are subdomains only (`www.`, `shop.` and similar); an apex domain is refused with an explanation until T-15 verifies apex support (D-31). URL previews use the store's primary host. The text below describes the earlier model, including "the selected provider's real values" for DNS instructions. Not implemented (T-102, T-103; the domain screen itself stays T-15).
 
 - Owner: Bukalaris product owner
 - Source: PR-13 and DOM-1 through DOM-3.
@@ -287,6 +364,15 @@ must bind them to real project commands once the repository exists.
 | Source unavailable or stale domain check | Truthful status and recovery; no false connected state |
 
 ## UX-12 — Headless channel and hosted checkout journey
+
+> **Direction change (D-28, 2026-11-14, ADR-0014):** native themes, the independent LP and verified custom domains run SF-07 and SF-08 on the store host with the store's host-only cart cookie and no hand-off. The hand-off to the hosted checkout on `checkout.bukalaris.com` remains for external (headless) storefronts only. The checkout layout stays platform-owned on both paths. The text below describes the earlier model, where every storefront type handed off. Not implemented (T-102, T-103).
+
+> **Direction change (D-27, 2026-11-14, ADR-0013):** SF-07 offers a delivery or payment method only when the store's own account for it is ready, and the server applies the same eligibility function again at submit. Submit re-quotes and refuses a changed price or a courier no longer offered, showing the new options. A pending QRIS or VA instruction on SF-08 is created on the store's own AutoLaris key; a provider error leaves the order pending with a retry, and a retry creates a new attempt and keeps the old one. The subscription payment panel keeps using the platform account. Not implemented (T-104 to T-107).
+
+> **Direction change (D-31, 2026-11-14, ADR-0013 section 10):** when the store offers bank transfer, SF-08, the order-status page and the order e-mail show the seller's destination accounts and the exact order total (no unique code). The order-status page lets the buyer upload up to three proof-of-transfer images and shows "proof sent, waiting for the seller", or the seller's rejection reason with a new upload (D-32). The order becomes paid only by the seller's manual confirmation. Not implemented (T-113).
+
+> **Direction change (D-30, 2026-11-14, ADR-0016):** an order with no physical line shows no address, courier or shipping block on SF-07 and SF-08 and requires the buyer's e-mail; COD is not offered when the cart has a digital line and is refused at submit. Not implemented (T-111, T-112).
+
 - Owner: Bukalaris product owner
 - Source: PR-16, ARCH-7, UI-10.
 - Contract: SC-21 lists channel name, registered origin, status, expiry and token
@@ -320,6 +406,8 @@ counts (portfolio scan 2026-11, G8).
 
 All rows are proposed screen behavior; ARCH-5 owns Page IDs and code locators.
 Future screens are not counted as initial release requirements.
+
+> **Direction change (D-27 to D-30, 2026-11-14, ADR-0013 to ADR-0016):** rows SC-02..SC-04/SC-17 (product kind and access links), SC-12..SC-13 (booking on the store's own Mengantar key, manual payment confirmation, grant actions), SF-06 (no hand-off for native storefronts) and SF-07..SF-08 (checkout on the store host, seller-owned accounts, digital and bank-transfer rules) change as described under UX-10, UX-12 and "Experience direction". The rows below describe the earlier model. Not implemented (T-102 to T-113).
 
 | Pages | Primary workflow | Required recovery and permission |
 |---|---|---|
@@ -415,6 +503,14 @@ provider retry or tenant mutation is available from this diagnostic surface.
 
 ## UX-14 — Seller finance, ledger balance, and payouts
 
+> **Direction change (D-27, 2026-11-14, ADR-0013):** buyer payments and COD cash go to the seller's own AutoLaris and Mengantar accounts, and `seller_owned` is the only mode in the first release (D-31). For such a store `/seller/finance` (SC-25) shows no balance, ledger statement, payout destination or payout request; it shows collected amounts by method from order and payment state, labelled as paid to the seller's own accounts. Seller screens name Mengantar and AutoLaris; buyer screens show the courier and the payment channel by their own names. Owner console SA-08 and SA-26 list only money Bukalaris holds (subscription invoices). The text below describes the earlier model; its code (T-37) stays, unused. Not implemented (T-104 to T-107).
+
+> **Direction change (D-27, 2026-11-14, ADR-0013 decisions 24 and 26):** a refund is made by the seller outside Bukalaris and recorded on the order; Bukalaris calls no refund endpoint and runs no buyer refund queue for these stores, which replaces the D-20 refund flow in the last contract below. The seller can confirm a payment by hand with a reason and evidence (one append-only record per attempt, store finance capability, no four-eyes); that screen contract is written in T-106. Not implemented (T-104 to T-107).
+
+> **Direction change (D-29, 2026-11-14, ADR-0015):** the "unified system & affiliate eligibility" contract below is superseded. A commission is the seller's obligation, never enters the seller ledger or a platform wallet, and becomes `payable` after delivery plus `affiliate_hold_days` (default 3); the seller pays it outside Bukalaris and records the payment. Not implemented (T-108 to T-110).
+
+> **Direction change (D-31, 2026-11-14, ADR-0013 section 10):** the "bank account settings" of this contract are payout destinations of the earlier model. The bank accounts a store lists for buyer bank transfer are a different screen (up to five accounts, `integrations.manage` plus a fresh step-up, no 72-hour hold); contract written in T-113. Not implemented (T-113).
+
 - Status: Proposed
 - Owner: Bukalaris product owner
 - Source: PR-23, BILL-4, BILL-5, DATA-7, ADR-0006.
@@ -437,6 +533,8 @@ provider retry or tenant mutation is available from this diagnostic surface.
 
 ## UX-15 — Abandoned checkout queue and 1-click WhatsApp recovery
 
+> **Direction change (D-28, 2026-11-14, ADR-0014 decision 7):** the signed checkout resume link is built on the store's primary host (the verified primary custom domain, otherwise `<store-slug>.bukalaris.id`), never from the request host, and resumes the checkout on that host. The rest of this contract is unchanged. Not implemented (T-102, T-103).
+
 - Status: Proposed
 - Owner: Bukalaris product owner
 - Source: PR-25, DATA-8.
@@ -455,6 +553,8 @@ provider retry or tenant mutation is available from this diagnostic surface.
 
 ## UX-16 — Store promotions hub, vouchers, and flash sales
 
+> **Direction change (D-30, 2026-11-14, ADR-0016 decision 9):** promotions apply to digital lines like any other line, except that a free-shipping rule or threshold never counts a digital line, and an order with no physical line has no shipping fee to discount. The rest of this contract is unchanged. Not implemented (T-111, T-112).
+
 - Status: Proposed
 - Owner: Bukalaris product owner
 - Source: PR-26, DATA-8.
@@ -472,6 +572,10 @@ provider retry or tenant mutation is available from this diagnostic surface.
   pricing reverts immediately after `ends_at` without touching base variant prices.
 
 ## UX-17 — Owner console shipping/billing setup and seller account connect
+
+> **Direction change (D-27, 2026-11-14, ADR-0013):** the shipping contracts below are superseded for `seller_owned` stores, the only mode in the first release (D-31). The seller connects the store's own Mengantar key and own AutoLaris key in Seller Admin: connect, replace (an empty field keeps the stored key), remove as an explicit action, and a connection check on save and on demand. Each account has a `sandbox` or `production` environment and no URL field; a key is never shown again (state, masked hint and last successful check only); a change needs `integrations.manage`, a fresh step-up, an audit entry and a notice to every store owner. SC-22 keeps the pickup area and address, and saving the address registers it with Mengantar first. Seller screens name Mengantar and AutoLaris, so the white-label constraint below no longer applies to Seller Admin. Screen contracts are written in T-104 (accounts), T-105 (courier, COD and province filters) and T-106 (payment channels and fee bearer). Not implemented (T-104 to T-107).
+
+> **Direction change (D-27, 2026-11-14, ADR-0013 decisions 3, 15, 19 and 34):** Owner console SA-07 has no Partner provisioning, platform margin, shipping discount or cashback rule for these stores; the buyer pays the provider's public rate. The Owner console instead holds the locked payment channels, the versioned provider fee rates and the per-provider switch for production calls on seller keys. The billing contracts below (SA-09, SA-10) are unchanged: subscription invoices are the only use of the platform's own AutoLaris account. The Partner code (T-48) stays, unused. Not implemented (T-104 to T-107).
 
 - Status: Proposed (2026-10-27)
 - Owner: Bukalaris product owner
@@ -537,6 +641,12 @@ provider retry or tenant mutation is available from this diagnostic surface.
 
 ## UX-19 — Separate affiliate portal, outcomes, wallet and payouts
 
+> **Direction change (D-29, 2026-11-14, ADR-0015):** the affiliate still registers once on a separate login surface (identity, links, codes, click capture, attribution and privacy rules of ADR-0009 stand), then applies to individual stores. Each membership is `pending`, `active`, `rejected` or `suspended` and is decided by that store's seller; Owner console approval is no longer the gate to earn. Links and codes are per store, and only an `active` membership at order time can be attributed. The application screen and the statement state that commission is owed and paid by the seller and that Bukalaris does not hold, guarantee or advance it. The text below describes the earlier model. Not implemented (T-108 to T-110).
+
+> **Direction change (D-29, 2026-11-14, ADR-0015 decisions 4 to 9):** there is no wallet (AF-04) and no payout request, payout history, withholding display, 72-hour destination hold or holder-name review (AF-05). The portal shows one statement across stores from the same query Seller Admin uses: per store `pending`, `payable`, `paid`, `confirmed`, `disputed` and the age of the oldest `payable` item, with arrears marked after `affiliate_arrears_days` (default 14). The affiliate confirms a recorded payment or disputes it. Bank details are stored on the platform, shown only to a seller with an active membership relation to that affiliate and the store's finance capability, and masked elsewhere. A sandbox test order earns nothing. Screen contracts are written in T-110. Not implemented (T-108 to T-110).
+
+> **Direction change (D-31, 2026-11-14, ADR-0015 OPEN-A1 to OPEN-A5):** the attribution window (7 days) and platform fee on commission (none) are decided, so the "remain OPEN" sentence in the Constraints below is closed. The cross-store catalog (AF-02) belongs to the deferred discovery stage (PR-29). Not implemented (T-108 to T-110).
+
 - Status: Proposed (2026-10-27)
 - Owner: Bukalaris product owner
 - Source: PR-28, PR-31, DATA-11, BILL-8, BILL-9, IAM-3, PRIV-2, ADR-0009, ADR-0012.
@@ -597,6 +707,12 @@ provider retry or tenant mutation is available from this diagnostic surface.
   ADR-0012 (tax identity and withholding follow the T-65 policy flags, UX-23 TX-P1/TX-P2). The affiliate hold period is decided at 3 days (`affiliate_hold_days = 3` default, Owner-configurable) and all orders (prepaid and COD) are eligible under the unified Bukalaris system; attribution window and platform fee remain OPEN; no UI invents values.
 
 ## UX-20 — Affiliate discovery/storefront, seller participation and operator admin
+
+> **Direction change (D-29, 2026-11-14, ADR-0015):** the affiliate storefront editor and public storefront (AF-07, AF-08) and cross-store discovery are deferred until the seller-run programme has run in a pilot; T-55 is not scheduled and its host is not decided (D-31). The first contract and the two-seller acceptance below are not part of the first release. `GET /r/[token]` click capture (T-52) stands. Not implemented (T-108 to T-110).
+
+> **Direction change (D-29, 2026-11-14, ADR-0015 decisions 1, 2, 5 and 8):** seller affiliate settings stay closed by default; the seller switches the programme on, accepts versioned terms, sets a default rate with optional per-product override inside Owner console bounds (100 to 5000 bps, D-31), and approves, rejects or suspends each applicant (auto-approval is off by default and can be switched on per store). The sentence "No per-affiliate seller approval is required for an open offer" is superseded. Nothing is deducted from the seller's proceeds, so the screen shows commission obligations and recorded payments, not deductions. The seller records each payment with its bank transaction data (typed, no file upload) and reads the same statement as the affiliate. Screen contracts are written in T-110. Not implemented (T-108 to T-110).
+
+> **Direction change (D-29, 2026-11-14, ADR-0015 decisions 1, 7 and 9):** the Owner console does not approve store memberships and reviews no affiliate payout (SA-13 has no target). It can suspend an affiliate account platform-wide for abuse (links and codes deactivated, new attribution stopped, as in the suspension contract below), sets the rate bounds, hold days, attribution window and arrears age, sees the arrears queue and can freeze or unfreeze a store's programme (no new memberships or attributions; existing obligations stay payable). The payout, tax-policy and paid-return parts of the operator contract below describe the earlier model. Not implemented (T-108 to T-110).
 
 - Status: Proposed (2026-10-27)
 - Owner: Bukalaris product owner
@@ -661,9 +777,15 @@ provider retry or tenant mutation is available from this diagnostic surface.
 
 ## UX-21 — Global buyer portal and registration-free checkout identity
 
+> **Direction change (D-30, 2026-11-14, ADR-0016 decisions 8, 13 and 25 to 27):** checkout requires the buyer's e-mail when the cart has a digital line; identity matching is unchanged (phone first, then e-mail). Digital content is reached from the signed order-status page without a buyer login. A per-store member view on this buyer portal is the accepted later direction (D-31); nothing of it is built or scheduled, and its contract is written when it is scheduled. Not implemented (T-111, T-112).
+
+> **Direction change (D-27, 2026-11-14, ADR-0013 decision 26):** refund status shown to the buyer comes from the refund the seller recorded on the order, not from a platform refund flow (BILL-5, D-20) as stated below. Not implemented (T-104 to T-107).
+
+> **Direction change (D-28, 2026-11-14, ADR-0014):** the buyer portal stays on `buyer.bukalaris.com`; the signed single-order status page (SF-11) is served on the store's primary host. Not implemented (T-102, T-103).
+
 - Status: Proposed (2026-10-27)
 - Owner: Bukalaris product owner
-- Source: PR-7, DATA-4, DATA-12, UX-6, [ADR-0010](ADR-0010-global-buyer-identity.md).
+- Source: PR-7, DATA-4, DATA-12, UX-6, [ADR-0010](adr/ADR-0010-global-buyer-identity.md).
 - Proposed ARCH-5 IDs: BA-04 `/buyer/login`; BA-05 `/buyer` overview; BA-01
   `/buyer/orders` and `/buyer/orders/[id]` tracking/detail; BA-02
   `/buyer/addresses`; BA-03 `/buyer/profile`; BA-06 `/buyer/privacy` (rights,
@@ -767,6 +889,10 @@ provider retry or tenant mutation is available from this diagnostic surface.
 
 ### Navigation tree
 
+> **Direction change (D-27, 2026-11-14, ADR-0013):** for `seller_owned` stores (the only mode in the first release, D-31) the items "Buku besar toko" (SA-17), "Pencairan seller dan refund pembeli" (SA-08), "Rekonsiliasi pembayaran" (SA-27) and "Rekonsiliasi COD" (SA-53) have no data, "Ringkasan keuangan" (SA-26) lists only platform-held money (subscription), and "Ongkir, diskon & cashback Mengantar" (SA-07) has no margin, discount, cashback or Partner sync to manage. Whether these items stay in the menu is decided with T-107 (visibility only). The rows below describe the earlier model and are not edited. Not implemented (T-104 to T-107).
+
+> **Direction change (D-29, 2026-11-14, ADR-0015):** "Pendaftar dan akun" (SA-11) no longer approves an affiliate as the gate to earn; it keeps the masked account list and platform-wide suspension. "Pencairan afiliasi" (SA-13) has no target. A new arrears queue with programme freeze joins this group; its route, ARCH-5 id and gating capability are written in T-110. The rows below describe the earlier model. Not implemented (T-108 to T-110).
+
 | Group (Bahasa) | Item | Route (internal) | ARCH-5 | Gating capability | Phase | Empty / error states beyond the shared set |
 |---|---|---|---|---|---|---|
 | Ringkasan | Dashboard | `/admin` | SA-14 | `dashboard.read` (cards gated individually) | P1 | Cards with no data show "No data yet"; unavailable card shows its own error, not the page |
@@ -812,6 +938,14 @@ provider retry or tenant mutation is available from this diagnostic surface.
 | | Review akses | `/admin/staff/access-reviews` | SA-39 | `access.review` | P1 | No review due |
 
 ### Screen contracts (P1)
+
+> **Direction change (D-27, 2026-11-14, ADR-0013):** Bukalaris holds no order money for `seller_owned` stores. In the contracts below this removes, for those stores: the seller float, payout and refund queues and COD-in-transit figures on the dashboard (SA-14); the Partner shipping account status on the store list and detail (replaced by the readiness of the store's own accounts); the Partner provisioning, `awaiting_balance`, `awaiting_account`, payout and refund flags of the risk queue (SA-18); seller payout and buyer refund approvals (SA-28); and the whole Money and COD reconciliation contracts (SA-08, SA-27, SA-53, the margin and cashback part of SA-07) together with their "Money" acceptance bullet. These remain the rule only for money Bukalaris holds (subscription, SA-09/SA-10). The text below describes the earlier model. Not implemented (T-104 to T-107).
+
+> **Direction change (D-27, 2026-11-14, ADR-0013 decisions 19 and 34):** Platform settings (SA-34, SA-35) gain the locked payment channels, the versioned provider fee rates and a per-provider switch that turns on production calls on seller keys after a recorded sandbox pass. This changes the sentence below that live-write gates are environment-controlled and shown read-only. Sealed seller keys are never shown in the console. Not implemented (T-104 to T-107).
+
+> **Direction change (D-29, 2026-11-14, ADR-0015):** the dashboard has no affiliate liability class and the approvals queue no affiliate payout; account detail (SA-24) has no wallet reference; the risk queue's affiliate actions are suspension only (no payout hold). The Owner console gains the arrears queue and programme freeze (contract written in T-110). Not implemented (T-108 to T-110).
+
+> **Direction change (D-30, 2026-11-14, ADR-0016 decision 23):** the Owner console can take a digital product down, which stops new sales and, when the takedown says so, suspends its grants. The screen and its capability are written in T-112. Not implemented (T-111, T-112).
 
 - **Dashboard (SA-14).** Honest KPIs, each derived from its authoritative source with an as-of time and gated by its own capability (cards the viewer may not see are not rendered, not blurred): store counts by lifecycle status where **slices sum to the total** (trial, active, past due, operator-suspended; operator suspension shown separately from billing state per PR-18); subscription revenue (invoiced and paid, DPP and PPN shown separately per BILL-7, comp excluded from revenue); pending approvals and open cases with age of the oldest; payout and refund queue size and oldest age; seller float split into available, pending release, COD in transit, buyer refunds owed and affiliate liabilities with the rule that float is a liability, not platform revenue (BILL-5); provider balance freshness; outbox backlog and failed-job count; top risk flags. No buyer or seller personal data appears on the dashboard. No tax KPI appears without a `tax.*` capability.
 - **Store list and detail (SA-02, SA-03).** Status, subscription state (billing), operator suspension, Bukalaris-provisioned Partner shipping account status, verification record state (informational), plan, created date; masked owner contact. Detail sections: lifecycle (approve, suspend with reason, reactivate; lifting suspension never clears debt and paying never clears suspension), team summary (links to SA-24), billing state and comp (links SA-09), Partner shipping account status (read-only summary with link to SA-07), domains (later), risk flags, ledger link, cases for this store, notes. A suspended store keeps a non-purchasable storefront (PR-1).
@@ -891,6 +1025,8 @@ Not the internal Log System (UX-9, SA-05): the Update Log is a public changelog 
 OPEN (owner or advisor): consented time-boxed support grant (not adopted; the masked diagnostic view is the P1 support tool); four-eyes fallback for a one-person team and any amount threshold; reveal, fresh-authentication, idle and absolute session durations; risk-flag age numbers; response-time policy numbers; whether verification ever gates an action; licensing posture that would activate the Compliance center; issue-report rate limits, size caps, screenshot size and retention; Update Log page size, feed limit, cache staleness, image support, public indexing and whether publication needs a second approver.
 
 ## UX-23 — Tax center screens (Owner console)
+
+> **Direction change (D-29, 2026-11-14, ADR-0015 decision 9):** Bukalaris pays no affiliate commission, so the payout tax hook, withholding at payout and the "next to wallet and payouts" placement of TX-P1 below have no payout to attach to. ADR-0015 does not say what an affiliate earnings statement (TX-02, TX-P1) is built from once the affiliate ledger is gone; that question is open and is not decided here. The subscription invoice register and the PPN switch are unchanged. The text below describes the earlier model. Not implemented (T-108 to T-110).
 
 - Status: Proposed (2026-10-27; startup screens TX-01 to TX-03, dormant Phase 2 screens TX-04 to TX-10)
 - Owner: Bukalaris product owner

@@ -1,5 +1,33 @@
 # Bukalaris Canonical Data Model
 
+Direction change 2026-11-14 (D-27 to D-31; accepted decisions, no schema change
+made). The tables below are named by the ADRs and get their columns, keys and
+checks in the task that builds them; nothing here is a migration. Where a cell
+says "defined in T-xxx", the ADR states the rule but names no table or column.
+Sections below that still describe the platform-managed model carry a
+"Direction change" note; that model stays in the code unused (D-31) and is not
+offered in the first release.
+
+| Change | Tables, columns and settings | ADR | Task |
+|---|---|---|---|
+| Seller-owned shipping account | `store_shipping_account.kind` gains `seller_owned` (the kinds `partner_managed` and `platform_master` stay, unused); the row carries `environment` (`sandbox` or `production`), the sealed Mengantar key (AES-256-GCM, keyring `shipping_credentials`) with `key_id`, a key fingerprint, and the last check time and result. No provider URL is stored. Pickup area and the pickup address registered with Mengantar are readiness inputs; their columns are defined in T-104 and T-105 | ADR-0013 decisions 2, 4, 5, 8, 10, 12 | T-104, T-105 |
+| Seller payment account | New `store_payment_account`: the store's AutoLaris H2H connection, with `environment`, sealed key (new keyring `payment_credentials`), `key_id`, fingerprint, last check time and result. The readiness inputs of decision 13 (origin and destination area ids, shipper e-mail, sender address, recorded confirmation of the payment-only profile) have columns defined in T-104 | ADR-0013 decisions 2, 5, 8, 10, 13; ADR-0016 decision 11 | T-104 |
+| Order account snapshot and test orders | Each order snapshots the account it was created under (the existing `order.shipping_account_id` and `shipping_account_kind`, which gain the value `seller_owned`). An order created under a `sandbox` account is marked as a test order. The payment-account snapshot and the test-order marker are not named by the ADR; defined in T-104 to T-106 | ADR-0013 decisions 2, 11 | T-104 to T-106 |
+| Seller shipping filters | Per store and courier: courier enabled, courier COD enabled (no rule row means closed); list of COD-blocked province codes; store COD on/off; the store's own COD fee setting. Table and column names defined in T-105 | ADR-0013 section 4, decision 17 | T-105 |
+| Seller payment filters | Store AutoLaris (QRIS/VA) on/off; payment channels excluded by the seller, per channel; payment channels locked by the platform in the Owner console; store bank-transfer on/off. Names defined in T-106 and T-113 | ADR-0013 section 4, decision 39 | T-106, T-113 |
+| Fee bearers and fee rates | Store settings `payment_fee_bearer` and `cod_fee_bearer`, each `buyer` or `seller`, default `buyer`; the chosen bearer and the resulting amounts are frozen in `order_financials`. Provider fee rates (payment channel fee, COD fee and its VAT) are versioned platform settings in the Owner console; table defined in T-106 | ADR-0013 decisions 18, 19 | T-105, T-106, T-107 |
+| Payment attempts and manual confirmation | One payment instruction per attempt with a reference unique per attempt; a retry keeps the old attempt (existing `payment_attempt`). One append-only manual-confirmation record per attempt (reason, evidence). A second settled attempt on one order raises a payment anomaly. Record names defined in T-106 (anomaly queue: T-91) | ADR-0013 decisions 21, 24, 27 | T-106 |
+| Seller bank transfer | Payment method value `bank_transfer`; the existing `manual_transfer` value keeps meaning a provider channel (QRIS/VA). A new store bank-account table holds up to five destination accounts per store (bank, account number, holder name); table name and columns defined in T-113. Store payment window (default 24 hours). A buyer proof-of-transfer record (private file reference, state sent, accepted or rejected, retention date; owner 2026-11-15, D-32) defined in T-113. Paid only through the manual-confirmation record above | ADR-0013 section 10 (decisions 35 to 39), D-31 | T-113 |
+| Booking state | Booking is a seller action, one at a time per store; an unknown provider outcome blocks further booking until a person releases it or links the shipment the provider accepted. State columns defined in T-105 | ADR-0013 decisions 28 to 31 | T-105 |
+| Money boundary | No `ledger_entry`, `payout`, `payout_destination`, `refund`, `reconciliation_batch` or `reconciliation_batch_item` rows for a store on seller-owned accounts (DATA-7 applies to platform-held money only). `order_financials` is still written once per order: `shipping_account_kind` gains `seller_owned`, it keeps both fee bearers and carries no platform margin, cashback or affiliate deduction. A refund is recorded on the order as made by the seller; columns defined in T-107 | ADR-0013 section 8, decisions 18, 26 | T-107 |
+| Store affiliate programme | `affiliate_membership` (store, affiliate; `pending`, `active`, `rejected`, `suspended`); `affiliate_commission` (one obligation per attributed order; `pending`, `void`, `payable`, `paid`, `confirmed`, `disputed`); `affiliate_payment` (one seller payment to one affiliate: amount, date, method, typed bank transaction data, covered commissions; no file; immutable, corrected by a reversing record). Storage defined in T-108 and T-109 for: the store programme switch, default rate and per-product override, the programme freeze, the versioned terms acceptance, the settings `affiliate_hold_days` (default 3) and `affiliate_arrears_days` (default 14), and affiliate bank details. The commission deduction from the seller sale is removed; base, rate and commission stay frozen on the attribution. The wallet and payout tables of DATA-11 (`affiliate_ledger_entry`, `affiliate_payout`, `affiliate_payout_allocation`, `affiliate_payout_destination`) are not built; the storefront tables are deferred with T-55 | ADR-0015 | T-108, T-109 (screens: T-110) |
+| Digital products | `product.kind` (`physical` by default, or `digital`); `variant.weight_grams` mandatory for physical variants only; digital stock unlimited by default with an optional stock count; nullable shipping columns on an order without a physical line; buyer e-mail required when an order has a digital line. `product_access_item` (typed; `link` only in the first release, a label and a link; `video_embed` and `live_session` are reserved names and refused) and an access note (text). `digital_grant` (one per digital order line; store, order line, buyer identity, state `active` or `revoked`, optional expiry). Store setting for a default grant expiry (none by default). No file table. Columns defined in T-111 and T-112 | ADR-0016 | T-111, T-112 |
+| Domains | No table or column change: the root domains are configuration (`PLATFORM_ROOT_DOMAIN`, `STORE_ROOT_DOMAIN`), not stored data. Store slugs stay platform-unique and the reserved labels apply on the store root | ADR-0014 decisions 2, 3 | T-102, T-103 |
+
+Every new store-owned table is store-scoped under FORCE ROW LEVEL SECURITY with an
+isolation registry entry (ADR-0005). The registry class of the platform-level
+settings (fee rates, locked channels) is set in the task that builds them.
+
 | ID | Invariant | Status | Owner |
 |---|---|---|---|
 | DATA-1 | Seller-owned commerce rows carry an immutable tenant/store ownership key. | Proposed | Data owner |
@@ -115,6 +143,8 @@ No mapping changes automatically when a store changes domain or theme.
 
 ## Proposed product-route and domain persistence
 
+> **Direction change (D-28, 2026-11-14, ADR-0014):** a null primary domain means the native storefront host `<store-slug>.bukalaris.id` (`<slug>.<STORE_ROOT_DOMAIN>`), not a subdomain of the platform domain. A custom domain is a subdomain pointed by CNAME at `cname.bukalaris.id`; an apex domain is refused until T-15 verifies provider support (D-31). The domain record below is unchanged, and the root domains are configuration, not stored data. Not implemented (T-102, T-103; domain lifecycle T-15).
+
 Source: DATA-5, API-5, API-6. Logical model only; names are not existing tables.
 
 - Product route claims: one unique `(store_id, slug)` namespace for current and
@@ -137,6 +167,8 @@ Source: DATA-5, API-5, API-6. Logical model only; names are not existing tables.
   Provider reconciliation updates observations without changing ownership.
 
 ## Phase 1 relational ownership and transaction plan
+
+> **Direction change (D-30, 2026-11-14, ADR-0016):** a product is `physical` or `digital`. A digital variant has no weight and unlimited stock by default, so it reserves nothing at checkout unless the seller switches a stock count on; an order without a physical line has no shipment, shipping address or courier. The text below describes physical products and remains the rule for them. Not implemented (T-111, T-112).
 
 Status: Proposal. Owner: Bukalaris data owner. Source: PR-1 through PR-5,
 PR-12 through PR-15 and ARCH-6. This is a logical schema contract, not SQL.
@@ -245,6 +277,8 @@ before accepting the implementation.
 
 ## DATA-7 — Financial snapshot, append-only ledger, payouts, and refunds
 
+> **Direction change (D-27, 2026-11-14, ADR-0013):** for a `seller_owned` store, buyer payments and COD cash go to the seller's own AutoLaris and Mengantar accounts, so no `ledger_entry`, `payout`, `payout_destination`, `refund`, `reconciliation_batch` or `reconciliation_batch_item` row is written or shown for it. `order_financials` and `order_line_financials` are still written once per order: `shipping_account_kind` gains `seller_owned`, the record freezes `payment_fee_bearer` and `cod_fee_bearer` with the resulting amounts, and it carries no platform margin, cashback or affiliate deduction. A refund is made by the seller outside Bukalaris and recorded on the order; `platform_money_position` covers only money Bukalaris holds (subscription invoices). The text below describes the platform-managed model, which stays in the code unused (D-31) and is not offered in the first release; its ledger invariants stay the rule for any money Bukalaris holds. Not implemented (T-104 to T-107, T-113).
+
 - Status: Proposed (2026-10-26, revised 2026-10-27, ADR-0006)
 - Owner: Bukalaris data owner
 - Source: PR-23, BILL-4, BILL-5, ADR-0006.
@@ -270,6 +304,8 @@ before accepting the implementation.
 | `reconciliation_batch` | `id`, `status` (`draft`, `pending_approval`, `applied`, `void`), `source` (`owner_batch`, `provider`), `evidence_ref` (opaque reference to the carrier invoice or statement), `evidence_total_idr`, `item_count`, `payload_sha256`, `prepared_by_user_id` (NULL for a system `provider` batch), `approval_request_id`, `applied_at`, `created_at` | Platform class; written through the reconciliation service function; transitions `draft -> pending_approval -> applied` or `void`; `applied` requires an approved `cod.reconcile_release` `approval_request` (capability `payouts.reconcile`) whose `payload_sha256` equals the batch hash and whose `decided_by <> prepared_by_user_id`; a `provider` batch exists only while the platform setting `provider_reconciliation_enabled` is true (default false, OPEN-F8); an applied batch is immutable; `FORCE ROW LEVEL SECURITY` is not applicable (no store column), access is by function and `payouts.reconcile` / `finance.read` capability |
 | `reconciliation_batch_item` | `batch_id`, `order_id`, `store_id`, `cod_amount_idr` (the order `payable_idr`), `evidence_line_ref`, `evidence_amount_idr`, `evidence_date`, `reconciled_at` (set when the batch is applied), `reconciliation_source` (`owner_batch`, `provider`), `voided_at` | PK `(batch_id, order_id)`; partial unique `(order_id) WHERE voided_at IS NULL` (an order is reconciled once); compound FK `(store_id, order_id) -> order_financials` with a trigger requiring a COD order and a delivered status; a batch can be applied only when every item has `evidence_amount_idr = cod_amount_idr` (a mismatch is a break, resolved or removed before approval, never auto-released); `ledger.release` releases a COD `sale` (and `cashback`) only through an item of an `applied` batch; store-scoped RLS for seller reads of their own items (`reconciled_at`, source, evidence date only) |
 
+> **Direction change (D-27, D-29, 2026-11-14, ADR-0013, ADR-0015):** for a `seller_owned` order the affiliate commission is not subtracted from the seller's sale amount; it is a separate seller obligation (`affiliate_commission`) computed from the same per-line commission base. The cashback amounts, the booking-time platform margin and the `shipping_debit` entries do not apply, and the `seller_order_entitlement` view has no ledger entry to read. With fee bearer `buyer` the bill is grossed up so the seller nets the full order total; with `seller` the bill equals the order total. The identities below describe the platform-managed model; the identity for a `seller_owned` order is defined in T-107. Not implemented (T-107, T-108).
+
 **Allocation identity** (CHECK at checkout; ADR-0006 decision 2, BILL-4):
 
 - `payable_idr = goods_proceeds_idr + included_sales_tax_idr + added_sales_tax_idr + shipping_charged_idr + cod_fee_idr + cod_fee_vat_idr` (equals `order.total`; the gateway admin fee is separate).
@@ -281,6 +317,8 @@ before accepting the implementation.
 **Table classes (ADR-0005 amendment, T-59).** `order_financials`, `order_line_financials`, `shipment_cost`, `ledger_entry` and `refund` are class `tenant` (store RLS). `payout` and `payout_destination` (seller payouts, bank snapshots and destinations) are class `restricted`: owned by the NOLOGIN role `bukalaris_restricted`, with no table privilege for the platform login, reached only through SECURITY DEFINER functions (payout request, approve-for-transfer, mark-paid, destination change, rejection); the store-scoped seller read goes through the same functions. `reconciliation_batch` and `reconciliation_batch_item` are class `platform` (written only through the reconciliation service function; the item table also carries a store-scoped seller read of the seller's own items). The views `seller_order_entitlement` and `platform_money_position` read only through those grants.
 
 ## DATA-8 — Standard product taxonomy, abandoned checkout sessions, and promotions
+
+> **Direction change (D-30, 2026-11-14, ADR-0016):** promotions apply to a digital line like any other line, except that a free-shipping rule (`discount.kind = free_shipping`, `promo_hub.free_ship_threshold_idr`) never counts a digital line toward its threshold. A checkout with no physical line asks for no shipping address and requires the buyer's e-mail. Catalog feeds exclude digital products. The records below are otherwise unchanged. Not implemented (T-111, T-112).
 
 - Status: Proposed (2026-10-26)
 - Owner: Bukalaris data owner
@@ -309,9 +347,11 @@ before accepting the implementation.
 
 ## DATA-9 — Partner Mengantar shipping accounts, cashback rules, and service policy
 
+> **Direction change (D-27, 2026-11-14, ADR-0013):** every store connects its own Mengantar API key: `store_shipping_account.kind` gains `seller_owned`, with an `environment` of `sandbox` or `production` and the key sealed under the `shipping_credentials` keyring. The seller enters, replaces and removes the key (`integrations.manage` plus a fresh step-up); such a store has no Partner provisioning, routing e-mail, `cashback_rule` or platform margin, and the buyer is charged the provider's public rate. COD is allowed on any courier the seller enabled for COD, so the `return_free` condition of `courier_service_policy` no longer applies. The text below describes the platform-managed model (`partner_managed`, `platform_master`), which stays in the code unused (D-31) and is not offered in the first release. Not implemented (T-104 to T-107).
+
 - Status: Proposed (2026-10-27; revised to unified Bukalaris-managed Partner model)
 - Owner: Bukalaris data owner
-- Source: PR-27, BILL-6, UX-17, [ADR-0007](ADR-0007-hybrid-mengantar-shipping-accounts.md).
+- Source: PR-27, BILL-6, UX-17, [ADR-0007](adr/ADR-0007-hybrid-mengantar-shipping-accounts.md).
 - Statement: Bukalaris-provisioned Partner Mengantar seller accounts (`partner_managed`), the platform master account fallback (`platform_master`), shipping discount/margin rules, and shipping cashback rules (`cashback_rule`) shall be explicit records controlled by the Owner console (`SA-07`). Sellers never supply external API keys (`own_key` removed).
 - Acceptance: Each store has at most one active `partner_managed` binding provisioned via `POST /api/partner/v1/sellers` (`externalUserId = 'store:' || store.id`); foreign-store account/key mutations are denied; every quote/order/financial snapshot identifies its account (`partner_managed` | `platform_master`) and booking cannot silently replace it. Sealed Partner API keys never appear in any read DTO, log or export.
 - Constraints: DATA-1, DATA-2, DATA-7, BILL-6, TEN-1, TEN-3, ADR-0007.
@@ -368,9 +408,11 @@ usable in read-only billing state.
 
 ## DATA-11 — Platform-owned affiliate domain
 
+> **Direction change (D-29, 2026-11-14, ADR-0015):** the programme is run by each seller. An affiliate registers once on the platform and holds an `affiliate_membership` per store (`pending`, `active`, `rejected`, `suspended`) that the seller approves; only an `active` membership at order time can be attributed, and Owner console approval of an affiliate is no longer the gate to earn (the Owner console can suspend an account platform-wide). A commission is a seller obligation recorded in `affiliate_commission` (`pending`, `void`, `payable`, `paid`, `confirmed`, `disputed`), never in `ledger_entry` or a wallet; the seller pays outside Bukalaris and records an immutable `affiliate_payment`. `affiliate_ledger_entry`, `affiliate_payout`, `affiliate_payout_allocation` and `affiliate_payout_destination` are not built, the `affiliate_commission_idr` deduction from the seller sale is removed, and the storefront tables are deferred (T-55). Identity, links, codes, clicks, one attribution per order, the self-referral rule and the privacy boundaries below stand. The rest of the text below describes the platform-funded programme of ADR-0009, which is superseded and not offered in the first release. Not implemented (T-108 to T-110).
+
 - Status: Proposed (2026-10-27)
 - Owner: Bukalaris data owner
-- Source: PR-7, PR-28, PR-29, BILL-8, [ADR-0009](ADR-0009-platform-owned-affiliate-programme.md).
+- Source: PR-7, PR-28, PR-29, BILL-8, [ADR-0009](adr/ADR-0009-platform-owned-affiliate-programme.md).
 - Statement: The platform shall own affiliate identity, discovery projections,
   attributions, wallet and payouts. Seller-owned opt-in settings remain scoped
   to their store. Names and minimum fields below align with ADR-0009; both are
@@ -414,6 +456,8 @@ execute platform-wide writes. Public storefront reads use published projection
 DTOs only. Data-layer DTOs enforce bank/phone masking and aggregate-only outcomes;
 UI hiding is not a privacy boundary (IAM-3, PRIV-2).
 
+> **Direction change (D-29, D-31, 2026-11-14, ADR-0015):** the premise in the paragraph below that every order settles through Bukalaris is superseded (D-27). The delivered-only rule and the 3-day `affiliate_hold_days` stand: a commission becomes `payable` after delivery plus the hold (for a digital line, after the grant plus the hold; ADR-0016 decision 20), with no dependence on a seller-sale release. Decided and no longer OPEN: attribution window 7 days and seller rate bounds 100 to 5000 bps, both Owner-configurable, and no platform fee on commission. Bukalaris pays no commission, so no withholding and no payout tax gate applies (ADR-0015 decision 9). Not implemented (T-108 to T-110).
+
 Because all orders (prepaid and COD) run through Bukalaris's single unified
 shipping and payment system (ADR-0007), all opted-in orders are commission-eligible:
 there is no separate seller-account COD exclusion, no funding gate and no `unfunded`
@@ -431,7 +475,7 @@ activated, an advisor-confirmed policy version is a payout release gate.
 
 - Status: Proposed (2026-10-27)
 - Owner: Bukalaris data owner with IAM and privacy owners
-- Source: PR-7, DATA-4, UX-21, [ADR-0010](ADR-0010-global-buyer-identity.md).
+- Source: PR-7, DATA-4, UX-21, [ADR-0010](adr/ADR-0010-global-buyer-identity.md).
 - Statement: Checkout shall resolve or create a platform-owned buyer across all
   sellers using canonical phone/WA priority, then email, without registration.
   `buyer_order_link` associates an existing store-owned order; it never moves
@@ -518,6 +562,8 @@ verification, wallet or deletion cascade is introduced by this proposal.
 
 ## DATA-13 — Variant weight and parcel weight
 
+> **Direction change (D-30, 2026-11-14, ADR-0016):** the weight rule applies to physical products only. A digital variant has no weight and never enters a shipping quote; parcel weight is the sum over the physical lines, and an order without a physical line has no parcel. The text below remains the rule for physical variants. Not implemented (T-111).
+
 - Status: Accepted (owner 2026-10-28, DECISIONS D-20); implemented locally by T-61 (variant `weight_grams`, `parcelWeightKg`)
 - Owner: Bukalaris data owner
 - Source: PR-5, BILL-4, ADR-0006 decision 7, code review CRMON-10 (`docs/reviews/2026-10-27-code-vs-spec-gap-report.md`).
@@ -526,6 +572,8 @@ verification, wallet or deletion cascade is introduced by this proposal.
 - Constraints: DATA-2, BILL-4, T-34, T-61, TEN-1.
 
 ## DATA-14 — Account governance, support, approvals and platform audit
+
+> **Direction change (D-27, D-29, 2026-11-14, ADR-0013, ADR-0015):** the four-eyes keys `payout.approve_transfer`, `refund.approve_transfer`, `cod.reconcile_release`, `ledger.adjust` and `shipping.margin` act on platform-held money or platform shipping margin, so no request of these kinds arises for a `seller_owned` store; `affiliate_payout.approve_transfer` has no flow because Bukalaris pays no commission. A seller's manual payment confirmation is the seller's own append-only record and is not a four-eyes action (ADR-0013 decision 24). The approval, audit and support records below are otherwise unchanged; these keys stay with the platform-managed code, unused (D-31). Not implemented (T-106 to T-109).
 
 - Status: Proposed (2026-10-27; ADR-0011)
 - Owner: Bukalaris data owner with IAM and privacy owners
@@ -573,6 +621,8 @@ Table classes (ADR-0005 amendment, T-59): `approval_request`, `four_eyes_rule`, 
 
 ## DATA-15 — Tax domain
 
+> **Direction change (D-29, 2026-11-14, ADR-0015):** Bukalaris pays no affiliate commission, so no `affiliate_payout` row exists, no `tax_computation` is written for commission, and the payout tax hook and the tax-identity gate have no payout to act on (ADR-0015 decision 9). The `vat_output` policy for subscription invoices (DATA-10, BILL-9 W7) is unchanged. Earnings statements are specified below as built from `affiliate_ledger_entry`, which is not built; ADR-0015 names no replacement source, so that part is open. The affiliate-payout parts below describe the platform-funded programme of ADR-0009, which is superseded and not offered in the first release. Not implemented (T-108, T-109).
+
 - Status: Proposed (2026-10-27; startup-off defaults, Phase 2 dormant; ADR-0012)
 - Owner: Bukalaris data owner with the finance owner and qualified tax advisors
 - Source: PR-31, BILL-9, ADR-0012; owner decisions 2026-10-27. Supersedes DATA-11 `affiliate_tax_identity` and `tax_policy`.
@@ -608,6 +658,8 @@ Table classes (ADR-0005 amendment, T-59): `approval_request`, `four_eyes_rule`, 
 
 ## DATA-16 — Volume, retention and index plan for log-type tables
 
+> **Direction change (D-27, D-29, 2026-11-14, ADR-0013, ADR-0015):** a `seller_owned` store writes no `ledger_entry` row and `affiliate_ledger_entry` is not built, so the ledger row and its volume estimate below apply only to platform-held money. Retention and index plans for the new records (`affiliate_commission`, `affiliate_payment`, `digital_grant`, manual payment confirmations) are not stated by the ADRs and are set in the tasks that build them. Not implemented (T-106 to T-109, T-112).
+
 - Status: Proposed (2026-10-27). The example column is a planning estimate, not a measurement: it assumes 100 stores x 30 orders per store per day (3 000 orders per day), 30 % of orders affiliate-attributed and a 5 % click-to-order rate; replace it with measured pilot values before capacity decisions. Retention durations marked OPEN are owner/privacy decisions (PRIV-4, PRIV-7): none is asserted here.
 - Owner: Bukalaris data owner with the privacy owner.
 - Statement: Every table that feeds a cross-store Owner console view (the SA-14 and SA-26 aggregates, the Log System, the audit viewer) carries a `(store_id, created_at)` index (platform tables: `(created_at)`). Every append-only log-type table below is range-partitioned by month on its time column once its measured volume passes the threshold in the table, so retention is the detach or drop of whole partitions and never a row-by-row `DELETE` (append-only tables have no DELETE grant; the retention job runs as the platform role through a named function). Financial evidence tables (`ledger_entry`, `affiliate_ledger_entry`, `order_financials`, `order_line_financials`, `shipment_cost`, `payout`, `refund`, `order_status_history`) are never purged by a retention job.
@@ -633,3 +685,4 @@ Each retention job is registered in ARCH-5 with its own JOB id (JOB-27 to JOB-32
 ## Change history
 
 - 2026-10-27 documentation audit pass: audit FIN-01..FIN-27 applied to DATA-7 to DATA-11 (immutable `order_financials`, `order_line_financials`, `shipment_cost`, payout/refund approval references, payout destinations, billing anchor and period index), SPV-04/SPV-05, SPV-09 (one live phone per buyer, `primary_phone_identifier_id`), SPV-10/SPV-11/SPV-18 (`four_eyes_rule`, break-glass allowlist, field classes), SPV-21/OPS-04 (sealing `key_id`) and OPS-13 (DATA-16). Owner decisions of the same day: reconciliation-gated seller release (`reconciliation_batch`, `reconciliation_batch_item`, `release_basis`; `release_after` removed), shipping system A/B (superseded the same day by the unified Bukalaris-managed system, D-15) and `courier_service_policy`, delivered-only commission (no `unfunded` state, no `commission_void` entry, `hold_days` snapshot), PPN without a PKP requirement, no issue-report attachments in Phase 1.
+- 2026-11-15 alignment with D-27 to D-31 (documentation only, no schema change): planned-schema table at the top completed from ADR-0013 to ADR-0016; "Direction change" notes added to the domain persistence section, the Phase 1 relational plan, DATA-7 (heading and allocation identity), DATA-8, DATA-9, DATA-11 (heading and eligibility paragraph), DATA-13, DATA-14, DATA-15 and DATA-16. No earlier text was removed and no ID was renumbered.

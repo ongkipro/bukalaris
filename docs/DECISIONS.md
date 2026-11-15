@@ -1,7 +1,7 @@
 # Bukalaris implementation decisions
 
 Repository-level decisions taken while implementing. Costly-to-reverse
-architecture choices get an ADR (`docs/ADR-*.md`); this file records the rest,
+architecture choices get an ADR (`docs/adr/ADR-*.md`); this file records the rest,
 including deliberate ceilings. Newest last.
 
 ## D-1 — M1 stack and pinned versions (2026-10-06, T-1)
@@ -31,7 +31,7 @@ stack instead of `next/font/google`, so builds need no external font fetch.
 
 ## D-2 — One Next.js app for M1; Astro storefront deferred (deliberate ceiling)
 
-Superseded in part (2026-10-27): the separate-apps proposal below and the ceiling "no separate origins/cookie namespaces per surface" are replaced by [ADR-0008](ADR-0008-platform-architecture-and-routing.md) and TD-7: one Next.js application with exact-host dispatch and a separate host-only cookie and session audience per surface (delivered by T-70). The Astro recommendation is superseded by the owner direction recorded in 02-PRD ("Stack and named surfaces"). The text below is kept as history.
+Superseded in part (2026-10-27): the separate-apps proposal below and the ceiling "no separate origins/cookie namespaces per surface" are replaced by [ADR-0008](adr/ADR-0008-platform-architecture-and-routing.md) and TD-7: one Next.js application with exact-host dispatch and a separate host-only cookie and session audience per surface (delivered by T-70). The Astro recommendation is superseded by the owner direction recorded in 02-PRD ("Stack and named surfaces"). The text below is kept as history.
 
 Context: Architecture proposes `apps/bos`, `apps/app`, `apps/checkout`,
 `apps/storefront` (Astro) and `apps/worker`.
@@ -58,7 +58,7 @@ under one billing/ownership root.
 
 ## D-4 — Tenant enforcement in M1: scoped data access + compound FKs; RLS deferred
 
-Superseded (2026-10-07, T-27): row-level security with the three roles `bukalaris_owner`, `bukalaris_app` and `bukalaris_platform` is implemented; [ADR-0005](ADR-0005-database-tenant-isolation-rls.md) and its 2026-10-27 amendment (T-59) are the current tenant-enforcement decision. The text below records the M1 ceiling as history.
+Superseded (2026-10-07, T-27): row-level security with the three roles `bukalaris_owner`, `bukalaris_app` and `bukalaris_platform` is implemented; [ADR-0005](adr/ADR-0005-database-tenant-isolation-rls.md) and its 2026-10-27 amendment (T-59) are the current tenant-enforcement decision. The text below records the M1 ceiling as history.
 
 Decision: Every store-owned query lives in `packages/db/src/*.ts` and takes a
 scope object (`SellerScope`, `StorefrontScope`, `OperatorScope`) produced only
@@ -422,3 +422,106 @@ Decision: Better Auth's atomic `rateLimit.customStorage.consume` is implemented 
 Accepted ceilings: a fixed window allows up to twice the limit across a window boundary, where Better Auth's in-memory store used a rolling window; the bound per window is unchanged. The limiter runs before routing and its key includes the path, so an anonymous client can create one counter row per unique `/api/auth/<path>` (swept after a day; the memory store was capped at 100k entries); bounding unknown paths is T-90. A hung database makes auth requests wait for the pool/driver timeout rather than refuse immediately. Independent review d6365bea: ACCEPT WITH NOTES (no P0/P1). Rejected: `storage: "database"` (needs a new Better Auth table and migration for the same effect), Redis or another secondary store (new service), per-process memory (does not meet RL-LOGIN).
 
 Revisit when: T-90 sets per-bucket failure behaviour; identity-candidate or account dimensions of RL-LOGIN are activated; the hosting topology changes the trusted client-IP header.
+
+## D-27 — Sellers connect their own Mengantar and AutoLaris accounts; Bukalaris holds no seller money (2026-11-14, ADR-0013)
+
+Supersedes: D-15 and D-14 for stores on seller-owned accounts; the "platform-managed providers" decision of ADR-0006 and the Partner-provisioning decisions of ADR-0007.
+
+Decision (owner, 2026-11-14): every store connects its own Mengantar API key and its own AutoLaris H2H key ([ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md)). Buyer payments and COD cash go straight to the seller. Bukalaris earns the subscription only (PR-18): no shipping margin, no cashback split, no fee on buyer payments. Keys are sealed per store, changed only by the store owner with step-up, never echoed, and each account has a fixed `sandbox`/`production` environment instead of a free-form URL. Courier, COD, province and payment-channel filters are seller settings enforced on the server at order submit. Behaviour is taken from the running AdsBookCMS system as a reference, with its plain-text keys, free-form provider URL and unenforced COD switch deliberately not copied.
+
+Why acceptable now: it removes the custody review (Q-17), the Partner settlement and return-term gates (OPEN-F7, OPEN-F8, OPEN-F9) and the platform payment contract (Q-1) from the path to a first real order.
+
+Accepted cost: the delivered seller ledger and payouts (T-37) and Partner accounts (T-48) are unused for these stores and stay in the code, unused (D-31: removal reviewed after the pilot); sellers must hold two provider accounts.
+
+The gate keeps blocking every call made with platform Mengantar credentials. Amended by D-31 (owner answer 1): the Partner Secret pasted in chat on 2026-10-27 is not rotated; the owner accepts the exposure because the Partner model is unused.
+
+Revisit when: the pilot shows whether sellers can open provider accounts without support; or a seller needs a platform-held account (D-31 keeps one mode for the first release).
+
+## D-28 — Platform on `bukalaris.com`, storefronts on `<slug>.bukalaris.id`, custom domains point at `cname.bukalaris.id` (2026-11-14, ADR-0014)
+
+Supersedes: the `<store-slug>.bukalaris.com` rows of ADR-0008 and of the 08-DOMAIN-ROUTING platform domain map.
+
+Decision (owner, 2026-11-14): platform surfaces stay on `bukalaris.com`; every native storefront is `<store-slug>.bukalaris.id`; a seller's custom domain is a CNAME to `cname.bukalaris.id` ([ADR-0014](adr/ADR-0014-two-registrable-domains-and-custom-domain-target.md)). Cart, checkout and confirmation run on the store host; `checkout.bukalaris.com` remains for the hosted hand-off of independent storefronts (PR-16). The single root setting becomes a platform root and a store root.
+
+Why acceptable now: nothing is deployed and the root domain is configuration, so no stored data changes.
+
+Answered by D-31: `bukalaris.com` and `bukalaris.id` are registered (owner statement, 2026-11-14; DNS records wait for the deployment work); custom domains are subdomains only until T-15 verifies apex support; the host of a later cross-store affiliate storefront is decided with T-54/T-55.
+
+## D-29 — Store affiliate programme run by the seller: one platform affiliate account, membership per store, commission paid by the seller (2026-11-14, ADR-0015)
+
+Supersedes: the platform wallet, platform payouts and commission deduction of ADR-0009 and BILL-8; the premise of D-16 that every order settles through Bukalaris. D-16's delivered-only rule and 3-day hold stand.
+
+Decision (owner, 2026-11-14): an affiliate registers once on the platform and applies to individual stores; each seller approves memberships of their own store and sets the commission rate ([ADR-0015](adr/ADR-0015-seller-run-store-affiliate-programme.md)). The system attributes orders and computes commission; a commission is the seller's obligation, becomes payable after delivery plus the hold, and is paid by the seller outside Bukalaris and recorded with proof. Seller and affiliate read the same statement. A payable commission older than 14 days (default) is in arrears, and the Owner console can freeze that store's programme. Affiliates are told on the application screen that the seller, not Bukalaris, pays.
+
+Why acceptable now: with D-27 Bukalaris holds no money to deduct a commission from, and the identity and attribution delivered in T-52 are reused.
+
+Accepted cost: an affiliate's payment depends on the seller. T-53 is superseded in its current form; the cross-store affiliate storefront (T-55) is deferred.
+
+Revisit when: a platform-held payment account returns (D-31 excludes it from the first release), or arrears data shows the freeze is not enough.
+
+## D-30 — Digital products beside physical ones: prepaid only, no shipment, access granted on payment (2026-11-14, ADR-0016)
+
+Decision (owner, 2026-11-14): a product is `physical` or `digital`; a store may sell both and a cart may mix them ([ADR-0016](adr/ADR-0016-digital-products.md)). Shipping is computed from physical lines only; an order with no physical line has no address, courier or shipping fee. Any digital line makes the order prepaid (no COD) and requires the buyer's e-mail. Payment runs on the store's own AutoLaris account in its payment-only profile, confirmed per account. Access is granted in the transaction that settles the order, delivered through the signed order-status page as access links to content the seller hosts elsewhere (for example Google Drive) plus an optional access note. Bukalaris stores, proxies and scans no file (owner refinement, same day). A digital-only order completes when paid. A per-store member area with embedded video and webinars is a later stage: access items are typed and grants are bound to store and buyer identity so it can be added without migration; nothing of it is built.
+
+Why acceptable now: it reuses the catalog, cart, checkout and payment state machine; the new parts are the product kind, access links and grants; no storage provider is needed.
+
+Accepted cost: every weight, address and courier assumption needs a physical-lines-only path; Bukalaris cannot count downloads or close a link the buyer already copied; protection of the content depends on the seller's sharing settings.
+
+Revisit when: the member area is scheduled (direction in D-31), or sellers ask for platform-hosted files, licence-key pools or subscriptions.
+
+## D-31 — Owner accepted the recommended defaults for the open items of ADR-0013 to ADR-0016 (2026-11-14)
+
+Decision (owner, 2026-11-14): every recommendation in [reviews/2026-11-14-open-decisions-recommendations.md](reviews/2026-11-14-open-decisions-recommendations.md) is accepted. The decisions are recorded in the "Owner decisions on the former open items" table of each ADR:
+
+1. **Payments (ADR-0013):** `seller_owned` is the only mode in the first release; bank transfer to the seller's own account is a payment method (`bank_transfer`, seller confirms by hand, ADR-0013 section 10, T-113); no waiting period after a key change; the COD-blocked province list is a suggestion the seller confirms; no per-courier province exclusion; no per-order platform charge.
+2. **Domains (ADR-0014):** custom domains are subdomains only until T-15 verifies apex support; `bukalaris.id` is registered by the owner now, without DNS records; the cross-store affiliate storefront host stays deferred.
+3. **Affiliate (ADR-0015):** rate bounds 100 to 5000 bps; attribution window 7 days; no platform fee on commission; affiliate bank details stored and shown only to the paying store's finance role; auto-approval off by default.
+4. **Digital products (ADR-0016):** 10 access links per product, 2,000 characters each; no default grant expiry; digital products excluded from catalog feeds; no licence-key pools; the later member area goes on the existing buyer portal with a per-store view, with a fixed embed allow-list.
+
+Why acceptable now: each default is the smallest option that lets T-104 to T-113 start, and each bound is an Owner-console setting, so changing it later is configuration, not a rewrite.
+
+Accepted cost: the unused platform-managed money code stays in the repository until the post-pilot review; a seller with an apex-only domain cannot connect it yet; bank transfer depends on the seller checking their own bank statement.
+
+Owner answers on the five actions (2026-11-14, later the same day):
+
+1. **Mengantar Partner Secret pasted in chat on 2026-10-27:** the owner chose not to rotate it and accepts the exposure. The Partner model is superseded by ADR-0013, and no `seller_owned` store uses that secret. The secret stays valid at the provider, and the T-48 entry gate in the code still refuses the Partner path without rotation evidence; both are left as they are.
+2. **GitHub repository visibility:** stays public for now; asked again before any production secret, customer data or deployment configuration is added.
+3. **Domains:** `bukalaris.com` and `bukalaris.id` are registered (owner statement; not checked by an agent). No DNS record is created until the deployment work.
+4. **AutoLaris payment-only profile:** requested by hand from AutoLaris for each seller; the seller receives the API key from AutoLaris and enters it in Seller Admin (ADR-0013 decision 13). Bukalaris automates no part of that request.
+5. **Evidence screenshots:** the 240 rewritten baseline PNGs under `docs/evidence/` were restored from Git on 2026-11-14; untracked `docs/evidence/ux/` was not touched.
+
+Revisit when: pilot data questions a default, or the member area is scheduled.
+
+## D-32 — Clarifications to ADR-0013 to ADR-0016 found by the document alignment (2026-11-15, accepted by the owner)
+
+Decision (owner, 2026-11-15): accepted. The alignment of the specification pack (T-101) surfaced questions the four ADRs did not answer. Each ADR has a "Clarifications" table (C-P1 to C-P10, C-D1, C-A1 to C-A8, C-G1 to C-G4) with the smallest answer consistent with D-27 to D-31; the owner accepted every row, changed C-A2, and added items 5 to 10 below during the same day. Decided, not implemented.
+
+The rows that change something already written:
+
+1. **C-D1 / C-A1:** store affiliate links point at the store host and the click cookie is set there. Without this, attribution by click cannot work once checkout runs on `<slug>.bukalaris.id` (D-28), because a host-only cookie on `bukalaris.com` is not sent to the store host.
+2. **C-A2 — decided by the owner on 2026-11-15:** a recorded affiliate payment carries bank transaction data typed by the seller (bank, account name, transaction reference, date and time), not a file. A transaction proof is uploaded only later, in a complaint or ticket about a disputed payment; that flow is a future feature and is not designed.
+3. **C-A5:** no affiliate earnings statement and no affiliate tax identity in the first release; the affiliate part of PR-31 is deferred.
+4. **C-G1:** per-product takedown and a `suspended` grant state move to Phase 2 moderation; the first release uses report intake and store suspension.
+
+5. **C-P1 and C-P7 — decided by the owner on 2026-11-15:** shipping money is a matter between the seller and their aggregator. Bukalaris keeps no shipping ledger and reconciles nothing: courier charges, balance, COD remittance, COD fees and their tax, return costs and cashback are settled outside Bukalaris. A COD order's paid status is information for the seller.
+6. **Financial role — stated by the owner on 2026-11-15:** Bukalaris is a written record (a backup for the seller) of purchases and transactions made on the platform: orders and totals, payment status with evidence, manual confirmations, recorded refunds, affiliate obligations and payment records. It holds and moves no order money and reconciles no external account (ADR-0013, end of section 8).
+7. **Mengantar mandatory, locked and in sync — decided by the owner on 2026-11-15 (ADR-0013 section 11, T-115):** Mengantar is the only shipping aggregator and no other can be connected; AutoLaris is never used for shipping. Each store uses a new Mengantar account dedicated to that store, so both systems describe the same parcels. Parcel state follows Mengantar from creation through pickup, delivery and return; a verified webhook triggers a tracking read and the read is the only writer (C-P3). Mengantar's balance and invoices are mirrored read-only; per-parcel money figures only if the official documentation exposes them (UNVERIFIED).
+8. **Digital product scope — restated by the owner on 2026-11-15:** digital products are built in the first release with download through the seller's link (Google Drive or similar). No digital-product dashboard exists yet for the buyer or the seller; a buyer member dashboard and a seller dashboard for managing digital-product membership come later (ADR-0016 section 7).
+
+9. **Bank-transfer proof — decided by the owner on 2026-11-15:** the buyer uploads a proof of transfer on the signed order-status page; it is stored privately and deleted after a retention period; the seller still confirms the payment by hand and the upload alone changes nothing (ADR-0013 section 10, T-113). This is the only buyer upload on the platform; affiliate payments stay with typed bank data (item 2).
+10. **Member-area structure — decided by the owner on 2026-11-15:** the module and route folders for the later buyer member dashboard and seller membership management are prepared by T-112, empty and not reachable from any host (ADR-0016 item 27).
+
+Accepted cost: private file storage returns for one narrow use (proof images), so a production store is needed before launch; click attribution needs the click route on the store host (T-103).
+
+These four points were answered by the owner on 2026-11-15: see D-33.
+
+## D-33 — AutoLaris needs no IP allow-list; remaining open points of D-32 closed (2026-11-15, owner)
+
+The owner answered the four points D-32 left open. Decided, not implemented; documents only.
+
+1. **AutoLaris has no IP allow-list (owner statement, 2026-11-15).** AutoLaris is used as a payment gateway only (QRIS/VA on the seller's own account), and AutoLaris does not restrict calls by source IP for that use. No egress-IP registration with AutoLaris is a launch step, a restore step or a deployment gate. The statement comes from the owner and was not checked by an agent against the provider's documentation; T-106 records it in the provider-fact table and proves it with the first sandbox call. The allow-list sentence in ADR-0006 section "AutoLaris" belongs to the superseded platform-managed H2H model. Consequence: the callback route cannot rely on a source-IP check either; it rests on the signature and on the status check (D-21), as already decided.
+2. **Proof-of-transfer retention: 90 days after the order closes** (completed, cancelled or expired). The cleanup job deletes the files; the manual confirmation record stays. The value is an Owner-configurable platform setting (accepted recommendation).
+3. **Privacy role for buyer data in a seller's provider account (working position, accepted recommendation).** The seller is the party responsible for its store's buyer data, including the copy held in the seller's own Mengantar and AutoLaris accounts; the relationship with each provider (terms, retention, deletion) is the seller's. Bukalaris sends buyer data to a provider only on the seller's instruction and with the seller's key, and answers for the copy it stores on the platform. A redaction in Bukalaris does not reach the provider's copy; the seller privacy screen and the seller terms say so. This is a product position, not a legal conclusion: a privacy adviser confirms it before real buyer data is processed (Q-11 stays open for that).
+4. **Rate limits for the new actions (starting values, accepted recommendation).** Listed in `16-OBSERVABILITY-RATE-LIMITING.md` "Rate-limit register additions (D-33)". They are Owner-configurable settings, measured again after the pilot.
+5. **Sandbox origins** stay as decided in D-31 (OPEN-P7): read from each provider's official documentation in T-105 and T-106.
+

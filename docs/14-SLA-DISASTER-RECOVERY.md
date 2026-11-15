@@ -11,6 +11,9 @@ availability, RPO 1 hour, RTO 4 hours); no SLA is promised to sellers unless the
 owner publishes one.
 
 ## DR-1 — Recovery objectives and proof
+
+> **Direction change (D-27, D-28, D-29, D-30, 2026-11-14, ADR-0013 to ADR-0016):** read this section with these changes. (1) Money: for a store on seller-owned accounts, the only mode in the first release, Bukalaris holds no order money, so "payout requests", "a wrong or doubled payout" and the payout freeze concern only money Bukalaris holds (subscription billing and the unused platform-managed ledger). Bukalaris pays nothing out for such a store. (2) What a dump holds: also the sealed seller Mengantar and AutoLaris keys (envelopes; the rings stay outside the database), seller bank accounts, affiliate bank details and payment records, and digital grants. (3) Records that exist only in the database and are made after the dump are lost by a restore: a seller's manual payment confirmation (bank transfer), a recorded affiliate payment and a digital grant given by such a confirmation. How they are re-established is not stated by the ADRs. (4) Hosts: two zones and two wildcard certificates. (5) Files: digital products add no file storage; the media volume stays product images only. The text below describes the earlier model. Not implemented (T-102 to T-113).
+
 - Owner: Bukalaris operations owner
 - Statement: Define RPO/RTO, backup retention, restoration authority, and payment
   reconciliation window before pilot. Under owner decision D8 / D-19 (2026-10-27),
@@ -82,6 +85,8 @@ owner publishes one.
   Capacity note: one web replica serves every host while media lives on local disk;
   option E waits for object-storage media (DEPLOY-COOLIFY).
 
+> **Direction change (D-27, D-28, D-31, 2026-11-14, ADR-0013, ADR-0014):** in the table below, "Payment provider outage" and "Secret or sealing-key loss" now concern each store's own provider account and key: an outage or a lost `shipping_credentials` or `payment_credentials` ring stops only calls on those keys, and a provider error while creating an instruction leaves the order pending with a retry. "Restore to an earlier point" freezes only platform-held money. "Host replaced (new egress IP)" names Partner calls, which are unused for a `seller_owned` store; whether AutoLaris applies an IP allow-list to calls on seller keys from this hosting is UNVERIFIED. "Domain/TLS failure" covers two zones, `bukalaris.com` and `bukalaris.id`, plus custom domains. The rows describe the earlier model. Not implemented (T-102 to T-107).
+
 | Incident | First containment | Recovery proof |
 |---|---|---|
 | Database unavailable | Stop mutations; show truthful unavailable/pending state | Restore connection and invariants; reconcile pending work |
@@ -116,6 +121,8 @@ authorization. Never restore production personal data into an unsecured test env
 
 ### Backup, restore rules and probe baseline (adopted from Etalashop, 2026-10-26; corrected 2026-10-27)
 
+> **Direction change (D-27, D-28, D-29, D-31, 2026-11-14, ADR-0013 to ADR-0015):** read the rules below with these changes. Restore rule 3: the payout freeze and reconciliation of seller and affiliate payouts apply only to money Bukalaris holds; subscription invoices stay in scope. Item 3 (secrets and keys backup): add the `payment_credentials` ring beside `shipping_credentials`; the Mengantar Partner Secret is not rotated (owner decision, D-31) and no `seller_owned` store depends on it. Item 4 (probe): the sample storefront is on the store root `<store-slug>.bukalaris.id`, platform hosts are on `bukalaris.com`, a second wildcard certificate (`*.bukalaris.id`) is checked, and the `*.affiliate` certificate belongs to the deferred T-55. The "Provider allow-lists" lesson further down concerns the platform's own calls; a check on seller keys is not defined. The text below describes the earlier model. Not implemented (T-102 to T-107).
+
 1. **Two-tier PostgreSQL backup (on-box + Cloudflare R2 offsite):**
    - On-box: `scripts/db-backup.sh` (`pg_dump -Fc`, **owners and ACLs kept**: the grants to `bukalaris_app` and `bukalaris_platform` and the `bukalaris_owner` ownership are part of tenant isolation, ADR-0005) currently every 6 hours into a local volume with 14-day retention (the D-19 baseline requires hourly dumps for RPO 1 hour). A dump taken with `--no-owner --no-acl` is not acceptable for this database: it restores without grants.
    - Offsite: a dedicated `backup-offsite` job mirrors custom-format dumps hourly via `rclone` to a dedicated Cloudflare R2 bucket (30-day remote retention). **Decided (D8 / D-19):** encrypt each dump on the host before upload with a key held outside the server and backed up separately (client-side), because the bucket otherwise holds personal data in the clear; this must be in place before live customer or bank data is stored. Roles are cluster-level and are not in the dump; they are created from the role SQL in DEPLOY-COOLIFY before any restore.
@@ -148,5 +155,7 @@ Each item is a requirement for the pilot, not an implemented control.
 - **The deployment platform itself.** Coolify's own database and configuration are on the backup
   list, so the deployment can be rebuilt without them being recreated by hand.
 - **Provider allow-lists.** After any origin move, a non-mutating Mengantar and AutoLaris call proves
-  the new egress IP is allow-listed before the site is called healthy.
+  the new egress IP is allow-listed before the site is called healthy. (D-33, 2026-11-15: AutoLaris has
+  no IP allow-list, owner statement; the AutoLaris call here is a plain reachability check. The Mengantar
+  allow-list applied to Partner calls, which a `seller_owned` store does not make.)
 

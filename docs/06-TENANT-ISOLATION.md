@@ -10,6 +10,9 @@
   cache keys, or pagination cursors cannot reveal/change another tenant's data.
 
 ## TEN-2 — Host-derived storefront scope
+
+> **Direction change (D-28, 2026-11-14, ADR-0014):** the allowed storefront hosts are `<store-slug>.bukalaris.id` (store root) and verified custom domains that point at `cname.bukalaris.id`; platform hosts stay on `bukalaris.com`. A platform label on the store root, a store slug on the platform root and `cname.bukalaris.id` itself never resolve to a store. Cart, checkout, confirmation and order status take their store from the same host mapping. The statement below is unchanged; the code still uses one root. Not implemented (T-102, T-103).
+
 - Status: Proposed
 - Owner: Platform owner
 - Statement: Each storefront request maps a normalized allowed host to one
@@ -38,6 +41,8 @@
 
 ## Scope matrix
 
+> **Direction change (D-27, D-29, D-30, D-31, 2026-11-14, ADR-0013, ADR-0015, ADR-0016):** the last four rows are added for the new store-owned data. In the "Provider job" row, a job for a `seller_owned` store opens only the owning store's sealed key: a quote, booking, payment instruction or status check for store A never uses store B's key or a platform key. The other rows are unchanged. Not implemented (T-104 to T-113).
+
 | Operation | Tenant source | Database enforcement | Audit |
 |---|---|---|---|
 | Seller CMS CRUD | Authenticated membership | Tenant policy + ownership predicate | Sensitive change |
@@ -47,6 +52,10 @@
 | Cross-store lookup (host, slug, cart, token, handoff) | Normalized host or opaque selector | Fixed-output `SECURITY DEFINER` resolver on the app pool, returns store id and slug only | Resolution failure |
 | Provider job | Stored order/store linkage | Worker scoped record access | Request/result/outcome |
 | Export/media | Server-issued scoped resource | Tenant-aware object/database key | Export/download event |
+| Seller provider account (planned, T-104) | Authenticated membership with `integrations.manage` plus fresh step-up | Store-scoped rows under row-level security with isolation-registry entries; the sealed key is opened only in the server-side provider client | Every connect, replace and remove (provider and key fingerprint, never the key) |
+| Seller bank accounts and manual payment confirmation (planned, T-113) | Authenticated membership (`integrations.manage` plus step-up for the list; finance capability for a confirmation) | Store-scoped rows; one append-only confirmation record per attempt | Every change to the list; the confirmation is its own append-only record |
+| Affiliate membership, commission and payment record (planned, T-108, T-109) | Seller side: authenticated membership of the store. Affiliate side: the affiliate's own platform identity | Store-scoped rows; store A cannot read or change store B's memberships, commissions or payment records, and affiliate A cannot read affiliate B's statement | The payment record is immutable (a mistake is fixed by a reversing record); other audit events are not stated by ADR-0015 |
+| Digital access items and grants (planned, T-112) | Seller side: authenticated membership. Buyer side: the signed order-status link of that order | Store-scoped rows; one function resolves a grant to its content and is the only reader | Grant extension and revocation |
 
 ## Prohibited patterns
 
