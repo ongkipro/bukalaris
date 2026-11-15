@@ -29,7 +29,11 @@ export const CSP_HEADER = "Content-Security-Policy";
 /** Request header Next reads to stamp the nonce on its own inline scripts (see the bundled CSP guide). */
 export const NONCE_HEADER = "x-nonce";
 export const HSTS_HEADER = "Strict-Transport-Security";
-/** One year, subdomains included (storefronts live on `<slug>.<STORE_ROOT_DOMAIN>`); no `preload` without an owner decision. */
+/**
+ * One year, subdomains included: platform surfaces live under the platform root and storefronts under the store root
+ * (ADR-0014 §6). A verified custom domain (T-15, not built) must get it without `includeSubDomains`. No `preload` without
+ * an owner decision.
+ */
 export const HSTS_VALUE = "max-age=31536000; includeSubDomains";
 
 /** Build-time constants for every path, static assets included (next.config.ts `headers()`). */

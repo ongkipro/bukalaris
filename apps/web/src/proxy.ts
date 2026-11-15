@@ -1,4 +1,4 @@
-import { dispatchHostPath, resolveHostSurface, surfaceOriginsFromEnv } from "@bukalaris/db/host";
+import { dispatchHostPath, hostRootsFromEnv, resolveHostSurface, surfaceOriginsFromEnv } from "@bukalaris/db/host";
 import { NextResponse, type NextRequest } from "next/server";
 import { HOST_STORE_HEADER, WWW_REDIRECT_HEADER } from "./lib/host-header";
 import { REQUEST_ID_COOKIE, REQUEST_ID_HEADER, validRequestId } from "./lib/request-id";
@@ -6,8 +6,8 @@ import { CSP_HEADER, contentSecurityPolicy, HSTS_HEADER, HSTS_VALUE, newNonce, N
 
 /**
  * Storefront host resolution (TEN-2, DOM-1 subset): `<slug>.<STORE_ROOT_DOMAIN>`
- * is rewritten to `/s/<slug>/...`. Hosted checkout and auth stay at their own
- * paths. The internal header is always overwritten so a client cannot forge it.
+ * is rewritten to `/s/<slug>/...`; platform surfaces live on `PLATFORM_ROOT_DOMAIN` (ADR-0014, T-102; unset = the
+ * store root). Hosted checkout and auth stay at their own paths. The internal header is always overwritten so a client cannot forge it.
  * Also stamps the per-request security headers (SEC-14): nonce CSP on HTML routes and
  * HSTS when `ENABLE_HSTS=1` and the request arrived over HTTPS (runtime env, so it cannot
  * live in next.config.ts, which is evaluated at build time).
@@ -49,7 +49,7 @@ export function proxy(request: NextRequest) {
   const proto = request.headers.get("x-forwarded-proto") ?? request.nextUrl.protocol.replace(":", "");
   const decision = dispatchHostPath({
     host: request.headers.get("host"),
-    rootDomain: process.env.STORE_ROOT_DOMAIN ?? "localhost",
+    rootDomain: hostRootsFromEnv(process.env),
     pathname,
     search: request.nextUrl.search,
     method: request.method,
@@ -72,8 +72,8 @@ export function proxy(request: NextRequest) {
     return finish(NextResponse.rewrite(url, { status: 404, request: { headers } }));
   }
   if (decision.action === "redirect") {
-    if (decision.surface === "www") {
-      // Emit WWW Location from a route response, outside Next's middleware redirect relativization.
+    if (decision.surface === "www" || decision.surface === "store_apex") {
+      // Emit the apex Location from a route response, outside Next's middleware redirect relativization.
       headers.set(WWW_REDIRECT_HEADER, decision.location);
       const url = request.nextUrl.clone();
       url.pathname = "/api/internal/www-redirect";
@@ -101,8 +101,8 @@ export function proxy(request: NextRequest) {
 function misdirectedInternalRender(request: NextRequest) {
   const forwarded = request.headers.get("x-forwarded-host")?.split(",", 1)[0]?.trim();
   if (!forwarded) return false;
-  const root = process.env.STORE_ROOT_DOMAIN ?? "localhost";
-  const key = (host: string | null) => JSON.stringify(resolveHostSurface(host, root));
+  const roots = hostRootsFromEnv(process.env);
+  const key = (host: string | null) => JSON.stringify(resolveHostSurface(host, roots));
   return key(request.headers.get("host")) !== key(forwarded);
 }
 

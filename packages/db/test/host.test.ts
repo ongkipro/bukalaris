@@ -2,7 +2,10 @@ import { inArray } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import {
   dispatchHostPath,
+  hostRootsFromEnv,
   isReservedHostLabel,
+  redirectOriginForHost,
+  resolveHostSurface,
   RESERVED_HOST_LABEL_LIST,
   slugFromHost,
   surfaceCookieNames,
@@ -151,6 +154,113 @@ describe("T-70 host × path × method golden table (DOM-5)", () => {
     ).toBe("not_found");
     // Until T-15 there is no resolver: unknown host, never a default store.
     expect(dispatchHostPath({ host: "tokoku.com", rootDomain: ROOT, pathname: "/" }).action).toBe("not_found");
+  });
+});
+
+// T-102 (ADR-0014 §1-3): two registrable domains. Platform surfaces on PLATFORM_ROOT_DOMAIN, storefronts on STORE_ROOT_DOMAIN.
+const ROOTS = { platform: "bukalaris.com", store: "bukalaris.id" };
+const two = (host: string, pathname = "/", method = "GET") => dispatchHostPath({ host, rootDomain: ROOTS, pathname, method, proto: "https", devOutbox: false });
+
+describe("T-102 two root domains", () => {
+  it("serves every platform surface on the platform root and storefronts on the store root", () => {
+    expect(two("bukalaris.com")).toMatchObject({ action: "pass", surface: "apex" });
+    expect(two("owner.bukalaris.com")).toMatchObject({ action: "rewrite", pathname: "/admin", surface: "owner" });
+    expect(two("app.bukalaris.com")).toMatchObject({ action: "rewrite", pathname: "/seller", surface: "seller" });
+    expect(two("checkout.bukalaris.com", "/checkout")).toMatchObject({ action: "pass", surface: "checkout" });
+    expect(two("affiliate.bukalaris.com")).toMatchObject({ action: "rewrite", pathname: "/affiliate" });
+    expect(two("buyer.bukalaris.com")).toMatchObject({ action: "rewrite", pathname: "/buyer" });
+    expect(two("logs.bukalaris.com")).toMatchObject({ action: "rewrite", pathname: "/updates", noCookies: true });
+    expect(two("sari.affiliate.bukalaris.com")).toMatchObject({ action: "rewrite", pathname: "/a/sari" });
+    expect(two("toko-a.bukalaris.id")).toMatchObject({ action: "rewrite", pathname: "/s/toko-a", storeSlug: "toko-a" });
+    expect(two("TOKO-A.Bukalaris.ID.:443", "/cart")).toMatchObject({ action: "rewrite", pathname: "/s/toko-a/cart" });
+    // The seller host still sends order-status links to the checkout host of the platform root.
+    expect(two("app.bukalaris.com", "/o/1.2.abc")).toMatchObject({ action: "redirect", location: "https://checkout.bukalaris.com/o/1.2.abc" });
+  });
+
+  it("a platform or reserved label on the store root fails closed", () => {
+    for (const label of RESERVED_HOST_LABEL_LIST.filter((l) => l !== "www")) {
+      expect(resolveHostSurface(`${label}.bukalaris.id`, ROOTS), label).toEqual({ kind: "reserved_unused", label });
+      expect(two(`${label}.bukalaris.id`).action, label).toBe("not_found");
+      expect(two(`${label}.bukalaris.id`, "/api/auth/sign-in/email", "POST").action, label).toBe("not_found");
+    }
+    expect(two("owner.bukalaris.id", "/admin").action).toBe("not_found");
+    expect(two("app.bukalaris.id", "/seller").action).toBe("not_found");
+    expect(two("checkout.bukalaris.id", "/checkout").action).toBe("not_found");
+  });
+
+  it("cname on the store root is never a store", () => {
+    expect(resolveHostSurface("cname.bukalaris.id", ROOTS)).toEqual({ kind: "reserved_unused", label: "cname" });
+    for (const path of ["/", "/cart", "/products/kaos", "/s/cname"]) expect(two("cname.bukalaris.id", path).action, path).toBe("not_found");
+    expect(two("cname.bukalaris.id", "/api/signals", "POST").action).toBe("not_found");
+  });
+
+  it("a store slug on the platform root fails closed", () => {
+    for (const host of ["toko-a.bukalaris.com", "TOKO-A.bukalaris.com:443"]) {
+      expect(resolveHostSurface(host, ROOTS), host).toEqual({ kind: "unknown" });
+      for (const path of ["/", "/cart", "/s/toko-a"]) expect(two(host, path).action, `${host}${path}`).toBe("not_found");
+    }
+    expect(two("toko-a.bukalaris.com", "/api/signals", "POST").action).toBe("not_found");
+    // Reserved, nested and foreign hosts stay closed too; the probes still answer without data.
+    for (const host of ["cname.bukalaris.com", "api.bukalaris.com", "a.b.bukalaris.com", "a.b.bukalaris.id", "sari.affiliate.bukalaris.id", "bukalaris.id.evil.com", "evilbukalaris.id"]) {
+      expect(two(host).action, host).toBe("not_found");
+    }
+    expect(two("toko-a.bukalaris.com", "/api/health").action).toBe("pass");
+  });
+
+  it("the store-root apex and www redirect safe methods to the platform apex; other methods get 404", () => {
+    for (const host of ["bukalaris.id", "www.bukalaris.id"]) {
+      expect(resolveHostSurface(host, ROOTS), host).toEqual({ kind: "store_apex" });
+      for (const method of ["GET", "HEAD"]) {
+        expect(dispatchHostPath({ host, rootDomain: ROOTS, pathname: "/x", search: "?q=1", method, proto: "https" }), `${method} ${host}`).toEqual({
+          action: "redirect",
+          status: 308,
+          location: "https://bukalaris.com/x?q=1",
+          surface: "store_apex",
+        });
+      }
+      for (const method of ["POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) expect(two(host, "/api/auth/sign-in/email", method).action, `${method} ${host}`).toBe("not_found");
+    }
+    // The platform www keeps redirecting to the platform apex; the local port is kept.
+    expect(two("www.bukalaris.com", "/x")).toMatchObject({ action: "redirect", location: "https://bukalaris.com/x", surface: "www" });
+    expect(dispatchHostPath({ host: "store.localhost:3104", rootDomain: { platform: "platform.localhost", store: "store.localhost" }, pathname: "/x", proto: "http" })).toMatchObject({
+      action: "redirect",
+      location: "http://platform.localhost:3104/x",
+    });
+  });
+
+  it("Object prototype member names are never a surface label on either root, one root or two", () => {
+    // Host names are lower-cased first, so only lower-case member names can reach the lookup (`tostring` is an ordinary slug).
+    for (const label of ["constructor", "__proto__"]) {
+      for (const [host, roots] of [[`${label}.bukalaris.com`, ROOTS], [`${label}.bukalaris.id`, ROOTS], [`${label}.bukalaris.com`, "bukalaris.com"], [`${label}.localhost:3000`, "localhost"]] as const) {
+        const d = dispatchHostPath({ host, rootDomain: roots, pathname: "/" });
+        expect(d, `${host} ${JSON.stringify(roots)}`).toBeDefined();
+        expect(d.action, `${host} ${JSON.stringify(roots)}`).toBe("not_found");
+      }
+    }
+  });
+
+  it("redirectOriginForHost names an origin only for redirect-only hosts", () => {
+    expect(redirectOriginForHost("www.bukalaris.com", ROOTS, "https")).toBe("https://bukalaris.com");
+    expect(redirectOriginForHost("bukalaris.id", ROOTS, "https")).toBe("https://bukalaris.com");
+    expect(redirectOriginForHost("www.localhost:3103", "localhost", "http")).toBe("http://localhost:3103");
+    for (const host of ["bukalaris.com", "toko-a.bukalaris.id", "owner.bukalaris.com", "cname.bukalaris.id", "www.bukalaris.id.evil.com", "www.localhost:3103/x", null]) {
+      expect(redirectOriginForHost(host, ROOTS, "https"), String(host)).toBeNull();
+    }
+  });
+
+  it("one root stays valid: an unset platform root falls back to the store root, the store root to localhost", () => {
+    expect(hostRootsFromEnv({} as NodeJS.ProcessEnv)).toEqual({ platform: "localhost", store: "localhost" });
+    expect(hostRootsFromEnv({ STORE_ROOT_DOMAIN: "bukalaris.com" } as NodeJS.ProcessEnv)).toEqual({ platform: "bukalaris.com", store: "bukalaris.com" });
+    // The store root never borrows the platform root: storeBaseUrl (feeds, referral redirects) reads STORE_ROOT_DOMAIN as well.
+    expect(hostRootsFromEnv({ PLATFORM_ROOT_DOMAIN: "bukalaris.com" } as NodeJS.ProcessEnv)).toEqual({ platform: "bukalaris.com", store: "localhost" });
+    expect(hostRootsFromEnv({ PLATFORM_ROOT_DOMAIN: "Bukalaris.com.", STORE_ROOT_DOMAIN: "BUKALARIS.id" } as NodeJS.ProcessEnv)).toEqual(ROOTS);
+    // The same roots as one string behave exactly like the T-70 one-root table.
+    const one = { platform: "bukalaris.com", store: "bukalaris.com" };
+    for (const host of ["bukalaris.com", "owner.bukalaris.com", "toko-a.bukalaris.com", "www.bukalaris.com", "cname.bukalaris.com", "a.b.bukalaris.com", "evil.com"]) {
+      expect(resolveHostSurface(host, one), host).toEqual(resolveHostSurface(host, "bukalaris.com"));
+    }
+    expect(two("localhost:3000", "/seller").action).toBe("not_found");
+    expect(dispatchHostPath({ host: "localhost:3000", rootDomain: { platform: "localhost", store: "localhost" }, pathname: "/seller" }).action).toBe("pass");
   });
 });
 

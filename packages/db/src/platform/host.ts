@@ -1,6 +1,7 @@
 /**
  * Platform host resolution, reserved labels, per-surface origins, per-surface cookies,
  * and DOM-5 host × path × method dispatch (T-70, ADR-0008 §3, 08-DOMAIN-ROUTING DOM-4..DOM-6).
+ * Two root domains (T-102, ADR-0014 §1-3): platform surfaces on the platform root, native storefronts on the store root.
  */
 
 export const RESERVED_HOST_LABEL_LIST = [
@@ -109,9 +110,35 @@ export function slugFromHost(host: string | null, rootDomain: string): string | 
   return validClaimableLabel(label) ? label : null;
 }
 
+/**
+ * The two registrable domains of ADR-0014: platform surfaces (`owner.`, `app.`, `checkout.`, ...) on `platform`,
+ * native storefronts (`<slug>.`) and the custom-domain target `cname.` on `store`. One string means one root for both
+ * (local development, and every deployment made before T-102).
+ */
+export type HostRoots = { platform: string; store: string };
+
+export function hostRoots(roots: string | HostRoots): HostRoots {
+  if (typeof roots === "string") {
+    const one = normalizeHostname(roots) || "localhost";
+    return { platform: one, store: one };
+  }
+  return { platform: normalizeHostname(roots.platform) || "localhost", store: normalizeHostname(roots.store) || "localhost" };
+}
+
+/**
+ * `PLATFORM_ROOT_DOMAIN` and `STORE_ROOT_DOMAIN`, read separately. An unset platform root falls back to the store root (one
+ * root, the pre-T-102 layout); the store root never falls back to the platform root, because the storefront link builders
+ * read `STORE_ROOT_DOMAIN` too. Default `localhost`. Neither root may be a platform-labelled host of the other (DEPLOY-COOLIFY).
+ */
+export function hostRootsFromEnv(env: NodeJS.ProcessEnv = process.env): HostRoots {
+  const store = env.STORE_ROOT_DOMAIN || "localhost";
+  return hostRoots({ platform: env.PLATFORM_ROOT_DOMAIN || store, store });
+}
+
 export type HostSurface =
   | { kind: "local_path" }
   | { kind: "apex" }
+  | { kind: "store_apex" }
   | { kind: "owner" }
   | { kind: "seller" }
   | { kind: "checkout" }
@@ -129,47 +156,67 @@ const LOCAL_HOSTS: Record<string, true> = {
   "127.0.0.1": true,
 };
 
+/** Surfaces served on one label of the platform root. */
+const PLATFORM_LABEL_SURFACE: Record<string, HostSurface> = {
+  owner: { kind: "owner" },
+  app: { kind: "seller" },
+  checkout: { kind: "checkout" },
+  affiliate: { kind: "affiliate" },
+  buyer: { kind: "buyer" },
+  logs: { kind: "logs" },
+  www: { kind: "www" },
+};
+
+/** The part of `hostname` before `.<root>`, or null when the host is not under that root. */
+const labelsUnder = (hostname: string, root: string) => (hostname.endsWith(`.${root}`) ? hostname.slice(0, -root.length - 1) : null);
+
+/**
+ * Order (ADR-0014 §2): exact platform hosts on the platform root, then `<label>.<store root>`, then a verified custom
+ * domain; anything else is `unknown` (fail closed). With two roots a store slug on the platform root and a platform or
+ * reserved label on the store root never resolve to a surface, and the store-root apex and `www` only redirect.
+ */
 export function resolveHostSurface(
   host: string | null,
-  rootDomain: string,
+  rootDomain: string | HostRoots,
   customDomainStore?: (hostname: string) => string | null,
 ): HostSurface {
   const hostname = normalizeHostname(host);
-  const root = normalizeHostname(rootDomain) || "localhost";
+  const { platform: root, store: storeRoot } = hostRoots(rootDomain);
+  const split = storeRoot !== root;
   if (!hostname) return { kind: "unknown" };
 
-  // Local path mode when running directly on localhost / 127.0.0.1 with rootDomain="localhost"
+  // Local path mode when running directly on localhost / 127.0.0.1 with the platform root "localhost"
   if (LOCAL_HOSTS[root] && LOCAL_HOSTS[hostname]) {
     return { kind: "local_path" };
   }
   if (hostname === root) {
     return { kind: "apex" };
   }
-  const suffix = `.${root}`;
-  if (hostname.endsWith(suffix)) {
-    const sub = hostname.slice(0, -suffix.length);
-    if (!sub.includes(".")) {
-      if (sub === "owner") return { kind: "owner" };
-      if (sub === "app") return { kind: "seller" };
-      if (sub === "checkout") return { kind: "checkout" };
-      if (sub === "affiliate") return { kind: "affiliate" };
-      if (sub === "buyer") return { kind: "buyer" };
-      if (sub === "logs") return { kind: "logs" };
-      if (sub === "www") return { kind: "www" };
-      if (isReservedHostLabel(sub)) return { kind: "reserved_unused", label: sub };
-      if (validClaimableLabel(sub)) return { kind: "store", slug: sub };
-      return { kind: "unknown" };
-    }
-    if (sub.endsWith(".affiliate")) {
-      const handle = sub.slice(0, -".affiliate".length);
+  if (split && hostname === storeRoot) return { kind: "store_apex" };
+  const platformSub = labelsUnder(hostname, root);
+  if (platformSub !== null) {
+    // Own keys only: `constructor.<root>` or `__proto__.<root>` must never match an Object prototype member.
+    const platformSurface = Object.hasOwn(PLATFORM_LABEL_SURFACE, platformSub) ? PLATFORM_LABEL_SURFACE[platformSub] : undefined;
+    if (platformSurface) return platformSurface;
+    if (platformSub.endsWith(".affiliate")) {
+      const handle = platformSub.slice(0, -".affiliate".length);
       if (!handle.includes(".") && validClaimableLabel(handle)) {
         return { kind: "affiliate_store", handle };
       }
       // Never fall back to store lookup for *.affiliate.<root>
       return { kind: "unknown" };
     }
+  }
+  const storeSub = split ? labelsUnder(hostname, storeRoot) : platformSub;
+  if (storeSub !== null && !storeSub.includes(".")) {
+    if (split && storeSub === "www") return { kind: "store_apex" };
+    if (isReservedHostLabel(storeSub)) return { kind: "reserved_unused", label: storeSub };
+    if (validClaimableLabel(storeSub)) return { kind: "store", slug: storeSub };
     return { kind: "unknown" };
   }
+  if (platformSub !== null && !platformSub.includes(".") && isReservedHostLabel(platformSub)) return { kind: "reserved_unused", label: platformSub };
+  // A nested host under either root, or (two roots) a store slug on the platform root: never a store or a custom-domain lookup.
+  if (platformSub !== null || storeSub !== null) return { kind: "unknown" };
   if (customDomainStore) {
     try {
       const resolved = customDomainStore(hostname);
@@ -193,6 +240,17 @@ export type SurfaceOrigins = {
 };
 
 const trimSlash = (u: string) => u.replace(/\/+$/, "");
+
+/**
+ * Origin that a redirect-only host sends safe requests to: the platform apex, for the platform `www` host and (two roots)
+ * the store-root apex and its `www` (ADR-0014 §1). The request's port is kept (local host mode). Null for every other host.
+ */
+export function redirectOriginForHost(host: string | null, rootDomain: string | HostRoots, proto: string): string | null {
+  const kind = resolveHostSurface(host, rootDomain).kind;
+  if (kind !== "www" && kind !== "store_apex") return null;
+  const port = /:(\d+)$/.exec((host ?? "").trim())?.[1];
+  return `${proto}://${hostRoots(rootDomain).platform}${port ? `:${port}` : ""}`;
+}
 
 export function surfaceOriginsFromEnv(env: NodeJS.ProcessEnv = process.env): SurfaceOrigins {
   const fallback = trimSlash(env.PLATFORM_ORIGIN ?? env.BETTER_AUTH_URL ?? "http://localhost:3000");
@@ -239,7 +297,8 @@ const isAnyExplicitSurfacePrefix = (pathname: string) => EXPLICIT_SURFACE_PREFIX
  */
 export function dispatchHostPath(input: {
   host: string | null;
-  rootDomain: string;
+  /** One root for every host, or the two roots of ADR-0014. */
+  rootDomain: string | HostRoots;
   pathname: string;
   search?: string;
   method?: string;
@@ -268,11 +327,12 @@ export function dispatchHostPath(input: {
     case "local_path":
       return { action: "pass", surface: "local_path" };
 
-    case "www": {
-      if (!isSafeMethod(method)) return { action: "not_found", status: 404, surface: "www" };
-      // Same host without the `www.` label (the port, if any, is kept: local mode).
-      const apex = (input.host ?? "").trim().replace(/^www\./i, "");
-      return { action: "redirect", status: 308, location: `${proto}://${apex}${pathname}${search}`, surface: "www" };
+    case "www":
+    case "store_apex": {
+      if (!isSafeMethod(method)) return { action: "not_found", status: 404, surface: surface.kind };
+      // The platform apex (the port, if any, is kept: local mode).
+      const origin = redirectOriginForHost(input.host, input.rootDomain, proto)!;
+      return { action: "redirect", status: 308, location: `${origin}${pathname}${search}`, surface: surface.kind };
     }
 
     case "reserved_unused":
@@ -317,7 +377,7 @@ export function dispatchHostPath(input: {
         return { action: "pass", surface: "seller" };
       }
       if (matchesPrefix(pathname, "/o") && isSafeMethod(method)) {
-        const co = trimSlash(input.checkoutOrigin ?? `${proto}://checkout.${normalizeHostname(input.rootDomain)}`);
+        const co = trimSlash(input.checkoutOrigin ?? `${proto}://checkout.${hostRoots(input.rootDomain).platform}`);
         return { action: "redirect", status: 308, location: `${co}${pathname}${search}`, surface: "seller" };
       }
       return { action: "not_found", status: 404, surface: "seller" };

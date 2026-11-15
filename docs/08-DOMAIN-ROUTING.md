@@ -8,8 +8,9 @@ platform surfaces stay on `bukalaris.com`; native storefronts move to
 `<store-slug>.bukalaris.id`; a seller custom domain is a CNAME to
 `cname.bukalaris.id`; cart, checkout, confirmation and order status are served on
 the store host. The single root setting becomes `PLATFORM_ROOT_DOMAIN` and
-`STORE_ROOT_DOMAIN`. Neither domain is registered or provisioned. The code still
-uses one root and refuses `/checkout` and `/o` on a store host (T-102, T-103).
+`STORE_ROOT_DOMAIN`. Neither domain is provisioned (no DNS, no certificate). Since
+T-102 (2026-11-16, local) host dispatch reads both roots; the store host still
+refuses `/checkout` and `/o` until T-103.
 DOM-5 and DOM-6 below describe the one-root implementation and carry an
 amendment note each; where they conflict with ADR-0014, ADR-0014 is the target.
 
@@ -287,6 +288,8 @@ to the Log System: it never exposes `system_log` or operator telemetry.
 
 ## DOM-5 — Host × path matrix and link origins
 
+Implementation 2026-11-16 (T-102, local only): `resolveHostSurface` and `dispatchHostPath` (`packages/db/src/platform/host.ts`) take the platform root and the store root (`hostRootsFromEnv`: `PLATFORM_ROOT_DOMAIN`, `STORE_ROOT_DOMAIN`; an unset one falls back to the other, then to `localhost`, so one root keeps every row below). With two roots: platform hosts match only on the platform root; `<label>.<store root>` is a store only for a claimable label, and a platform or reserved label there (`owner.`, `app.`, `cname.`, ...) is a 404; a store slug on the platform root is a 404; the store-root apex and `www.<store root>` answer `GET`/`HEAD` with a `308` to the platform apex and 404 otherwise. The auth surface (`apps/web/src/lib/auth.ts`) and the cart CSRF audience (`apps/web/src/lib/auth-csrf.ts`, `<slug>.<store root>`) use the same roots. One-host path mode needs a local platform root. Evidence: `packages/db/test/host.test.ts` "T-102 two root domains", `apps/web/e2e/host-mode-two-root.spec.ts`, `docs/tracks/t102-two-roots.md`.
+
 Amendment 2026-11-14 (D-28, ADR-0014 decisions 2, 5 and 7): the Storefront column becomes hosts on the store root `bukalaris.id` and verified custom domains, and gains `/checkout`, the confirmation and `/o/<token>` for its own store; platform columns stay on the platform root. Storefront, landing-page, feed, order-status and recovery links use the store's primary host; seller, operator, buyer-portal, affiliate-portal and account links use the platform host. The matrix below is the one-root implementation until T-102 and T-103.
 
 - Owner: Bukalaris platform owner
@@ -365,7 +368,8 @@ Rules that apply to every cell:
 - Apex path mode retirement: one-host path mode (`/admin`, `/seller`,
   `/s/<store>`, `/checkout` on one host) exists for local development, tests
   and the M1 single-host deployment. T-70 retires it for every deployment where
-  `NODE_ENV=production` and `STORE_ROOT_DOMAIN` is not a local domain: the apex
+  `NODE_ENV=production` and the platform root (`PLATFORM_ROOT_DOMAIN`, else
+  `STORE_ROOT_DOMAIN`) is not a local domain: the apex
   then answers 404 for those prefixes. Local development keeps path mode on
   `localhost`; host mode is exercised on `*.localhost` (T-70, T-51 evidence).
   Until T-70 lands, DEPLOY-COOLIFY keeps exactly one admin host.
@@ -437,7 +441,6 @@ Amendment 2026-11-14 (D-28, ADR-0014 decision 6): no cookie is set on `.bukalari
 - Residual risk: the `__Host-` prefix blocks tossing but all hosts under one
   registrable domain stay the same site, so `SameSite` does not separate a
   storefront script from the consoles. **OPEN:** whether seller and affiliate
-  storefronts move to a separate registrable domain. Recommended default
-  (recommended, not decided): treat `STORE_ROOT_DOMAIN` as a deployment value that
-  can differ from the platform domain (it already does), decide the storefront
-  domain before public launch, and keep the controls above regardless.
+  storefronts move to a separate registrable domain. Decided 2026-11-14 (D-28,
+  ADR-0014): storefronts on `bukalaris.id`, platform on `bukalaris.com`; host
+  dispatch reads the two roots since T-102. The controls above stay regardless.
