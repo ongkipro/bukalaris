@@ -1776,12 +1776,16 @@ Source: [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md), 
 
 
 ### T-123 — Diagnose the intermittent no-JS add-to-cart timeout in `auth-csrf.spec.ts:123`
-- Status: Planned (found 2026-11-16)
+- Status: Partial (2026-11-16): one of three intermittent failures explained and fixed (`t68.spec.ts`); `auth-csrf.spec.ts:123` and the `content.spec.ts` settings save remain unexplained
 - Primary requirement: PR-14
 - Risk Level: R2
 - Allowed Paths: `apps/web/e2e/auth-csrf.spec.ts`, `apps/web/e2e/helpers.ts`; application files only for an evidenced root cause
 - Finding: CI run 43740385003 attempt 1 on `main` (`2b4d0a4`): "T82 anonymous cart native forms reject forged tokens and accept the current cart binding" [desktop] hit the 90 s test timeout. The page snapshot shows the product page with the "Tambah ke keranjang" button: the JavaScript-free form submit never navigated. No server error was logged; 260 tests passed. The same test passed at mobile-320 in that run, in pull request #1 (run 43709386002), in two local full runs and in 8 local repetitions of the spec on desktop (88/88). The spec sets `trace: "off"` because it handles CSRF and session values, so no trace exists.
 - Done when: the hang is reproduced or its cause is shown from evidence (for example a bounded per-step timeout with a server-side request log, or a trace mode that redacts bodies and headers); the root cause is fixed or, if it is in the test harness, the harness is corrected; no retry or flaky label without that evidence.
+- Outcome 2026-11-16:
+  - Same symptom seen three times: a form submit that never takes effect. (1) `auth-csrf.spec.ts:123` [desktop], CI run 43740385003 attempt 1 (above). (2) `t68.spec.ts:22` [desktop], CI run 43752508707 on `main` (`74d3e76`, a documentation-only commit): "triaged" never appeared. (3) `content.spec.ts:44` [desktop] in a local T-104 run: "Tersimpan." never appeared after the settings save; passed on re-run.
+  - (2) explained from its CI trace: the "Simpan penugasan" server action POST was answered, the test then selected the status and pressed Enter on "Simpan status", and no second POST was ever sent. The test's check after the first submit (`toHaveValue` of the field it had just typed) passes at once, so nothing waited for the first action. Deterministic reproduction (temporary harness, not committed): hold the assignment response until "Simpan status" has focus, release it, wait for its `?saved=assignment` redirect, then press Enter: the test fails with the same "triaged" error. Fix in `apps/web/e2e/t68.spec.ts`: wait for `?saved=assignment` before the next form; with the assignment response delayed by 1.5 s the fixed test passes. This is a test-order race, not an application defect: a person cannot press a button whose page is being replaced.
+  - (1) and (3) have no trace (`auth-csrf.spec.ts` turns traces off; (3) was a local run). Left open: next time, keep the trace of `content.spec.ts`, and give `auth-csrf.spec.ts` a body- and header-free diagnostic (request log of the click) before guessing.
 
 ### T-124 — Check whether `BETTER_AUTH_SECRETS` can override the per-surface auth secrets
 - Status: Planned (found 2026-11-16 by the T-122 pass; unverified, read from the installed Better Auth 1.7.7 source, not run)
