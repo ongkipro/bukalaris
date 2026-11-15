@@ -133,7 +133,7 @@ function DestinationCard({ provider, current, health }: { provider: SignalProvid
   const clear = clearTokenAction.bind(null, provider);
   return (
     <article className="grid content-start gap-4 rounded-lg border p-4" data-testid={`destination-${provider}`} aria-labelledby={`${provider}-title`}>
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex flex-wrap items-start justify-between gap-2">
         <h2 id={`${provider}-title`} className="text-base font-semibold">{c.title}</h2>
         <StatusBadge label={current?.enabled ? "Aktif" : "Nonaktif"} tone={current?.enabled ? "success" : "secondary"} />
       </div>

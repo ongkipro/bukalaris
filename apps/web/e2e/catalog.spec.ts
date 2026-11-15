@@ -7,9 +7,11 @@ test("stale variant form preserves a sale and stock changes use audited inventor
   const title = `Stock-safe ${info.project.name}-${Date.now()}`;
   const slug = title.toLowerCase();
   const errors: string[] = [];
+  // T-100: sign in first. The login helper waits out a sign-in 429 on purpose (3 sign-ins / 10 s per IP);
+  // that tolerated response is not an error of the flow under test.
+  await login(page, "owner-a@bukalaris.local");
   page.on("pageerror", (err) => errors.push(err.message));
   page.on("console", (msg) => { if (msg.type() === "error") errors.push(msg.text()); });
-  await login(page, "owner-a@bukalaris.local");
   await page.getByRole("link", { name: "Tambah produk" }).click();
   await page.getByLabel("Judul produk").fill(title);
   await page.getByLabel("Status").selectOption("active");

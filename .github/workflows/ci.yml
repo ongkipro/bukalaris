@@ -1,6 +1,5 @@
 # Same gates as `pnpm verify` (lint, typecheck, test, build, e2e) plus the image smoke test
-# (`pnpm verify:docker`). Read-only token; no deploy, no secrets. Status: file only, never run
-# (no remote yet). Action pins: major tags; full-SHA pinning is pending until the tag->SHA mapping
+# (`pnpm verify:docker`). Read-only token; no deploy, no secrets. Action pins: major tags; full-SHA pinning is pending until the tag->SHA mapping
 # is verified against the upstream releases (docs/RUNBOOK.md "Pre-production checklist").
 name: ci
 on:
@@ -24,7 +23,8 @@ env:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # T-100: measured on the runner: install ~1.5 min, DB tests ~10.5 min, build ~2 min, E2E ~22-25 min (about 40 min in total).
+    timeout-minutes: 60
     services:
       postgres:
         image: postgres:17-alpine
@@ -66,8 +66,9 @@ jobs:
         working-directory: apps/web
       # Test and e2e databases are created by their global setups when missing.
       - run: pnpm verify
+      # Also on a cancelled job (timeout): a cancelled run must still leave its traces behind.
       - uses: actions/upload-artifact@v7
-        if: failure()
+        if: failure() || cancelled()
         with:
           name: playwright-traces
           path: apps/web/test-results/
