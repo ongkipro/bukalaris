@@ -245,7 +245,8 @@ describe("order e-mail notifications (T-36, PR-21)", () => {
     const [idPart, expPart, sig] = tokenA.split(".") as [string, string, string];
     expect(verifyOrderLink(`${b}.${expPart}.${sig}`)).toBeNull();
     expect(verifyOrderLink(`${idPart}.${Number(expPart) + 86_400}.${sig}`)).toBeNull();
-    const flipped = (sig.at(-1) === "A" ? "B" : "A") + sig.slice(1);
+    // T-123: replace the FIRST character with a different one (the old version chose by the last character, so about 1 run in 64 left the signature unchanged).
+    const flipped = (sig[0] === "A" ? "B" : "A") + sig.slice(1);
     expect(verifyOrderLink(`${idPart}.${expPart}.${flipped}`)).toBeNull();
     expect(verifyOrderLink(`${idPart}.${expPart}.${sig.slice(0, 42)}`)).toBeNull();
     for (const bad of ["", "abc", `${a}`, `${a}.${expPart}`, `${a}.${expPart}.${sig}.extra`, `${a}.${expPart}.${"!".repeat(43)}`]) expect(verifyOrderLink(bad)).toBeNull();
