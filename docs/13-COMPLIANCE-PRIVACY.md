@@ -57,7 +57,7 @@ and `name` (DATA-14).
 
 Engineering inventory of every column that holds or can hold buyer personal
 data, as of M2 wave 4. It is mirrored by `BUYER_DATA_INVENTORY` in
-`packages/db/src/privacy.ts`; `packages/db/test/privacy.test.ts` scans the
+`packages/db/src/seller/commerce/privacy.ts`; `packages/db/test/privacy.test.ts` scans the
 Drizzle schema for columns named like phone/email/address/ip/user-agent/click
 ids and fails when one is missing from the code inventory or from this table.
 "Redaction" is the owner action on `/seller/privacy` (capability

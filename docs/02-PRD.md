@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| Status | Active specification — M1 & M2 waves 1–4 implemented locally (`../STATUS.md` owns current status) |
+| Status | Active specification — M1, M2 and the delivered M3 tasks (chain A, early chain B, T-80 to T-85, T-95 to T-99) are implemented locally and on `main`, nothing is deployed, and the D-27 to D-33 direction is not built yet (`../STATUS.md` owns current status; per-task status in [`TASKS.md`](TASKS.md)) |
 | Owner | Bukalaris product owner |
-| Updated | 2026-11-14 (direction change D-27 to D-30; earlier body text dated 2026-10-27) |
+| Updated | 2026-11-14 (direction change D-27 to D-30; earlier body text dated 2026-10-27); Status row re-checked 2026-11-16 (T-122) |
 | Market | Indonesia (`id-ID`, integer IDR) |
 | Evidence boundary | `CONTEXT-RECORD.md`, [`../STATUS.md`](../STATUS.md), [`../BUILD-LOG.md`](../BUILD-LOG.md), [`TASKS.md`](TASKS.md) |
 | Product name | Bukalaris |

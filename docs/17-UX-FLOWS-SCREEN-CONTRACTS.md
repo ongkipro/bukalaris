@@ -465,7 +465,8 @@ This structure does not collapse role/session boundaries or change journey state
 
 Scope: UX-9, SA-01, SA-05 and SA-06. Status: Implemented subset on `main`
 (T-23, 2026-10-07): persistent "Log System" nav entry in the Owner console shell
-(`apps/web/src/app/admin/layout.tsx`), `/admin/logs` with level/module/request
+(`apps/web/src/app/(operator)/admin/layout.tsx`; since T-62 the entry comes from the
+route registry `packages/db/src/ops/console-routes.ts`), `/admin/logs` with level/module/request
 id/store/time filters (default last hour, max 24 h), cursor paging, detail at
 `/admin/logs/[id]` with related events and page/module mapping, denied access
 for sellers and operators without `logs.read`. Not implemented: environment

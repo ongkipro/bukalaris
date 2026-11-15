@@ -295,11 +295,15 @@ Amendment 2026-11-14 (D-28, ADR-0014 decisions 2, 5 and 7): the Storefront colum
   table `packages/db/test/host.test.ts`; live-server checks `apps/web/e2e/host-mode.spec.ts`).
   Apex path mode (`/admin`, `/seller`, `/s/<store>`, `/checkout` on one host) now exists only
   on plain `localhost` with a local `STORE_ROOT_DOMAIN`; any other root domain answers 404
-  for those prefixes on the apex. Not covered yet: the `/report`, `/r/<token>` and Compliance
-  rows serve no route (404 or Next's own 404 until HTTP-27, SF-13 and HTTP-20 exist), the
-  custom-domain column has no resolver (an unknown host is 404 until T-15), the Update Log
-  host rewrites to `/updates` which has no route until T-69. Nothing is deployed; DNS and
-  TLS are UNVERIFIED.
+  for those prefixes on the apex. `/r/<token>` (HTTP-27) is served on the apex since T-52
+  (`apps/web/src/app/(public-services)/r/[token]/route.ts`), and the `www` redirect runs
+  through `/api/internal/www-redirect` (HTTP-33, T-82). Independently of this table, the
+  proxy answers `421` when the first `x-forwarded-host` value names another surface than
+  `Host` (a misdirected internal render; D-25, T-82); it only refuses, never routes. Not
+  covered yet: the `/report` and Compliance rows serve no route (404 or Next's own 404
+  until SF-13 and HTTP-20 exist), the custom-domain column has no resolver (an unknown
+  host is 404 until T-15), the Update Log host rewrites to `/updates` which has no route
+  until T-69. Nothing is deployed; DNS and TLS are UNVERIFIED.
 - Source: ADR-0008 sections 2 and 3; SEC-3, SEC-9, SEC-13; DOM-1, DOM-3, DOM-4.
 - Contract: the table is the single answer to "does this host serve this path".
   A cell is `pass` (served as written, never surface-prefixed), `→ /x` (rewritten
@@ -404,10 +408,19 @@ Amendment 2026-11-14 (D-28, ADR-0014 decision 6): no cookie is set on `.bukalari
   are unprefixed (`bl_owner`, …) as the contract allows; production uses `__Host-`. Browser
   behaviour of `__Host-` cookies on deployed hosts is UNVERIFIED (the e2e server is a
   production build over `http://*.localhost`, where Chrome accepted them). Session-bound
-  CSRF tokens are **not** built: cookie-authenticated writes to `/api/auth/*` are guarded by
-  Better Auth's trusted-origin check plus an exact-`Origin` match, a `Sec-Fetch-Site:
-  cross-site` refusal and a refusal of a cookie request without `Origin`
-  (`api/auth/[...all]/route.ts`); Next server actions keep their own Origin/Host check. The
+  CSRF tokens are built (T-82, accepted locally 2026-11-05, commit `cc151b0`; D-20 item 4
+  required them before any non-local exposure): a token is an HMAC bound to the surface,
+  its exact origin and the session, a pending MFA challenge or a store cart
+  (`apps/web/src/lib/auth-csrf-token.mts`), sent in a form field or header, never in a URL.
+  Cookie-authenticated writes to `/api/auth/*` keep Better Auth's trusted-origin check, the
+  exact-`Origin` match, the `Sec-Fetch-Site: cross-site` refusal and the refusal of a cookie
+  request without `Origin`, and also need the `x-bl-csrf` token once a session or MFA
+  challenge exists; `GET /api/auth/csrf-token` issues it (`api/auth/[...all]/route.ts`).
+  Portal server actions check the session-bound token (`_csrf` form field or a bound
+  argument), and cart, landing-page and checkout actions the cart-bound one
+  (`requirePortalCsrf`, `requireCartCsrf` in `apps/web/src/lib/auth-csrf.ts`), on top of
+  Next's own Origin/Host check; T-97 keeps the idempotent duplicate checkout submit.
+  Nothing is exposed beyond local hosts. The
   legacy-cookie read for open carts is not built because nothing is deployed.
 - Source: ADR-0008 section 1; SEC-9; IAM-14.
 - Contract:

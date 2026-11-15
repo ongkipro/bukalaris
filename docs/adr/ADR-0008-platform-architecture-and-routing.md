@@ -1,6 +1,6 @@
 ## ADR-0008: One Next.js application with surface routing and bounded database contexts
 
-- **Status:** **Partly superseded 2026-11-14 by [ADR-0014](ADR-0014-two-registrable-domains-and-custom-domain-target.md) (D-28):** native storefronts move to `<store-slug>.bukalaris.id`; the rest stands. Accepted (owner, 2026-10-28, DECISIONS D-20; accepted as a decision). Implemented locally so far: T-51 (restructure) and T-70 (host dispatch, per-surface sessions), both uncommitted; the remaining target layout (affiliate, buyer, update-log routes and contexts) is not implemented
+- **Status:** **Partly superseded 2026-11-14 by [ADR-0014](ADR-0014-two-registrable-domains-and-custom-domain-target.md) (D-28):** native storefronts move to `<store-slug>.bukalaris.id`; the rest stands. Accepted (owner, 2026-10-28, DECISIONS D-20; accepted as a decision). Implemented locally so far: T-51 (restructure) and T-70 (host dispatch, per-surface sessions), both committed as `14772b1` on `main`; of the remaining target layout, the `affiliate/` and `buyer/` database contexts exist (T-52, T-57, commit `302cfa4`), while the affiliate, buyer-portal and update-log routes are not implemented (status line re-checked 2026-11-16)
 - **Date:** 2026-10-27
 - **Author:** Architecture planning
 - **Deciders:** Bukalaris product + architecture owners

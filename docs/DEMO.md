@@ -80,6 +80,12 @@ Sign-in is rate limited (3 per 10 s per IP) on a production build.
   e-mails into the dev mail outbox, simulated ad signals (only when
   `INTEGRATION_TOKEN_KEY` is set; tokens are `demo-*-token-not-real`).
 - **Log System:** 8 warn/error events in the last hour, messages prefixed `demo:`.
+- **Wave 4 features (T-47):** per store one published landing page `promo-pekan-ini`
+  with hero, benefits and order blocks selling the first active product, one feed
+  token (its URLs show on `/seller/marketing`), and one booked fake shipment on the
+  paid transfer order in status `placed`, with the fake courier's first tracking
+  lines (`createLandingPage`, `createFeedToken`, `bookShipment`, `refreshTracking`
+  in `seed-demo.ts`).
 
 All people, phone numbers (`0812-0000-xxxx`), addresses (`Jl. Contoh …`), store
 names and e-mails (`*.demo.bukalaris.local`) are fictional; courier names are the
@@ -87,11 +93,9 @@ fake shipping adapter's own simulated labels.
 
 ## Not seeded yet (wave 4 features, merged 2026-10-07)
 
-Still to add, through the owning services:
+Landing pages, feed tokens and a booked shipment are seeded since T-47 (see
+"What exists"). Still to add, through the owning service:
 
-- a landing page with an order section per store (`landing`);
-- a booked shipment with a resi and tracking events on a shipped order (`fulfillment`);
-- feed tokens/URLs so `/feeds/...` return the demo catalog (`feeds`);
 - a buyer data export / redaction request (`privacy`).
 
 The dashboard (`dashboard`) needs no extra rows: it reads the back-dated orders.
@@ -102,8 +106,11 @@ store-owned tables are covered without changes.
 
 > **Direction change (D-29, 2026-11-14, ADR-0015):** the affiliate mockups below were drawn for the platform-owned programme of ADR-0009 (commission paid out by the platform; the text below mentions payout deductions). In the target the seller approves memberships, owes and pays the commission outside Bukalaris and records it; there is no platform wallet or payout, and the public affiliate storefront (AF-08) is deferred. The mockups are kept as history and are not the target design. Not implemented (T-108 to T-110).
 
-The affiliate programme, the subscription screen and its Owner console counterpart
-have no code yet. They are shown as clickable static HTML mockups in
+The affiliate portal and the affiliate administration screens have no code yet
+(T-52 built attribution only, no screen). The subscription screens exist since
+T-50: Seller Admin `/seller/billing` (SC-28, SC-29) and Owner console
+`/admin/billing` (SA-09, SA-10). All of these were drawn earlier as clickable
+static HTML mockups in
 `docs/archive/mockups/` (plain HTML + one shared CSS, no build, no network; fictional data
 only; each page carries a "MOCKUP — data fiktif, belum diimplementasi" ribbon and
 a link to its spec).
@@ -118,7 +125,7 @@ on Linux). It lists every page and what is real versus mockup.
 | Affiliate portal, @sari-picks (AF-01) | Mockup | `docs/archive/mockups/affiliate-portal.html` |
 | Public affiliate storefront (AF-08) | Mockup | `docs/archive/mockups/affiliate-storefront.html` |
 | Seller Admin: Affiliate (SC-30) | Mockup | `docs/archive/mockups/seller-affiliate.html` |
-| Seller Admin: Subscription (SC-28) | Mockup | `docs/archive/mockups/seller-subscription.html` |
+| Seller Admin: Subscription (SC-28) | **Real** since T-50 (`/seller/billing`); the mockup is history | `docs/archive/mockups/seller-subscription.html` |
 | Owner console: Affiliate (SA-11) | Mockup | `docs/archive/mockups/admin-affiliate.html` |
 
 The demo store is **Batik Nusantara** (`demo-batik-nusantara`); the mockups reuse

@@ -15,8 +15,8 @@ implementation evidence. Edit docs only inside this repository.
 
 | Path | Owns |
 |---|---|
-| `apps/web` | Next.js App Router app, routes grouped by surface (`src/app/(platform)`, `(operator)` Owner console `/admin`, `(seller)` Seller Admin `/seller`, `(storefront)` `/s/<slug>` or `<slug>.<STORE_ROOT_DOMAIN>`, `(checkout)` hosted `/checkout`, `(identity)` login/account/invite, `(public-services)` buyer order status `/o/<token>` and `/dev/outbox`; route groups never appear in URLs), Storefront API `/api/storefront/v1`, `/api/{auth,health,ready,signals}`. `src/proxy.ts` applies the exact-host dispatch of `docs/08-DOMAIN-ROUTING.md` DOM-5; `src/lib/auth.ts` has one auth instance per surface (`owner`, `app`, `affiliate`, `buyer`; plain `localhost` keeps the one-host path mode) |
-| `packages/db` | Drizzle schema (`src/schema.ts` plus `src/**/schema-*.ts`), append-only SQL migrations (`drizzle/`), DB client with three roles (ADR-0005), store-scoped services in bounded contexts under `src/`: `platform/` (scopes, tenant, host dispatch and reserved labels, accounts, membership, store lifecycle), `seller/commerce/` (catalog, checkout, orders, dashboard, privacy), `storefront/` (storefront reads, content, landing, channels, signals, feeds), `shipping/` (`mengantar/` client, booking, fulfillment), `payments/` (provider adapters), `ops/` and `ops/jobs/` (Log System, outbox, notifications); thin root entry points `src/worker.ts` (outbox worker), `src/cleanup.ts`, `src/migrate.ts`, `src/seed.ts`; integration tests |
+| `apps/web` | Next.js App Router app, routes grouped by surface (`src/app/(platform)`, `(operator)` Owner console `/admin`, `(seller)` Seller Admin `/seller`, `(storefront)` `/s/<slug>` or `<slug>.<STORE_ROOT_DOMAIN>`, `(checkout)` hosted `/checkout`, `(identity)` login/account/invite, `(public-services)` buyer order status `/o/<token>` and `/dev/outbox`; route groups never appear in URLs), Storefront API `/api/storefront/v1`, `/api/{auth,health,ready,signals}`. `src/proxy.ts` applies the exact-host dispatch of `docs/08-DOMAIN-ROUTING.md` DOM-5; `src/lib/auth.ts` has one auth instance per surface (`owner`, `seller` on the `app` host, `affiliate`, `buyer`, and `local` for the one-host path mode on plain `localhost`) |
+| `packages/db` | Drizzle schema (`src/schema.ts` plus `src/**/schema-*.ts`), append-only SQL migrations (`drizzle/`), DB client with three roles (ADR-0005), store-scoped services in bounded contexts under `src/`: `platform/` (scopes, tenant, host dispatch and reserved labels, accounts, membership, store lifecycle), `seller/commerce/` (catalog, checkout, orders, dashboard, privacy), `storefront/` (storefront reads, content, landing, channels, signals, feeds), `shipping/` (`mengantar/` client, booking, fulfillment), `payments/` (provider adapters), `billing/` (subscription billing), `ledger/` (seller ledger, payouts, COD reconciliation, step-up), `promotions/` (vouchers, promotions), `affiliate/` (affiliate accounts, clicks, attribution), `buyer/` (global buyer identity), `tax/` (dormant tax engine, voluntary tax identity), `ops/` and `ops/jobs/` (Log System, outbox, notifications), `demo/` (local demo seed); thin root entry points `src/worker.ts` (outbox worker), `src/cleanup.ts`, `src/migrate.ts`, `src/seed.ts`; integration tests |
 | `docs/` | Design pack (`02` to `17`), `TASKS.md`, `DECISIONS.md`, deploy plan, runbook; ADRs in `docs/adr/`; track reports in `docs/tracks/`; dated reviews and research in `docs/reviews/`, `docs/research/`; superseded material in `docs/archive/`; route-by-route map in `docs/04-SYSTEM-ARCHITECTURE.md` ARCH-5 |
 | `BUILD-LOG.md` | Append-only phase log (what changed, commands, results, open issues) |
 | `REVIEW.md` | Senior reviewer notes — read at the start of every phase; resolve open items first |
@@ -30,9 +30,10 @@ Requires Node >= 20.9 (24 used), pnpm (version pinned in `package.json`
 pnpm install
 docker compose up -d db          # Postgres 17 on 127.0.0.1:5442
 cp .env.example .env             # local-only dev values, never real secrets
-scripts/db-roles.sh              # only for a compose volume created before T-27 (creates the three roles, transfers ownership)
+scripts/db-roles.sh              # only for a compose volume created before T-27 (creates the five roles, transfers ownership)
 pnpm db:migrate                  # apply packages/db/drizzle migrations as bukalaris_owner (MIGRATION_DATABASE_URL)
 pnpm db:seed                     # two demo stores + operators (local only, idempotent)
+pnpm db:seed:demo                # optional: four fictional demo stores (docs/DEMO.md)
 pnpm dev                         # http://localhost:3000 ; storefront /s/toko-a or http://toko-a.localhost:3000
 pnpm --filter @bukalaris/db worker   # outbox worker (payment instruction, e-mails, ad signals); e2e starts it itself
 pnpm --filter @bukalaris/db cleanup  # one-shot idle-cart / counter / signal-context cleanup
@@ -41,6 +42,10 @@ pnpm e2e                         # after `pnpm build`; uses bukalaris_e2e (wiped
 pnpm map:check                   # system-map drift guard: every route file has an ARCH-5 row (docs/04), no ghost entry files
 pnpm verify                      # map:check → lint → typecheck → test → build → e2e
 pnpm verify:docker               # builds both images, migrates a throwaway DB, smoke-tests the container
+pnpm verify:ledger               # read-only ledger invariant check as bukalaris_platform (exit 0 = every invariant holds)
+pnpm db:backup                   # pg_dump of the DATABASE_URL database into var/backups/ (docs/RUNBOOK.md "Backup")
+pnpm db:restore-rehearsal        # restore the newest dump into a scratch database and compare (docs/RUNBOOK.md)
+pnpm --filter @bukalaris/db bootstrap:console -- --holder <email> --runbook "<entry>"   # out-of-band console bootstrap (docs/RUNBOOK.md)
 docker build -f apps/web/Dockerfile -t bukalaris-web .
 docker build -f apps/web/Dockerfile --target migrate -t bukalaris-migrate .
 ```
@@ -48,9 +53,11 @@ docker build -f apps/web/Dockerfile --target migrate -t bukalaris-migrate .
 Databases (all in the compose container): `bukalaris` (dev), `bukalaris_test`
 (Vitest, truncated per test), `bukalaris_e2e` (Playwright); worktrees use
 `bukalaris_<track>[_test|_e2e]`. The app connects as `bukalaris_app` (RLS),
-Super Admin/worker/cleanup as `bukalaris_platform`, the migrator as
-`bukalaris_owner`; local passwords equal the role names (`docs/RUNBOOK.md`
-"Database roles"). Seed users (local only): `admin@`, `owner-a@`, `staff-a@`,
+the Owner console/worker/cleanup/seed as `bukalaris_platform`, the migrator as
+`bukalaris_owner` (the three URLs in `.env.example`); two no-login roles,
+`bukalaris_restricted` and `bukalaris_resolver`, own the restricted tables and
+resolver functions (`packages/db/docker/05-roles.sql`); local passwords equal
+the role names (`docs/RUNBOOK.md` "Database roles"). Seed users (local only): `admin@`, `owner-a@`, `staff-a@`,
 `recovery-a@` (reserved for the recovery e2e), `owner-b@` `bukalaris.local`,
 password `bukalaris-dev-123`; `admin@` holds the `logs.read` grant and must
 enrol TOTP on first login before `/admin` opens. Sign-in is rate limited
@@ -66,9 +73,9 @@ superuser as `DATABASE_URL` (it bypasses RLS).
 - Local only: no deploy, no DNS, no live provider calls (Mengantar/AutoLaris are
   fake adapters), no real secrets. `.env.example` holds dev placeholders only.
 - No git commit/push unless the owner asks. No `Co-Authored-By`/AI trailers.
-- Tenant isolation: every store-owned read/write is a function in
-  `packages/db/src/*.ts` that takes a scope object and filters by
-  `scope.storeId`. Scopes are only created in `packages/db/src/scoped.ts`:
+- Tenant isolation: every store-owned read/write is a function in a bounded
+  context under `packages/db/src/` that takes a scope object and filters by
+  `scope.storeId`. Scopes are only created in `packages/db/src/platform/scoped.ts`:
   `sellerContext(exec, userId, preferredStoreId?)` → `SellerScope` (verified
   membership in an active store; the preference is honoured only with
   membership), `storefrontScope(exec, slug)` → `StorefrontScope` (active store

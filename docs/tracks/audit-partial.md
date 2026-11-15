@@ -4,6 +4,8 @@ Documentation-only audit of the 11 `Partial` tasks (`T-2`, `T-3`, `T-4`, `T-5`, 
 
 Every claim below was verified against the working-tree source (`apps/web`, `packages/db`) and track reports (`docs/tracks/*.md`); items that cannot be verified in the repository without live infrastructure or external provider responses are marked `not verified`.
 
+> **Note 2026-11-16 (T-122):** two claims in the table are wrong and are corrected in `docs/TASKS.md`, not here. (1) The isolation registry holds 131 tables and 96 `SECURITY DEFINER` function entries, already at commit `302cfa4` (2026-10-28), not 79 tables (rows T-2 and T-9; counted by importing `ISOLATION_REGISTRY` and `DEFINER_FUNCTIONS` from `packages/db/src/platform/isolation-registry.ts`). (2) `test/t52-affiliate.test.ts` does not exist (row T-11): the landing-page attribution is covered by `e2e/t52.spec.ts` ("the existing landing-page handoff keeps the seller and the attribution") and the server-side attribution by `test/t52-checkout.test.ts`. Later deliveries also closed open items of rows T-9 and T-17: shared `RL-LOGIN` storage (T-83, `e6ffd7c`) and session-bound CSRF tokens (T-82, `cc151b0`). The table is unchanged.
+
 ## Task audit table
 
 | Task | Old status | New status | Evidence | What remains | Blocker type |

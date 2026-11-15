@@ -9,17 +9,20 @@ Unknown; the limits and the diagnostic sink that exist on `main` are listed in
 
 > **Direction change (D-27, D-28, 2026-11-14, ADR-0013, ADR-0014):** the table below describes the code as it runs today and stays accurate for it. Target changes: shipment booking is serialised per store on the store's own Mengantar key, not per platform account, and an unknown outcome blocks rebooking until a person releases or links it (ADR-0013 decisions 29 and 30; T-105); checkout and cart limits apply on the store host, where checkout is served (T-103). Not implemented.
 
+Re-checked against the code on 2026-11-16 (T-122): the sign-in, checkout and feed rows and the paths were corrected, and the other abuse limits were added as one row.
+
 | Control | Implementation | Numbers | Proof |
 |---|---|---|---|
 | Correlation id | `apps/web/src/proxy.ts` mints `x-request-id` (UUID) per request, sets it on the response and in cookie `bl_rid` (5 min, readable by the client error boundary); an inbound id is kept only with `TRUST_PROXY_REQUEST_ID=1` and shape `^[A-Za-z0-9_-]{8,64}$` (`lib/request-id.ts`). Never identity or authorization | — | `e2e/ops.spec.ts` ("every response carries a request id"), `e2e/security-headers.spec.ts` (trust flag) |
-| Structured logs | `apps/web/src/lib/log.ts` `log()`/`emit()`: one JSON line per event on stdout from an allowlist (`LOG_FIELD_ALLOWLIST`, `scrubText` in `packages/db/src/ops.ts`); fields `level, time, msg, request_id, module, operation, page_id, store_id, code, env (APP_ENV), release (RELEASE_REVISION/SOURCE_COMMIT)`. `instrumentation.ts` `onRequestError` reports every uncaught server error with route template and method only | sink timeout 2 s, non-fatal | `test/ops.test.ts` ("drops forbidden keys and scrubs free text", "caps text, defaults unknown levels/modules") |
+| Structured logs | `apps/web/src/lib/log.ts` `log()`/`emit()`: one JSON line per event on stdout from an allowlist (`LOG_FIELD_ALLOWLIST`, `scrubText` in `packages/db/src/ops/ops.ts`); fields `level, time, msg, request_id, module, operation, page_id, store_id, code, env (APP_ENV), release (RELEASE_REVISION/SOURCE_COMMIT)`. `instrumentation.ts` `onRequestError` reports every uncaught server error with route template and method only | sink timeout 2 s, non-fatal | `test/ops.test.ts` ("drops forbidden keys and scrubs free text", "caps text, defaults unknown levels/modules") |
 | Diagnostic sink (OBS-5) | `system_log` table (`schema-ops.ts`) receives `warn`/`error`/`fatal` events via `recordLogEvent`; worker/cleanup log to stdout only | — | `test/ops.test.ts`, `e2e/ops.spec.ts` (DB-outage event visible after recovery) |
-| Log System query | `listSystemLogs`/`getSystemLog` (`ops.ts`) behind `logs.read` (`operator_grant`); filters level, module, request id, store id, from/to; cursor `(time desc, id desc)`; every list/detail read writes an `audit_log` row (`logs.list`, `logs.read`); detail returns up to 50 related events by request id and the `MODULE_MAP` page mapping or null | default range 1 h, max 24 h; page 50, max 200 | `test/ops.test.ts` ("denies operators without logs.read and sellers entirely", "lists with filters, pages by cursor, and audits every read") |
-| Sign-in / recovery limits | Better Auth built-in limiter (`lib/auth.ts`, in-memory per process, active in production builds) | `/sign-in*` 3 per 10 s per IP; password-reset request 3 per 60 s | 429 observed (BUILD-LOG 2026-10-06); `docs/tracks/accounts.md` |
-| Checkout and cart limits | Postgres fixed-window counters in `rate_limit` (`hit`, `enforceLimits`, `LIMITS` in `packages/db/src/checkout.ts`); IP from `x-forwarded-for` last hop or `x-real-ip` (`lib/storefront.ts` `clientIp`), dimension skipped when absent; retryable Indonesian message with seconds to wait | order submit: 60 / 10 min per IP, 5 / min per cart, 10 / 10 min per phone; cart add/update: 300 / 10 min per IP, 60 / 10 min per cart; cart cap 30 distinct variants, qty ≤ 99 per line | `test/checkout2.test.ts` ("abuse controls"), `e2e/checkout2.spec.ts` ("order submission is rate limited per cart") |
+| Log System query | `listSystemLogs`/`getSystemLog` (`ops/ops.ts`) behind `logs.read` (`operator_grant`); filters level, module, request id, store id, from/to; cursor `(time desc, id desc)`; every list/detail read writes an `audit_log` row (`logs.list`, `logs.read`); detail returns up to 50 related events by request id and the `MODULE_MAP` page mapping or null | default range 1 h, max 24 h; page 50, max 200 | `test/ops.test.ts` ("denies operators without logs.read and sellers entirely", "lists with filters, pages by cursor, and audits every read") |
+| Sign-in / recovery limits | Better Auth built-in limiter rules (`lib/auth.ts`, active in production builds), counted since T-83 on the shared Postgres `rate_limit` table through `rateLimit.customStorage` = `authRateLimitStorage` (`packages/db/src/platform/rate-limit.ts`, D-26): one budget per surface across processes and restarts, key holds a SHA-256 digest of client IP and path, never the plain IP; counter failure → 429 with a one-window retry | `/sign-in*` 3 per 10 s per IP; password-reset request 3 per 60 s | 429 observed (BUILD-LOG 2026-10-06); `docs/tracks/accounts.md`; `test/auth-rate-limit.test.ts`, `e2e/host-mode-t83-rate-limit.spec.ts` (two servers share one budget) |
+| Checkout and cart limits | Postgres fixed-window counters in `rate_limit` (`hit` in `packages/db/src/platform/rate-limit.ts`; `enforceLimits`, `LIMITS` in `packages/db/src/seller/commerce/checkout.ts`); IP from the one header `CLIENT_IP_HEADER` selects (default the last `x-forwarded-for` hop, else `x-real-ip`; `cf-connecting-ip` behind Cloudflare; `packages/db/src/platform/client-ip.ts`, `lib/storefront.ts` `clientIp`, D-23), dimension skipped when absent; the per-phone key is a keyed fingerprint since T-57, the per-IP key holds the IP; retryable Indonesian message with seconds to wait | order submit: 60 / 10 min per IP, 5 / min per cart, 10 / 10 min per phone; cart add/update: 300 / 10 min per IP, 60 / 10 min per cart; cart cap 30 distinct variants, qty ≤ 99 per line | `test/checkout2.test.ts` ("abuse controls"), `e2e/checkout2.spec.ts` ("order submission is rate limited per cart") |
 | Browser funnel endpoint | `POST /api/signals` | 600 / 10 min per IP, body ≤ 8 KB | `test/signals.test.ts`, `e2e/signals.spec.ts` |
 | Storefront API v1 | no limiter yet (channel token + 256-bit one-use handoff codes) | — | open item, TASKS T-16/T-19 |
-| Catalog feeds (T-40) | `limitFeedFetch` (`packages/db/src/feeds.ts`) on the same `rate_limit` counter, key `feed:store:<id>`, counted only for a valid token; 429 + `Retry-After` | 60 fetches / store / hour; unknown tokens not counted | `test/feeds.test.ts` ("fetch budget is per store") |
+| Catalog feeds (T-40) | `limitFeedFetch` (`packages/db/src/storefront/feeds.ts`) on the same `rate_limit` counter, key `feed:store:<id>`, counted only for a valid token; 429 + `Retry-After` | 60 fetches / store / hour; unknown tokens not counted | `test/feeds.test.ts` ("fetch budget is per store") |
+| Other abuse limits (delivered locally 2026-10-28, commit `302cfa4`; added to this table 2026-11-16) | On the same `rate_limit` counter: RL-CLICK (`affiliate/click.ts`; over the limit the buyer is redirected without a click), RL-CODE (`affiliate/referral.ts`; over the limit the typed code is ignored), RL-AUTOLARIS-CB (callback route, after the signature check), voucher redemption (limits in `promotions/checkout.ts`, applied in `seller/commerce/checkout.ts`; per-phone key fingerprinted), abandoned-checkout capture and resume (`seller/commerce/abandoned.ts`), step-up attempts (`ledger/stepup.ts`, failed attempts only). Counted elsewhere: RL-ACCT-SEARCH from the search's audit rows (`ops/accounts-governance-accounts.ts`), RL-ISSUE from the stored reports (`ops/console-issues.ts`), RL-PARTNER-MENGANTAR as the token bucket row `partner:mengantar` (`shipping/mengantar/partner.ts`) | RL-CLICK 120 / 10 min per IP, 600 / 10 min per link; RL-CODE 10 invalid / 10 min per cart; RL-AUTOLARIS-CB 120 / min per IP, 1,200 / min per signed reference; voucher 20 / 10 min per IP, 10 / 10 min per phone; capture 60 / 10 min per cart, 300 / 10 min per IP; resume 60 / 10 min per IP; step-up 5 / 15 min per user, 20 / 15 min per store; RL-ACCT-SEARCH 30 / 10 min per staff member; RL-ISSUE 3 / min and 10 / hour per staff member; Partner budget 60 per minute | `test/t52-click.test.ts`, `test/t52-checkout.test.ts`, `test/t46-promotions.test.ts`, `test/t45-abandoned.test.ts`, `test/review-wave3.test.ts` (step-up), `test/t63-accounts.test.ts`, `test/t62-issues.test.ts`, `test/t48-fix.test.ts`; no dedicated test of the RL-AUTOLARIS-CB limit was found |
 | Shipment booking (T-39) | outbox jobs `shipment.book`/`shipment.track` (`fulfillment.ts`); one shipment per order (unique), one job per attempt; provider writes serialised per platform account with `pg_advisory_xact_lock`; only 409/429 retry a write, timeouts/5xx fail closed | tracking polls 15 min doubling to 6 h, max 60 per shipment; manual refresh max 50 | `test/fulfillment.test.ts` |
 | Outbox and jobs (OBS-3) | `job` rows with `attempts`, `next_attempt_at`, `last_error` (sanitized by `sanitizeError`); worker logs one JSON `job` outcome per claim | lease 60 s, 10 attempts with exponential backoff, payload ≤ 4 KB | `test/jobs.test.ts` |
 | Cleanup | `cleanup.ts`: idle open carts, counters older than a day, signal click context older than 30 days; buyer-data retention redaction only when `BUYER_DATA_RETENTION_DAYS` is set (off by default, T-43) | `CART_IDLE_HOURS` default 168; retention max 1000 orders per run | `test/checkout2.test.ts`, `test/signals.test.ts`, `test/privacy.test.ts` |
@@ -59,7 +62,7 @@ user input. Inbound trace/baggage values are untrusted and are never identity.
 | Login/recovery | Trusted network + identity candidate + account | Numeric limit requires threat/capacity evidence; shared store, RL-LOGIN below | Better Auth defaults (3/10 s sign-in, 3/60 s reset, two-factor 3/10 s) per surface + trusted client IP, on the shared Postgres counter since T-83 (D-26) |
 | Seller mutation | Session identity + store + operation | Serialize/conflict-detect sensitive edits | No limiter; slug changes serialised with `pg_advisory_xact_lock(store_id)`, order transitions row-locked |
 | Checkout/create payment | Cart/order idempotency + store + network | One logical attempt; bounded retries | Idempotency key + request hash per store; counters per IP/cart/phone (see "Implemented") |
-| Provider webhook/job | Provider identity + event/reference | Verify then durable-deduplicate | Outbox `(kind, key)` unique; no inbound webhooks exist |
+| Provider webhook/job | Provider identity + event/reference | Verify then durable-deduplicate | Outbox `(kind, key)` unique; the one inbound provider endpoint is the AutoLaris callback (HTTP-17, T-49): signature first, then RL-AUTOLARIS-CB, and the body is only recorded as evidence for a verification pull (D-21); no Mengantar webhook exists (HTTP-26 planned) |
 | Mengantar order booking | Store/provider queue | No unsafe parallel creation; follow verified provider rule | Outbox job per attempt + per-account advisory lock (T-39, fake adapter); writes refuse without `MENGANTAR_WRITE_ENABLED=1` |
 
 Before a pilot, run a safe synthetic success and expected-rejection journey to
@@ -72,15 +75,23 @@ provider/job stage behavior at the configured sink.
 
 Status: Proposed; numbers are OPEN configuration values (measured before a
 pilot), the columns below are the contract. Source: ADR-0009 §8, ADR-0010 §5,
-12-SECURITY SEC-20/SEC-21; audit of 2026-10-27 (SPV-19, OPS-12).
+12-SECURITY SEC-20/SEC-21; audit of 2026-10-27 (SPV-19, OPS-12). Implemented
+locally with these starting values as named defaults (checked 2026-11-16, see
+"Implemented on `main`"): RL-LOGIN (IP dimension only, T-83), RL-CLICK and RL-CODE (T-52),
+RL-ACCT-SEARCH (T-63), RL-ISSUE (T-68), RL-FEED-CATALOG (T-40),
+RL-PARTNER-MENGANTAR (T-48) and RL-AUTOLARIS-CB (T-49: 120 / min per IP and
+1,200 / min per signed reference; the per-reference value of the D-33 table
+below is applied by T-106).
 
 **Shared limiter.** Every limit below uses one shared, DB-backed counter
 (extending the existing `rate_limit` fixed-window table), so limits hold across
 web replicas and the worker. The in-memory Better Auth limiter (per process,
 reset on restart) is not accepted for login, recovery, OTP or sign-up: use the
 auth library's database or custom storage option once verified against the
-pinned version (UNVERIFIED), or the same `rate_limit` table. Keys never hold a
-raw phone, email or IP: they use a keyed fingerprint (purpose key, SEC-22).
+pinned version, or the same `rate_limit` table. Done for sign-in and recovery by
+T-83 (D-26): Better Auth 1.7.7's `customStorage` on the `rate_limit` table. Keys
+never hold a raw phone, email or IP: they use a keyed fingerprint (purpose key,
+SEC-22).
 Evaluate every dimension of the key hierarchy; the request is refused when any
 one is exhausted. When the client IP is unavailable the request falls into a
 tight shared `unknown-ip` bucket instead of skipping the dimension. If the
@@ -134,8 +145,10 @@ Status: Decided as starting values (owner accepted the recommendation, D-33), no
 No limit is added for the seller's manual payment confirmation or for recording an affiliate payment: both are authenticated finance actions behind a capability and step-up, each append-only and audited.
 
 Existing limits on `main` (checkout, cart, signals, feeds) are unchanged; their
-keys currently embed the raw phone and IP (`rate_limit.key`, PRIV-1) and are
-moved to fingerprints when the shared limiter is extended.
+phone keys are keyed fingerprints since T-57, while the per-IP keys still embed
+the raw IP (`rate_limit.key`, PRIV-1; the sign-in keys of T-83 hold an unkeyed
+SHA-256 digest of IP and path, D-26) and move to fingerprints when the shared
+limiter is extended.
 
 ## OBS-5 — Owner console Log System contract
 
