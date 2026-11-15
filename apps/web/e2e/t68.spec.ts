@@ -59,6 +59,9 @@ test("T68 two-page reports: correct ARCH ids and correlation, inert text, assign
   await page.goto(`/admin/issues/${a}`);
   const [actor] = query<{ id: string }[]>(`select id from "user" where email='${email}'`);
   await page.getByLabel("ID penanggung jawab", { exact: true }).fill(actor!.id); await keyboardSubmit(page, "Simpan penugasan");
+  // T-123: the field already holds the typed value, so it cannot show that the action finished. Wait for the action's own
+  // redirect: its re-render landing between focus() and Enter of the next form otherwise drops that submit (CI run 43752508707).
+  await expect(page).toHaveURL(/[?&]saved=assignment/);
   await expect(page.getByLabel("ID penanggung jawab", { exact: true })).toHaveValue(actor!.id);
   await page.getByLabel("Status berikut").selectOption("triaged"); await keyboardSubmit(page, "Simpan status");
   await expect(page.getByText("triaged", { exact: true }).first()).toBeVisible();
