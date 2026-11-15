@@ -1,7 +1,7 @@
 import "server-only";
 import { createHmac } from "node:crypto";
 import { authRateLimitStorage, clientIpHeader, db, dbMailer, platformDb, recordSessionMfa, resolveUserSuspended, sanitizeError } from "@bukalaris/db";
-import { resolveHostSurface, surfaceCookieNames, surfaceOriginsFromEnv } from "@bukalaris/db/host";
+import { hostRootsFromEnv, resolveHostSurface, surfaceCookieNames, surfaceOriginsFromEnv } from "@bukalaris/db/host";
 import { account, auditLog, session, twoFactor, user, verification } from "@bukalaris/db/schema";
 import { betterAuth } from "better-auth";
 import { createAuthMiddleware, isAPIError } from "better-auth/api";
@@ -27,7 +27,8 @@ const SURFACES: readonly AuthSurface[] = ["local", "owner", "seller", "affiliate
 
 /** Auth surface served by `host`, or null when the host serves no sign-in surface (checkout, storefront, logs, apex, unknown). */
 export function authSurfaceForHost(host: string | null, env: NodeJS.ProcessEnv = process.env): AuthSurface | null {
-  const s = resolveHostSurface(host, env.STORE_ROOT_DOMAIN ?? "localhost");
+  // Platform surfaces are matched on the platform root only (ADR-0014): `owner.<store root>` is never a sign-in surface.
+  const s = resolveHostSurface(host, hostRootsFromEnv(env));
   switch (s.kind) {
     case "local_path":
       return "local";

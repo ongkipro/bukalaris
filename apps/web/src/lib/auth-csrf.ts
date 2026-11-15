@@ -1,6 +1,6 @@
 import "server-only";
 import { DomainError, orderForIdempotentReplay, ownsOpenCart, type StorefrontScope } from "@bukalaris/db";
-import { normalizeHostname, resolveHostSurface, surfaceOriginsFromEnv } from "@bukalaris/db/host";
+import { hostRootsFromEnv, resolveHostSurface, surfaceOriginsFromEnv } from "@bukalaris/db/host";
 import { createCookieGetter, getCookies, parseCookies } from "better-auth/cookies";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -57,14 +57,16 @@ export async function requirePortalCsrf(input: unknown, failurePath?: string): P
 async function cartCsrfContext(scope: StorefrontScope) {
   const h = await headers();
   const host = h.get("host");
-  const surface = resolveHostSurface(host, process.env.STORE_ROOT_DOMAIN ?? "localhost");
+  const roots = hostRootsFromEnv(process.env);
+  const surface = resolveHostSurface(host, roots);
   const origins = surfaceOriginsFromEnv();
   let origin: string;
   if (surface.kind === "local_path") origin = origins.platformOrigin;
   else if (surface.kind === "checkout") origin = origins.checkoutOrigin;
   else if (surface.kind === "store" && surface.slug === scope.storeSlug) {
     const configured = new URL(origins.platformOrigin);
-    configured.hostname = `${scope.storeSlug}.${normalizeHostname(process.env.STORE_ROOT_DOMAIN ?? "localhost")}`;
+    // The store host lives on the store root (ADR-0014); scheme and port come from the configured platform origin.
+    configured.hostname = `${scope.storeSlug}.${roots.store}`;
     origin = configured.origin;
   } else throw refuse();
   // Configuration, never Origin/forwarded headers, selects the MAC audience. Next may render a redirect through its internal loopback host.

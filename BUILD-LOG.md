@@ -841,3 +841,12 @@ dummy content.
 - Open: the full suite was not re-run after the catalog fix; no CI run yet (needs commit and push by owner decision); the `image` job has never run on GitHub. `chromium_headless_shell-1243` was downloaded to the user Playwright cache for this run.
 - Later on 2026-11-15, on the owner's instruction: committed as `457662f`, pushed as branch `task/t100-ci`, pull request #1; CI run 43709386002 started. Result not yet recorded.
 - 2026-11-16: pull request #1 merged to `main` by rebase as `2b4d0a4` (owner: "lanjutkan"). CI run 43740385003 on `main`: attempt 1 failed `auth-csrf.spec.ts:123` [desktop] by a 90 s timeout (page stuck on the product page after a no-JS add-to-cart click; no server error; 260 passed, 2 skipped); 8 local repetitions of `auth-csrf.spec.ts` on desktop passed 88/88; attempt 2 (failed job re-run) green, `verify` and `image`. T-100 Done; the intermittent test is T-123.
+||||||| parent of 9c3c9ed (T-102: two root domains in host dispatch)
+
+## T-102 two root domains in host dispatch (2026-11-16, local only)
+
+- Where: branch `task/t102-two-roots`, worktree `../bukalaris-wt/t102-two-roots`, from `2b4d0a4`. Report: `docs/tracks/t102-two-roots.md`.
+- Changes: `packages/db/src/platform/host.ts` (two roots, `store_apex`, `redirectOriginForHost`), `apps/web/src/proxy.ts`, `apps/web/src/lib/{auth,auth-csrf,security-headers}.ts`, the internal apex-redirect route, `.env.example`, docs 08 and DEPLOY-COOLIFY; tests `packages/db/test/host.test.ts`, `apps/web/e2e/host-mode-two-root.spec.ts`.
+- Commands (CI variables, databases `bukalaris_t102*`): host unit files 133/133; unit mutations (3) each failed a named test and were reverted; E2E host-mode project 39/39 before review fixes; browser mutations (2) failed both browser cases, control 4/4; `pnpm verify` after the review fixes: system map ok, lint, typecheck, DB 1437/1437, build, E2E 265 passed / 2 skipped.
+- Review: independent agent, no blocker; fixed the prototype-key lookup (500 instead of 404 for `constructor.<root>`), the store-root fallback, two evidence gaps; documented the root-nesting constraint.
+- Open: T-103 (checkout and links on the store host) builds on this branch.
