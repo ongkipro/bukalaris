@@ -2,8 +2,8 @@
 
 [openapi.yaml](openapi.yaml) is the machine-readable OpenAPI 3.1 contract.
 Every operation still carries `x-status: proposed` (the checker requires it);
-the ten operations that exist on `main` additionally carry an `x-implemented`
-note with the real route or server action. All other paths, the proposed
+the eleven operations that exist on `main` additionally carry an `x-implemented`
+note with the real route or server action (counted 2026-11-16). All other paths, the proposed
 `owner.`/`app.`/`checkout.bukalaris.com` origins and the `/api/v1` prefix are
 design proposals, not implemented endpoints (one app serves everything,
 DECISIONS D-2). HTTP schema ownership stays in that file; this document
@@ -19,17 +19,17 @@ route specification.
 | Storefront API v1 (headless) | `listStorefrontProducts`, `getStorefrontProduct`, `createCart`, `getCart`, `addCartItem`, `updateCartItem`, `createCheckoutHandoff` | Implemented as route handlers under `/api/storefront/v1/**` (`apps/web/src/app/api/storefront/v1/**`), bearer channel token, JSON errors `{code, message, correlation_id}`; no pagination, no `Idempotency-Key`, no rate limit (ARCH-5 HTTP-05..HTTP-11). `getStorefrontConfig`, `listStorefrontCollections`, `getStorefrontPage`, `getOrderOutcome`: not implemented |
 | Channel lifecycle | `listStorefrontChannels`, `createStorefrontChannel`, `revokeStorefrontChannel` | Implemented as Seller Admin page + server actions (`/seller/channels`), not as HTTP routes |
 | Hosted checkout | `quoteCheckout`, `submitCheckout`, `getHostedCheckout` | Behaviour exists as the `/checkout` server component and `submitCheckout` server action plus the handoff exchange `GET /checkout/h/{code}`; no checkout-session HTTP endpoints |
-| Seller catalog/inventory/content/settings/orders | `listSellerProducts` … `requestShipment`, `getStoreSettings`, `updateTheme`, … | Behaviour exists as server components/actions under `/seller/**` (functions listed in 04-SYSTEM-ARCHITECTURE "Development function map"); no HTTP routes. Not implemented at all: `changeProductSlug` (slug edit happens through `editProduct`/`updateProduct`), `publishProduct`/`archiveProduct` (status field), `duplicateProduct`, menus (`*Menu`), domains (`*Domain`, `getRoutingSettings`, `setPrimaryDomain`), `requestShipment` (T-39) |
+| Seller catalog/inventory/content/settings/orders | `listSellerProducts` … `requestShipment`, `getStoreSettings`, `updateTheme`, … | Behaviour exists as server components/actions under `/seller/**` (functions listed in 04-SYSTEM-ARCHITECTURE "Development function map"); no HTTP routes. `requestShipment` carries `x-implemented`: the Seller Admin server action `bookShipmentAction` (T-39, T-48). Not implemented at all: `changeProductSlug` (slug edit happens through `editProduct`/`updateProduct`), `publishProduct`/`archiveProduct` (status field), `duplicateProduct`, menus (`*Menu`), domains (`*Domain`, `getRoutingSettings`, `setPrimaryDomain`) |
 | Owner console (formerly Super Admin) | `listAdminStores`, `createStore`, `getAdminStore`, `transitionStore`, `listSystemLogs`, `getSystemLog` | Behaviour exists as `/admin`, `/admin/stores/**`, `/admin/logs/**` server components/actions; no HTTP routes |
 | `/session` | `getSession` | Not implemented; seller context comes from `sellerContext` inside the app |
-| Operational handlers (not in OpenAPI) | — | `GET /api/health`, `GET /api/ready`, `POST /api/signals`, `GET/POST /api/auth/*` (Better Auth), media `GET /s/{store}/media/{id}` and `GET /seller/products/{id}/media/{mediaId}` (ARCH-5 HTTP-01..HTTP-04, HTTP-13, HTTP-14) |
+| Operational handlers (not in OpenAPI) | — | `GET /api/health`, `GET /api/ready`, `POST /api/signals`, `GET/POST /api/auth/*` (Better Auth, with `GET /api/auth/csrf-token`), media `GET /s/{store}/media/{id}` and `GET /seller/products/{id}/media/{mediaId}`, catalog feeds `GET /feeds/{token}/meta.csv` and `google.xml`, buyer-data export `GET /seller/privacy/export`, AutoLaris callback `POST /api/payments/autolaris/callback`, issue export `GET /admin/issues/export`, referral link `GET /r/{token}`, abandoned-checkout resume `GET /checkout/r/{token}` and the internal WWW redirect `/api/internal/www-redirect` (ARCH-5 HTTP-01..HTTP-04, HTTP-13 to HTTP-17, HTTP-23, HTTP-27, HTTP-32, HTTP-33; list re-checked 2026-11-16) |
 
 Known drift to fix in `openapi.yaml` (owner: channels/catalog tracks): the
-`StorefrontProduct`/variant schemas lack the additive `catalog_id` string
-fields that the implementation returns (docs/tracks/catalog.md), and the
-`getStorefrontProduct` `x-implemented` note still says "numeric id" where the
-URL segment is now the catalog id (D-8). The `Theme` enum is `responsive` |
-`mobile` in code versus `mobile-480` in the contract (docs/tracks/content.md).
+`Theme` enum is `responsive` | `mobile` in code versus `mobile-480` in the
+contract (docs/tracks/content.md). The earlier `catalog_id` drift is fixed: the
+`PublicProductSummary`, `PublicProduct` and `PublicVariant` schemas carry
+`catalog_id`, and the `getStorefrontProduct` note names the catalog id (checked
+2026-11-16).
 
 | API domain | Consumer | Contract requirements |
 |---|---|---|

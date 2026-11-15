@@ -55,8 +55,10 @@ labels when executing.
 Values live only in Coolify secrets; never in the repository or image. The
 table is the complete list of `process.env.*` reads in `apps/web` and
 `packages/db` on `main` (2026-10-07; grep `process\.env\.` and the
-`env.MENGANTAR_*` reads in `packages/db/src/mengantar/adapter.ts` and
-`mengantar/booking.ts`; re-checked after the wave 4 merge at `c1adf27`). Two images
+`env.MENGANTAR_*` reads in `packages/db/src/shipping/mengantar/adapter.ts` and
+`booking.ts`, before T-51 under `packages/db/src/mengantar/`; re-checked after the
+wave 4 merge at `c1adf27`), together with the M3 table below (re-checked
+2026-11-16). Two images
 from one Dockerfile: **Web** (`runner` stage, `node apps/web/server.js`), and the `migrate` stage, which runs
 **Migrate** (`node src/migrate.ts`), the **Worker** (`node src/worker.ts`) and **Cleanup** (`node src/cleanup.ts`);
 the web image carries no `packages/db/src` (checked by `verify:docker` since T-84).
@@ -81,19 +83,19 @@ Variables that only planned tasks will read are listed separately under
 | `PLATFORM_DATABASE_URL` | required | required | — | Same database **as role `bukalaris_platform`** (BYPASSRLS): the Owner console, the cross-store resolvers, the outbox worker and cleanup. Worker and cleanup use only this one |
 | `MIGRATION_DATABASE_URL` | — | — | required | Same database **as role `bukalaris_owner`** (schema owner). The migrator has no fallback to `DATABASE_URL`: the app role may not alter the schema |
 | `DATABASE_POOL_MAX` | optional | optional | — | Default 10 (per pool) |
-| `BETTER_AUTH_SECRET` | required | required | — | Session cookie signing. Generate per environment (`openssl rand -base64 32`); never reuse the `.env.example` placeholder. The worker needs it only as the `ORDER_LINK_SECRET` fallback |
-| `BETTER_AUTH_URL` | required | required | — | Origin of the one-host **local path mode** (plain `localhost`: `/admin`, `/seller`, `/s/<slug>` on one host) and the development fallback for every per-surface origin below. Since T-70 the web app has one Better Auth instance **per surface** (`owner`, `app`, `affiliate`, `buyer`; `apps/web/src/lib/auth.ts`), chosen from the request host, each with its own origin, derived secret and `__Host-` cookie names; with a non-local `STORE_ROOT_DOMAIN` the apex path mode is retired and this variable is no longer the sign-in origin. The worker still reads it for order and seller links only when the per-surface origins below are unset. Local-only behavior verified 2026-10-28; nothing here is deployed |
+| `BETTER_AUTH_SECRET` | required | required | — | Session cookie signing, and the base of every per-surface auth secret, which also encrypts stored TOTP secrets and backup codes (rotation: `docs/RUNBOOK.md` "Rotating `BETTER_AUTH_SECRET`"). Generate per environment (`openssl rand -base64 32`); never reuse the `.env.example` placeholder. The worker needs it only as the `ORDER_LINK_SECRET` fallback |
+| `BETTER_AUTH_URL` | required | required | — | Origin of the one-host **local path mode** (plain `localhost`: `/admin`, `/seller`, `/s/<slug>` on one host) and the development fallback for every per-surface origin below. Since T-70 the web app has one Better Auth instance **per surface** (`owner`, `seller` on the `app` host, `affiliate`, `buyer`, plus `local` for the one-host path mode; `apps/web/src/lib/auth.ts`), chosen from the request host, each with its own origin, derived secret and `__Host-` cookie names; with a non-local `STORE_ROOT_DOMAIN` the apex path mode is retired and this variable is no longer the sign-in origin. The worker still reads it for order and seller links only when the per-surface origins below are unset. Local-only behavior verified 2026-10-28; nothing here is deployed |
 | `PLATFORM_ORIGIN`, `OWNER_ORIGIN`, `APP_ORIGIN`, `CHECKOUT_ORIGIN`, `AFFILIATE_ORIGIN`, `BUYER_ORIGIN`, `LOGS_ORIGIN` | optional locally, **required in production per active surface** | required for e-mail links | — | Exact public origin of each surface without a trailing slash (08 DOM-5 "Base origin by link type"): `OWNER_ORIGIN` Owner console links and the Owner auth origin; `APP_ORIGIN` Seller Admin, member invitations (`seller/actions.ts`), catalog feed URLs and the Seller auth origin; `CHECKOUT_ORIGIN` buyer order-status links (`/o/…`) in mails and the checkout handoff URL; `PLATFORM_ORIGIN` the apex and the local path-mode storefront base; `AFFILIATE_ORIGIN` and `BUYER_ORIGIN` the future portals' auth origins; `LOGS_ORIGIN` the Update Log (not read yet, T-69). In production a missing `OWNER_ORIGIN`, `APP_ORIGIN`, `AFFILIATE_ORIGIN` or `BUYER_ORIGIN` makes that surface's auth instance refuse to start (fail closed); the other origins fall back to `PLATFORM_ORIGIN`, then `BETTER_AUTH_URL`. Storefront URLs come from the store's own host (`storeBaseUrl`), never from these |
 | `ORDER_LINK_SECRET` | required | required | — | HMAC-SHA256 key for buyer order-status links in e-mails (`/o/<id>.<expiry>.<hmac>`, 30-day expiry). Generate per environment (`openssl rand -base64 32`); rotating it invalidates every link already sent. Falls back to `BETTER_AUTH_SECRET` when unset (dev convenience). Removing that fallback in production is still open (see "Secrets in production"); T-70 did not change it |
 | `STORE_ROOT_DOMAIN` | required | — | — | Target since D-28 (ADR-0014, not implemented): `bukalaris.id` for storefronts plus a new `PLATFORM_ROOT_DOMAIN` = `bukalaris.com`, a second wildcard certificate and zone, and `cname.bukalaris.id` as the custom-domain target (T-102). Current build, one root: e.g. `bukalaris.com`; `toko-a.bukalaris.com` serves store `toko-a` (`apps/web/src/proxy.ts`). Default `localhost`. Reserved platform labels (`owner`, `app`, `checkout`, `affiliate`, `buyer`, `logs`, `www`, `api`, `mail`, `status`, `docs`, `assets`, `cdn`, `cname`, `berkah`, `bos`) are refused as store slugs and never resolve as a store; exact platform hosts are matched before the store subtree and the host × path matrix of 08 DOM-5 decides what each host serves (T-70, `packages/db/src/platform/host.ts`, golden table `packages/db/test/host.test.ts`). The CRSEC-01 blocker is closed in code; DNS, TLS and wildcard certificates for these hosts remain UNVERIFIED, and an existing store already using a reserved label must be migrated by the owner before activation (there is no automatic reassignment) |
 | `INTEGRATION_TOKEN_KEY` | required | required | — | 32 bytes, base64 (`openssl rand -base64 32`) or 64 hex chars. AES-256-GCM key sealing the per-store Meta/TikTok server tokens (T-38). Today there is no key id in the sealed envelope, so rotating it makes stored tokens unreadable and sellers re-enter them; the planned key ring (T-48, "Key ring and rotation") fixes this and this key becomes entry `k1` of the `integration_tokens` ring. Never reuse the `.env.example` placeholder |
 | `SIGNALS_LIVE` | optional | optional (worker) | — | `1` lets the outbox worker call Meta Conversions API / TikTok Events API for real; the web app reads it only to label delivery mode on `/seller/marketing`. Unset = simulation (events recorded as `simulated`, nothing leaves the host). Enable only after the owner approves a test-event call and the provider contract is verified (docs/tracks/signals.md) |
 | `MENGANTAR_API_KEY` | optional | optional (worker) | — | When set, checkout area search and courier quotes call the real Mengantar API (read-only operations); unset = `fakeMengantar` fixture adapter. The worker's shipment booking/tracking (T-39) uses the real adapter only when this **and** `MENGANTAR_PICKUP_ADDRESS_ID` are set, else the fake booking adapter. Pass only through the secret store, never files or logs |
-| `MENGANTAR_BASE_URL` | optional | optional (worker) | — | Overrides the Mengantar base URL (default in `packages/db/src/mengantar/client.ts`) |
+| `MENGANTAR_BASE_URL` | optional | optional (worker) | — | Overrides the Mengantar base URL (default in `packages/db/src/shipping/mengantar/client.ts`) |
 | `MENGANTAR_WRITE_ENABLED` | never in production until approved | never until approved (worker) | — | `1` unlocks Mengantar write operations (create order, `payUnpaid`, upsert origin, …) in the client; shipment booking runs in the worker, so that is where it would take effect. Stays unset until the owner approves a write test (T-39 request/response shapes are unverified); with credentials but no flag a booking fails with a "booking disabled" message and no request is sent (`test/fulfillment.test.ts`) |
-| `MENGANTAR_PICKUP_ADDRESS_ID` | — | optional (worker) | — | Platform's registered Mengantar pickup address id used for every booking (T-39). Required together with `MENGANTAR_API_KEY` for the real booking adapter; unset = fake booking adapter. Not in `.env.example` yet |
-| `MENGANTAR_PICKUP_TIME_ID` | — | optional (worker) | — | Optional pickup time slot id sent with bookings. Not in `.env.example` yet |
-| `ALLOW_COD_BOOKING` | never until Q-17 is decided | never until Q-17 is decided | — | `1` allows Mengantar booking of COD orders; unset = refused in the seller action and re-checked by the worker, the UI shows the Q-17 notice. Not in `.env.example` yet |
+| `MENGANTAR_PICKUP_ADDRESS_ID` | — | optional (worker) | — | Platform's registered Mengantar pickup address id used for every booking (T-39). Required together with `MENGANTAR_API_KEY` for the real booking adapter; unset = fake booking adapter. In `.env.example` as a commented-out placeholder (T-47) |
+| `MENGANTAR_PICKUP_TIME_ID` | — | optional (worker) | — | Optional pickup time slot id sent with bookings. In `.env.example` as a commented-out placeholder (T-47) |
+| `ALLOW_COD_BOOKING` | never until Q-17 is decided | never until Q-17 is decided | — | `1` allows Mengantar booking of COD orders; unset = refused in the seller action and re-checked by the worker, the UI shows the Q-17 notice. In `.env.example` as a commented-out placeholder (T-47) |
 | `MEDIA_DIR` | preset | — | — | Image default `/data/media`; mount a persistent volume there (see "Media volume") |
 | `ENABLE_HSTS` | optional | — | — | `1` once TLS terminates at the reverse proxy and it forwards `x-forwarded-proto: https`. Adds `Strict-Transport-Security: max-age=31536000; includeSubDomains` (no `preload`) and `upgrade-insecure-requests`; both are sent only on requests that arrived as HTTPS, so a plain-http hit can never pin a host. Unset by default |
 | `TRUST_PROXY_REQUEST_ID` | optional | — | — | `1` only when the reverse proxy sets or overwrites `x-request-id` on every forwarded request (Traefik/Coolify do not by default — verify before enabling). With it, a well-formed inbound id (`^[A-Za-z0-9_-]{8,64}$`) is kept for log correlation; without it the app always mints its own, so a client cannot choose the id its log lines carry. Unset by default |
@@ -101,7 +103,7 @@ Variables that only planned tasks will read are listed separately under
 | `RELEASE_REVISION` (or `SOURCE_COMMIT`) | recommended | — | — | Release revision recorded on every log event for the Log System's attribution (`lib/log.ts`); set it to the deployed commit in the build/deploy configuration (either name is read; unset → `null`) |
 | `WORKER_POLL_MS`, `WORKER_BATCH` | — | optional (worker) | — | Poll interval (default 2000, clamped 100–30000 ms; `pg_notify` wakes it earlier) and claim batch (default 10, 1–100) |
 | `CART_IDLE_HOURS` | — | optional (cleanup) | — | Idle-cart age for `cleanup.ts` (default 168, integer ≥ 1) |
-| `BUYER_DATA_RETENTION_DAYS` | — | optional (cleanup) | — | Enables the buyer-data retention step of `cleanup.ts` (T-43): redacts contact data of `completed`/`cancelled` orders not updated for this many days (integer ≥ 1; junk fails loudly). Unset = disabled; set only with the privacy owner's approved period (Q-11). Not in `.env.example` yet |
+| `BUYER_DATA_RETENTION_DAYS` | — | optional (cleanup) | — | Enables the buyer-data retention step of `cleanup.ts` (T-43): redacts contact data of `completed`/`cancelled` orders not updated for this many days (integer ≥ 1; junk fails loudly). Unset = disabled; set only with the privacy owner's approved period (Q-11). In `.env.example` as a commented-out placeholder (T-47) |
 | `DEV_OUTBOX` | never in production | — | — | `1` exposes `/dev/outbox` (stored dev mail) in a production build. Leave unset |
 | `NODE_ENV` | preset | preset | preset | `production` in both images (`runner` and, since T-84, `migrate`, so the worker never silently falls back to local mail or the fake shipping partner); guards `seed.ts`, `local-roles.ts`, cookie `secure`, CSP dev allowances |
 | `PORT`, `HOSTNAME` | preset | — | — | Image defaults `3000`, `0.0.0.0` |
@@ -131,6 +133,8 @@ All of these fail closed in production when required and missing; values only in
 | `KEYRING_CHECKOUT_RESUME` | Web | Signs the 7-day abandoned-checkout resume links (T-45) |
 | `ACCOUNT_SEARCH_FINGERPRINT_KEY` | Web (Owner console) | Keyed digest of account-search queries in audit rows (T-63); falls back to `BETTER_AUTH_SECRET` when unset, set it in production |
 | `ACCOUNT_SEARCH_LIMIT`, `ACCOUNT_SEARCH_WINDOW_SECONDS` | Web | Optional account-search rate limit (defaults 30 per window) |
+| `AUTH_SECRET_OWNER`, `AUTH_SECRET_SELLER`, `AUTH_SECRET_AFFILIATE`, `AUTH_SECRET_BUYER` | Web | Optional per-surface auth secrets (T-70). When unset each surface derives its secret from `BETTER_AUTH_SECRET` by HMAC domain separation (`bukalaris-auth-surface:<surface>`), so a cookie of one surface never verifies on another; set explicit values to rotate one surface independently and to keep its encrypted TOTP enrolments readable when `BETTER_AUTH_SECRET` rotates |
+| `ISSUE_REPORT_BURST_LIMIT`, `ISSUE_REPORT_HOURLY_LIMIT`, `ISSUE_EXPORT_MAX_ROWS` | Web (Owner console) | Optional "Lapor masalah" limits per staff member (defaults 3 per minute and 10 per hour, RL-ISSUE) and the issue export row cap (default 1000, at most 10000) (T-68) |
 | `REVEAL_WINDOW_SECONDS`, `SUPPORT_RECOVERY_TTL_SECONDS` | Web | Optional: how long a protected reveal stays open (default 300) and how long a support recovery link lives (default 3600, minimum 60) |
 | `MAIL_MODE`, `MAIL_PROVIDER`, `MAIL_FROM`, `MAIL_TRANSPORT_TIMEOUT_MS` | Web, Worker | Production requires `MAIL_PROVIDER` and `MAIL_FROM` and an installed matching transport; `MAIL_MODE=local` is refused in production unless every surface origin is loopback (T-73). No transport adapter is installed yet (Q-16 OPEN) |
 | `CLIENT_IP_HEADER` | Web | `x-forwarded-for` (default: last hop set by Traefik) or `cf-connecting-ip` (behind Cloudflare, only with the Cloudflare-only origin firewall of D-23). One header is trusted, never a mix; a typo refuses the request path loudly. Set `cf-connecting-ip` in production |
@@ -141,10 +145,12 @@ All of these fail closed in production when required and missing; values only in
 
 ## Planned variables (not read by the current build)
 
-Nothing in this table exists in the current build or in `.env.example`. Each row
-names the task that introduces it; that task adds the row to the table above in
-the same change. Names are proposals until then. Values live only in Coolify
-secrets.
+No variable in this table is read by the current build or listed in
+`.env.example` (re-checked 2026-11-16 by grep of the environment reads in
+`apps/web/src` and `packages/db/src`); rows whose task delivered the variable were
+moved to the tables above. Each row names the task that introduces it; that task
+adds the row to the table above in the same change. Names are proposals until
+then. Values live only in Coolify secrets.
 
 > **Direction change (D-27 to D-29, 2026-11-14, ADR-0013 to ADR-0015):** the first two rows of the table are added by these decisions. Rows that are unused for a `seller_owned` store or deferred: `AFFILIATE_ROOT_DOMAIN` (T-55 deferred, D-29), the `MENGANTAR_PARTNER_*` variables (Partner model superseded, D-27). ADR-0013 does not say whether the Mengantar webhook (`MENGANTAR_WEBHOOK_SECRET`, HTTP-26) is used with seller-owned accounts; that row is left as it is. `CUSTOM_DOMAIN_CNAME_TARGET` has a decided value, `cname.bukalaris.id` (D-28). The AutoLaris platform credentials are used for subscription invoices only. The other rows describe the earlier plan. Not implemented (T-102, T-104).
 
@@ -152,31 +158,46 @@ secrets.
 |---|---|---|---|
 | `PLATFORM_ROOT_DOMAIN` | Web | T-102 (D-28, ADR-0014 decision 2) | Root of the platform surfaces (`bukalaris.com`); `STORE_ROOT_DOMAIN` then holds only the store root (`bukalaris.id`). Local development keeps one root (`localhost`) for both |
 | Key ring for the purpose `payment_credentials` (variable name fixed by T-104) | Web, Worker | T-104 (D-27, ADR-0013 decision 5) | Seals each store's own AutoLaris H2H key; must differ from every other ring. The store's own Mengantar key uses the existing `shipping_credentials` ring |
-| `PLATFORM_ORIGIN`, `OWNER_ORIGIN`, `APP_ORIGIN`, `AFFILIATE_ORIGIN`, `BUYER_ORIGIN`, `LOGS_ORIGIN`, `CHECKOUT_ORIGIN` | Web, Worker | T-70 delivered (see the main table); `LOGS_ORIGIN` is first read by T-69 | Moved to the main table above |
-| `AUTH_SECRET_OWNER`, `AUTH_SECRET_SELLER`, `AUTH_SECRET_AFFILIATE`, `AUTH_SECRET_BUYER` | Web | T-70 delivered; the affiliate and buyer sessions are exercised by T-54, T-58 | Optional per-surface session-signing secrets. When unset each surface derives its secret from `BETTER_AUTH_SECRET` by HMAC domain separation (`bukalaris-auth-surface:<surface>`), so a cookie of one surface never verifies on another; set explicit values to rotate one surface independently |
 | `AFFILIATE_ROOT_DOMAIN` | Web | T-55 | Root of `<handle>.<root>`, normally `affiliate.<STORE_ROOT_DOMAIN>`; needs the `*.affiliate` certificate (see Domains) |
 | `CUSTOM_DOMAIN_CNAME_TARGET` | Web | T-15 | Fallback CNAME target for custom domains (08 DOM-3 guardrail 1); the label `cname` is reserved |
 | `INTERNAL_ORIGIN`, `INTERNAL_REVALIDATE_SECRET` | Web, Worker | T-69 (optional, HTTP-30) | Internal service URL of the web process, not routed publicly, and a purpose-separated secret; unused when Update Log freshness is time-based |
-| `KEYRING_SHIPPING_CREDENTIALS` | Web, Worker | T-48 | Sealing ring for the API keys of the Bukalaris-provisioned `partner_managed` store accounts (ADR-0007 decision 6); see "Key ring and rotation" |
-| `KEYRING_TAX_IDENTITY`, `IDENTITY_FINGERPRINT_KEY` | Web, Worker | T-65 | Sealing ring for voluntary tax identity and the distinct HMAC key for its duplicate fingerprint (ADR-0012) |
 | `MENGANTAR_PARTNER_ID`, `MENGANTAR_PARTNER_SECRET`, `MENGANTAR_PARTNER_BASE_URL` | Worker only | T-48 | Partner API credentials (ADR-0007). The secret is secret-store only and is **rotated before the first call** (entry gate). The web process never holds them and never calls the partner API |
 | `MENGANTAR_WEBHOOK_SECRET` | Web | T-48 (HTTP-26) | HMAC key of the platform account's webhook, separate from the API key; sandbox and production use different values and URLs |
-| AutoLaris credentials and callback secret (names fixed by T-49) | Web, Worker | T-49 (HTTP-17) | Provider credentials and the HMAC key of the per-payment signed reference; provider contract UNVERIFIED, real calls only after owner approval |
+| AutoLaris platform credentials (names fixed with the live adapter) | Web, Worker | T-49 (HTTP-17) delivered the contract on the fake adapter only | Provider credentials of the live adapter; the callback secret is `AUTOLARIS_CALLBACK_SECRET` in the table above. Provider contract UNVERIFIED, real calls only after owner approval |
 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `BACKUP_ENCRYPTION_RECIPIENT` | Backup job only | T-18 follow-up (DR-1) | Offsite dump upload (14). The recipient is a public key (the private key stays offline); never present in the web or worker environment |
-| Mailer provider settings | Web, Worker | T-73 | Provider OPEN under Q-16 |
-| Scheduler tick and catch-up settings | Worker | T-74 (JOB-21) | Names fixed by T-74 |
+| Mail provider credentials (names fixed with the adapter) | Web, Worker | T-73 (provider adapter deferred) | `MAIL_MODE`, `MAIL_PROVIDER`, `MAIL_FROM` and `MAIL_TRANSPORT_TIMEOUT_MS` are read today (table above); the chosen provider's own credentials come with its adapter. Provider OPEN under Q-16 |
 
 ### Secrets in production (fail closed)
 
-In production (`NODE_ENV=production`) the web, worker and migrate processes
-refuse to start when a required secret is missing, empty, a `.env.example`
-placeholder, shorter than 32 bytes of entropy or identical to the secret of
-another purpose, and the error names the variable, never the value. There is no
-fallback between purposes: `ORDER_LINK_SECRET` must not fall back to a session
-secret, each surface has its own session secret, and the sealing rings and the
-fingerprint key are distinct. Owners: T-70 for session and link secrets, T-48 and
-T-65 for the rings. Test: start each process with each required variable removed
-and assert a non-zero exit that names that variable.
+Requirement (SEC-22 in 12-SECURITY-ARCHITECTURE; T-70 Done-when): in production
+(`NODE_ENV=production`) the web, worker and migrate processes refuse to start when
+a required secret is missing, empty, a `.env.example` placeholder, shorter than 32
+bytes of entropy or identical to the secret of another purpose, and the error
+names the variable, never the value. There is no fallback between purposes:
+`ORDER_LINK_SECRET` must not fall back to a session secret, each surface has its
+own session secret, and the sealing rings and the fingerprint key are distinct.
+Owners: T-70 for session and link secrets, T-48 and T-65 for the rings. Test:
+start each process with each required variable removed and assert a non-zero exit
+that names that variable.
+
+Current build (checked 2026-11-16): **not met in full.** No start-up check rejects
+a placeholder, short or reused value of `BETTER_AUTH_SECRET`, `ORDER_LINK_SECRET`
+or `INTEGRATION_TOKEN_KEY` (Better Auth 1.7.7 itself refuses a missing secret in
+production when an auth instance is first created and only warns about a short or
+low-entropy one), and the worker starts without `ORDER_LINK_SECRET` or
+`INTEGRATION_TOKEN_KEY` (T-84 note). `ORDER_LINK_SECRET` still falls back to
+`BETTER_AUTH_SECRET` (`packages/db/src/ops/jobs/notify.ts`), and so does
+`ACCOUNT_SEARCH_FINGERPRINT_KEY` (`packages/db/src/ops/accounts-governance.ts`).
+What does fail closed: the worker does not start without a valid mail
+configuration (production needs `MAIL_PROVIDER` and `MAIL_FROM`;
+`packages/db/src/worker.ts`, T-73); a host-mode auth surface without its origin
+refuses to create its auth instance on first use (`apps/web/src/lib/auth.ts`); the
+payment callback, checkout fingerprints and resume links refuse when their key is
+missing or malformed (the "fail closed" notes in `.env.example`), and the
+buyer-fingerprint, shipping and tax rings also refuse a key reused from another
+purpose (`*_key_purpose_reused`), each when the key is used, not at process start.
+Per-surface session secrets are distinct by derivation when no
+`AUTH_SECRET_<SURFACE>` is set.
 
 ### Key ring and rotation
 
@@ -199,8 +220,12 @@ an id are read as `k1`, the current `INTEGRATION_TOKEN_KEY`. Rotation:
    holds envelopes under it has expired, because restoring such a backup needs it.
 
 Losing a key without a backup makes its envelopes unreadable: sellers re-enter
-their Mengantar and Meta/TikTok credentials. The offline key backup and its
-rehearsal are in 14-SLA-DISASTER-RECOVERY.
+their Meta/TikTok tokens. In the current build sellers never enter a Mengantar key
+(D-15): an operator re-fetches each Bukalaris-provisioned account key through the
+Partner API with the account recovery action on SA-07 (`queueShippingAccountRecovery`
+in `packages/db/src/shipping/accounts.ts`, Partner call `/api/partner/v1/sellers/api-key`;
+real Partner calls stay behind the T-48 rotation gate). The offline key backup and
+its rehearsal are in 14-SLA-DISASTER-RECOVERY.
 
 ### Partner calls: egress IP and budget
 
@@ -348,13 +373,14 @@ failure does not fail the deploy. Plan instead:
   and the apex) have their own Traefik routers, which take precedence over the
   storefront wildcard router; their certificates may come from the one-label
   wildcard. `www` redirects to the apex.
-- Client IP topology (**OPEN, chosen before the first launch**): the per-IP
-  limits (16-OBSERVABILITY-RATE-LIMITING) trust exactly one client-IP header,
-  decided by the topology. Direct to Traefik: the last hop of `x-forwarded-for`
-  set by Traefik. Behind Cloudflare: `CF-Connecting-IP`, only when the origin
-  accepts connections from Cloudflare ranges alone (otherwise the header is
-  forgeable and per-IP limits collapse onto edge IPs). Record here the chosen
-  topology and the trusted-proxy list (CIDRs): **not chosen, no list recorded.**
+- Client IP topology (**chosen by D-23**: Cloudflare in front, see "Chosen edge
+  topology"): the per-IP limits (16-OBSERVABILITY-RATE-LIMITING) trust exactly one
+  client-IP header, decided by the topology. Direct to Traefik: the last hop of
+  `x-forwarded-for` set by Traefik. Behind Cloudflare: `CF-Connecting-IP`
+  (`CLIENT_IP_HEADER=cf-connecting-ip`), only when the origin accepts connections
+  from Cloudflare ranges alone (otherwise the header is forgeable and per-IP limits
+  collapse onto edge IPs). Record here the Cloudflare ranges allowed by the origin
+  firewall: **no firewall rule exists yet (nothing provisioned).**
 
 ## Media volume (product images)
 
@@ -412,7 +438,7 @@ The web image stores uploads on local disk under `MEDIA_DIR` (default
   and must be repeated against the target Postgres.
 - Auth: recovery, invitations and operator TOTP are implemented (T-22). Per-surface
   origins, secrets and `__Host-` cookies (T-70; ADR-0004, D-2) are implemented locally and
-  uncommitted, not deployed, and still need production origins and DNS/TLS; Better Auth's
+  committed on `main` (`14772b1`), not deployed, and still need production origins and DNS/TLS; Better Auth's
   rate limits use the shared Postgres counter since T-83 (D-26), so several web replicas share one budget; confirm the client-IP header the reverse proxy sets so
   the per-IP checkout limits (`x-forwarded-for` last hop / `x-real-ip`) cannot be forged.
 - Client IP for auth limits (D-26, D-23): production sets `CLIENT_IP_HEADER=cf-connecting-ip` (Cloudflare-only origin firewall). If `x-forwarded-for` mode is ever used, Traefik must not be given `forwardedHeaders.trustedIPs`/`insecure`: Better Auth accepts only a single-value `X-Forwarded-For`, and a multi-value chain puts every user into one shared sign-in bucket (3 per 10 s for everyone).

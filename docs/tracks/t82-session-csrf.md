@@ -1,5 +1,7 @@
 # T-82 — Session-bound CSRF protection
 
+> **Note 2026-11-16 (T-122), final state:** T-82 was accepted locally on 2026-11-05 (section "Final acceptance (2026-11-05)") and committed as `cc151b0`, which is on `main` and `origin/main`. The "implementation in progress", "NO commit" and "T-82 remains incomplete" lines below are the history of the run, not its outcome. Two later tasks closed what T-82 left: T-95 (`df04f49`) mapped the new WWW redirect route (HTTP-33) to its Log System module, and T-97 (`7c76402`) restored the idempotent duplicate checkout submit that the T-82 cart binding had started to refuse. Review reports and evidence cited below by absolute paths outside the repository are not part of it; the repository record is this report, `docs/TASKS.md` (T-82, T-95, T-97), `BUILD-LOG.md` and DECISIONS D-25. The text below is unchanged.
+
 ## Execution frame
 
 - Date: 2026-11-04.

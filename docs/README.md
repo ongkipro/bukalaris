@@ -58,9 +58,9 @@ and workflows; which screens exist on `main` is recorded in the UX document's
 - Later: drag-and-drop LP builder and MCP (landing pages v1 with typed blocks
   exist, T-42), marketplace discovery. Accepted and partly built locally (2026-10-28, not deployed):
   subscription billing (T-50), the seller ledger and payouts (T-37), platform-managed Mengantar accounts (T-48),
-  Owner console governance (T-57, T-60, T-62, T-63) and the affiliate attribution base (T-52); the affiliate
-  portal and storefront and the global buyer portal remain to build (PR-18, PR-23, PR-27 to PR-31; per-task
-  status in [TASKS.md](TASKS.md)).
+  Owner console governance (T-60, T-62, T-63), the global buyer identity core (T-57) and the affiliate
+  attribution base (T-52); the affiliate portal and storefront and the global buyer portal remain to build.
+  Requirements: PR-18, PR-23 and PR-27 to PR-31; per-task status in [TASKS.md](TASKS.md).
 
 ## Document ownership
 
@@ -84,7 +84,7 @@ and workflows; which screens exist on `main` is recorded in the UX document's
 | 16-OBSERVABILITY-RATE-LIMITING.md | Signals, Log System and query/abuse controls |
 | 17-UX-FLOWS-SCREEN-CONTRACTS.md | Initial screen workflows, states and acceptance |
 | adr/ADR-0001 through ADR-0012 | Architecture decisions (0001–0003 proposed; 0004 accepted for local M1; 0005 accepted and implemented, with the 2026-10-27 amendment accepted on 2026-10-28 (T-59, D-20); 0006–0012 accepted on 2026-10-28 (D-20, D-21) as decisions, not implementation evidence — 0006 platform-managed money, net seller ledger & Mengantar reconciliation; 0007 platform-managed Mengantar Partner seller provisioning, shipping discounts & cashback ledger; 0008 platform architecture and routing; 0009 platform-owned affiliate programme; 0010 global buyer identity; 0011 Owner console scope, navigation, naming rule and account governance, with the startup relaxation and the dormant Compliance center (Compliance activation); 0012 platform tax workflows: startup-off defaults (earnings statements, optional voluntary tax identity) and a dormant tax policy engine (Tax activation)) |
-| adr/ADR-0013 through ADR-0016 | Owner direction change of 2026-11-14 (D-27..D-30), accepted as decisions, not implemented: 0013 seller-owned Mengantar and AutoLaris accounts (supersedes parts of 0006/0007); 0014 platform on `bukalaris.com`, storefronts on `bukalaris.id`, custom-domain target `cname.bukalaris.id` (supersedes host rows of 0008); 0015 seller-run store affiliate programme (supersedes the platform-funded parts of 0009); 0016 digital products beside physical ones (prepaid only, access granted on payment). Tasks T-101..T-112 |
+| adr/ADR-0013 through ADR-0016 | Owner direction change of 2026-11-14 (D-27..D-30), accepted as decisions, not implemented: 0013 seller-owned Mengantar and AutoLaris accounts (supersedes parts of 0006/0007); 0014 platform on `bukalaris.com`, storefronts on `bukalaris.id`, custom-domain target `cname.bukalaris.id` (supersedes host rows of 0008); 0015 seller-run store affiliate programme (supersedes the platform-funded parts of 0009); 0016 digital products beside physical ones (prepaid only, access granted on payment). Tasks T-101 to T-113 and T-115 to T-121 |
 | DECISIONS.md | Implementation decisions and deliberate ceilings (D-1..D-33; D-24 also records gated review dispositions) |
 | TASKS.md | Only execution queue; planning versus verified status |
 | DEPLOY-COOLIFY.md / RUNBOOK.md | Deployment draft (unexecuted) / local operations and release gates |
@@ -105,13 +105,13 @@ KYC and compliance (ADR-0011, ADR-0012, DECISIONS D-12).
 
 ### Status and phase legend
 
-Task `Status:` words in [TASKS.md](TASKS.md): **Planned** = specified, no code (with **Proposed** = awaiting owner confirmation, or **Deferred** = not started until its entry criteria hold); **Partial** = some scope is merged and the line lists the gaps; **Done** = merged on `main` with the evidence named in the line (qualifiers such as "on the fake adapter", "in simulation" or "for v1" limit the claim); **Superseded** = replaced by the tasks the line names and kept for history. Page and route status in ARCH-5: Implemented, Pending, Planned, Retired.
+Task `Status:` words in [TASKS.md](TASKS.md): **Planned** = specified, no code (with **Proposed** = awaiting owner confirmation, or **Deferred** = not started until its entry criteria hold); **Partial** = some scope is merged and the line lists the gaps; **Done** = merged on `main` with the evidence named in the line (qualifiers such as "on the fake adapter", "in simulation" or "for v1" limit the claim); **Done locally** = Done with evidence from local runs only (nothing is deployed anywhere); **Delivered locally** (also "Slices … delivered locally" and "Expand step delivered locally") = the named scope is built, verified locally and on `main`; whatever the line lists as deferred is not built, and the task is not Done; **Superseded** = replaced by the tasks the line names and kept for history. Page and route status in ARCH-5: Implemented, Pending, Planned, Retired.
 
 Requirement `Status:` words in the PRD: **Proposed** = not accepted by the owner, even when code exists; **Accepted** = the owner accepted the direction; **Accepted for implementation** = building is authorised and acceptance of the evidence is still the owner's decision. ADR status is the ADR's own line; an ADR that carries a Proposed amendment says so next to its status.
 
 Phase words: the PRD's "Phase 1" is the seller-commerce foundation. For the Owner console (PR-30, UX-22, IAM-15), **P1** is the startup core built first, **P1.5** is the optional Update Log, and **P2** is the Compliance center, which stays dormant until **Compliance activation** (ADR-0011 section 3). Tax has its own switch: startup mode (statements only) runs until **Tax activation** (ADR-0012 section 5). Compliance activation and Tax activation are independent; "later" means not scheduled.
 
-Current counts (2026-10-27): TASKS.md holds 75 tasks, T-1 to T-75: 26 Done, 11 Partial, 37 Planned (Proposed or Deferred) and 1 Superseded (T-8). The validation records further down keep the counts they were written with.
+Current counts (2026-11-16): TASKS.md holds 122 numbered tasks, T-1 to T-122, plus one unnumbered demo-data block; the open-task index at its top groups the open ones by work order. Earlier count (2026-10-27): 75 tasks, T-1 to T-75: 26 Done, 11 Partial, 37 Planned (Proposed or Deferred) and 1 Superseded (T-8). The validation records further down keep the counts they were written with.
 
 ## Headless integration contract
 

@@ -29,11 +29,13 @@ without a reference, no e-mail lands in `/dev/outbox` and no ad signal is
 delivered and no shipment is booked or tracked until the worker runs; the e2e config starts it automatically as a
 second `webServer`. Root scripts: `dev`, `build`, `lint`, `typecheck`, `test`,
 `e2e`, `db:generate`, `db:migrate`, `db:seed`, `db:seed:demo`, `db:backup`,
-`db:restore-rehearsal`, `verify`, `verify:docker` (`package.json`); worker and
-cleanup have no root alias (`packages/db/package.json`).
+`db:restore-rehearsal`, `map:check`, `verify:ledger`, `verify`, `verify:docker`
+(`package.json`); worker, cleanup and `bootstrap:console` have no root alias
+(`packages/db/package.json`).
 
 Parallel git worktrees: each has its own `.env` with `bukalaris_<track>`
-databases and its own dev/e2e ports (AGENTS.md "Parallel tracks"). All of them
+databases and its own dev/e2e ports (AGENTS.md "Commands": `bukalaris_<track>[_test|_e2e]`;
+the M2 track table is archived in `docs/archive/AGENTS-m2-tracks.md`). All of them
 share the one compose container.
 
 ## Database roles (T-27, ADR-0005)
@@ -50,7 +52,7 @@ database (creates roles, transfers ownership of every table/sequence/function to
 `PLATFORM_DATABASE_URL`, or a migration without `MIGRATION_DATABASE_URL`, fails
 at start with the variable's name. Symptom of a wrong role: a seller/storefront
 page that renders empty lists everywhere means the request did not run in a store
-context (see `packages/db/src/tenant.ts`); `permission denied for table …` means
+context (see `packages/db/src/platform/tenant.ts`); `permission denied for table …` means
 a code path reached a table the app role has no grant on (`docs/tracks/rls.md`
 has the grant table).
 
@@ -62,11 +64,12 @@ constraint no longer accepts. The migration also needs the five roles of `docs/D
 
 | Command | What it proves | Typical duration (2026-10-06, this machine) |
 |---|---|---|
-| `pnpm verify` | `lint` → `typecheck` → `test` (Vitest, `*_test` DB) → `build` → `e2e` (Playwright against the standalone build and the `*_e2e` DB); stops at the first failure | ~110 s |
-| `pnpm verify:docker` | builds `bukalaris-web:local` and `bukalaris-migrate:local`, creates a throwaway `bukalaris_verify_<id>` DB owned by `bukalaris_owner`, migrates it as the owner (`MIGRATION_DATABASE_URL`), counts the `tenant_isolation` policies (≥ 26; T-59 changes the policy set and updates this count, the role SQL and the restore `rls_ok` check in the same change), starts the web image as `bukalaris_app` + `bukalaris_platform`, checks `/api/health` 200, `/s/nope` 404 (DB-backed route), `/login` 200, Docker `HEALTHCHECK` healthy, process user `app`, writable `MEDIA_DIR` volume; then (T-84) runs the worker and cleanup from the `migrate` image as `bukalaris_platform`: one `approval.expire` job done and its fixture request expired, scheduler heartbeat, graceful SIGTERM (exit 0, no error lines), cleanup exit 0 removing exactly one idle fixture cart with buyer-data retention off; `VERIFY_BREAK=worker\|effect\|cleanup` must make it fail; drops the DB, containers and volume afterwards | ~175 s (≈160 s of it image builds; cached layers make reruns faster) |
+| `pnpm verify` | `map:check` → `lint` → `typecheck` → `test` (Vitest, `*_test` DB) → `build` → `e2e` (Playwright against the standalone build and the `*_e2e` DB); stops at the first failure | ~110 s on 2026-10-06; much longer since M3 (263 E2E tests): E2E alone about 27 min locally, the whole CI job about 40 min on the GitHub runner (T-100, 2026-11-15) |
+| `pnpm verify:docker` | builds `bukalaris-web:local` and `bukalaris-migrate:local`, creates a throwaway `bukalaris_verify_<id>` DB owned by `bukalaris_owner`, migrates it as the owner (`MIGRATION_DATABASE_URL`) twice (the second run proves idempotence), compares the number of policies in `public` with the isolation registry and fails on any registry difference (`scripts/_registry.sh`, T-59), starts the web image as `bukalaris_app` + `bukalaris_platform`, checks `/api/health` 200, `/s/nope` 404 (DB-backed route), `/login` 200, Docker `HEALTHCHECK` healthy, process user `app`, writable `MEDIA_DIR` volume; then (T-84) runs the worker and cleanup from the `migrate` image as `bukalaris_platform`: one `approval.expire` job done and its fixture request expired, scheduler heartbeat, graceful SIGTERM (exit 0, no error lines), cleanup exit 0 removing exactly one idle fixture cart with buyer-data retention off; `VERIFY_BREAK=worker\|effect\|cleanup` must make it fail; drops the DB, containers and volume afterwards | ~175 s (≈160 s of it image builds; cached layers make reruns faster) |
 
-`.github/workflows/ci.yml` runs the same two gates on GitHub (file only until a
-remote exists). `VERIFY_PORT=3170 pnpm verify:docker` also publishes the
+`.github/workflows/ci.yml` runs the same two gates on GitHub on every push to
+`main` and every pull request (job `verify`: `pnpm verify`; job `image`:
+`scripts/verify-docker.sh`); the CI state is tracked in T-100. `VERIFY_PORT=3170 pnpm verify:docker` also publishes the
 container on `127.0.0.1:3170` while the check runs; `IMAGE_TAG=<tag>` changes
 the image tag.
 
@@ -166,9 +169,28 @@ rules).
 
 ## Rotating `BETTER_AUTH_SECRET`
 
-The secret signs Better Auth session cookies. Rotating it signs every operator
-out; nothing stored in the database depends on it (passwords are hashed
-separately).
+The secret is the base of every auth secret: the one-host `local` surface uses it
+directly, and the Owner, Seller, Affiliate and Buyer surfaces derive theirs from it
+unless `AUTH_SECRET_<SURFACE>` is set (`surfaceSecret` in `apps/web/src/lib/auth.ts`);
+cart and checkout CSRF tokens are keyed with it directly (`apps/web/src/lib/auth-csrf.ts`).
+Rotating it signs out every session on the surfaces whose secret comes from it and
+invalidates every rendered form token (the user reloads the page). Passwords are
+hashed separately and are not affected, but stored data does depend on it:
+
+- **TOTP secrets and backup codes.** Better Auth 1.7.7's two-factor plugin encrypts
+  `two_factor.secret` and the backup codes with the surface secret (read from the
+  installed package, `better-auth/dist/plugins/two-factor/index.mjs`; not reproduced
+  by a test). A rotation that changes a surface secret leaves every TOTP enrolment of
+  that surface unreadable, so its users cannot pass MFA until their second factor is reset and
+  enrolled again; when no `staff.manage` holder can sign in any more, the
+  out-of-band procedure of "Console bootstrap and recovery" below applies. An
+  explicit `AUTH_SECRET_<SURFACE>` keeps that surface's secret unchanged when the
+  base rotates.
+- **Fallbacks.** When `ORDER_LINK_SECRET` is unset, order-status links already mailed
+  stop verifying (`packages/db/src/ops/jobs/notify.ts`); when
+  `ACCOUNT_SEARCH_FINGERPRINT_KEY` is unset, new account-search fingerprints no longer
+  match those in earlier audit rows (`packages/db/src/ops/accounts-governance.ts`).
+  Set both explicitly before the first production rotation.
 
 1. Generate: `openssl rand -base64 32`.
 2. Local: replace the value in `.env`, restart `pnpm dev` or the container.
@@ -337,8 +359,10 @@ with a recorded command and result before the first live deploy.
       surface that is live; `BETTER_AUTH_URL` is only the local one-host path-mode
       origin and development fallback; full table in
       `docs/DEPLOY-COOLIFY.md` "Required environment variables"; T-70 is implemented
-      locally, not deployed; after T-48 also the key rings from
-      "Planned variables", and a missing secret stops the process in production).
+      locally, not deployed; also the key rings from "Variables read by the build
+      since M3 chain A"; a missing required secret is meant to stop the process in
+      production, which the build does not yet do for every secret, see
+      `docs/DEPLOY-COOLIFY.md` "Secrets in production").
 - [ ] Worker process deployed from the `migrate` image stage (`node src/worker.ts`)
       and cleanup (`node src/cleanup.ts`) scheduled (`docs/DEPLOY-COOLIFY.md` "Worker and cleanup").
 - [ ] Database roles created by hand with generated passwords and the database
