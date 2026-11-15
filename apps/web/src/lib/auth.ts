@@ -86,7 +86,7 @@ function createAuth(surface: AuthSurface) {
   // T-124: Better Auth 1.7.7 reads `options.secrets ?? BETTER_AUTH_SECRETS` before `secret` (context/create-context.mjs) and then
   // signs and encrypts with its first entry, so the variable would give every surface the same secret and undo the
   // per-surface separation above. Refuse it instead of silently sharing one secret.
-  if (env.BETTER_AUTH_SECRETS) throw new Error("BETTER_AUTH_SECRETS is not supported: it would replace the per-surface auth secrets (T-124)");
+  if (env.BETTER_AUTH_SECRETS) throw new Error("BETTER_AUTH_SECRETS is not supported: it would replace the per-surface auth secrets");
   const origin = authOrigin(surface, env);
   return betterAuth({
     appName: "Bukalaris",
