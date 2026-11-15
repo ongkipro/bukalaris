@@ -172,6 +172,8 @@
 .prose-lite {
   line-height: 1.7;
   text-wrap: pretty;
+  /* T-100: seller-authored text may hold a word longer than a 320 px column (URL, code). */
+  overflow-wrap: anywhere;
 }
 .prose-lite > * + * {
   margin-top: 1em;
