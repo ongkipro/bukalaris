@@ -79,8 +79,9 @@ export function tableProblems(rel: Rel, entry: TableEntry, mode: "expand" | "con
   }
 
   if (rel.app !== entry.app) out.push(`${t}: bukalaris_app holds "${rel.app}", registry says "${entry.app}"`);
-  const wantColumns = Object.entries(entry.appColumns ?? {}).flatMap(([c, ps]) => ps.split(",").map((p) => `${c}:${p}`));
-  if (JSON.stringify(rel.appColumns) !== JSON.stringify(wantColumns)) out.push(`${t}: bukalaris_app column grants ${JSON.stringify(rel.appColumns)} differ from ${JSON.stringify(wantColumns)}`);
+  // Compared as sets: the registry lists a column's privileges in canonical order (SELECT before INSERT), the catalog alphabetically (T-104).
+  const wantColumns = Object.entries(entry.appColumns ?? {}).flatMap(([c, ps]) => ps.split(",").map((p) => `${c}:${p}`)).sort();
+  if (JSON.stringify([...rel.appColumns].sort()) !== JSON.stringify(wantColumns)) out.push(`${t}: bukalaris_app column grants ${JSON.stringify(rel.appColumns)} differ from ${JSON.stringify(wantColumns)}`);
   if (entry.class === "shared-read" && rel.app !== "SELECT") out.push(`${t}: shared-read is SELECT only for the app role`);
 
   if (entry.class === "restricted") {

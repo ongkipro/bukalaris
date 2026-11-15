@@ -49,6 +49,9 @@ export interface TableEntry {
 }
 
 const tenant = (app: Privileges, platform: Privileges, key = "store_id"): TableEntry => ({ class: "tenant", key, app, platform });
+/** Column grants listed by privilege set, emitted in the catalog's column order (as `pg_attribute` names sort). */
+const columnGrants = (byPrivileges: Record<Privileges, string[]>): Record<string, Privileges> =>
+  Object.fromEntries(Object.entries(byPrivileges).flatMap(([p, columns]) => columns.map((c) => [c, p] as const)).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 
 export const ISOLATION_REGISTRY: Record<string, TableEntry> = {
   // ── tenant: store policy ──────────────────────────────────────────────────────────────────
@@ -81,7 +84,11 @@ export const ISOLATION_REGISTRY: Record<string, TableEntry> = {
   order_redaction: tenant("SELECT,INSERT", "SELECT,INSERT"),
   feed_token: tenant("SELECT,INSERT,UPDATE", ""),
   shipment: tenant("SELECT,INSERT,UPDATE", "SELECT,UPDATE"), // app: requests and counters; results come from the worker
-  store_shipping_account: { class: "tenant", key: "store_id", app: "", appColumns: Object.fromEntries(["id", "kind", "last_checked_at", "last_result", "revision", "status", "store_id"].map((column) => [column, "SELECT"])), platform: "SELECT,UPDATE" },
+  // T-104: the app role inserts (five columns of an empty row) and updates only its own `seller_owned` row (provider_account_guard) and never
+  // reads a sealed column; the envelope comes only from provider_key_envelope(). Columns in catalog order (attname), each with its exact privileges.
+  store_shipping_account: { class: "tenant", key: "store_id", app: "", appColumns: columnGrants({ SELECT: ["id"], INSERT: ["external_user_id"], "SELECT,INSERT": ["kind", "store_id"], "SELECT,INSERT,UPDATE": ["environment", "status"], UPDATE: ["key_id", "sealed_at", "sealed_key", "step_up_ref", "updated_at"], "SELECT,UPDATE": ["key_fingerprint", "key_hint", "last_checked_at", "last_result", "pickup_registered_at", "revision"] }), platform: "SELECT,UPDATE" },
+  // T-104: the store's own AutoLaris account, same rules; the platform pool reads only (the T-106 worker), the owner-side demo reset deletes.
+  store_payment_account: { class: "tenant", key: "store_id", app: "", appColumns: columnGrants({ SELECT: ["id"], "SELECT,INSERT": ["store_id"], "SELECT,INSERT,UPDATE": ["environment", "status"], UPDATE: ["key_id", "payment_only_confirmed_by", "sealed_at", "sealed_key", "step_up_ref", "updated_at"], "SELECT,UPDATE": ["destination_area_id", "key_fingerprint", "key_hint", "last_checked_at", "last_result", "origin_area_id", "payment_only_confirmed_at", "revision", "sender_address", "shipper_email"] }), platform: "SELECT" },
   landing_page: tenant("SELECT,INSERT,UPDATE", ""),
   landing_page_revision: tenant("SELECT,INSERT", ""), // immutable snapshots
   // T-49 AutoLaris payment contract (migration 0012). The app role creates the attempt at checkout and the callback evidence; the worker owns every later write.
@@ -379,7 +386,9 @@ export const DEFINER_FUNCTIONS: Record<string, DefinerFunction> = {
   "shipping_snapshot_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
   "shipping_reconciliation_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
   "shipping_policy_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
-  "reset_demo_shipping(bigint[])": { owner: "bukalaris_owner", kind: "retention", execute: [] }, // T-48: local demo reset only; owner connection only
+  "reset_demo_shipping(bigint[])": { owner: "bukalaris_owner", kind: "retention", execute: [] }, // T-48: local demo reset only; owner connection only (T-104: also the demo stores' own payment accounts)
+  // T-104: the application role's only read of a sealed provider envelope, refused for every store but app_store_id().
+  "provider_key_envelope(bigint,text)": { owner: "bukalaris_owner", kind: "guard", execute: ["bukalaris_app"] },
   // T-52 affiliate programme. The three callable by the checkout re-check app_store_id() themselves and read the buyer phone, the affiliate, the click and the financial
   // snapshot from the database: a caller names no affiliate, method, click or amount. The click entry point takes only the public token. Guards and triggers are never callable.
   "affiliate_resolve_core(bigint,bigint,text,text[])": { owner: "bukalaris_owner", kind: "guard", execute: [] },

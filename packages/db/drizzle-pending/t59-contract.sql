@@ -107,6 +107,7 @@ GRANT SELECT, INSERT, UPDATE ON "shipping_partner_budget" TO bukalaris_platform;
 GRANT SELECT ON "signal_destination" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE ON "signal_event" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE ON "store" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT ON "store_payment_account" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "store_pickup_area" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT ON "store_risk_ack" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, UPDATE ON "store_shipping_account" TO bukalaris_platform;--> statement-breakpoint

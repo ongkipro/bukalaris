@@ -74,7 +74,8 @@ describe("inventory (PRIV-1)", () => {
   it("every column named like buyer personal data is handled in BUYER_DATA_INVENTORY (a new phone/email/address/ip column fails here until it is)", () => {
     const handled = new Set(BUYER_DATA_INVENTORY.map((e) => `${e.table}.${e.column}`));
     // tax_entity_profile is the platform's own taxpayer profile (PRIV-10), not buyer data: it is inventoried there, not in the buyer redaction table.
-    const unhandled = columns.filter((c) => PII_COLUMN_RE.test(c.split(".")[1]!) && !handled.has(c) && !c.startsWith("tax_entity_profile.") && !c.startsWith("account_verification.") && !c.startsWith("store_shipping_account.") && !c.startsWith("affiliate."));
+    const unhandled = columns.filter((c) => PII_COLUMN_RE.test(c.split(".")[1]!) && !handled.has(c) && !c.startsWith("tax_entity_profile.") && !c.startsWith("account_verification.") && !c.startsWith("store_shipping_account.") && c !== "store_payment_account.shipper_email" && c !== "store_payment_account.sender_address" && !c.startsWith("affiliate."));
+    // store_payment_account.shipper_email / sender_address (T-104) are the SELLER's own AutoLaris account fields (ADR-0013 decision 13), entered by the store owner, never buyer data.
     // affiliate.contact_phone (T-52) is the affiliate's OWN canonical contact (ADR-0009, PRIV-6): protected platform data compared only for the self-referral guard, never a buyer's number; its own-affiliate RLS and column rules are in packages/db/test/t52-schema.test.ts.
     // account_verification (T-63) is the optional staff-held record of a SELLER's own business contact (DATA-14): masked in the data layer, revealed only under PRIV-9; not buyer data.
     // store_shipping_account.registered_email (T-48) is the platform's own per-store routing address used to register the Partner account, never a buyer's e-mail; the app role has no grant on it and no console view selects it.

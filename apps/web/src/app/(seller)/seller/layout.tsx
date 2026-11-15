@@ -33,6 +33,7 @@ const sellerNav: NavItem[] = [
   // Money, logistics & subscription
   { href: "/seller/finance", label: "Keuangan" }, // T-37 (SC-25); owner only (finance.read)
   { href: "/seller/shipping", label: "Pengiriman" },
+  { href: "/seller/payments", label: "Akun penyedia" }, // T-104 (SC-32); owner only (integrations.manage)
   { href: "/seller/billing", label: "Langganan" }, // T-50 (UX-18)
   // Store administration & compliance
   { href: "/seller/members", label: "Anggota" },
@@ -51,7 +52,7 @@ export default async function SellerLayout({ children }: LayoutProps<"/seller">)
       home="/seller"
       email={user.email}
       signOut={signOut.bind(null, csrfToken)}
-      nav={ctx.ok ? [...sellerNav.filter((n) => n.href !== "/seller/finance" || can(ctx.scope, "finance.read")), { href: `/s/${ctx.scope.storeSlug}`, label: "Lihat toko", external: true }] : []}
+      nav={ctx.ok ? [...sellerNav.filter((n) => (n.href !== "/seller/finance" || can(ctx.scope, "finance.read")) && (n.href !== "/seller/payments" || can(ctx.scope, "integrations.manage"))), { href: `/s/${ctx.scope.storeSlug}`, label: "Lihat toko", external: true }] : []}
       context={
         ctx.ok && (
           <>

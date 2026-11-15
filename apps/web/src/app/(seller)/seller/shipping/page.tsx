@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { sellerScope } from "@/lib/context";
 import { can, DomainError, getPickupArea, searchPickupAreas, sellerShippingAccounts, type Area } from "@bukalaris/db";
+import Link from "next/link";
 import { setPickupAddressAction, setPickupAreaAction } from "./actions";
 
 export const metadata = { title: "Pengiriman — Bukalaris" };
@@ -73,6 +74,12 @@ export default async function SellerShippingPage({ searchParams }: PageProps<"/s
           <p className="mt-1 text-xs text-muted-foreground">COD ditawarkan hanya untuk layanan: {shipping.services.filter((s) => s.codAllowed && s.returnFree).map((s) => s.courierCode).join(", ") || "belum ada"}.</p>
         </div>
       </div>
+
+      {manage && (
+        <p className="text-sm text-muted-foreground" data-testid="own-account-link">
+          Akun kurir milik toko Anda sendiri dihubungkan di <Link href="/seller/payments" className="font-medium text-foreground underline underline-offset-4">Akun penyedia</Link>.
+        </p>
+      )}
 
       {manage && (
         <>
