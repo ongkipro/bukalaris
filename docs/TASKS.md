@@ -1797,9 +1797,14 @@ Source: [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md), 
   - (1) and (3) have no trace (`auth-csrf.spec.ts` turns traces off; (3) was a local run). Left open: next time, keep the trace of `content.spec.ts`, and give `auth-csrf.spec.ts` a body- and header-free diagnostic (request log of the click) before guessing.
 
 ### T-124 — Check whether `BETTER_AUTH_SECRETS` can override the per-surface auth secrets
-- Status: Planned (found 2026-11-16 by the T-122 pass; unverified, read from the installed Better Auth 1.7.7 source, not run)
+- Status: Done locally (2026-11-16): risk confirmed from the library source, guard added and proven by mutation
 - Primary requirement: PR-14
 - Risk Level: R3
 - Allowed Paths: `apps/web/src/lib/auth.ts`, a test under `packages/db/test/` or `apps/web/e2e/`, `docs/DEPLOY-COOLIFY.md`, `docs/RUNBOOK.md`
 - Finding: Better Auth may read `BETTER_AUTH_SECRETS` before the `secret` option that `apps/web/src/lib/auth.ts` sets per surface (T-70, D-21). If so, setting that variable in an environment would give every surface the same secret and undo the per-surface separation.
 - Done when: a test sets `BETTER_AUTH_SECRETS` and shows whether two surfaces then share a secret; if they do, the app refuses to start with it set (or ignores it) and DEPLOY-COOLIFY and RUNBOOK say so; mutation check: remove the guard, a named test fails.
+- Outcome 2026-11-16:
+  - Confirmed in the installed Better Auth 1.7.7: `context/create-context.mjs` takes `options.secrets ?? parseSecretsEnv(env.BETTER_AUTH_SECRETS)` and, when present, signs and encrypts with its first entry; the per-surface `secret` option is then only the legacy fallback. With the variable set every surface would share one secret.
+  - `apps/web/src/lib/auth.ts` `createAuth` refuses to build any surface while `BETTER_AUTH_SECRETS` is set (fail closed); `docs/DEPLOY-COOLIFY.md` says never to set it.
+  - Test: `apps/web/e2e/host-mode-t124-secrets.spec.ts` starts a production server with the variable set (own port, `E2E_PORT + 5`): no surface (`owner`, `app`, `affiliate`, `buyer`) signs in or issues a session cookie. Mutation (guard removed, rebuilt): the test fails with status 200 instead of >= 500. With the guard: the spec and the host-mode project pass (17/17); lint and typecheck pass.
+  - Deviation: the test is an E2E spec rather than a unit test, because `auth.ts` is a server-only module of the web app and only `packages/db` has unit tests.
