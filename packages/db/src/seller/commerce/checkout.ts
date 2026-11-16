@@ -7,7 +7,7 @@ import { MengantarError } from "../../shipping/mengantar/client.ts";
 import { enqueueOrderNotifications } from "../../ops/jobs/notify.ts";
 import { type PaymentAdapter, type Providers, type ShippingAdapter } from "../../payments/providers.ts";
 import { createOrderPaymentAttempt } from "../../payments/attempts.ts";
-import { isPricedChannel, paymentFee, type PaymentChannel } from "../../payments/contract.ts";
+import { assertChannelStillOffered, paymentPlan, pickStorePaymentChannel, storePaymentMethods, type StorePaymentMethods } from "../../payments/seller.ts";
 import { orderPaymentView } from "../../payments/view.ts";
 import { buyerFingerprint } from "../../buyer/fingerprint.ts";
 import { enqueueBuyerResolve } from "../../buyer/jobs.ts"; // registers the buyer.resolve handler and policy (T-57)
@@ -150,25 +150,12 @@ async function providerGuard<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Channels the buyer may pay with: exactly the provider's own `list_payment` answer (absence = disabled, never probed
- * through `create_payment`), narrowed to those the platform fee schedule can price; COD is a separate payment method.
+ * Channels the buyer of this store may pay with (T-106, ADR-0013 section 4): the provider's own `list_payment` answer (absence = disabled,
+ * never probed through `create_payment`) on the store's own key when it has its AutoLaris account, narrowed to channels the fee schedule
+ * prices, minus platform locks and seller exclusions; COD is a separate payment method. `placeOrder` checks the same function again.
  */
-export async function checkoutPaymentChannels(adapter: PaymentAdapter = defaultProviders().payment): Promise<PaymentChannel[]> {
-  let channels: PaymentChannel[];
-  try {
-    channels = await adapter.listChannels();
-  } catch (err) {
-    const e = new DomainError("provider", "Metode pembayaran sedang tidak tersedia. Coba lagi sebentar.");
-    e.cause = err;
-    throw e;
-  }
-  return channels.filter((c) => isPricedChannel(c.code));
-}
-
-async function pickPaymentChannel(adapter: PaymentAdapter, code: string | undefined): Promise<PaymentChannel> {
-  const channel = (await checkoutPaymentChannels(adapter)).find((c) => c.code === code);
-  if (!channel) throw new DomainError("payment_channel", "Metode pembayaran tidak tersedia. Pilih metode lain.");
-  return channel;
+export function checkoutPaymentChannels(exec: Executor, storeId: number, adapter: PaymentAdapter = defaultProviders().payment): Promise<StorePaymentMethods> {
+  return storePaymentMethods(exec, storeId, adapter);
 }
 
 /**
@@ -321,7 +308,9 @@ export async function placeOrder(
   const quote = await checkoutShippingOptions(scope, input.destinationAreaId, { lines: preview, subtotal: sumOf(preview) }, providers.shipping, ctx);
   const option = quote.options.find((o) => o.courier === input.courier)!;
   const fee = chosenShippingFee(quote.options, input.courier, input.paymentMethod, input.shippingQuote, quote.shippingAccountKind === "seller_owned");
-  const channel = input.paymentMethod === "manual_transfer" ? await pickPaymentChannel(providers.payment, input.paymentChannel) : null;
+  // T-106: the payment channel goes through the store's one payment-method function (store's own AutoLaris key, switch, exclusions, locks).
+  const picked = input.paymentMethod === "manual_transfer" ? await pickStorePaymentChannel(exec, storeId, providers.payment, input.paymentChannel) : null;
+  const channel = picked?.channel ?? null;
 
   let orderId: number;
   try {
@@ -329,6 +318,7 @@ export async function placeOrder(
       // Shared lock: a concurrent suspension waits for, or blocks, this checkout.
       const [st] = await tx.select({ status: store.status }).from(store).where(eq(store.id, storeId)).for("share");
       if (st?.status !== "active") throw new DomainError("store_unavailable", "Toko sedang tidak menerima pesanan.");
+      if (picked) await assertChannelStillOffered(tx, storeId, picked.channel.code, picked.methods.account?.id ?? null);
 
       const lines = await cartLines(tx, storeId, cartId);
       if (lines.length !== preview.length) throw new DomainError("cart_changed", "Keranjang berubah. Silakan ulangi.");
@@ -355,7 +345,8 @@ export async function placeOrder(
           courierCode: option.courier,
           shippingAccountId: quote.shippingAccountId,
           shippingAccountKind: quote.shippingAccountKind,
-          testOrder: quote.environment === "sandbox",
+          // Decision 11: a sandbox shipping account (T-105) or a sandbox AutoLaris account (T-106) makes a test order.
+          testOrder: quote.environment === "sandbox" || picked?.methods.account?.environment === "sandbox",
           courier: option.label,
           originAreaId: quote.originAreaId,
           destinationAreaId: quote.destinationAreaId,
@@ -399,13 +390,15 @@ export async function placeOrder(
       // buyer's payable and every allocation line are untouched; a bad or ineligible selector earns nothing and never fails the order.
       const referral = { code: typedCode, clickIds };
       const plan = await planAffiliateCommission(tx, { storeId, orderId: o.id, productIds: lines.map((l) => l.productId), finance, referral });
+      // T-106: the fee decision (bearer, rate version, amounts) is frozen with the order.
+      const pay = picked ? paymentPlan(picked.methods, picked.channel.code, subtotal - finance.goodsDiscount, finance.payable) : null;
       await writeOrderFinancials(tx, {
         storeId,
         orderId: o.id,
         finance: plan?.finance ?? finance,
         platformShippingDiscountIdr: fee.platformDiscount,
         variantIds: lines.map((l) => l.variantId),
-        expectedGatewayFeeIdr: channel ? paymentFee(channel.code, subtotal - finance.goodsDiscount, finance.payable) : 0,
+        expectedGatewayFeeIdr: pay?.expectedFeeIdr ?? 0,
         affiliate: plan ? { affiliateId: plan.affiliateId, ratesBps: plan.ratesBps } : undefined,
       });
       if (plan) await recordAffiliateAttribution(tx, { storeId, orderId: o.id, referral });
@@ -420,11 +413,10 @@ export async function placeOrder(
       // Prepaid: the payment attempt (stable reff_id, immutable amounts) and the instruction job commit with the order, as
       // durable intent before any provider call (SEC-18, BILL-2); until the worker stores the instruction the order shows
       // an explicit pending state (D-5). The provider's own list decided the channel; the fee schedule prices it.
-      if (channel) {
-        const total = finance.payable;
+      if (channel && pay) {
         await createOrderPaymentAttempt(
           { exec: tx, storeId },
-          { orderId: o.id, requestKey: idempotencyKey, channelCode: channel.code, customer: { id: String(o.id), name: input.buyerName, phone: input.buyerPhone, email: input.buyerEmail ?? null }, amountIdr: total, adminFeeIdr: paymentFee(channel.code, subtotal - finance.goodsDiscount, total) },
+          { orderId: o.id, requestKey: idempotencyKey, channelCode: channel.code, customer: { id: String(o.id), name: input.buyerName, phone: input.buyerPhone, email: input.buyerEmail ?? null }, ...pay },
         );
       }
       await enqueueOrderNotifications(tx, storeId, o.id, "created"); // T-36: buyer (if e-mail) + owners, after commit

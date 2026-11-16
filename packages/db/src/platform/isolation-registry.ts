@@ -40,6 +40,8 @@ export interface TableEntry {
   app: Privileges;
   /** Column-level grants of `bukalaris_app` beyond the table-level ones. */
   appColumns?: Record<string, Privileges>;
+  /** Column-level grants of `bukalaris_platform` beyond the table-level ones (T-106: the payment-ring re-seal writes four envelope columns only). */
+  platformColumns?: Record<string, Privileges>;
   /**
    * Privileges `bukalaris_platform` needs for the production paths that run on the platform pool
    * (Owner console, worker, cleanup, named services). The expand step grants them next to the
@@ -88,7 +90,8 @@ export const ISOLATION_REGISTRY: Record<string, TableEntry> = {
   // reads a sealed column; the envelope comes only from provider_key_envelope(). Columns in catalog order (attname), each with its exact privileges.
   store_shipping_account: { class: "tenant", key: "store_id", app: "", appColumns: columnGrants({ SELECT: ["id"], INSERT: ["external_user_id"], "SELECT,INSERT": ["kind", "store_id"], "SELECT,INSERT,UPDATE": ["environment", "status"], UPDATE: ["key_id", "sealed_at", "sealed_key", "step_up_ref", "updated_at"], "SELECT,UPDATE": ["key_fingerprint", "key_hint", "last_checked_at", "last_result", "pickup_address_id", "pickup_registered_at", "revision"] }), platform: "SELECT,UPDATE" },
   // T-104: the store's own AutoLaris account, same rules; the platform pool reads only (the T-106 worker), the owner-side demo reset deletes.
-  store_payment_account: { class: "tenant", key: "store_id", app: "", appColumns: columnGrants({ SELECT: ["id"], "SELECT,INSERT": ["store_id"], "SELECT,INSERT,UPDATE": ["environment", "status"], UPDATE: ["key_id", "payment_only_confirmed_by", "sealed_at", "sealed_key", "step_up_ref", "updated_at"], "SELECT,UPDATE": ["destination_area_id", "key_fingerprint", "key_hint", "last_checked_at", "last_result", "origin_area_id", "payment_only_confirmed_at", "revision", "sender_address", "shipper_email"] }), platform: "SELECT" },
+  // T-106: + the seller's preferences (enabled, excluded_channels, fee_bearer); platform column UPDATE on the four envelope columns for the payment-ring re-seal (JOB-23).
+  store_payment_account: { class: "tenant", key: "store_id", app: "", appColumns: columnGrants({ SELECT: ["id"], "SELECT,INSERT": ["store_id"], "SELECT,INSERT,UPDATE": ["environment", "status"], UPDATE: ["key_id", "payment_only_confirmed_by", "sealed_at", "sealed_key", "step_up_ref", "updated_at"], "SELECT,UPDATE": ["destination_area_id", "enabled", "excluded_channels", "fee_bearer", "key_fingerprint", "key_hint", "last_checked_at", "last_result", "origin_area_id", "payment_only_confirmed_at", "revision", "sender_address", "shipper_email"] }), platform: "SELECT", platformColumns: columnGrants({ UPDATE: ["key_fingerprint", "key_id", "sealed_at", "sealed_key"] }) },
   // T-105 (ADR-0013 section 4): the seller's courier filters and COD settings, read again at order submit. The worker only switches a courier's COD
   // off after a provider refusal (UPDATE on the rules); the Owner console reads both for support.
   store_courier_rule: tenant("SELECT,INSERT,UPDATE", "SELECT,UPDATE"),
@@ -102,6 +105,10 @@ export const ISOLATION_REGISTRY: Record<string, TableEntry> = {
   payment_callback: { class: "tenant", key: "store_id", app: "INSERT", appColumns: Object.fromEntries(["attempt_id", "body_sha256", "body_shape", "created_at", "id", "quarantined", "redacted_at", "store_id"].map((column) => [column, "SELECT"])), platform: "SELECT" },
   payment_observation: tenant("", "SELECT,INSERT"), // append-only record of every provider inquiry; the seller never reads it
   late_payment_obligation: tenant("", "SELECT,INSERT"), // buyer refund obligation of a payment verified after the order was cancelled
+  // T-106 (ADR-0013 decisions 24 and 27): the seller's manual confirmation (one append-only record per attempt, written by the seller on the app pool) and
+  // the payment anomalies raised for the seller (by the worker's status check or by a manual confirmation). Both append-only (trigger), never deleted but by the demo reset.
+  payment_manual_confirmation: tenant("SELECT,INSERT", "SELECT"),
+  payment_anomaly: tenant("SELECT,INSERT", "SELECT,INSERT"),
   // T-37 seller ledger, payouts and refunds (migration 0013). Credits, releases and settlement are the platform pool's; the app login can only DEBIT its own
   // balance (ledger_entry_insert_guard), request payouts, keep its destination, submit a refund destination and consume its own step-up proof.
   order_financials: tenant("SELECT,INSERT", "SELECT,INSERT"), // immutable (financial_snapshot_guard); platform INSERT: local seeds call placeOrder on the platform pool
@@ -244,6 +251,11 @@ export const ISOLATION_REGISTRY: Record<string, TableEntry> = {
   courier_service_policy: { class: "shared-read", app: "SELECT", platform: "SELECT,INSERT,UPDATE" }, // COD allow-list (data, not code); administered under T-48
   affiliate_policy: { class: "shared-read", app: "SELECT", platform: "SELECT" }, // T-52 programme limits (one row: rate bounds, attribution window, hold); the writer is the Owner console (T-54)
   shipping_control: { class: "shared-read", app: "SELECT", platform: "SELECT,UPDATE" },
+  // T-106: Owner console payment settings read by every store at checkout: locked channels (a row = locked), versioned fee rates (append-only) and the
+  // decision-34 production switch for seller AutoLaris keys (one row, seeded off).
+  payment_channel_lock: { class: "shared-read", app: "SELECT", platform: "SELECT,INSERT,DELETE" },
+  payment_fee_rate: { class: "shared-read", app: "SELECT", platform: "SELECT,INSERT" },
+  payment_production_switch: { class: "shared-read", app: "SELECT", platform: "SELECT,UPDATE" },
 };
 
 /** Writers that may insert store-less `audit_log` rows from the app role. The SQL function `app_audit_writer()` carries the same list. */
@@ -320,6 +332,7 @@ export const DEFINER_FUNCTIONS: Record<string, DefinerFunction> = {
   "reset_demo_payments(bigint[])": { owner: "bukalaris_owner", kind: "retention", execute: [] }, // owner connection only (local demo seed)
   "payment_attempt_insert_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
   "payment_event_insert_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
+  "payment_manual_confirmation_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] }, // T-106: the confirmation names an attempt of that order on the store's own account
   // T-50: the signed callback reference of a subscription attempt resolves to its store (app pool); the effective vat_output policies (public tax configuration) are
   // readable by the seller Pay path. The triggers below pin what an invoice or attempt may start as and write the creation events; the bootstrap row-creates a trial
   // subscription for every new store; the demo reset is owner-connection only.
@@ -396,7 +409,7 @@ export const DEFINER_FUNCTIONS: Record<string, DefinerFunction> = {
   "shipping_policy_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
   "reset_demo_shipping(bigint[])": { owner: "bukalaris_owner", kind: "retention", execute: [] }, // T-48: local demo reset only; owner connection only (T-104: also the demo stores' own payment accounts)
   // T-104: the application role's only read of a sealed provider envelope, refused for every store but app_store_id().
-  "provider_key_envelope(bigint,text)": { owner: "bukalaris_owner", kind: "guard", execute: ["bukalaris_app"] },
+  "provider_key_envelope(bigint,text)": { owner: "bukalaris_owner", kind: "guard", execute: ["bukalaris_app", "bukalaris_platform"] }, // T-106: the worker opens a store's key through it too (inside withStore)
   // T-52 affiliate programme. The three callable by the checkout re-check app_store_id() themselves and read the buyer phone, the affiliate, the click and the financial
   // snapshot from the database: a caller names no affiliate, method, click or amount. The click entry point takes only the public token. Guards and triggers are never callable.
   "affiliate_resolve_core(bigint,bigint,text,text[])": { owner: "bukalaris_owner", kind: "guard", execute: [] },
@@ -426,7 +439,7 @@ export const DEFINER_FUNCTIONS: Record<string, DefinerFunction> = {
 // ── Canonical forms used by the invariant test and the shell scripts ─────────────────────────
 const ORDER = ["SELECT", "INSERT", "UPDATE", "DELETE"];
 for (const [table, e] of Object.entries(ISOLATION_REGISTRY)) {
-  for (const p of [e.app, e.platform, ...Object.values(e.appColumns ?? {})]) {
+  for (const p of [e.app, e.platform, ...Object.values(e.appColumns ?? {}), ...Object.values(e.platformColumns ?? {})]) {
     const parts = p === "" ? [] : p.split(",");
     if (parts.some((x) => !ORDER.includes(x)) || parts.join() !== ORDER.filter((x) => parts.includes(x)).join()) throw new Error(`isolation registry: ${table}: "${p}" is not a canonical privilege list`);
   }
@@ -436,8 +449,8 @@ for (const [table, e] of Object.entries(ISOLATION_REGISTRY)) {
 }
 
 /** Registry rows as `table|role|privileges|columns` for the shell checks (`isolation-print.ts`). */
-export function registryRows(): { table: string; class: IsolationClass; app: Privileges; platform: Privileges; policy: string }[] {
+export function registryRows(): { table: string; class: IsolationClass; app: Privileges; platform: Privileges; platformColumns: Record<string, Privileges>; policy: string }[] {
   return Object.entries(ISOLATION_REGISTRY)
-    .map(([table, e]) => ({ table, class: e.class, app: e.app, platform: e.platform, policy: expectedPolicy(e)?.name ?? "" }))
+    .map(([table, e]) => ({ table, class: e.class, app: e.app, platform: e.platform, platformColumns: e.platformColumns ?? {}, policy: expectedPolicy(e)?.name ?? "" }))
     .sort((a, b) => a.table.localeCompare(b.table));
 }

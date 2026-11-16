@@ -133,6 +133,7 @@ describe("isolation registry: completeness and shape per class (ADR-0005 amendme
       return {
         name, owner: "bukalaris_owner", rls: p !== null, forced: p !== null, resolver: "", other: [], app: e.app, platform: e.platform,
         appColumns: Object.entries(e.appColumns ?? {}).flatMap(([c, ps]) => ps.split(",").map((x) => `${c}:${x}`)),
+        platformColumns: Object.entries(e.platformColumns ?? {}).flatMap(([c, ps]) => ps.split(",").map((x) => `${c}:${x}`)),
         policies: p ? [{ name: p.name, cmd: "*", allRoles: true, permissive: true, using: p.using, check: p.withCheck }] : [],
         ...over,
       };

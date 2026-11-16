@@ -12,7 +12,7 @@ import { keyFingerprint, keyHint, sealCredential, unsealCredential, type Credent
 import { PROVIDER_ENVIRONMENTS, storeShippingAccount, type ProviderEnvironment } from "../shipping/schema-accounts.ts";
 import { fakeAutoLaris } from "./fake.ts";
 import { FAKE_AREAS, fakeMengantar } from "./providers.ts";
-import { storePaymentAccount } from "./schema-payments.ts";
+import { paymentProductionSwitch, storePaymentAccount } from "./schema-payments.ts";
 
 // T-104 — the store's own provider accounts (ADR-0013 sections 1 to 3, D-27): the seller's Mengantar key (`store_shipping_account`, kind
 // `seller_owned`, keyring `shipping_credentials`) and AutoLaris key (`store_payment_account`, keyring `payment_credentials`).
@@ -177,7 +177,7 @@ const view = (provider: Provider, r: AccountRow | undefined): ProviderAccountVie
 });
 
 // ── Readiness (ADR-0013 decisions 12 to 14) ─────────────────────────────────────────────────────────────────────
-export type ReadinessGap = "key" | "check" | "pickup_area" | "pickup_registered" | "order_fields" | "sender_address" | "payment_only";
+export type ReadinessGap = "key" | "check" | "pickup_area" | "pickup_registered" | "order_fields" | "sender_address" | "payment_only" | "production_off";
 export type Readiness = { ready: boolean; missing: ReadinessGap[] };
 type ReadScope = Pick<SellerScope | StorefrontScope, "exec" | "storeId">;
 const readiness = (missing: (ReadinessGap | false)[]): Readiness => {
@@ -189,7 +189,7 @@ function shippingGaps(a: AccountRow | undefined, pickupArea: boolean): Readiness
   // Decision 41's dedicated-account check joins this list in T-115; the pickup registration is written by T-105.
   return readiness([!keyed && "key", keyed && a!.lastResult !== "ready" && "check", !pickupArea && "pickup_area", !a?.pickupRegisteredAt && "pickup_registered"]);
 }
-function paymentGaps(a: AccountRow | undefined): Readiness {
+function paymentGaps(a: AccountRow | undefined, productionOn: boolean): Readiness {
   const keyed = a?.status === "active";
   return readiness([
     !keyed && "key",
@@ -197,7 +197,14 @@ function paymentGaps(a: AccountRow | undefined): Readiness {
     !(a?.originAreaId && a.destinationAreaId && a.shipperEmail) && "order_fields",
     !a?.senderAddress && "sender_address",
     !a?.paymentOnlyConfirmedAt && "payment_only",
+    // T-106 (decision 34): a production account waits for the Owner console switch, turned on only after the recorded sandbox pass.
+    a?.environment === "production" && !productionOn && "production_off",
   ]);
+}
+/** Decision 34 (T-106): production calls on seller AutoLaris keys are on only after the Owner console switched them on. */
+export async function autolarisProductionOn(exec: Executor): Promise<boolean> {
+  const [row] = await exec.select({ enabled: paymentProductionSwitch.enabled }).from(paymentProductionSwitch).where(eq(paymentProductionSwitch.provider, "autolaris"));
+  return row?.enabled === true;
 }
 /** Shipping is ready (decision 12): a sealed Mengantar key whose last check passed, a pickup area and a pickup address registered with that account. */
 export async function shippingReadiness(scope: ReadScope): Promise<Readiness> {
@@ -208,7 +215,7 @@ export async function shippingReadiness(scope: ReadScope): Promise<Readiness> {
 }
 /** QRIS/VA is ready (decision 13): a sealed AutoLaris key whose last check passed, the order fields, a sender address and the recorded payment-only profile. */
 export async function paymentReadiness(scope: ReadScope): Promise<Readiness> {
-  return inStore(scope, async ({ exec }) => paymentGaps(await readAccount(exec, scope.storeId, "autolaris")));
+  return inStore(scope, async ({ exec }) => paymentGaps(await readAccount(exec, scope.storeId, "autolaris"), await autolarisProductionOn(exec)));
 }
 /**
  * Decision 14: a store opens with one ready payment method; a physical product is activated only while shipping is ready. COD counts as a
@@ -226,7 +233,7 @@ export async function sellerProviderAccounts(scope: SellerScope) {
   return inStore(scope, async ({ exec }) => {
     const [ship, pay, [pickup]] = await Promise.all([readAccount(exec, scope.storeId, "mengantar"), readAccount(exec, scope.storeId, "autolaris"), exec.select({ storeId: storePickupArea.storeId }).from(storePickupArea).where(eq(storePickupArea.storeId, scope.storeId))]);
     const details: PaymentAccountDetails | null = pay ? { originAreaId: pay.originAreaId ?? null, destinationAreaId: pay.destinationAreaId ?? null, shipperEmail: pay.shipperEmail ?? null, senderAddress: pay.senderAddress ?? null, paymentOnlyConfirmedAt: pay.paymentOnlyConfirmedAt ?? null } : null;
-    const shipping = shippingGaps(ship, !!pickup), qrisVa = paymentGaps(pay);
+    const shipping = shippingGaps(ship, !!pickup), qrisVa = paymentGaps(pay, await autolarisProductionOn(exec));
     return { mengantar: view("mengantar", ship), autolaris: view("autolaris", pay), details, readiness: { shipping, qrisVa, canOpen: qrisVa.ready || shipping.ready, physicalProducts: shipping.ready } };
   });
 }

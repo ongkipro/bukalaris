@@ -3,7 +3,7 @@ import { and, eq, type SQL, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vitest";
 import { type Attempt, assertPaymentOwner, createOrderPaymentAttempt, PAYMENT_VERIFY, recordPaymentInquiry, redactPaymentCallbacks, setCallbackRetention } from "../src/payments/attempts.ts";
 import { acceptPaymentCallback, callbackBodyShape } from "../src/payments/callback.ts";
-import { buildSubmit, classifyAdvice, expiryStampWib, feeLabel, paymentFee, PaymentContractError, parseListPayment, parseSubmit, type PaymentCreateInput } from "../src/payments/contract.ts";
+import { buildSubmit, classifyAdvice, expiryStampWib, feeLabel as label, paymentFee as fee, PaymentContractError, parseListPayment, parseSubmit, STARTING_FEE_RATES, type PaymentCreateInput } from "../src/payments/contract.ts";
 import { FakeAutoLaris } from "../src/payments/fake.ts";
 import { pollAdvice, setPaymentAdapter } from "../src/payments/jobs.ts";
 import { fakeProviders, type Providers } from "../src/payments/providers.ts";
@@ -97,9 +97,10 @@ describe("contract: request and response parsing (pure)", () => {
   it("checkout offers exactly the provider's list narrowed to channels the fee schedule can price (COD is not a gateway channel)", async () => {
     const p = new FakeAutoLaris();
     p.channels = { rc: "00", data: ["VABCA", "COD", "QRIS", "MYSTERY"].map((c) => ({ channel_code: c, name: c, admin: "0", tipe_admin: "fix" })) };
-    expect((await checkoutPaymentChannels(p)).map((c) => c.code)).toEqual(["VABCA", "QRIS"]);
+    const s = await makeStore("toko-a");
+    expect((await checkoutPaymentChannels(db, s.storeId, p)).channels.map((c) => c.code)).toEqual(["VABCA", "QRIS"]);
     p.channels = { rc: "00", data: [] };
-    expect(await checkoutPaymentChannels(p)).toEqual([]); // a provider with no channels leaves nothing to choose: no hard-coded roster
+    expect((await checkoutPaymentChannels(db, s.storeId, p)).channels).toEqual([]); // a provider with no channels leaves nothing to choose: no hard-coded roster
   });
 
   it("the /submit request is the account-approved non-physical profile: 24 keys, courir_id 1, cod_value '0', grand_total is the buyer payable, one summary row", () => {
@@ -145,6 +146,9 @@ describe("contract: request and response parsing (pure)", () => {
   });
 
   it("gateway fee: each channel declares its base: QRIS 0.7% of goods omset (never shipping), VABCA Rp6.500, other VA Rp3.000, e-wallet 3.0% of payable", () => {
+    const S = { version: 1, rates: STARTING_FEE_RATES }; // T-106: the rates are a versioned setting; version 1 is this starting data
+    const paymentFee = (c: string, g: number, p: number) => fee(S, c, g, p);
+    const feeLabel = (c: string) => label(S, c);
     expect(paymentFee("QRIS", 100_000, 123_000)).toBe(700); // payable (with shipping) is NOT the base
     expect(paymentFee("QRIS", 100_714, 150_000)).toBe(705); // 704.998 rounds half up
     expect(paymentFee("VABCA", 100_000, 123_000)).toBe(6_500);

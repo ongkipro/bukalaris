@@ -1,6 +1,6 @@
 import { log } from "@/lib/log";
 import { clientIp } from "@/lib/storefront";
-import { acceptAutoLarisCallback, AUTOLARIS_CALLBACK_LIMIT, CALLBACK_BODY_MAX_BYTES, db, DomainError, enforceLimits, PaymentContractError, verifyCallbackToken } from "@bukalaris/db";
+import { acceptAutoLarisCallback, AUTOLARIS_CALLBACK_LIMIT, AUTOLARIS_CALLBACK_REF_LIMIT, CALLBACK_BODY_MAX_BYTES, db, DomainError, enforceLimits, PaymentContractError, verifyCallbackToken } from "@bukalaris/db";
 import { NextResponse, type NextRequest } from "next/server";
 
 // HTTP-17 (T-49, ADR-0006 decision 6, D-21 K). AutoLaris echoes the `callback_url` verbatim and sends no custom header, so the
@@ -37,11 +37,12 @@ export async function POST(req: NextRequest) {
   if (Number(req.headers.get("content-length") ?? 0) > CALLBACK_BODY_MAX_BYTES) return refuse("too_large", 413);
   try {
     // Signature first (CPU only, no database): unsigned traffic must not be able to fill a shared counter that real provider
-    // callbacks also need (wave 2 review). Limits then apply per source address and per signed reference only.
+    // callbacks also need (wave 2 review). Limits then apply per source address and per signed reference only (RL-AUTOLARIS-CB, D-33:
+    // 120 / min per IP, 10 / 10 min per reference; T-106). AutoLaris has no IP allow-list (D-33): the address is a rate dimension, never authentication.
     const reffId = verifyCallbackToken(req.nextUrl.searchParams.get("cb"));
     const ip = await clientIp();
     const { limit, windowSec } = AUTOLARIS_CALLBACK_LIMIT;
-    await enforceLimits(db(), [{ key: `autolaris-cb:ref:${reffId}`, rule: { limit: limit * 10, windowSec } }, ...(ip ? [{ key: `autolaris-cb:ip:${ip}`, rule: { limit, windowSec } }] : [])]);
+    await enforceLimits(db(), [{ key: `autolaris-cb:ref:${reffId}`, rule: { limit: AUTOLARIS_CALLBACK_REF_LIMIT.limit, windowSec: AUTOLARIS_CALLBACK_REF_LIMIT.windowSec } }, ...(ip ? [{ key: `autolaris-cb:ip:${ip}`, rule: { limit, windowSec } }] : [])]);
     const rawBody = await readBounded(req, CALLBACK_BODY_MAX_BYTES);
     if (rawBody === null) return refuse("too_large", 413);
     const { outcome } = await acceptAutoLarisCallback(db(), { token: req.nextUrl.searchParams.get("cb"), rawBody });
