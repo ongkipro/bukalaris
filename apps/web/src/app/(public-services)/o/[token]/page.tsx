@@ -6,6 +6,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { BANKS, refundReasonLabel, refundStatusLabel } from "@/lib/finance";
 import { rupiah } from "@/lib/format";
 import { BUYER_STATUS_LABEL, db, getOrderForLink, getRefundForLink, getShipmentForLink, providerStatusLabel, SHIPMENT_STATUS_LABEL, shipmentTimeline } from "@bukalaris/db";
+import { servesStore } from "@/lib/storefront";
 import { notFound } from "next/navigation";
 import { submitRefundDestinationAction } from "./actions";
 
@@ -31,7 +32,8 @@ export default async function OrderStatusPage({ params, searchParams }: PageProp
   const { token } = await params;
   const { error, saved } = await searchParams;
   const o = await getOrderForLink(db(), token);
-  if (!o) notFound();
+  // On a store host only that store's orders (T-103): another store's valid link is the same not-found as an invalid one.
+  if (!o || !(await servesStore(o.storeSlug))) notFound();
   // A refund exists only for a verified gateway payment on a cancelled or returned order (or a late payment): the buyer tells us where to send it.
   const refund = await getRefundForLink(db(), token);
   // Courier tracking (T-39): only when the seller booked through Mengantar; resi alone shows above.

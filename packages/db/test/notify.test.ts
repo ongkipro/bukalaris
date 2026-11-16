@@ -4,7 +4,7 @@ import { dbMailer, type Mailer } from "../src/platform/accounts.ts";
 import { createProduct } from "../src/seller/commerce/catalog.ts";
 import { placeOrder } from "../src/seller/commerce/checkout.ts";
 import { claimBatch, enqueue, getHandler, runOnce } from "../src/ops/jobs/jobs.ts";
-import { enqueueOrderNotifications, getOrderForLink, ORDER_LINK_TTL_MS, ORDER_NOTIFY, setNotifyMailer, signOrderLink, verifyOrderLink } from "../src/ops/jobs/notify.ts";
+import { enqueueOrderNotifications, getOrderForLink, ORDER_LINK_TTL_MS, ORDER_NOTIFY, renderMail, setNotifyMailer, signOrderLink, verifyOrderLink } from "../src/ops/jobs/notify.ts";
 import { transitionOrder } from "../src/seller/commerce/orders.ts";
 import { fakeProviders } from "../src/payments/providers.ts";
 import { job, mailOutbox, membership, orderNotification, user } from "../src/schema.ts";
@@ -213,6 +213,25 @@ describe("order e-mail notifications (T-36, PR-21)", () => {
     expect(m!.html).not.toMatch(/https?:\/\/(?!localhost)/); // no external assets or links
   });
 
+  it("T-103: the buyer's status link is built on the store's own host from configuration; the seller's link stays on Seller Admin", () => {
+    const keys = ["PLATFORM_ROOT_DOMAIN", "STORE_ROOT_DOMAIN", "PLATFORM_ORIGIN", "APP_ORIGIN", "CHECKOUT_ORIGIN"] as const;
+    const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+    try {
+      Object.assign(process.env, { PLATFORM_ROOT_DOMAIN: "bukalaris.com", STORE_ROOT_DOMAIN: "bukalaris.id", PLATFORM_ORIGIN: "https://bukalaris.com", APP_ORIGIN: "https://app.bukalaris.com", CHECKOUT_ORIGIN: "https://checkout.bukalaris.com" });
+      const o = { id: 7, storeName: "Toko A", storeSlug: "toko-a", status: "awaiting_confirmation", paymentMethod: "cod", buyerName: "Budi", buyerEmail: BUYER, courier: "JNE", trackingNumber: null, destinationAreaLabel: "Menteng", subtotal: 100_000, shippingFee: 17_500, goodsDiscount: 0, shippingDiscount: 0, total: 117_500, lines: [] } as unknown as Parameters<typeof renderMail>[2];
+      const toBuyer = renderMail("created", "buyer", o, BUYER);
+      const link = /https?:\/\/[^\s"]+\/o\/[^\s"<]+/.exec(toBuyer.text)![0];
+      expect(link).toMatch(/^https:\/\/toko-a\.bukalaris\.id\/o\/7\.[0-9]+\.[A-Za-z0-9_-]{43}$/);
+      expect(verifyOrderLink(link.split("/o/")[1]!)).toBe(7);
+      expect(toBuyer.html).toContain("https://toko-a.bukalaris.id/o/7.");
+      expect(toBuyer.text + toBuyer.html).not.toContain("checkout.bukalaris.com");
+      expect(renderMail("created", "seller", o, "owner@example.com").text).toContain("https://app.bukalaris.com/seller/orders/7");
+    } finally {
+      for (const k of keys) if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
   it("signed status link: verifies, expires, rejects tampering and never opens another order", async () => {
     const s = await makeStore("toko-a");
     const { orderId: a } = await orderWith(s);
@@ -227,6 +246,7 @@ describe("order e-mail notifications (T-36, PR-21)", () => {
     expect(view.lines).toMatchObject([{ productTitle: "Kaos toko-a", variantTitle: "M", quantity: 1, lineTotal: 100_000 }]);
     expect(view.destinationAreaLabel).toContain("Menteng");
     for (const k of ["shippingAddress", "buyerPhone", "buyerEmail", "storeId", "idempotencyKey", "requestHash"]) expect(view).not.toHaveProperty(k);
+    expect(view.storeSlug).toBe("toko-a"); // public; the store host gate compares it (T-103)
     // The buyer mail carries a link that opens exactly this order.
     const [mail] = await mails(a);
     const inMail = /\/o\/([0-9]+\.[0-9]+\.[A-Za-z0-9_-]+)/.exec(mail!.text)![1]!;

@@ -1,4 +1,4 @@
-export const metadata = { title: "Checkout — Bukalaris" };
+export const metadata = { title: "Checkout — Bukalaris", robots: { index: false, follow: false } }; // T-103: served on indexable store hosts
 
 // Platform-owned layout: no storefront theme, header or scripts (ARCH-7, UX-12).
 export default function CheckoutLayout({ children }: LayoutProps<"/checkout">) {

@@ -3,7 +3,7 @@ import { Pixels } from "@/components/pixels/pixels";
 import { SignalEvent } from "@/components/pixels/runtime";
 import { rupiah } from "@/lib/format";
 import { browserMatch, signalsFor } from "@/lib/signals";
-import { ORDER_COOKIE } from "@/lib/storefront";
+import { hostStoreScope, ORDER_COOKIE, servesStore } from "@/lib/storefront";
 import { channelReturnTarget, db, getBuyerOrder, purchaseEventId } from "@bukalaris/db";
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
@@ -19,9 +19,10 @@ export default async function ConfirmationPage({ searchParams }: PageProps<"/che
   const id = typeof order === "string" && /^[0-9]{1,15}$/.test(order) ? Number(order) : null;
   const cartId = (await cookies()).get(ORDER_COOKIE)?.value;
   const o = id ? await getBuyerOrder(db(), id, cartId) : null;
-  if (!o) notFound();
+  // A store host shows only its own store's order (T-103).
+  if (!o || !(await servesStore(o.storeSlug))) notFound();
   // Headless buyers return to the channel's registered origin + path (allowlist, channels track).
-  const back = (await channelReturnTarget(db(), cartId)) ?? `/s/${o.storeSlug}`;
+  const back = (await channelReturnTarget(db(), cartId)) ?? ((await hostStoreScope()) ? "/" : `/s/${o.storeSlug}`);
   const signals = await signalsFor(o.storeId);
   const match = signals ? browserMatch(o) : undefined;
   return (

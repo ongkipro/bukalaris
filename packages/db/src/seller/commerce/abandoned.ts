@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { Executor } from "../../client.ts";
 import { normalizeEmail, normalizePhone, phoneLookupKey } from "../../buyer/normalize.ts";
 import { cartLine, checkoutSession, order, product, store, variant } from "../../schema.ts";
+import { storeLinks } from "../../platform/host.ts";
 import { resolveCartStore } from "../../platform/resolvers.ts";
 import { DomainError, requireCap, type SellerScope } from "../../platform/scoped.ts";
 import { inStore, withStore } from "../../platform/tenant.ts";
@@ -297,11 +298,11 @@ export function recoveryMessage(input: { storeName: string; buyerName: string | 
  * "WA dibuka": stamp the click and return the `wa.me` URL with the prefilled message and a freshly signed resume link. Only an abandoned session
  * of this store with a usable phone number can be opened; the stamp says the seller opened WhatsApp, never that anything was sent or read.
  */
-export async function openWhatsAppRecovery(scope: SellerScope, sessionId: number, opts: { origin: string; now?: Date }): Promise<{ url: string; resumeUrl: string; expiresAt: Date }> {
+export async function openWhatsAppRecovery(scope: SellerScope, sessionId: number, opts: { now?: Date; env?: NodeJS.ProcessEnv } = {}): Promise<{ url: string; resumeUrl: string; expiresAt: Date }> {
   requireCap(scope, "carts.recover");
   if (!Number.isSafeInteger(sessionId) || sessionId <= 0) throw new DomainError("not_found", "Keranjang tidak ditemukan.");
   const now = opts.now ?? new Date();
-  return inStore(scope, async ({ exec: tx, storeId, storeName }) => {
+  return inStore(scope, async ({ exec: tx, storeId, storeName, storeSlug }) => {
     const [row] = await tx
       .select({ publicId: checkoutSession.publicId, status: checkoutSession.status, buyerName: checkoutSession.buyerName, buyerPhone: checkoutSession.buyerPhone })
       .from(checkoutSession)
@@ -313,7 +314,8 @@ export async function openWhatsAppRecovery(scope: SellerScope, sessionId: number
     if (!phone) throw new DomainError("no_phone", "Pembeli ini belum mengisi nomor HP yang valid, jadi tidak bisa dihubungi lewat WhatsApp.");
     const { token, expiresAt } = signResumeToken(storeId, row.publicId, now);
     await tx.update(checkoutSession).set({ waOpenedAt: sql`clock_timestamp()` }).where(and(eq(checkoutSession.storeId, storeId), eq(checkoutSession.id, sessionId), eq(checkoutSession.status, "abandoned")));
-    const resumeUrl = `${opts.origin.replace(/\/+$/, "")}/checkout/r/${token}`;
+    // The resume link opens checkout on the store's own host (ADR-0014 decision 7, T-103), from configuration only.
+    const resumeUrl = `${storeLinks(storeSlug, { env: opts.env }).origin}/checkout/r/${token}`;
     return { url: `https://wa.me/${phone}?text=${encodeURIComponent(recoveryMessage({ storeName, buyerName: row.buyerName, resumeUrl }))}`, resumeUrl, expiresAt };
   });
 }

@@ -265,6 +265,33 @@ export function surfaceOriginsFromEnv(env: NodeJS.ProcessEnv = process.env): Sur
   };
 }
 
+/**
+ * The one link-origin function for store-owned links (ADR-0014 decision 7, DOM-5 "Base origin by link type", T-103): storefront,
+ * feed, order-status (`/o/…`), checkout recovery (`/checkout/r/…`) and e-mail links of a store. Built from configuration only, never
+ * from a request host. `origin` serves the buyer paths (`/checkout`, `/o`, `/r`); `storefront` is the storefront base.
+ * Order: the store's verified primary custom domain (`primaryDomain`, the resolver T-15 provides; none until then), else
+ * `<slug>.<store root>` (`https`, or the configured platform origin's scheme and port on a `*.localhost` root), else one-host path
+ * mode when the store root is plain `localhost`: buyer paths on the platform origin, the storefront under `/s/<slug>`.
+ */
+export function storeLinks(
+  slug: string,
+  opts: { env?: NodeJS.ProcessEnv; primaryDomain?: (slug: string) => string | null } = {},
+): { origin: string; storefront: string } {
+  const env = opts.env ?? process.env;
+  const custom = normalizeHostname(opts.primaryDomain?.(slug));
+  if (custom) return { origin: `https://${custom}`, storefront: `https://${custom}` };
+  const { store } = hostRootsFromEnv(env);
+  const platformOrigin = surfaceOriginsFromEnv(env).platformOrigin;
+  if (LOCAL_HOSTS[store]) return { origin: platformOrigin, storefront: `${platformOrigin}/s/${slug}` };
+  let origin = `https://${slug}.${store}`;
+  if (store.endsWith(".localhost")) {
+    const local = new URL(platformOrigin);
+    local.hostname = `${slug}.${store}`;
+    origin = local.origin;
+  }
+  return { origin, storefront: origin };
+}
+
 export function surfaceCookieNames(prod = process.env.NODE_ENV === "production") {
   const prefix = prod ? "__Host-" : "";
   return {
@@ -444,9 +471,15 @@ export function dispatchHostPath(input: {
     }
 
     case "store": {
-      if (pathname === "/api/signals") {
-        return { action: "pass", surface: "store", storeSlug: surface.slug };
-      }
+      const own: DispatchDecision = { action: "pass", surface: "store", storeSlug: surface.slug };
+      if (pathname === "/api/signals") return own;
+      // T-103 (ADR-0014 decision 5): checkout, confirmation, the recovery link and the signed order-status page run on the store
+      // host; the app serves only this host's store on them (`hostStoreScope` in apps/web/src/lib/storefront.ts). The one-use
+      // hand-off of PR-16 stays on the checkout host; only its static "link not valid" page is shared (the recovery link's refusal).
+      const handoff = matchesPrefix(pathname, "/checkout/h") && pathname !== "/checkout/h/invalid";
+      if ((matchesPrefix(pathname, "/checkout") && !handoff) || matchesPrefix(pathname, "/o")) return own;
+      // C-D1: the referral click route for this store's own links, GET only like the apex row (RL-CLICK applies).
+      if (matchesPrefix(pathname, "/r")) return method === "GET" ? own : { action: "not_found", status: 404, surface: "store" };
       if (pathname === `/s/${surface.slug}` || pathname.startsWith(`/s/${surface.slug}/`)) {
         if (!isSafeMethod(method)) return { action: "not_found", status: 404, surface: "store" };
         const stripped = pathname.slice(`/s/${surface.slug}`.length) || "/";
