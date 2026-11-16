@@ -8,6 +8,7 @@ import {
   resolveHostSurface,
   RESERVED_HOST_LABEL_LIST,
   slugFromHost,
+  storeLinks,
   surfaceCookieNames,
   surfaceOriginsFromEnv,
 } from "../src/platform/host.ts";
@@ -50,7 +51,7 @@ const MATRIX: [string, string, Cell[]][] = [
   ["/login", "GET", ["404", "pass", "pass", "404", "→ /affiliate/login", "→ /buyer/login", "404", "404", "404"]],
   ["/account/security", "GET", ["404", "pass", "pass", "404", "404", "404", "404", "404", "404"]],
   ["/invite/abc", "GET", ["404", "404", "pass", "404", "404", "404", "404", "404", "404"]],
-  ["/o/1.2.abc", "GET", ["404", "404", `308 https://checkout.${ROOT}/o/1.2.abc`, "pass", "404", "404", "404", "404", "404"]],
+  ["/o/1.2.abc", "GET", ["404", "404", `308 https://checkout.${ROOT}/o/1.2.abc`, "pass", "404", "404", "404", "404", "pass"]],
   ["/feeds/blfd_x/meta.csv", "GET", ["404", "404", "pass", "404", "404", "404", "404", "404", "404"]],
   ["/dev/outbox", "GET", ["404", "404", "404", "404", "404", "404", "404", "404", "404"]],
   ["/api/auth/sign-in/email", "POST", ["404", "pass", "pass", "404", "pass", "pass", "404", "404", "404"]],
@@ -62,10 +63,14 @@ const MATRIX: [string, string, Cell[]][] = [
   ["/api/shipping/mengantar/webhook", "POST", ["pass", "404", "404", "404", "404", "404", "404", "404", "404"]],
   ["/api/public/reports", "POST", ["404", "404", "404", "404", "404", "404", "404", "404", "404"]],
   ["/api/internal/updates/revalidate", "POST", ["404", "404", "404", "404", "404", "404", "404", "404", "404"]],
-  ["/checkout", "GET", ["404", "404", "404", "pass", "404", "404", "404", "404", "404"]],
-  ["/checkout/confirmation", "GET", ["404", "404", "404", "pass", "404", "404", "404", "404", "404"]],
+  ["/checkout", "GET", ["404", "404", "404", "pass", "404", "404", "404", "404", "pass"]],
+  ["/checkout", "POST", ["404", "404", "404", "pass", "404", "404", "404", "404", "pass"]],
+  ["/checkout/confirmation", "GET", ["404", "404", "404", "pass", "404", "404", "404", "404", "pass"]],
+  ["/checkout/r/v1.x", "GET", ["404", "404", "404", "pass", "404", "404", "404", "404", "pass"]],
   ["/checkout/h/abc", "GET", ["404", "404", "404", "pass", "404", "404", "404", "404", "404"]],
-  ["/r/token", "GET", ["pass", "404", "404", "404", "404", "404", "404", "404", "404"]],
+  ["/checkout/h/invalid", "GET", ["404", "404", "404", "pass", "404", "404", "404", "404", "pass"]],
+  ["/r/token", "GET", ["pass", "404", "404", "404", "404", "404", "404", "404", "pass"]],
+  ["/r/token", "POST", ["404", "404", "404", "404", "404", "404", "404", "404", "404"]],
   ["/report", "GET", ["404", "404", "404", "404", "404", "404", "404", "404", "404"]],
   ["/admin", "GET", ["404", "pass", "404", "404", "404", "404", "404", "404", "404"]],
   ["/admin/logs", "GET", ["404", "pass", "404", "404", "404", "404", "404", "404", "404"]],
@@ -310,5 +315,74 @@ describe("T-70 per-surface origins and cookies", () => {
     });
     expect(surfaceCookieNames(true).storeCart(7)).toBe("__Host-bl_cart_7");
     expect(surfaceCookieNames(false).ownerSession).toBe("bl_owner");
+  });
+});
+
+// T-103 (ADR-0014 decisions 5 and 7, C-D1): the buyer paths on the store host, and the one link-origin function.
+describe("T-103 checkout on the store host", () => {
+  const roots = { platform: "bukalaris.com", store: "bukalaris.id" };
+  const at = (host: string, pathname: string, method = "GET") => dispatchHostPath({ host, rootDomain: roots, pathname, method, proto: "https" });
+
+  it("the store host serves checkout, confirmation, recovery, order status and its referral route, naming its own store for the gate", () => {
+    for (const [path, method] of [["/checkout", "GET"], ["/checkout", "POST"], ["/checkout/confirmation", "GET"], ["/checkout/r/v1.x", "GET"], ["/checkout/h/invalid", "GET"], ["/o/1.2.abc", "GET"], ["/o/1.2.abc", "POST"], ["/r/tok", "GET"]] as const) {
+      expect(at("toko-a.bukalaris.id", path, method), `${method} ${path}`).toEqual({ action: "pass", surface: "store", storeSlug: "toko-a" });
+    }
+  });
+
+  it("the store host refuses the PR-16 hand-off, feeds, unsafe referral methods and every seller, operator, auth and Storefront API path", () => {
+    for (const [path, method] of [
+      ["/checkout/h/abc", "GET"],
+      ["/checkout/h", "GET"],
+      ["/feeds/blfd_x/meta.csv", "GET"],
+      ["/r/tok", "POST"],
+      ["/r/tok", "HEAD"],
+      ["/seller", "GET"],
+      ["/admin", "GET"],
+      ["/login", "GET"],
+      ["/account/security", "GET"],
+      ["/invite/abc", "GET"],
+      ["/api/auth/sign-in/email", "POST"],
+      ["/api/storefront/v1/products", "GET"],
+      ["/dev/outbox", "GET"],
+    ] as const) {
+      expect(at("toko-a.bukalaris.id", path, method).action, `${method} ${path}`).toBe("not_found");
+    }
+  });
+
+  it("the checkout host keeps the hand-off and its own paths; a store slug on the platform root still serves nothing", () => {
+    for (const path of ["/checkout", "/checkout/h/abc", "/checkout/confirmation", "/o/1.2.abc"]) expect(at("checkout.bukalaris.com", path).action, path).toBe("pass");
+    for (const path of ["/checkout", "/o/1.2.abc", "/r/tok"]) expect(at("toko-a.bukalaris.com", path).action, path).toBe("not_found");
+  });
+
+  it("a request already naming a store path is never re-targeted to another store by the store host", () => {
+    expect(at("toko-a.bukalaris.id", "/s/toko-b/checkout").action).toBe("not_found");
+  });
+});
+
+describe("T-103 link-origin unit table (storeLinks)", () => {
+  const custom = (slug: string) => (slug === "toko-a" ? "Shop.Example.COM." : null);
+  const rows: { name: string; env: NodeJS.ProcessEnv; primaryDomain?: (slug: string) => string | null; origin: string; storefront: string }[] = [
+    { name: "two roots, no custom domain", env: { PLATFORM_ROOT_DOMAIN: "bukalaris.com", STORE_ROOT_DOMAIN: "bukalaris.id", PLATFORM_ORIGIN: "https://bukalaris.com" }, origin: "https://toko-a.bukalaris.id", storefront: "https://toko-a.bukalaris.id" },
+    { name: "two roots, verified primary custom domain", env: { PLATFORM_ROOT_DOMAIN: "bukalaris.com", STORE_ROOT_DOMAIN: "bukalaris.id" }, primaryDomain: custom, origin: "https://shop.example.com", storefront: "https://shop.example.com" },
+    { name: "resolver knows no domain for this store", env: { STORE_ROOT_DOMAIN: "bukalaris.id" }, primaryDomain: () => null, origin: "https://toko-a.bukalaris.id", storefront: "https://toko-a.bukalaris.id" },
+    { name: "one root (pre-T-102 layout)", env: { STORE_ROOT_DOMAIN: "bukalaris.com", BETTER_AUTH_URL: "https://app.bukalaris.com" }, origin: "https://toko-a.bukalaris.com", storefront: "https://toko-a.bukalaris.com" },
+    { name: "local two roots keep the platform origin's scheme and port", env: { PLATFORM_ROOT_DOMAIN: "platform.localhost", STORE_ROOT_DOMAIN: "store.localhost", PLATFORM_ORIGIN: "http://platform.localhost:3404" }, origin: "http://toko-a.store.localhost:3404", storefront: "http://toko-a.store.localhost:3404" },
+    { name: "one-host path mode on localhost", env: { STORE_ROOT_DOMAIN: "localhost", BETTER_AUTH_URL: "http://localhost:3280/" }, origin: "http://localhost:3280", storefront: "http://localhost:3280/s/toko-a" },
+    { name: "nothing configured", env: {}, origin: "http://localhost:3000", storefront: "http://localhost:3000/s/toko-a" },
+  ];
+  for (const r of rows) {
+    it(r.name, () => {
+      expect(storeLinks("toko-a", { env: r.env, primaryDomain: r.primaryDomain })).toEqual({ origin: r.origin, storefront: r.storefront });
+      // Feeds and referral redirects use the same function (storefront base).
+      if (!r.primaryDomain) expect(storeBaseUrl("toko-a", r.env)).toBe(r.storefront);
+    });
+  }
+
+  it("never reads a request host: the same configuration gives the same links whatever host the caller was reached on", () => {
+    const env = { PLATFORM_ROOT_DOMAIN: "bukalaris.com", STORE_ROOT_DOMAIN: "bukalaris.id", APP_ORIGIN: "https://app.bukalaris.com", CHECKOUT_ORIGIN: "https://checkout.bukalaris.com" };
+    const links = storeLinks("toko-a", { env });
+    expect(links.origin).not.toContain("app.");
+    expect(links.origin).not.toContain("checkout.");
+    expect(storeLinks.length).toBe(1); // (slug, opts): no request or host parameter
   });
 });

@@ -9,8 +9,9 @@ platform surfaces stay on `bukalaris.com`; native storefronts move to
 `cname.bukalaris.id`; cart, checkout, confirmation and order status are served on
 the store host. The single root setting becomes `PLATFORM_ROOT_DOMAIN` and
 `STORE_ROOT_DOMAIN`. Neither domain is provisioned (no DNS, no certificate). Since
-T-102 (2026-11-16, local) host dispatch reads both roots; the store host still
-refuses `/checkout` and `/o` until T-103.
+T-102 (2026-11-16, local) host dispatch reads both roots; since T-103 (2026-11-16,
+local) the store host serves checkout, confirmation, the recovery link, the signed
+order-status page and its own referral links.
 DOM-5 and DOM-6 below describe the one-root implementation and carry an
 amendment note each; where they conflict with ADR-0014, ADR-0014 is the target.
 
@@ -290,7 +291,9 @@ to the Log System: it never exposes `system_log` or operator telemetry.
 
 Implementation 2026-11-16 (T-102, local only): `resolveHostSurface` and `dispatchHostPath` (`packages/db/src/platform/host.ts`) take the platform root and the store root (`hostRootsFromEnv`: `PLATFORM_ROOT_DOMAIN`, `STORE_ROOT_DOMAIN`; an unset one falls back to the other, then to `localhost`, so one root keeps every row below). With two roots: platform hosts match only on the platform root; `<label>.<store root>` is a store only for a claimable label, and a platform or reserved label there (`owner.`, `app.`, `cname.`, ...) is a 404; a store slug on the platform root is a 404; the store-root apex and `www.<store root>` answer `GET`/`HEAD` with a `308` to the platform apex and 404 otherwise. The auth surface (`apps/web/src/lib/auth.ts`) and the cart CSRF audience (`apps/web/src/lib/auth-csrf.ts`, `<slug>.<store root>`) use the same roots. One-host path mode needs a local platform root. Evidence: `packages/db/test/host.test.ts` "T-102 two root domains", `apps/web/e2e/host-mode-two-root.spec.ts`, `docs/tracks/t102-two-roots.md`.
 
-Amendment 2026-11-14 (D-28, ADR-0014 decisions 2, 5 and 7): the Storefront column becomes hosts on the store root `bukalaris.id` and verified custom domains, and gains `/checkout`, the confirmation and `/o/<token>` for its own store; platform columns stay on the platform root. Storefront, landing-page, feed, order-status and recovery links use the store's primary host; seller, operator, buyer-portal, affiliate-portal and account links use the platform host. The matrix below is the one-root implementation until T-102 and T-103.
+Implementation 2026-11-16 (T-103, local only): the Store column serves `/checkout`, `/checkout/confirmation`, `/checkout/r/<token>`, `/checkout/h/invalid`, `/o/<token>` (any method) and `/r/<token>` (`GET`) and names its store to the application (`x-bl-host-store`); the application serves only that store on those paths (`hostStoreScope`, `servesStore`, `checkoutCart` in `apps/web/src/lib/storefront.ts`). The PR-16 hand-off `/checkout/h/<code>` and `/feeds` stay 404 on the store host. The hosted checkout host keeps the hand-off and reads only a handed-off cart. Store-owned links come from one function, `storeLinks` (`packages/db/src/platform/host.ts`): verified primary custom domain (resolver from T-15, none yet), else `<slug>.<store root>`, else one-host path mode on plain `localhost`; it never reads a request host. Feed downloads stay on the Seller host (`APP_ORIGIN`). Evidence: `packages/db/test/host.test.ts` "T-103 …", `apps/web/e2e/host-mode-two-root.spec.ts`, `docs/tracks/t103-store-host-checkout.md`.
+
+Amendment 2026-11-14 (D-28, ADR-0014 decisions 2, 5 and 7): the Storefront column becomes hosts on the store root `bukalaris.id` and verified custom domains, and gains `/checkout`, the confirmation and `/o/<token>` for its own store; platform columns stay on the platform root. Storefront, landing-page, feed, order-status and recovery links use the store's primary host; seller, operator, buyer-portal, affiliate-portal and account links use the platform host. The matrix below is the implementation (T-70, with the T-102 and T-103 changes noted above and in the Store column).
 
 - Owner: Bukalaris platform owner
 - Status: Proposed as a product contract; **implemented locally 2026-10-28 by T-70**
@@ -333,7 +336,7 @@ Columns: Apex = `bukalaris.com`; Owner = `owner`; Seller = `app`; Checkout =
 | `/login` (AU-01) | 404 | pass (operator instance) | pass (seller instance) | 404 | → `/affiliate/login` (AF-09) | → `/buyer/login` (BA-04) | 404 | 404 | 404 |
 | `/account/*` (AU-02, AU-05) | 404 | pass | pass | 404 | 404 | 404 | 404 | 404 | 404 |
 | `/invite/[token]` (AU-04) | 404 | 404 | pass | 404 | 404 | 404 | 404 | 404 | 404 |
-| `/o/[token]` (SF-11) | 404 | 404 | 308 → Checkout origin (`GET`/`HEAD`; only for links mailed before T-70, until their 30-day lifetime ends, then 404) | pass | 404 | 404 | 404 | 404 | 404 |
+| `/o/[token]` (SF-11) | 404 | 404 | 308 → Checkout origin (`GET`/`HEAD`; only for links mailed before T-70, until their 30-day lifetime ends, then 404) | pass | 404 | 404 | 404 | 404 | pass (T-103; only this store's orders, another store's link is the invalid-link 404) |
 | `/feeds/[token]/*` (HTTP-15) | 404 | 404 | pass | 404 | 404 | 404 | 404 | 404 | 404 |
 | `/dev/outbox` (OPS-01) | 404 | pass only when `DEV_OUTBOX=1`, never in production | 404 | 404 | 404 | 404 | 404 | 404 | 404 |
 | `/api/auth/*` (HTTP-01) | 404 | pass (operator instance) | pass (seller instance) | 404 | pass (affiliate instance) | pass (buyer instance) | 404 | 404 | 404 |
@@ -343,8 +346,9 @@ Columns: Apex = `bukalaris.com`; Owner = `owner`; Seller = `app`; Checkout =
 | `/api/payments/autolaris/callback` (HTTP-17), `/api/shipping/mengantar/webhook` (HTTP-26) | pass (`POST` only) | 404 | 404 | 404 | 404 | 404 | 404 | 404 | 404 |
 | `/api/public/reports` (HTTP-20; 404 until the Compliance center is activated) | pass | 404 | 404 | 404 | 404 | 404 | 404 | 404 | 404 |
 | `/api/internal/*` (HTTP-30) | 404 | 404 | 404 | 404 | 404 | 404 | 404 | 404 | 404 (served only on the internal service host, which no public router targets) |
-| `/checkout`, `/checkout/*` (SF-07, SF-08, SF-10, HTTP-12) | 404 | 404 | 404 | pass | 404 | 404 | 404 | 404 | 404 |
-| `/r/[token]` (HTTP-27) | pass (`GET` only) | 404 | 404 | 404 | 404 | 404 | 404 | 404 | 404 |
+| `/checkout`, `/checkout/confirmation`, `/checkout/r/*` (SF-07, SF-08, HTTP-32) | 404 | 404 | 404 | pass (the hosted checkout reads only a cart that arrived through HTTP-12; HTTP-32 always lands on SF-10) | 404 | 404 | 404 | 404 | pass (T-103; only this store: a `?store=`, order or recovery link of another store is refused) |
+| `/checkout/h/[code]` (HTTP-12, PR-16 hand-off) | 404 | 404 | 404 | pass | 404 | 404 | 404 | 404 | 404 (`/checkout/h/invalid`, SF-10, passes) |
+| `/r/[token]` (HTTP-27) | pass (`GET` only) | 404 | 404 | 404 | 404 | 404 | 404 | 404 | pass (`GET` only, C-D1, RL-CLICK; only this store's links, another store's link is the unknown-link 404 with no click) |
 | `/report` (SF-13; 404 until activation) | pass | 404 | 404 | 404 | 404 | 404 | 404 | 404 | 404 |
 | `/admin/*` | 404 | pass | 404 | 404 | 404 | 404 | 404 | 404 | 404 |
 | `/seller/*` | 404 | 404 | pass | 404 | 404 | 404 | 404 | 404 | 404 |
@@ -391,10 +395,12 @@ under the matrix above.
 |---|---|---|
 | Owner console links, operator recovery links | Owner console origin | `OWNER_ORIGIN` |
 | Seller Admin links, member invitations (`/invite/…`), seller recovery links, catalog feed URLs (`/feeds/…`) | Seller Admin origin | `APP_ORIGIN` |
-| Buyer order-status links (`/o/…`) in e-mails and notifications | Checkout origin | `CHECKOUT_ORIGIN` |
-| Checkout handoff (`/checkout/h/…`), checkout return, `/checkout?store=` from a storefront or landing page | Checkout origin (absolute URL, never relative) | `CHECKOUT_ORIGIN` |
-| Storefront pages, canonical, sitemap, product URL preview in Seller Admin | The store's primary origin from `storeBaseUrl` (DOM-3), never `BETTER_AUTH_URL` | derived per store |
-| Referral links (`/r/<token>`), provider callbacks (HTTP-17, HTTP-26), public report intake | Platform origin (apex) | `PLATFORM_ORIGIN` |
+| Buyer order-status links (`/o/…`) in e-mails and notifications, abandoned-checkout recovery links (`/checkout/r/…`) | The store's primary origin from `storeLinks` (T-103) | derived per store |
+| Checkout handoff (`/checkout/h/…`) for an independent storefront (PR-16) | Checkout origin (absolute URL, never relative) | `CHECKOUT_ORIGIN` |
+| `/checkout?store=` from a storefront cart or landing page | Relative: the store's own host (T-103) | — |
+| Storefront pages, canonical, sitemap, feed item links, referral redirects, product URL preview in Seller Admin | The store's primary origin from `storeLinks` / `storeBaseUrl` (DOM-3), never a request host or `BETTER_AUTH_URL` | derived per store |
+| Store affiliate links (`/r/<token>`, C-D1) | The store's primary origin (`storeLinks`) | derived per store |
+| Provider callbacks (HTTP-17, HTTP-26), public report intake; cross-store referral links (deferred) | Platform origin (apex) | `PLATFORM_ORIGIN` |
 | Affiliate portal links and affiliate recovery | Affiliate portal origin | `AFFILIATE_ORIGIN` |
 | Affiliate storefront | `https://<handle>.<AFFILIATE_ROOT_DOMAIN>` | `AFFILIATE_ROOT_DOMAIN` |
 | Buyer portal links and buyer proof links | Buyer portal origin | `BUYER_ORIGIN` |

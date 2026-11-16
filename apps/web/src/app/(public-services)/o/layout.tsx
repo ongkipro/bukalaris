@@ -1,4 +1,4 @@
-export const metadata = { title: "Status pesanan — Bukalaris" };
+export const metadata = { title: "Status pesanan — Bukalaris", robots: { index: false, follow: false } }; // T-103: served on indexable store hosts
 
 // Platform-owned, read-only buyer page reached from e-mail links (T-36): no storefront
 // theme, no navigation, nothing beyond the one order the signed link grants.

@@ -205,14 +205,18 @@ describe("T-52 SA-18 phase-1 fraud flags from the counters (thresholds are OPEN 
   });
 });
 
-describe("T-52 HTTP-27 is dispatched on the apex host only, GET only (DOM-5)", () => {
+describe("T-52 HTTP-27 is dispatched on the apex host and (C-D1, T-103) on the store host for its own store, GET only (DOM-5)", () => {
   const at = (host: string, method: string, pathname = "/r/abcdefghijklmnop") => dispatchHostPath({ host, rootDomain: "bukalaris.com", pathname, method, proto: "https" });
   it("the apex passes a GET; every other method, and every other surface, never reaches the click route", () => {
     expect(at("bukalaris.com", "GET")).toMatchObject({ action: "pass", surface: "apex" });
     for (const method of ["POST", "PUT", "DELETE", "PATCH"]) expect(at("bukalaris.com", method), method).toMatchObject({ action: "not_found" });
-    for (const host of ["owner.bukalaris.com", "app.bukalaris.com", "checkout.bukalaris.com", "affiliate.bukalaris.com", "buyer.bukalaris.com", "logs.bukalaris.com", "toko-a.bukalaris.com", "unknown.example.org"]) {
+    for (const host of ["owner.bukalaris.com", "app.bukalaris.com", "checkout.bukalaris.com", "affiliate.bukalaris.com", "buyer.bukalaris.com", "logs.bukalaris.com", "unknown.example.org"]) {
       expect(at(host, "GET"), host).toMatchObject({ action: "not_found" });
     }
+  });
+  it("C-D1: the store host passes a GET naming its own store (the route refuses another store's link); every other method never reaches it", () => {
+    expect(at("toko-a.bukalaris.com", "GET")).toEqual({ action: "pass", surface: "store", storeSlug: "toko-a" });
+    for (const method of ["HEAD", "POST", "PUT", "DELETE", "PATCH"]) expect(at("toko-a.bukalaris.com", method), method).toMatchObject({ action: "not_found" });
   });
   it("local path mode (one host, no subdomains) serves it for development and Playwright", () => {
     expect(dispatchHostPath({ host: "localhost:3000", rootDomain: "localhost", pathname: "/r/abcdefghijklmnop", method: "GET", proto: "http" })).toMatchObject({ action: "pass", surface: "local_path" });

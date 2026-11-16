@@ -70,6 +70,23 @@ describe("feed items", () => {
     expect((await feedItems(a.sf)).items).toEqual([]);
   });
 
+  it("T-103: feed links come from the store's link origin, never from the Seller Admin host the feed is fetched on", async () => {
+    const a = await makeStore("toko-a");
+    await cover(a.storeId, a.productId);
+    const saved = { ...process.env };
+    try {
+      // The feed is fetched on app.<platform root> (APP_ORIGIN); its links must name the store host on the store root.
+      Object.assign(process.env, { PLATFORM_ROOT_DOMAIN: "bukalaris.com", STORE_ROOT_DOMAIN: "bukalaris.id", PLATFORM_ORIGIN: "https://bukalaris.com", APP_ORIGIN: "https://app.bukalaris.com" });
+      const [i] = (await feedItems(a.sf)).items;
+      expect(i!.link).toMatch(/^https:\/\/toko-a\.bukalaris\.id\/products\/[0-9]+$/);
+      expect(i!.imageLink).toMatch(/^https:\/\/toko-a\.bukalaris\.id\/media\/[0-9]+$/);
+      expect(tag(renderGoogleRss([i!], { storeName: "Toko A", storeSlug: "toko-a" }), "link")).toBe("https://toko-a.bukalaris.id");
+    } finally {
+      for (const k of ["PLATFORM_ROOT_DOMAIN", "STORE_ROOT_DOMAIN", "PLATFORM_ORIGIN", "APP_ORIGIN"]) if (!(k in saved)) delete process.env[k];
+      Object.assign(process.env, saved);
+    }
+  });
+
   it("production base: https host mode on STORE_ROOT_DOMAIN; dev: path mode on the app origin", () => {
     expect(storeBaseUrl("toko-a", { STORE_ROOT_DOMAIN: "bukalaris.com", BETTER_AUTH_URL: "https://app.bukalaris.com" })).toBe("https://toko-a.bukalaris.com");
     expect(storeBaseUrl("toko-a", { STORE_ROOT_DOMAIN: "localhost", BETTER_AUTH_URL: "http://localhost:3280/" })).toBe("http://localhost:3280/s/toko-a");

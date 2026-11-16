@@ -9,9 +9,8 @@ import { Pixels } from "@/components/pixels/pixels";
 import { SignalEvent } from "@/components/pixels/runtime";
 import { rupiah } from "@/lib/format";
 import { signalsFor } from "@/lib/signals";
-import { cartCookie } from "@/lib/storefront";
-import { checkoutPaymentChannels, checkoutShippingOptions, checkoutSummary, db, DomainError, feeLabel, searchDestinationAreas, storefrontScope, type Area, type PaymentChannel, type ShippingOption } from "@bukalaris/db";
-import { cookies } from "next/headers";
+import { checkoutCart } from "@/lib/storefront";
+import { checkoutPaymentChannels, checkoutShippingOptions, checkoutSummary, db, DomainError, feeLabel, searchDestinationAreas, type Area, type PaymentChannel, type ShippingOption } from "@bukalaris/db";
 import { randomUUID } from "node:crypto";
 import { submitCheckout } from "./actions";
 import { CaptureProgress } from "./capture-progress";
@@ -28,18 +27,18 @@ const str = (v: string | string[] | undefined) => (typeof v === "string" ? v : "
  */
 export default async function CheckoutPage({ searchParams }: PageProps<"/checkout">) {
   const sp = await searchParams;
-  // The store comes from the URL only to pick which cart cookie to read; the cart row
-  // itself must belong to that active store.
-  const scope = typeof sp.store === "string" ? await storefrontScope(db(), sp.store) : null;
-  if (!scope) return <p role="alert" className="rounded-lg border bg-background p-6">Toko tidak tersedia atau sedang tidak menerima pesanan.</p>;
-  const cartId = (await cookies()).get(cartCookie(scope.storeId))?.value;
+  // The store comes from the URL only to pick which cart cookie to read; the cart row itself must belong to that active store.
+  // On a store host only that host's store is served; the checkout host reads only a handed-off cart (T-103, `checkoutCart`).
+  const ctx = await checkoutCart(sp.store);
+  if (!ctx) return <p role="alert" className="rounded-lg border bg-background p-6">Toko tidak tersedia atau sedang tidak menerima pesanan.</p>;
+  const { scope, cartId, home } = ctx;
   const found = await checkoutSummary(db(), cartId);
   const summary = found?.storeId === scope.storeId ? found : null;
   if (!summary)
     return (
       <section className="grid gap-3 rounded-xl border bg-background p-6">
         <p>Keranjang kosong atau sudah di-checkout.</p>
-        <a href={`/s/${encodeURIComponent(scope.storeSlug)}`} className="inline-flex min-h-6 w-fit items-center rounded-sm py-1 text-sm underline underline-offset-4 outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
+        <a href={home} className="inline-flex min-h-6 w-fit items-center rounded-sm py-1 text-sm underline underline-offset-4 outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
           Kembali ke toko
         </a>
       </section>

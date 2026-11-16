@@ -104,7 +104,8 @@ test.describe("exact-host dispatch (DOM-5) on a live server", () => {
       ["checkout", "/", 404],
       ["toko-a", "/admin", 404],
       ["toko-a", "/seller", 404],
-      ["toko-a", "/checkout", 404],
+      ["toko-a", "/checkout/h/abc", 404],
+      ["toko-a", "/feeds/blfd_x/meta.csv", 404],
       ["toko-a", "/api/storefront/v1/products", 404],
       ["bos", "/", 404],
       ["berkah", "/", 404],
@@ -123,6 +124,7 @@ test.describe("exact-host dispatch (DOM-5) on a live server", () => {
     expect((await status("app", "/login")).status).toBe(200); // never resolved as the store `app`
     expect((await status("checkout", "/checkout")).status).toBe(200);
     expect((await status("toko-a", "/")).status).toBe(200);
+    expect((await status("toko-a", "/checkout")).status).toBe(200); // T-103: checkout runs on the store host
     expect((await status("toko-a", "/s/toko-a/cart")).location).toBe(`${originOf("toko-a")}/cart`);
     expect((await status("local", "/s/toko-a")).status).toBe(200);
     expect((await status("app", "/o/1.2.abc")).location).toBe(`${originOf("checkout")}/o/1.2.abc`);
@@ -441,11 +443,12 @@ test("T82 configured store-host landing original action refuses a forged token a
   } finally { await buyer.close(); await seller.close(); await sql.end(); }
 });
 
-test("T82 direct configured checkout host accepts its own cart-bound form and creates exactly one order", async ({ browser }) => {
+test("T82/T-103 store-host checkout binds the cart form to the exact configured Host and creates exactly one order", async ({ browser }) => {
   const databaseUrl = process.env.E2E_DATABASE_URL;
   if (!databaseUrl || !/_e2e\b/.test(databaseUrl)) throw new Error("E2E_DATABASE_URL must point at a *_e2e database");
   const sql = postgres(databaseUrl, { max: 1, onnotice: () => {} });
-  const store = await browser.newContext({ baseURL: originOf("toko-a") });
+  // No JavaScript: the rendered form is posted as the browser would, then replayed with other Hosts (T-82 cases on the store host).
+  const store = await browser.newContext({ baseURL: originOf("toko-a"), javaScriptEnabled: false });
   const checkout = await browser.newContext({ baseURL: originOf("checkout") });
   try {
     const p = await store.newPage();
@@ -453,24 +456,53 @@ test("T82 direct configured checkout host accepts its own cart-bound form and cr
     await p.getByRole("button", { name: "Tambah ke keranjang" }).click();
     await expect(p.getByRole("heading", { name: "Keranjang", exact: true })).toBeVisible();
     const cart = (await store.cookies()).find((c) => /^(?:__Host-)?bl_cart_\d+$/.test(c.name));
-    expect(Boolean(cart), "owned fixture cart exists").toBe(true);
-    // Fixture setup ONLY: copy the owned cart into an isolated checkout-host cookie jar.
-    // This proves checkout's configured-host CSRF audience, NOT an automatic cross-host cart handoff.
-    // __Host- cookies remain host-only; no production cookie/routing behavior is altered.
-    await checkout.addCookies([{ ...cart!, domain: "checkout.localhost" }]);
+    expect(Boolean(cart), "owned store-host cart exists").toBe(true);
+    await p.goto("/checkout?store=toko-a");
+    await expect(p.getByRole("heading", { name: /Checkout · / })).toBeVisible();
+    expect(new URL(p.url()).origin).toBe(originOf("toko-a"));
+    await chooseDestination(p);
+    await p.getByLabel("Nama", { exact: true }).fill("Budi Host Checkout");
+    await p.getByLabel("Nomor HP").fill(testPhone());
+    await p.getByLabel("Alamat lengkap").fill("Jl. Merdeka No. 4, Menteng, Jakarta");
+    const form = p.locator("form", { has: p.getByRole("button", { name: "Buat pesanan", exact: true }) });
+    const entries = await form.evaluate((el) => Array.from(new FormData(el as HTMLFormElement).entries()).map(([k, v]) => [k, String(v)] as [string, string]));
+    expect(entries.filter(([k]) => k === "_csrf").length, "the form carries one rendered token").toBe(1);
+    const path = new URL(p.url()).pathname + new URL(p.url()).search;
+    const orders = async () => Number((await sql`select count(*)::int as n from "order" where cart_id = ${cart!.value}::uuid`)[0]!.n);
+    const cookie = `${cart!.name}=${cart!.value}`;
+    const post = async (host: string, fields: [string, string][]) => {
+      const ctx = await request_.newContext({ baseURL: `http://127.0.0.1:${PORT}` });
+      try {
+        const res = await ctx.post(path, { headers: { host, origin: `http://${host}`, cookie }, multipart: Object.fromEntries(fields), maxRedirects: 0 });
+        return { status: res.status(), location: res.headers().location ?? "" };
+      } finally { await ctx.dispose(); }
+    };
+    const otherPort = `toko-a.localhost:${PORT + 7}`;
+    for (const [label, host, fields] of [
+      ["other port, consistent origin", otherPort, entries],
+      ["sibling store host", hostOf("toko-b"), entries],
+      ["forged token on the exact host", hostOf("toko-a"), entries.map(([k, v]) => [k, k === "_csrf" ? "forged" : v] as [string, string])],
+    ] as const) {
+      const res = await post(host, [...fields]);
+      console.info(JSON.stringify({ case: label, status: res.status }));
+      expect(res.location.includes("/checkout/confirmation"), `${label}: no confirmation`).toBe(false);
+      expect(await orders(), `${label}: no order`).toBe(0);
+    }
+    // Positive control: the identical request on the exact Host is accepted.
+    const accepted = await post(hostOf("toko-a"), entries);
+    expect(accepted.status, "exact host control").toBe(303);
+    expect(accepted.location).toMatch(/^\/checkout\/confirmation\?order=[0-9]+$/);
+    expect(await orders(), "store-host checkout creates exactly one order").toBe(1);
+
+    // The hosted checkout host no longer reads a cart that was copied onto it rather than handed off (PR-16).
+    const fresh = await store.newPage();
+    await fresh.goto("/products/kaos-katun-basic");
+    await fresh.getByRole("button", { name: "Tambah ke keranjang" }).click();
+    const copied = (await store.cookies()).find((c) => /^(?:__Host-)?bl_cart_\d+$/.test(c.name));
+    await checkout.addCookies([{ ...copied!, domain: "checkout.localhost" }]);
     const c = await checkout.newPage();
     await c.goto("/checkout?store=toko-a");
-    await expect(c.getByRole("heading", { name: /Checkout · / })).toBeVisible();
-    expect(new URL(c.url()).origin).toBe(originOf("checkout"));
-    await chooseDestination(c);
-    await c.getByLabel("Nama", { exact: true }).fill("Budi Host Checkout");
-    await c.getByLabel("Nomor HP").fill(testPhone());
-    await c.getByLabel("Alamat lengkap").fill("Jl. Merdeka No. 4, Menteng, Jakarta");
-    expect(Number((await sql`select count(*)::int as n from "order" where cart_id = ${cart!.value}::uuid`)[0]!.n), "fixture has no order before submit").toBe(0);
-    await c.getByRole("button", { name: "Buat pesanan", exact: true }).click();
-    await expect(c.getByRole("heading", { name: "Pesanan diterima", exact: true })).toBeVisible();
-    expect(new URL(c.url()).origin).toBe(originOf("checkout"));
-    expect(Number((await sql`select count(*)::int as n from "order" where cart_id = ${cart!.value}::uuid`)[0]!.n), "configured-host checkout creates exactly one order").toBe(1);
+    await expect(c.getByText("Keranjang kosong atau sudah di-checkout.")).toBeVisible();
   } finally { await checkout.close(); await store.close(); await sql.end(); }
 });
 

@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { and, asc, count, eq, notExists, sql } from "drizzle-orm";
 import { canonicalSlug } from "../seller/commerce/catalog.ts";
-import { surfaceOriginsFromEnv } from "../platform/host.ts";
+import { storeLinks, surfaceOriginsFromEnv } from "../platform/host.ts";
 import { hit, type LimitRule } from "../seller/commerce/checkout.ts";
 import type { Executor } from "../client.ts";
 import { coverImages } from "./content.ts";
@@ -45,18 +45,12 @@ export const FEED_DESCRIPTION_MAX = 5000;
 
 // ── Public URLs ─────────────────────────────────────────────────────────────
 
-const localRoot = (root: string) => root === "localhost" || root === "127.0.0.1" || root.endsWith(".localhost");
-
 /**
- * Absolute base URL of a store's public storefront. Production: `https://<slug>.<STORE_ROOT_DOMAIN>`
- * (host mode, TLS at the edge). Development (`STORE_ROOT_DOMAIN` unset or a localhost root): the
- * path-mode storefront on the app origin, `<BETTER_AUTH_URL>/s/<slug>`, which also resolves from
- * a feed validator running outside the browser.
+ * Absolute base URL of a store's public storefront (feed `link`/`image_link`, referral redirects, Seller Admin product preview):
+ * the storefront base of the one link-origin function `storeLinks` (ADR-0014 decision 7), never a request host.
  */
 export function storeBaseUrl(slug: string, env: NodeJS.ProcessEnv = process.env): string {
-  const root = env.STORE_ROOT_DOMAIN;
-  if (root && !localRoot(root)) return `https://${slug}.${root}`;
-  return `${surfaceOriginsFromEnv(env).platformOrigin}/s/${slug}`;
+  return storeLinks(slug, { env }).storefront;
 }
 
 /** Where a fetcher downloads the feeds: the Seller Admin (`APP_ORIGIN`) host, not a store host (DOM-5). */

@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { dbMailer, type Mail, type Mailer } from "../../platform/accounts.ts";
-import { surfaceOriginsFromEnv } from "../../platform/host.ts";
+import { storeLinks, surfaceOriginsFromEnv } from "../../platform/host.ts";
 import type { Executor } from "../../client.ts";
 import { resolveOrderStore } from "../../platform/resolvers.ts";
 import { enqueue, registerHandler } from "./jobs.ts";
@@ -94,6 +94,8 @@ export async function getOrderForLink(exec: Executor, token: string, now = Date.
         id: order.id,
         storeId: order.storeId,
         storeName: store.name,
+        // Public (it names the storefront): a store host serves only its own store's link (T-103).
+        storeSlug: store.slug,
         status: order.status,
         paymentMethod: order.paymentMethod,
         courier: order.courier,
@@ -148,6 +150,7 @@ async function loadOrder(exec: Executor, storeId: number, orderId: number) {
     .select({
       id: order.id,
       storeName: store.name,
+      storeSlug: store.slug,
       status: order.status,
       paymentMethod: order.paymentMethod,
       buyerName: order.buyerName,
@@ -217,7 +220,8 @@ function copy(event: NotifyEvent, recipient: NotifyRecipient, o: OrderForMail): 
 /** Plain text + simple inline-styled HTML (no external assets); every value is escaped in the HTML. */
 export function renderMail(event: NotifyEvent, recipient: NotifyRecipient, o: OrderForMail, to: string): Mail {
   const { subject, lead } = copy(event, recipient, o);
-  const link = recipient === "buyer" ? `${origins().checkoutOrigin}/o/${signOrderLink(o.id)}` : `${origins().appOrigin}/seller/orders/${o.id}`;
+  // The buyer's signed status page lives on the store's own host (ADR-0014 decisions 5 and 7, T-103); the seller's link on Seller Admin.
+  const link = recipient === "buyer" ? `${storeLinks(o.storeSlug).origin}/o/${signOrderLink(o.id)}` : `${origins().appOrigin}/seller/orders/${o.id}`;
   const linkLabel = recipient === "buyer" ? "Lihat status pesanan" : "Buka pesanan di Seller Admin";
   const route = `${o.courier} ke ${o.destinationAreaLabel}`;
   const text = [

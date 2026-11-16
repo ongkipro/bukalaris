@@ -66,7 +66,8 @@ async function abandon(id: number, minutes = CHECKOUT_SESSION_IDLE_MINUTES + 1) 
   return rowOf(id);
 }
 const code = (p: Promise<unknown>) => p.then(() => "allowed", (e: { code?: string; cause?: { code?: string; message?: string }; message?: string }) => e.code ?? e.cause?.code ?? e.message);
-const origin = "https://checkout.example.test";
+// Recovery links are built on the store's own host from configuration (T-103, `storeLinks`), never on the checkout host.
+const env = { STORE_ROOT_DOMAIN: "toko.example.test", PLATFORM_ROOT_DOMAIN: "example.test" };
 
 describe("rates math (UX-15)", () => {
   const table: { name: string; in: { abandoned: number; rescued: number; orders: number }; out: { abandonBps: number | null; recoveryBps: number | null } }[] = [
@@ -355,7 +356,7 @@ describe("Seller Admin queue and WhatsApp recovery (SC-26)", () => {
     const x = await session(s, { buyerName: "Siti Aminah", buyerPhone: "+62 812-3456-7890" });
     await abandon(x.row.id);
     const now = new Date();
-    const r = await openWhatsAppRecovery(s.owner, x.row.id, { origin: `${origin}/`, now });
+    const r = await openWhatsAppRecovery(s.owner, x.row.id, { env, now });
     const url = new URL(r.url);
     expect(url.origin + url.pathname).toBe("https://wa.me/6281234567890");
     const message = url.searchParams.get("text")!;
@@ -363,7 +364,7 @@ describe("Seller Admin queue and WhatsApp recovery (SC-26)", () => {
     expect(message).toContain("Toko wa-a");
     expect(message).toContain(r.resumeUrl);
     expect(message).not.toMatch(/terkirim|dikirim|pasti sampai|gratis|diskon/i); // no promise of delivery or price
-    expect(r.resumeUrl.startsWith(`${origin}/checkout/r/v1.`)).toBe(true);
+    expect(r.resumeUrl.startsWith(`https://${s.owner.storeSlug}.toko.example.test/checkout/r/v1.`)).toBe(true);
     expect(r.expiresAt.getTime()).toBe(Math.floor(now.getTime() / 1000) * 1000 + 7 * DAY);
     // The link never exposes the session's primary key or buyer data.
     const token = r.resumeUrl.split("/checkout/r/")[1]!;
@@ -386,18 +387,18 @@ describe("Seller Admin queue and WhatsApp recovery (SC-26)", () => {
     const foreign = await session(b, { buyerPhone: "081234567892" });
     await abandon(noPhone.row.id);
     await abandon(foreign.row.id);
-    expect(await code(openWhatsAppRecovery(a.owner, noPhone.row.id, { origin }))).toBe("no_phone");
-    expect(await code(openWhatsAppRecovery(a.owner, active.row.id, { origin }))).toBe("not_actionable");
-    expect(await code(openWhatsAppRecovery(a.owner, foreign.row.id, { origin }))).toBe("not_found"); // another store's session id
-    expect(await code(openWhatsAppRecovery(a.owner, 0, { origin }))).toBe("not_found");
-    expect(await code(openWhatsAppRecovery(a.owner, Number.NaN, { origin }))).toBe("not_found");
+    expect(await code(openWhatsAppRecovery(a.owner, noPhone.row.id, { env }))).toBe("no_phone");
+    expect(await code(openWhatsAppRecovery(a.owner, active.row.id, { env }))).toBe("not_actionable");
+    expect(await code(openWhatsAppRecovery(a.owner, foreign.row.id, { env }))).toBe("not_found"); // another store's session id
+    expect(await code(openWhatsAppRecovery(a.owner, 0, { env }))).toBe("not_found");
+    expect(await code(openWhatsAppRecovery(a.owner, Number.NaN, { env }))).toBe("not_found");
     expect((await rowOf(foreign.row.id)).waOpenedAt).toBeNull();
     expect((await rowOf(noPhone.row.id)).waOpenedAt).toBeNull();
     // the buyer comes back between the list and the click: no stamp, no link
     const x = await session(a, { buyerPhone: "081234567893" });
     await abandon(x.row.id);
     await captureCheckoutSession(db, x.cartId, typed({ buyerPhone: "081234567893" }));
-    expect(await code(openWhatsAppRecovery(a.owner, x.row.id, { origin }))).toBe("not_actionable");
+    expect(await code(openWhatsAppRecovery(a.owner, x.row.id, { env }))).toBe("not_actionable");
     expect((await rowOf(x.row.id)).waOpenedAt).toBeNull();
   });
 
@@ -413,11 +414,11 @@ describe("Seller Admin queue and WhatsApp recovery (SC-26)", () => {
     const x = await session(s);
     await abandon(x.row.id);
     expect((await getAbandonedCarts(staff)).queue.length).toBe(1);
-    expect((await openWhatsAppRecovery(staff, x.row.id, { origin })).url).toContain("wa.me/");
+    expect((await openWhatsAppRecovery(staff, x.row.id, { env })).url).toContain("wa.me/");
     const late = await s.sellerAt(new Date(Date.now() + 30 * DAY));
     expect(late.billing.writable).toBe(false);
     expect((await getAbandonedCarts(late)).queue.length).toBe(1); // read-only applies to writes only
-    expect(await code(openWhatsAppRecovery(late, x.row.id, { origin }))).toBe("billing_read_only");
+    expect(await code(openWhatsAppRecovery(late, x.row.id, { env }))).toBe("billing_read_only");
   });
 });
 
@@ -487,7 +488,7 @@ describe("signed resume link (7 days, store- and session-bound)", () => {
     const x = await session(a);
     const y = await session(b, { buyerPhone: "081234567891" });
     await abandon(x.row.id);
-    const link = await openWhatsAppRecovery(a.owner, x.row.id, { origin });
+    const link = await openWhatsAppRecovery(a.owner, x.row.id, { env });
     const token = link.resumeUrl.split("/checkout/r/")[1]!;
     const ok = await resumeCheckout(db, token);
     expect(ok).toEqual({ ok: true, storeId: a.storeId, storeSlug: "res-a", cartId: x.cartId });
@@ -510,7 +511,7 @@ describe("signed resume link (7 days, store- and session-bound)", () => {
     // an emptied or purged cart is a dead end too
     const z = await session(a, { buyerPhone: "081234567892" });
     await abandon(z.row.id);
-    const zl = (await openWhatsAppRecovery(a.owner, z.row.id, { origin })).resumeUrl.split("/checkout/r/")[1]!;
+    const zl = (await openWhatsAppRecovery(a.owner, z.row.id, { env })).resumeUrl.split("/checkout/r/")[1]!;
     await setCartLine(a.sf, z.cartId, { variantId: a.variantId, quantity: 0 }, "set");
     expect(await resumeCheckout(db, zl)).toEqual({ ok: false, reason: "cart_gone" });
     await admin.execute(sql`delete from checkout_session where id = ${z.row.id}`);
@@ -518,7 +519,7 @@ describe("signed resume link (7 days, store- and session-bound)", () => {
     // a suspended store takes no resume
     const w = await session(a, { buyerPhone: "081234567893" });
     await abandon(w.row.id);
-    const wl = (await openWhatsAppRecovery(a.owner, w.row.id, { origin })).resumeUrl.split("/checkout/r/")[1]!;
+    const wl = (await openWhatsAppRecovery(a.owner, w.row.id, { env })).resumeUrl.split("/checkout/r/")[1]!;
     await admin.execute(sql`update store set status = 'suspended' where id = ${a.storeId}`);
     expect(await resumeCheckout(db, wl)).toEqual({ ok: false, reason: "store_unavailable" });
   });
@@ -610,7 +611,7 @@ describe("wave 5 review: the WhatsApp target, and who owns the idle and purge cl
     const s = await makeStore("toko-a");
     const foreign = await session(s, { buyerPhone: "81234567890" }); // 8 to 15 digits is accepted by the form: that is +81 (Japan) on wa.me
     await abandon(foreign.row.id);
-    expect(await code(openWhatsAppRecovery(s.owner, foreign.row.id, { origin }))).toBe("no_phone");
+    expect(await code(openWhatsAppRecovery(s.owner, foreign.row.id, { env }))).toBe("no_phone");
   });
 
   it("the app login cannot backdate a session to abandon it at once, pre-age an inserted row, fake a rescue without an order, or write the WA stamp", async () => {

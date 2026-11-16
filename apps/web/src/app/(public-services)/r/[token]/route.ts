@@ -1,6 +1,6 @@
-import { addReferralClick, captureReferralClick, classifyClickRequest, db, storeBaseUrl } from "@bukalaris/db";
+import { addReferralClick, captureReferralClick, classifyClickRequest, db, storeBaseUrl, type ClickOutcome } from "@bukalaris/db";
 import { surfaceCookieNames } from "@bukalaris/db/host";
-import { clientIp } from "@/lib/storefront";
+import { clientIp, hostStoreScope } from "@/lib/storefront";
 import { notFound } from "next/navigation";
 import { NextResponse, type NextRequest } from "next/server";
 
@@ -11,9 +11,27 @@ import { NextResponse, type NextRequest } from "next/server";
  * stuff the visitor's cookie. Unknown, revoked, expired, blocked and suspended links give one identical not-found. The continuity cookie holds opaque click ids only, host-only,
  * HttpOnly, SameSite=Lax. No IP, user agent, referrer or full URL is stored. A selector is never authority: checkout re-validates every id against the database.
  */
+const FOREIGN = new Error("referral link of another store");
+
 export async function GET(req: NextRequest, ctx: RouteContext<"/r/[token]">) {
   const { token } = await ctx.params;
-  const outcome = await captureReferralClick(db(), { token, decision: classifyClickRequest({ method: req.method, headers: req.headers }), clientIp: await clientIp() });
+  const input = { token, decision: classifyClickRequest({ method: req.method, headers: req.headers }), clientIp: await clientIp() };
+  const own = await hostStoreScope();
+  // C-D1 (T-103): a store host serves only its own store's links. The capture runs in a transaction that is rolled back for another
+  // store's link, so a foreign token leaves no click, no counter and no cookie, and answers the same not-found as an unknown one.
+  const outcome =
+    own === undefined
+      ? await captureReferralClick(db(), input)
+      : await db()
+          .transaction(async (tx) => {
+            const o = await captureReferralClick(tx, input);
+            if (o && o.target.storeSlug !== own?.storeSlug) throw FOREIGN;
+            return o;
+          })
+          .catch((err: unknown): ClickOutcome | null => {
+            if (err === FOREIGN) return null;
+            throw err;
+          });
   if (!outcome) notFound();
   const { storeSlug, productPath } = outcome.target;
   const res = new NextResponse(null, {
