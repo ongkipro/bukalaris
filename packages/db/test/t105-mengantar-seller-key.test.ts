@@ -2,7 +2,9 @@ import { inspect } from "node:util";
 import { and, eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { issueSellerStepUp } from "../src/ledger/stepup.ts";
-import { FakeProviderCheck, saveProviderKey, setProviderCheckTransport, shippingReadiness } from "../src/payments/provider-accounts.ts";
+import { FakeProviderCheck, saveProviderKey, setPaymentAccountDetails, setProviderCheckTransport, shippingReadiness } from "../src/payments/provider-accounts.ts";
+import { paymentAttempt, storePaymentAccount } from "../src/payments/schema-payments.ts";
+import { confirmPaymentByHand } from "../src/payments/seller.ts";
 import { FAKE_NO_COD_AREA } from "../src/payments/providers.ts";
 import { bindSession, type SellerScope } from "../src/platform/scoped.ts";
 import { withStore } from "../src/platform/tenant.ts";
@@ -58,10 +60,25 @@ async function submit(s: Own, over: Record<string, unknown>) {
   const shippingQuote = formatShippingQuote((await quote(s, (over.destinationAreaId as string | undefined) ?? MENTENG)).options);
   return placeOrder(db, await cart(s), buyer({ shippingQuote, ...over }));
 }
+/**
+ * T-107 (ADR-0013 section 8, Ceiling T-106-1 closed for it): a store on its own Mengantar account takes QRIS/VA only on its OWN AutoLaris account,
+ * so a prepaid order here first connects one (fake, sandbox) and is confirmed by the owner by hand (decision 24) instead of the bare "pay".
+ */
+async function ownAutoLaris(s: Own) {
+  if ((await admin.select({ id: storePaymentAccount.id }).from(storePaymentAccount).where(eq(storePaymentAccount.storeId, s.storeId))).length > 0) return;
+  await saveProviderKey(s.me, { provider: "autolaris", environment: "sandbox", apiKey: `CANARY-T105-AUTOLARIS-${s.storeId}-0123456789abcdef`, proofId: await issueSellerStepUp(s.me, { action: "integrations.provider_key", subjectId: "autolaris" }) });
+  await setPaymentAccountDetails(s.me, { originAreaId: "3517100", destinationAreaId: "3518010", shipperEmail: `store-${s.storeId}@example.invalid`, senderAddress: "Jl. Braga No. 1, Bandung 40111", paymentOnlyConfirmed: true });
+}
 async function paidOrder(s: Own, over: Record<string, unknown> = {}) {
+  const cod = over.paymentMethod === "cod";
+  if (!cod) await ownAutoLaris(s);
   const { orderId } = await submit(s, { paymentMethod: "manual_transfer", ...over });
   await run("setup");
-  await transitionOrder(s.owner, orderId, over.paymentMethod === "cod" ? "confirm" : "pay");
+  if (cod) await transitionOrder(s.owner, orderId, "confirm");
+  else {
+    const [a] = await admin.select({ id: paymentAttempt.id }).from(paymentAttempt).where(eq(paymentAttempt.orderId, orderId));
+    await confirmPaymentByHand(s.me, { attemptId: a!.id, reason: "uang masuk di mutasi", evidence: `MUT-${orderId}` });
+  }
   return orderId;
 }
 type Scripted = BookingAdapter & { inputs: BookingInput[]; active: number; maxActive: number };
@@ -189,6 +206,7 @@ describe("T-105 the filters of ADR-0013 section 4: one eligibility function", ()
     // Blocked province (DKI Jakarta): refused at submit; the prepaid order on the same courier still passes.
     await saveShippingSettings(s.me, { codEnabled: true, codFeeBearer: "seller", codBlockedProvinces: ["dki-jakarta"], revision: 0 });
     expect(await code(submit(s, { courier: "JNE", paymentMethod: "cod" }))).toBe("courier_cod");
+    await ownAutoLaris(s); // T-107: prepaid on a store with its own Mengantar account runs on its own AutoLaris account
     expect(await code(submit(s, { courier: "JNE", paymentMethod: "manual_transfer" }))).toBe("ok");
     // Another province is allowed; then the store switch and the courier switch each refuse it at submit.
     await searchDestinationAreas("gubeng", undefined, s.sf);
@@ -327,7 +345,7 @@ describe("T-105 booking on the seller's key", () => {
       [second, "scheduled_pickup", "seller_owned", `bk-${s.storeId}-${second}-0`],
     ]);
     expect(await shipmentOf(first)).toMatchObject({ status: "booked", trackingNumber: `RESI-${first}`, pickupType: "drop_off" });
-    expect(await shipmentOf(second)).toMatchObject({ status: "booked", codAmount: 112_000 });
+    expect(await shipmentOf(second)).toMatchObject({ status: "booked", codAmount: 112_000 + 3_360 }); // T-107: total plus the COD fee the buyer bears (default bearer `buyer`, 3% UNVERIFIED rate)
     expect((await orderOf(first)).status).toBe("shipped");
     // The platform reserves nothing for a store on its own account (the seller pays the courier: ADR-0013 C-P7).
     expect(await platform.select().from(shipmentCost).where(eq(shipmentCost.storeId, s.storeId))).toEqual([]);

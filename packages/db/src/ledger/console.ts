@@ -9,6 +9,7 @@ import { CONSOLE_QUEUE_LIMIT, STATEMENT_PAGE } from "./settings.ts";
 import { ledgerBalance, lockStore, type LedgerRow } from "./ledger.ts";
 import { CLAIM_NOTE } from "../seller/commerce/orders.ts";
 import { staleBatchReason } from "./reconciliation.ts";
+import { assertPlatformHeldStore } from "./boundary.ts";
 
 // Owner console services of the money screens (SA-08 payouts and refunds, SA-26 money position, SA-53 COD reconciliation). Every function takes the OperatorScope and
 // checks its capability first; personal data (bank values) is never selected here except as the last four digits (see `payouts.ts`).
@@ -62,7 +63,8 @@ export async function manualCompletionCandidates(op: OperatorScope): Promise<Man
   const rows = await exec(op, sql`
     select o.id, o.store_id, s.name as store_name, o.payment_method, h.created_at
       from "order" o join store s on s.id = o.store_id join order_status_history h on h.store_id = o.store_id and h.order_id = o.id and h.note = ${CLAIM_NOTE}
-     where o.status = 'shipped' order by h.id limit ${CONSOLE_QUEUE_LIMIT}`);
+      join order_financials f on f.store_id = o.store_id and f.order_id = o.id and f.money_mode = 'platform_held'
+     where o.status = 'shipped' order by h.id limit ${CONSOLE_QUEUE_LIMIT}`); // T-107: only platform-held money (a seller-owned order completes from the store's own tracking read)
   return rows.map((r) => ({ orderId: Number(r.id), storeId: Number(r.store_id), storeName: r.store_name!, method: r.payment_method!, claimedAt: r.created_at! }));
 }
 
@@ -81,6 +83,7 @@ const adjustmentPayload = (i: { storeId: number; amountIdr: number; businessRef:
 export async function requestLedgerAdjustment(op: OperatorScope, raw: unknown): Promise<{ approvalId: number }> {
   await requirePlatformCap(op, "ledger.adjust");
   const i = adjustmentInput.parse(raw);
+  await withStore(op.exec, i.storeId, (tx) => assertPlatformHeldStore(tx, i.storeId)); // T-107: no ledger for a store on its own accounts
   const req = await requestApproval(op, { actionKey: "ledger.adjust", targetKind: "ledger_adjustment", targetId: adjustmentTarget(i), payload: adjustmentPayload(i), reason: i.reason });
   return { approvalId: req.id };
 }

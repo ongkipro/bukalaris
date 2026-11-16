@@ -10,7 +10,7 @@ import { SignalEvent } from "@/components/pixels/runtime";
 import { rupiah } from "@/lib/format";
 import { signalsFor } from "@/lib/signals";
 import { checkoutCart, clientIp } from "@/lib/storefront";
-import { checkoutPaymentChannels, checkoutShippingOptions, checkoutSummary, db, DomainError, feeLabel, formatShippingQuote, searchDestinationAreas, type Area, type FeeSchedule, type PaymentChannel, type ShippingOption } from "@bukalaris/db";
+import { checkoutPaymentChannels, checkoutShippingOptions, checkoutSummary, codFeeLabel, db, DomainError, feeLabel, type CodFeeTerms, formatShippingQuote, searchDestinationAreas, type Area, type FeeSchedule, type PaymentChannel, type ShippingOption } from "@bukalaris/db";
 import { randomUUID } from "node:crypto";
 import { submitCheckout } from "./actions";
 import { CaptureProgress } from "./capture-progress";
@@ -72,6 +72,7 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
   let channels: PaymentChannel[] = [];
   let schedule: FeeSchedule | null = null;
   let sellerBearsFee = false;
+  let codFee: CodFeeTerms | null = null;
   let channelError: string | undefined;
   if (area && summary.canShip) {
     try {
@@ -79,6 +80,7 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
       const methods = await checkoutPaymentChannels(db(), scope.storeId);
       ({ channels, schedule } = methods);
       sellerBearsFee = methods.account?.feeBearer === "seller";
+      codFee = methods.codFee; // T-107: a store on its own accounts states its COD fee before the buyer orders (decisions 17 and 18)
     } catch (err) {
       if (!(err instanceof DomainError)) throw err;
       channelError = err.message;
@@ -227,6 +229,7 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
                     <span className="flex-1">
                       Bayar di tempat (COD)
                       <span className="block text-xs text-muted-foreground">Penjual mengonfirmasi pesanan lewat telepon/WA sebelum dikirim.</span>
+                      {codFee && <span className="block text-xs text-muted-foreground" data-testid="cod-fee-label">{codFeeLabel(codFee)}</span>}
                     </span>
                   </label>
                 )}

@@ -142,7 +142,7 @@ test("a store on its own courier account: pickup registered, couriers and COD fi
   await reloadUntil(page, orderPath, "order-status", "Dikirim");
   await expect(page.getByTestId("shipment-resi")).toHaveText(/^FAKE-JNE-/);
   await expect(page.getByTestId("shipment-status")).toHaveText("Resi terbit, menunggu pickup");
-  await expect(page.getByTestId("order-shipping-account")).toHaveText("Akun kurir: milik toko Anda");
+  await expect(page.getByTestId("order-shipping-account")).toHaveText("Akun Mengantar: milik toko Anda");
   await evidence(page, info, "t105-order-booked");
 });
 

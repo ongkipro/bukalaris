@@ -15,7 +15,7 @@ import { auditLog, order, store } from "../schema.ts";
 import { credentialKeyring, keyFingerprint, sealCredential, unsealCredential } from "../shipping/credentials.ts";
 import type { ProviderEnvironment } from "../shipping/schema-accounts.ts";
 import { applySellerSettlement, PAYMENT_INSTRUCTION, PAYMENT_VERIFY, type Attempt } from "./attempts.ts";
-import { isPricedChannel, paymentFee, PaymentContractError, type FeeSchedule, type PaymentChannel, type SubmitProfile } from "./contract.ts";
+import { COD_FEE_CODE, isPricedChannel, paymentFee, PaymentContractError, type FeeSchedule, type PaymentChannel, type SubmitProfile } from "./contract.ts";
 import { FakeAutoLaris } from "./fake.ts";
 import { autolarisProductionOn, fakeCheckAllowed, openProviderKey, paymentReadiness, providerOrigin } from "./provider-accounts.ts";
 import type { PaymentAdapter } from "./providers.ts";
@@ -186,7 +186,7 @@ export async function storePaymentMethods(exec: Executor, storeId: number, platf
   }
   const excluded = new Set(a?.excludedChannels ?? []);
   return {
-    channels: listed.filter((c) => isPricedChannel(schedule, c.code) && !locks.has(c.code) && !excluded.has(c.code)),
+    channels: listed.filter((c) => c.code !== COD_FEE_CODE && isPricedChannel(schedule, c.code) && !locks.has(c.code) && !excluded.has(c.code)),
     schedule,
     account: a ? { id: a.id, environment: a.environment, feeBearer: a.feeBearer } : null,
   };
@@ -321,7 +321,7 @@ export async function sellerPaymentPreferences(scope: SellerScope) {
     const [schedule, locks] = await Promise.all([currentFeeSchedule(tx), lockedChannels(tx)]);
     return {
       preferences: a ? { enabled: a.enabled, excludedChannels: a.excludedChannels, feeBearer: a.feeBearer } : null,
-      channels: Object.keys(schedule.rates).sort().map((code) => ({ code, locked: locks.has(code) })),
+      channels: Object.keys(schedule.rates).filter((code) => code !== COD_FEE_CODE).sort().map((code) => ({ code, locked: locks.has(code) })), // T-107: the COD fee row is no channel
     };
   });
 }

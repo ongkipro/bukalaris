@@ -38,6 +38,8 @@ import "../src/billing/jobs.ts";
 // T-106 (ADR-0013 sections 3 to 6, decision 34, D-21, D-33): AutoLaris on the seller's own key, against FAKE AutoLaris accounts (one per key).
 // No network, no real key: the keys are canaries, so a leak into any row, job, observation or log line fails the literal scan.
 
+/** T-107 (migration 0021): the provider COD fee row of the versioned schedule, UNVERIFIED starting value. */
+const COD_RATE = { COD: { base: "payable", rateBps: 300, fixedIdr: 0 } } as const;
 const KEY = { a: "CANARY-T106-STORE-A-KEY-1f2e3d4c5b6a7980", b: "CANARY-T106-STORE-B-KEY-9a8b7c6d5e4f3021" } as const;
 const code = (p: Promise<unknown>) => p.then(() => "ok", (e: { code?: string; cause?: { code?: string } }) => e.code ?? e.cause?.code ?? String(e));
 const pgCode = (p: Promise<unknown>) => p.then(() => "allowed", (e: { cause?: { code?: string } }) => e.cause?.code);
@@ -274,7 +276,7 @@ describe("T-106 method rules at submit, fee bearer and Owner console settings", 
     const v = await publishPaymentFeeRates(op, { rates: [{ channelCode: "VABCA", base: "flat", rateBps: 0, fixedIdr: 4_000 }], reason: "provider confirmed new VA price" });
     expect(v).toBe(2);
     // A channel the new version does not name is carried forward (review nit), never silently dropped from checkout.
-    expect((await currentFeeSchedule(platform)).rates).toEqual({ ...STARTING_FEE_RATES, VABCA: { base: "flat", rateBps: 0, fixedIdr: 4_000 } });
+    expect((await currentFeeSchedule(platform)).rates).toEqual({ ...STARTING_FEE_RATES, ...COD_RATE, VABCA: { base: "flat", rateBps: 0, fixedIdr: 4_000 } }); // T-107: the COD fee row is carried forward too
     expect((await currentFeeSchedule(platform)).rates.VABCA).toEqual({ base: "flat", rateBps: 0, fixedIdr: 4_000 });
     await setPaymentPreferences(s.me, { enabled: true, excludedChannels: [], feeBearer: "buyer" });
     const later = (await openOrder(s)).a;
@@ -288,7 +290,7 @@ describe("T-106 method rules at submit, fee bearer and Owner console settings", 
     expect(await pgCode(db.execute(sql`insert into payment_fee_rate (version, channel_code, base, rate_bps, fixed_idr, created_by, reason) values (9, 'VABCA', 'flat', 0, 1, 'x', 'xyz')`))).toBe("42501");
     // The version-1 seed is the documented starting data.
     const seed = await platform.select().from(paymentFeeRate).where(eq(paymentFeeRate.version, 1));
-    expect(Object.fromEntries(seed.map((r) => [r.channelCode, { base: r.base, rateBps: r.rateBps, fixedIdr: r.fixedIdr }]))).toEqual(STARTING_FEE_RATES);
+    expect(Object.fromEntries(seed.map((r) => [r.channelCode, { base: r.base, rateBps: r.rateBps, fixedIdr: r.fixedIdr }]))).toEqual({ ...STARTING_FEE_RATES, ...COD_RATE }); // T-107 added the COD row (migration 0021)
   });
 
   it("Owner console payment settings need providers.manage and are audited; reading needs providers.read", async () => {

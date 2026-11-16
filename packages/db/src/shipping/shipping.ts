@@ -13,6 +13,7 @@ import type { ProviderEnvironment, ShippingAccountKind } from "./schema-accounts
 import { storeShippingAccount } from "./schema-accounts.ts";
 import { searchSellerAreas, sellerAccount, sellerShippingOptions } from "./rules.ts";
 import { sellerMengantar } from "./seller.ts";
+import { storeMoneyMode } from "../ledger/boundary.ts";
 
 export { MengantarClient, MengantarError, MengantarWriteDisabledError, redactUrl } from "./mengantar/client.ts";
 export { COURIER_LABELS, mengantarAdapter, mengantarFromEnv, toProviderQuote } from "./mengantar/adapter.ts";
@@ -235,14 +236,17 @@ export async function shippingOptions(
     });
     return { originAreaId: origin.areaId, destinationAreaId: destination, weightKg, shippingAccountId: account.id, shippingAccountKind: account.kind, environment: account.environment, options };
   }
-  const [rule, discount, quotes] = await Promise.all([
+  const [rule, discount, quotes, mode] = await Promise.all([
     getMarginRule(scope.exec),
     effectiveShippingDiscount(scope.exec),
     adapter.estimate({ originAreaId: origin.areaId, destinationAreaId: destination, weightKg, codAmount: cart.subtotal, shippingAccountId: account.id, shippingAccountKind: account.kind }),
+    inStore(scope, (scope) => storeMoneyMode(scope.exec, scope.storeId)),
   ]);
   const codPolicy = await codAllowedCouriers(scope.exec);
   // COD only where the data-driven allow-list says `cod_allowed AND return_free` (ADR-0006 decision 4); no courier name is hard-coded here.
-  const options = quoteWithMargin(quotes, rule).map((o): ShippingOption<PricedFee> => ({ ...o, prepaid: applyShippingDiscount(o.prepaid, discount), cod: o.cod && codPolicy.has(o.courier) ? applyShippingDiscount(o.cod, discount) : null }));
+  // T-107 (ADR-0013 decision 15, section 8): a store on its own accounts pays no platform margin and gets no platform-funded discount, on any account.
+  const priced = (fee: PricedFee): PricedFee => (mode === "seller_owned" ? { providerCost: fee.providerCost, margin: 0, buyerFee: fee.providerCost, platformDiscount: 0 } : fee);
+  const options = quoteWithMargin(quotes, rule).map((o): ShippingOption<PricedFee> => ({ ...o, prepaid: priced(applyShippingDiscount(o.prepaid, discount)), cod: o.cod && codPolicy.has(o.courier) ? priced(applyShippingDiscount(o.cod, discount)) : null }));
   return { originAreaId: origin.areaId, destinationAreaId: destination, weightKg, shippingAccountId: account.id, shippingAccountKind: account.kind, environment: null, options };
 }
 

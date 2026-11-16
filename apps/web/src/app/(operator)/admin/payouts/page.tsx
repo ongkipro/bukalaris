@@ -42,6 +42,9 @@ export default async function PayoutsPage({ searchParams }: PageProps<"/admin/pa
     <section className="grid gap-6">
       <PageHeader title="Pencairan dan refund" description="Permintaan penarikan seller dan refund pembeli (non-COD). Persetujuan transfer butuh orang kedua; nomor rekening hanya tampil di halaman rincian dan setiap tampilannya tercatat." />
       <Notice error={error} saved={typeof saved === "string" ? saved : undefined} savedText={typeof saved === "string" ? SAVED[saved] : undefined} />
+      <p role="note" className="rounded-lg border border-dashed px-3 py-2.5 text-sm text-muted-foreground" data-testid="platform-held-only">
+        Hanya uang yang dipegang Bukalaris. Toko yang memakai akun Mengantar dan AutoLaris miliknya sendiri tidak punya saldo, penarikan atau refund Bukalaris; penjualnya mengembalikan uang pembeli sendiri dan mencatatnya di pesanan.
+      </p>
       {freeze && (
         <form action={setFreezeAction} className={`grid gap-2 rounded-lg border p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end ${freeze.frozen ? "border-destructive/50 bg-destructive/5" : ""}`} data-testid="payout-freeze" aria-label="Pembekuan penarikan setelah pemulihan data">
         <CsrfField />

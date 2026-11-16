@@ -7,6 +7,7 @@ import { LEDGER_RELEASE_BATCH } from "./settings.ts";
 import { pgCode } from "../ops/capabilities.ts";
 import { ledgerBalance, lockStore } from "./ledger.ts";
 import { convertLateObligations } from "./refunds.ts";
+import { assertPlatformHeldStore, storeMoneyMode } from "./boundary.ts";
 
 // JOB-24 `ledger.release` (ADR-0006 decision 4, D-14). Seller money becomes `available` only for parcels that are DELIVERED and RECONCILED:
 //  - a prepaid sale (booked pending at paid) is released when its order is `completed` (basis `delivery`);
@@ -25,6 +26,7 @@ export type ReleaseResult = { released: number; netted: number; stores: number }
 /** Release everything releasable for ONE store; idempotent. Callers: the periodic job and tests. */
 export async function releaseStore(db: Db | Executor, storeId: number): Promise<{ released: number; netted: number }> {
   return withStore(db, storeId, async (tx) => {
+    await assertPlatformHeldStore(tx, storeId); // T-107: a store on its own accounts has nothing to release, by rule
     await lockStore(tx, storeId);
     // Sales and cashback of delivered prepaid orders and of reconciled COD orders; rows locked in ascending id.
     const sales = (await tx.execute(sql`
@@ -141,6 +143,8 @@ export async function releaseAll(db: Db, limit = LEDGER_RELEASE_BATCH): Promise<
     if (page.length === 0) break;
     for (const storeId of page) {
       try {
+        // T-107: legacy entries of a store that moved to its own accounts stay as they are (no payout exists for them either; DECISIONS T-107-1).
+        if ((await withStore(db, storeId, (tx) => storeMoneyMode(tx, storeId))) === "seller_owned") continue;
         const r = await releaseStore(db, storeId);
         out.released += r.released;
         out.netted += r.netted;

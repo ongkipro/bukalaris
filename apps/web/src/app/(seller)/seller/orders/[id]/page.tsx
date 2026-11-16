@@ -6,15 +6,16 @@ import { StatusBadge } from "@/components/status-badge";
 import { SubmitButton } from "@/components/submit-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { NativeSelect } from "@/components/ui/native-select";
 import { sellerScope } from "@/lib/context";
-import { rupiah, tanggal } from "@/lib/format";
+import { rupiah, tanggal, tanggalIso } from "@/lib/format";
 import { orderActionLabel, orderStatusLabel, orderStatusTone, paymentLabel, type Tone } from "@/lib/status";
-import { BOOKABLE, can, codBookingAllowed, getOrder, getShipment, providerStatusLabel, RETRYABLE, SHIPMENT_STATUS_LABEL, shipmentTimeline, TERMINAL, whiteLabel, type OrderStatus, type ShipmentStatus } from "@bukalaris/db";
+import { BOOKABLE, can, codBookingAllowed, getOrder, getShipment, providerStatusLabel, RETRYABLE, SELLER_REFUND_METHOD_LABEL, SELLER_REFUND_METHODS, SHIPMENT_STATUS_LABEL, shipmentTimeline, TERMINAL, whiteLabel, wibToday, type OrderStatus, type ShipmentStatus } from "@bukalaris/db";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { orderAction } from "../actions";
 import { parseId } from "../status";
-import { bookShipmentAction, linkUnknownBookingAction, refreshTrackingAction, releaseUnknownBookingAction } from "./actions";
+import { bookShipmentAction, linkUnknownBookingAction, recordRefundAction, refreshTrackingAction, releaseUnknownBookingAction } from "./actions";
 
 const label = (s: string) => orderStatusLabel[s as OrderStatus] ?? s;
 const shipmentTone: Record<ShipmentStatus, Tone> = {
@@ -35,8 +36,10 @@ const savedText: Record<string, string> = {
   booking: "Booking diminta. Resi dan status pesanan diperbarui otomatis; muat ulang halaman ini sebentar lagi.",
   tracking: "Pembaruan status diminta; muat ulang halaman ini sebentar lagi.",
   released: "Booking dilepas. Anda boleh membooking pesanan ini lagi.",
-  linked: "Order dari akun kurir ditautkan. Status diperbarui otomatis dari akun kurir Anda.",
+  linked: "Order dari akun Mengantar ditautkan. Status diperbarui otomatis dari akun Mengantar Anda.",
+  refund: "Refund tercatat pada pesanan ini. Bukalaris tidak mengirim uang; refund sudah Anda bayar sendiri.",
 };
+const bearerText = { buyer: "ditanggung pembeli", seller: "ditanggung toko" } as const;
 const pickupChoices = [
   { value: "scheduled_pickup", label: "Dijemput kurir di alamat pickup" },
   { value: "drop_off", label: "Antar sendiri ke agen kurir" },
@@ -55,7 +58,15 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
   // T-105: a store on its own courier account collects its own COD; the platform COD gate does not apply to it.
   const ownAccount = o.shippingAccountKind === "seller_owned";
   const codLocked = !ownAccount && o.paymentMethod === "cod" && !codBookingAllowed();
-  const carrier = ownAccount ? "akun kurir toko" : "Bukalaris Kirim";
+  // T-107: an order paid to the store's own accounts is never booked on a platform shipping account (no platform debit or margin); without its own
+  // Mengantar account the seller ships with a waybill of their own (the service and the database refuse the platform booking too).
+  const platformBookingClosed = o.money?.mode === "seller_owned" && !ownAccount;
+  const carrier = ownAccount ? "akun Mengantar toko" : "Bukalaris Kirim";
+  // T-107 (ADR-0013 section 8): the seller holds the Mengantar and AutoLaris accounts, so Seller Admin names them; the platform-managed path stays white-label.
+  const brand = (t: string) => (ownAccount ? t.replaceAll("Bukalaris Kirim", "Mengantar") : t);
+  const money = o.money?.mode === "seller_owned" ? o.money : null;
+  const refundLeft = money ? money.billIdr - money.refundedIdr : 0;
+  const todayWib = wibToday();
   const simple = o.actions.filter((a) => a === "confirm" || a === "pay" || a === "process");
   const confirming = o.status === "awaiting_confirmation" || o.status === "on_hold";
 
@@ -64,7 +75,12 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
       <PageHeader
         back={{ href: "/seller/orders", label: "Semua pesanan" }}
         title={`Pesanan #${o.id}`}
-        badge={<StatusBadge label={orderStatusLabel[o.status]} tone={orderStatusTone[o.status]} data-testid="order-status" />}
+        badge={
+          <span className="flex flex-wrap gap-1.5">
+            <StatusBadge label={orderStatusLabel[o.status]} tone={orderStatusTone[o.status]} data-testid="order-status" />
+            {o.testOrder && <StatusBadge label="Pesanan uji" tone="outline" data-testid="test-order" />}
+          </span>
+        }
         description={
           <>
             Dibuat <time dateTime={o.createdAt.toISOString()}>{tanggal(o.createdAt)}</time> · diperbarui <time dateTime={o.updatedAt.toISOString()}>{tanggal(o.updatedAt)}</time>
@@ -72,6 +88,11 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
         }
       />
       <Notice error={error} saved={saved} savedText={typeof saved === "string" ? savedText[saved] : undefined} />
+      {o.testOrder && (
+        <p role="note" className="rounded-lg border border-dashed px-3 py-2.5 text-sm text-muted-foreground" data-testid="test-order-note">
+          Pesanan uji: dibuat lewat akun sandbox Mengantar atau AutoLaris. Tidak ada uang sungguhan, dan pesanan ini tidak dihitung di angka penjualan.
+        </p>
+      )}
 
       {confirming && (
         <section aria-labelledby="risk" className="grid gap-2 rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 text-sm" data-testid="cod-risk">
@@ -124,7 +145,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
               <div className="grid gap-2">
                 <Label htmlFor="trackingNumber">Nomor resi kurir</Label>
                 <Input id="trackingNumber" name="trackingNumber" required minLength={3} maxLength={80} placeholder={`Resi ${o.courier}`} aria-describedby="tracking-help" />
-                <p id="tracking-help" className="text-xs text-muted-foreground">Resi yang Anda buat sendiri di {o.courier}. Untuk resi otomatis, gunakan Bukalaris Kirim di bawah.</p>
+                <p id="tracking-help" className="text-xs text-muted-foreground">Resi yang Anda buat sendiri di {o.courier}. Untuk resi otomatis, gunakan {ownAccount ? "booking Mengantar" : "Bukalaris Kirim"} di bawah.</p>
               </div>
               <SubmitButton pendingText="Mengirim…">{orderActionLabel.ship}</SubmitButton>
             </form>
@@ -170,10 +191,17 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
       )}
       {!fulfil && <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">Akun Anda hanya dapat melihat pesanan; tindakan pemenuhan dilakukan pemilik atau staf toko.</p>}
 
-      {(shipmentRow || (fulfil && bookable)) && (
+      {platformBookingClosed && !shipmentRow && fulfil && bookable && (
+        <p role="note" className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground" data-testid="platform-booking-closed">
+          Toko ini memakai akun pembayaran sendiri, jadi pengiriman tidak dibooking lewat akun Bukalaris. Hubungkan akun Mengantar toko di{" "}
+          <Link href="/seller/payments" className="font-medium text-foreground underline underline-offset-4">Akun penyedia</Link> untuk booking otomatis, atau kirim dengan resi Anda sendiri lewat &ldquo;Kirim&rdquo; di atas.
+        </p>
+      )}
+
+      {(shipmentRow || (fulfil && bookable && !platformBookingClosed)) && (
         <section aria-labelledby="shipment" className="grid gap-4 rounded-lg border p-4" data-testid="shipment">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 id="shipment" className="text-base font-semibold">{ownAccount ? "Pengiriman lewat akun kurir toko" : "Pengiriman Bukalaris Kirim"}</h2>
+            <h2 id="shipment" className="text-base font-semibold">{ownAccount ? "Pengiriman lewat akun Mengantar toko" : "Pengiriman Bukalaris Kirim"}</h2>
             {shipmentRow && <StatusBadge label={SHIPMENT_STATUS_LABEL[shipmentRow.status]} tone={shipmentTone[shipmentRow.status]} data-testid="shipment-status" />}
           </div>
 
@@ -203,19 +231,19 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
                 <dd className="font-mono break-all" data-testid="shipment-resi">{shipmentRow.trackingNumber ?? "Belum terbit"}</dd>
                 <dt className="text-muted-foreground">Status kurir</dt>
                 <dd data-testid="shipment-provider-status">{providerStatusLabel(shipmentRow.providerStatus) ?? "Belum ada pembaruan"}</dd>
-                <dt className="text-muted-foreground">{ownAccount ? "ID order kurir" : "Order Bukalaris Kirim"}</dt>
+                <dt className="text-muted-foreground">{ownAccount ? "ID order Mengantar" : "Order Bukalaris Kirim"}</dt>
                 <dd className="font-mono break-all">{shipmentRow.providerOrderId ?? "—"}</dd>
                 <dt className="text-muted-foreground">Diperbarui</dt>
                 <dd>{shipmentRow.lastTrackedAt ? tanggal(shipmentRow.lastTrackedAt) : "—"}</dd>
               </dl>
               {shipmentRow.lastError && (
                 <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive" data-testid="shipment-error">
-                  {whiteLabel(shipmentRow.lastError)}
+                  {brand(whiteLabel(shipmentRow.lastError))}
                 </p>
               )}
               {fulfil && ownAccount && shipmentRow.status === "unknown" && (
                 <div className="grid gap-4 rounded-lg border border-destructive/30 p-3" data-testid="shipment-unknown">
-                  <p className="text-sm">Booking ulang dikunci. Buka daftar order di akun kurir, lalu pilih salah satu:</p>
+                  <p className="text-sm">Booking ulang dikunci. Buka daftar order di akun Mengantar toko, lalu pilih salah satu:</p>
                   <form action={linkUnknownBookingAction.bind(null, o.id)} className="grid gap-2" aria-label="Tautkan order kurir">
                     <CsrfField />
                     <p className="text-sm font-medium">Order ada di akun kurir: tautkan</p>
@@ -254,14 +282,14 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
                 </div>
               )}
               <ol className="divide-y rounded-lg border text-sm" aria-label="Riwayat pengiriman" data-testid="shipment-timeline">
-                {shipmentTimeline(shipmentRow).map((t, i) => (
+                {shipmentTimeline(shipmentRow, ownAccount ? "Mengantar" : undefined).map((t, i) => (
                   <li key={i} className="grid gap-0.5 p-3 sm:grid-cols-[12rem_minmax(0,1fr)] sm:gap-4">
                     {typeof t.at === "string" ? (
                       <span className="text-muted-foreground tabular-nums">{t.at ? `${t.at} WIB` : "—"}</span>
                     ) : (
                       <time dateTime={t.at.toISOString()} className="text-muted-foreground">{tanggal(t.at)}</time>
                     )}
-                    <span className="break-words">{t.text}</span>
+                    <span className="break-words">{brand(t.text)}</span>
                   </li>
                 ))}
               </ol>
@@ -279,7 +307,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
           <p className="text-muted-foreground">Area: {o.destinationAreaLabel}</p>
           <p className="text-muted-foreground">Kurir: {o.courier} <span className="font-mono text-xs">({o.courierCode})</span> · {o.weightKg} kg</p>
           <p className="text-muted-foreground" data-testid="order-shipping-account">
-            {ownAccount ? "Akun kurir: milik toko Anda" : `Akun Bukalaris Kirim: ${o.shippingAccountKind === "partner_managed" ? "Akun khusus toko Anda" : "Akun induk Bukalaris Kirim"}`}
+            {ownAccount ? "Akun Mengantar: milik toko Anda" : `Akun Bukalaris Kirim: ${o.shippingAccountKind === "partner_managed" ? "Akun khusus toko Anda" : "Akun induk Bukalaris Kirim"}`}
           </p>
           {o.trackingNumber && <p>Resi: <span className="font-mono font-medium" data-testid="tracking">{o.trackingNumber}</span></p>}
           {o.status === "returned" && (
@@ -320,7 +348,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
               }
             />
           </div>
-          <p className="font-medium">{paymentLabel[o.paymentMethod]}</p>
+          <p className="font-medium">{paymentLabel[o.paymentMethod]}{o.payment?.sellerAccount ? " · akun AutoLaris toko" : ""}</p>
           {o.payment ? (
             <p className="text-muted-foreground" data-testid="payment-attempt">
               {o.payment.channelCode} · Total tagihan {rupiah(o.payment.totalIdr)} (termasuk biaya layanan {rupiah(o.payment.adminFeeIdr)}) ·{" "}
@@ -344,7 +372,9 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
           {o.paymentMethod === "cod" && !o.paidAt && (
             <p className="text-muted-foreground">
               {o.status === "completed"
-                ? "COD: paket sudah diterima pembeli; dana masuk ke Dana dalam Proses sampai direkonsiliasi ke Saldo Tersedia."
+                ? money
+                  ? "COD: paket sudah diterima pembeli; uang COD dibayarkan Mengantar ke akun Anda."
+                  : "COD: paket sudah diterima pembeli; dana masuk ke Dana dalam Proses sampai direkonsiliasi ke Saldo Tersedia."
                 : o.status === "cancelled" || o.status === "returned"
                   ? "COD: pesanan batal atau kembali ke toko (RTS), tidak ada uang yang ditagih."
                   : "COD: uang diterima kurir saat barang sampai, belum tercatat sebagai pembayaran."}
@@ -352,6 +382,85 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
           )}
         </section>
       </div>
+
+      {money && (
+        <section aria-labelledby="money" className="grid gap-3 rounded-lg border p-4 text-sm" data-testid="order-money">
+          <h2 id="money" className="text-base font-semibold">Uang pesanan</h2>
+          <p className="text-muted-foreground">
+            Dibayar langsung ke akun {o.paymentMethod === "cod" ? "Mengantar" : "AutoLaris"} milik toko Anda. Bukalaris hanya mencatat: tidak memegang, memotong atau meneruskan uang ini.
+          </p>
+          <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 tabular-nums">
+            <dt>Total pesanan</dt>
+            <dd className="text-right">{rupiah(o.total)}</dd>
+            {o.paymentMethod === "cod" ? (
+              <>
+                <dt>Biaya COD Mengantar (perkiraan), {money.codFeeBearer ? bearerText[money.codFeeBearer] : "—"}</dt>
+                <dd className="text-right" data-testid="order-cod-fee">{rupiah(money.expectedCodFeeIdr)}</dd>
+              </>
+            ) : (
+              <>
+                <dt>Biaya layanan AutoLaris (perkiraan), {money.paymentFeeBearer ? bearerText[money.paymentFeeBearer] : "—"}</dt>
+                <dd className="text-right" data-testid="order-gateway-fee">{rupiah(money.expectedGatewayFeeIdr)}</dd>
+              </>
+            )}
+            <dt className="font-semibold">{o.paymentMethod === "cod" ? "Ditagih kurir ke pembeli" : "Tagihan ke pembeli"}</dt>
+            <dd className="text-right font-semibold" data-testid="order-bill">{rupiah(money.billIdr)}</dd>
+            {money.refundedIdr > 0 && (
+              <>
+                <dt>Refund yang Anda catat</dt>
+                <dd className="text-right" data-testid="order-refunded">−{rupiah(money.refundedIdr)}</dd>
+              </>
+            )}
+          </dl>
+          {money.refunds.length > 0 && (
+            <ol className="divide-y rounded-lg border" aria-label="Refund tercatat" data-testid="order-refunds">
+              {money.refunds.map((r) => (
+                <li key={r.id} className="grid gap-0.5 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-4">
+                  <div className="min-w-0">
+                    <p>
+                      {tanggalIso(r.refundedOn)} · {SELLER_REFUND_METHOD_LABEL[r.method]}
+                      {r.reference ? <span className="break-all text-muted-foreground"> · ref {r.reference}</span> : null}
+                    </p>
+                    <p className="break-words text-muted-foreground">{r.reason} · dicatat {r.recordedBy ?? "—"}</p>
+                  </div>
+                  <span className="font-medium tabular-nums sm:text-right">{rupiah(r.amountIdr)}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+          {can(scope, "finance.confirm_payment") && o.paidAt && refundLeft > 0 && (
+            <form action={recordRefundAction.bind(null, o.id)} className="grid gap-3 border-t pt-3 sm:grid-cols-2" aria-label="Catat refund">
+              <CsrfField />
+              <p className="text-muted-foreground sm:col-span-2">
+                Sudah mengembalikan uang pembeli sendiri (dari rekening atau akun AutoLaris Anda)? Catat di sini. Bukalaris tidak mengirim refund. Sisa yang bisa dicatat: {rupiah(refundLeft)}.
+              </p>
+              <div className="grid gap-1.5">
+                <Label htmlFor="refundAmount">Jumlah refund (Rp)</Label>
+                <Input id="refundAmount" name="amountIdr" inputMode="numeric" pattern="[0-9.]+" required autoComplete="off" />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="refundedOn">Tanggal refund</Label>
+                <Input id="refundedOn" name="refundedOn" type="date" required max={todayWib} defaultValue={todayWib} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="refundMethod">Cara refund</Label>
+                <NativeSelect id="refundMethod" name="method" defaultValue="bank_transfer">
+                  {SELLER_REFUND_METHODS.map((m) => <option key={m} value={m}>{SELLER_REFUND_METHOD_LABEL[m]}</option>)}
+                </NativeSelect>
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="refundReference">Referensi transfer <span className="font-normal text-muted-foreground">(opsional)</span></Label>
+                <Input id="refundReference" name="reference" maxLength={120} autoComplete="off" />
+              </div>
+              <div className="grid gap-1.5 sm:col-span-2">
+                <Label htmlFor="refundReason">Alasan</Label>
+                <Input id="refundReason" name="reason" required minLength={5} maxLength={500} placeholder="mis. Barang habis, uang dikembalikan penuh" />
+              </div>
+              <SubmitButton className="justify-self-start" pendingText="Mencatat…">Catat refund</SubmitButton>
+            </form>
+          )}
+        </section>
+      )}
 
       <section aria-labelledby="lines" className="grid gap-2">
         <h2 id="lines" className="text-base font-semibold">Barang</h2>

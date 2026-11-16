@@ -3,7 +3,7 @@
 import { requirePortalCsrf } from "@/lib/auth-csrf";
 
 import { sellerScope } from "@/lib/context";
-import { bookShipment, linkUnknownBooking, refreshTracking, releaseUnknownBooking } from "@bukalaris/db";
+import { bookShipment, linkUnknownBooking, recordSellerRefund, refreshTracking, releaseUnknownBooking } from "@bukalaris/db";
 import { run } from "../run";
 
 /** "Kirim lewat Mengantar" / "Coba lagi": enqueue the booking (T-39); the worker does the provider call. */
@@ -38,4 +38,15 @@ export async function refreshTrackingAction(orderId: number, f: FormData) {
   const scope = await sellerScope();
   const back = `/seller/orders/${orderId}`;
   await run(back, () => `${back}?saved=tracking`, () => refreshTracking(scope, orderId));
+}
+
+/** T-107 (ADR-0013 decision 26): the owner records a refund made outside Bukalaris; nothing is paid or moved by this action. */
+export async function recordRefundAction(orderId: number, f: FormData) {
+  await requirePortalCsrf(f, `/seller/orders/${orderId}`);
+  const scope = await sellerScope();
+  const back = `/seller/orders/${orderId}`;
+  const text = (k: string) => String(f.get(k) ?? "");
+  await run(back, () => `${back}?saved=refund`, () =>
+    recordSellerRefund(scope, orderId, { amountIdr: text("amountIdr").replace(/[^0-9]/g, ""), refundedOn: text("refundedOn"), method: text("method"), reference: text("reference"), reason: text("reason") }),
+  );
 }
