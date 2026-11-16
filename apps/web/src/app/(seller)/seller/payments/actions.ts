@@ -2,7 +2,8 @@
 
 import { requirePortalCsrf } from "@/lib/auth-csrf";
 
-import { checkProviderNow, DomainError, PROVIDERS, removeProviderKey, saveProviderKey, setPaymentAccountDetails, type Provider } from "@bukalaris/db";
+import { checkProviderNow, confirmPaymentByHand, DomainError, PROVIDERS, removeProviderKey, saveProviderKey, sellerRequestPaymentCheck, setPaymentAccountDetails, setPaymentPreferences, type Provider } from "@bukalaris/db";
+import { clientIp } from "@/lib/storefront";
 import { sellerScope } from "@/lib/context";
 import { userError, withError } from "@/lib/errors";
 import { stepUpWithCode } from "@/lib/step-up";
@@ -74,5 +75,49 @@ export async function savePaymentDetailsAction(f: FormData) {
       paymentOnlyConfirmed: f.get("paymentOnly") === "on",
     });
     return "details";
+  });
+}
+
+// T-106: the seller's AutoLaris preferences (owner, `integrations.manage`) and, on the transactions screen, the manual confirmation and the
+// status "check now" (owner, `finance.confirm_payment`). The store comes from the seller scope; the attempt id is checked by the service in that store.
+export async function savePaymentPreferencesAction(f: FormData) {
+  await requirePortalCsrf(f, PAGE);
+  const scope = await sellerScope();
+  await run(async () => {
+    await setPaymentPreferences(scope, {
+      enabled: f.get("enabled") === "on",
+      excludedChannels: f.getAll("excluded").map(String),
+      feeBearer: text(f, "feeBearer"),
+    });
+    return "preferences";
+  });
+}
+
+const TX_PAGE = "/seller/payments/transactions";
+async function runTx(op: () => Promise<string>) {
+  let target: string;
+  try {
+    target = `${TX_PAGE}?saved=${await op()}`;
+  } catch (err) {
+    target = withError(TX_PAGE, userError(err));
+  }
+  redirect(target);
+}
+
+export async function confirmPaymentAction(f: FormData) {
+  await requirePortalCsrf(f, TX_PAGE);
+  const scope = await sellerScope();
+  await runTx(async () => {
+    await confirmPaymentByHand(scope, { attemptId: text(f, "attemptId"), reason: text(f, "reason"), evidence: text(f, "evidence") });
+    return "confirmed";
+  });
+}
+
+export async function sellerRecheckAction(f: FormData) {
+  await requirePortalCsrf(f, TX_PAGE);
+  const scope = await sellerScope();
+  await runTx(async () => {
+    await sellerRequestPaymentCheck(scope, text(f, "orderId"), { clientIp: await clientIp() });
+    return "recheck";
   });
 }

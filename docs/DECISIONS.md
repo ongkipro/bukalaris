@@ -537,3 +537,9 @@ Upgrade path: move the connection check and the pickup registration to worker jo
 
 Revisit when: a second tenant-facing writer of these columns appears, or the review of the hosting threat model asks for it.
 
+## Ceiling T-106-1 — Stores without their own AutoLaris account keep the platform account for QRIS/VA (2026-11-16, T-106; engineering ceiling, not an owner decision)
+
+Recorded by T-106 (independent review finding). D-27 and ADR-0013 (D-31: `seller_owned` is the only mode) say every store pays through its own AutoLaris account. T-106 routes a store through its own key as soon as it has a `store_payment_account` row (attempts, status checks and settlement on that key only; a store with a row that is not ready offers no QRIS/VA and never falls back). A store WITHOUT a row still offers QRIS/VA on the platform account of T-49 (one attempt per order, observe-only poll, ledger booking), because removing that path changes store opening and readiness, which T-93 and T-107 own.
+
+Why acceptable now: local build on fake adapters, no live AutoLaris transport exists, and the platform path is the T-49 behaviour the tests already prove. Contradicts D-27 until T-107 (money boundary) or T-93 (readiness at store opening) removes the platform path for buyer orders. Subscription invoices (T-50) keep the platform account by design (ADR-0013 decision 3).
+Revisit when: T-93 or T-107 starts, or before any live payment.

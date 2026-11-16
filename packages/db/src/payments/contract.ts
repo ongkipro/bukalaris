@@ -1,4 +1,4 @@
-import { ADVICE_AMOUNT_FIELD, ADVICE_PAID_STATUS, ADVICE_STATUS_FIELD } from "./settings.ts";
+import { AUTOLARIS_PAID } from "./settings.ts";
 import { z } from "zod";
 
 export type PaymentOwner = { kind: "order" | "subscription_invoice"; id: string };
@@ -6,7 +6,11 @@ export type PaymentCustomer = { id: string; name: string; phone: string; email: 
 export type PaymentCreateInput = {
   reffId: string; channelCode: string; owner: PaymentOwner; customer: PaymentCustomer;
   amountIdr: number; adminFeeIdr: number; totalIdr: number; expiresAt: Date; callbackUrl: string;
+  /** T-106 (ADR-0013 decision 13): the store's own account data (area ids, shipper e-mail, sender address). Absent = the platform profile of T-49. */
+  profile?: SubmitProfile;
 };
+/** The account fields of the payment-only `/submit` profile. UNVERIFIED (C-P8): the request shape is confirmed with AutoLaris per account. */
+export type SubmitProfile = { shipperName: string; originAreaId: string; destinationAreaId: string; shipperEmail: string; senderAddress: string };
 export type PaymentInstruction = {
   reference: string; transactionId: string; channelCode: string;
   virtualAccount: string | null; qr: string | null; paymentCode: string | null; url: string | null;
@@ -46,11 +50,14 @@ export function expiryStampWib(at: Date): string {
 }
 
 /** Account-approved non-physical profile only. These 24 keys do not instruct shipping or pickup. */
+/** An area id as the provider documents it (a number); a non-numeric value from the account is sent as given (UNVERIFIED, C-P8). */
+const areaValue = (id: string): number | string => (/^\d{1,15}$/.test(id) ? Number(id) : id);
 export function buildSubmit(input: PaymentCreateInput) {
+  const p = input.profile;
   return {
     reff_id: input.reffId, channel_code: input.channelCode, courir_id: 1,
-    origin: 3517100, destination: 3518010, weight: "1", length: "1", width: "1", height: "1",
-    shipper_name: "Bukalaris", shipper_phone: "0800000000", shipper_email: "payments@example.invalid", shipper_address: "Pesanan digital",
+    origin: p ? areaValue(p.originAreaId) : 3517100, destination: p ? areaValue(p.destinationAreaId) : 3518010, weight: "1", length: "1", width: "1", height: "1",
+    shipper_name: p?.shipperName ?? "Bukalaris", shipper_phone: "0800000000", shipper_email: p?.shipperEmail ?? "payments@example.invalid", shipper_address: p?.senderAddress ?? "Pesanan digital",
     receiver_name: input.customer.name, receiver_phone: input.customer.phone, receiver_email: input.customer.email ?? "", receiver_address: "Pesanan digital",
     callback_url: input.callbackUrl, grand_total: String(input.totalIdr), cod_value: "0", longitude: "", latitude: "", remark: `Pembayaran ${input.owner.kind}`,
     order_details: [{ name: "Pembayaran Bukalaris", qty: "1", unit_price: String(input.totalIdr) }],
@@ -77,24 +84,44 @@ export function parseSubmit(raw: unknown, input: PaymentCreateInput): PaymentIns
     amountIdr: input.amountIdr, adminFeeIdr: input.adminFeeIdr, totalIdr: total, providerFeeIdr: fee };
 }
 export type AdviceClassification = "paid" | "pending" | "unknown";
+const adviceData = (e: Record<string, unknown>): Record<string, unknown> => (typeof e.data === "object" && e.data !== null && !Array.isArray(e.data) ? e.data as Record<string, unknown> : {});
+/**
+ * Decision 22 / D-21 K: `paid` only for the paid code AND a status word on the one allow-list (`AUTOLARIS_PAID`, UNVERIFIED) AND the provider
+ * amount equal to the attempt total. `02` is pending; everything else, including an unknown word, is `unknown` and never settles.
+ */
 export function classifyAdvice(raw: unknown, totalIdr: number): AdviceClassification {
   if (typeof raw !== "object" || raw === null) return "unknown";
   const e = raw as Record<string, unknown>;
   if (e.rc === "02") return "pending";
-  const d = typeof e.data === "object" && e.data !== null ? e.data as Record<string, unknown> : {};
-  return e.rc === "00" && d[ADVICE_STATUS_FIELD] === ADVICE_PAID_STATUS && safeIdr(d[ADVICE_AMOUNT_FIELD]) === totalIdr ? "paid" : "unknown";
+  const d = adviceData(e), word = d[AUTOLARIS_PAID.statusField];
+  return e.rc === AUTOLARIS_PAID.code && typeof word === "string" && AUTOLARIS_PAID.words.includes(word) && safeIdr(d[AUTOLARIS_PAID.amountField]) === totalIdr ? "paid" : "unknown";
+}
+/** The status word as received, for review (decision 22); a value that is not a short plain token is not stored. */
+export function adviceStatusWord(raw: unknown): string | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const e = raw as Record<string, unknown>;
+  const w = adviceData(e)[AUTOLARIS_PAID.statusField] ?? e.ket;
+  return typeof w === "string" && /^[A-Za-z0-9 _.-]{1,64}$/.test(w) ? w : null;
 }
 
-/** Explicit bases prevent the QRIS fee-on-shipping incident (BILL-4). Availability never comes from this schedule. */
-export const paymentFees = {
+/** One channel's fee as a versioned platform setting (decision 19). Explicit bases prevent the QRIS fee-on-shipping incident (BILL-4). */
+export type FeeRate = { base: "goods_omset" | "payable" | "flat"; rateBps: number; fixedIdr: number };
+/** The fee schedule in force: the highest version of `payment_fee_rate` (`currentFeeSchedule`). Availability never comes from it. */
+export type FeeSchedule = { version: number; rates: Readonly<Record<string, FeeRate>> };
+/**
+ * The version-1 seed of migration 0020 (the reference system's starting data, UNVERIFIED with AutoLaris, decision 19). Runtime code never reads
+ * it: checkout prices with the schedule read from the database. Tests use it to build a schedule and to prove the seed.
+ */
+export const STARTING_FEE_RATES: Readonly<Record<string, FeeRate>> = Object.freeze({
   QRIS: { base: "goods_omset", rateBps: 70, fixedIdr: 0 },
   VABCA: { base: "flat", rateBps: 0, fixedIdr: 6500 },
   VABNI: { base: "flat", rateBps: 0, fixedIdr: 3000 }, VABRI: { base: "flat", rateBps: 0, fixedIdr: 3000 },
   VAMANDIRI: { base: "flat", rateBps: 0, fixedIdr: 3000 }, VAPERMATA: { base: "flat", rateBps: 0, fixedIdr: 3000 },
   OVO: { base: "payable", rateBps: 300, fixedIdr: 0 },
-} as const;
-export function paymentFee(channel: string, goodsOmset: number, payable: number): number {
-  const fee = Object.hasOwn(paymentFees, channel) ? paymentFees[channel as keyof typeof paymentFees] : undefined;
+});
+const rateOf = (schedule: FeeSchedule, channel: string): FeeRate | undefined => (Object.hasOwn(schedule.rates, channel) ? schedule.rates[channel] : undefined);
+export function paymentFee(schedule: FeeSchedule, channel: string, goodsOmset: number, payable: number): number {
+  const fee = rateOf(schedule, channel);
   if (!fee) throw new PaymentContractError("configuration", "channel has no approved fee schedule");
   const base = fee.base === "goods_omset" ? goodsOmset : fee.base === "payable" ? payable : 0;
   if (safeIdr(base) === null || safeIdr(payable) === null) fail("invalid fee base");
@@ -102,11 +129,11 @@ export function paymentFee(channel: string, goodsOmset: number, payable: number)
 }
 
 /** Buyer-facing description of the gateway fee schedule of a channel (Indonesian, white-label); null when the channel is not priced. */
-export function feeLabel(channel: string): string | null {
-  const fee = Object.hasOwn(paymentFees, channel) ? paymentFees[channel as keyof typeof paymentFees] : undefined;
+export function feeLabel(schedule: FeeSchedule, channel: string): string | null {
+  const fee = rateOf(schedule, channel);
   if (!fee) return null;
   if (fee.base === "flat") return `Biaya layanan Rp${fee.fixedIdr.toLocaleString("id-ID")}`;
   const percent = (fee.rateBps / 100).toLocaleString("id-ID", { maximumFractionDigits: 2 });
   return `Biaya layanan ${percent}% dari ${fee.base === "goods_omset" ? "nilai belanja" : "total tagihan"}`;
 }
-export const isPricedChannel = (code: string): boolean => Object.hasOwn(paymentFees, code);
+export const isPricedChannel = (schedule: FeeSchedule, code: string): boolean => rateOf(schedule, code) !== undefined;

@@ -73,6 +73,8 @@ const capabilities = {
   // T-37 (UX-14): the ledger statement and balances, the payout destination and the payout request are the store OWNER's (staff never see money or request payouts).
   "finance.read": ["owner"],
   "finance.payout": ["owner"],
+  // T-106 (ADR-0013 decision 24, C-P5): confirming a payment of the store's own AutoLaris account by hand, with reason and evidence (owner only).
+  "finance.confirm_payment": ["owner"],
   // Store profile and presentation settings (name, description, WhatsApp, theme) → owner only.
   "settings.manage": ["owner"],
   // T-50 subscription billing: every member sees the subscription and its invoices; only the owner pays.

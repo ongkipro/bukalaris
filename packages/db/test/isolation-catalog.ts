@@ -29,6 +29,8 @@ export interface Rel {
   other: string[];
   /** `column:PRIVILEGE` entries of the app role. */
   appColumns: string[];
+  /** `column:PRIVILEGE` entries of the platform role (T-106). */
+  platformColumns: string[];
 }
 
 const DML = sql.raw(`array['SELECT', 'INSERT', 'UPDATE', 'DELETE']`);
@@ -42,10 +44,12 @@ export async function readRelations(exec: Db): Promise<Rel[]> {
       ${dml("bukalaris_app")} as app, ${dml("bukalaris_platform")} as platform, ${dml("bukalaris_resolver")} as resolver,
       coalesce((select array_agg(distinct a.privilege_type) from aclexplode(c.relacl) a where a.grantee in ('bukalaris_app'::regrole, 'bukalaris_platform'::regrole) and a.privilege_type <> all (${DML})), '{}') as other,
       coalesce((select array_agg(att.attname || ':' || a.privilege_type order by att.attname, a.privilege_type) from pg_attribute att, aclexplode(att.attacl) a
-        where att.attrelid = c.oid and att.attacl is not null and a.grantee = 'bukalaris_app'::regrole), '{}') as app_columns
+        where att.attrelid = c.oid and att.attacl is not null and a.grantee = 'bukalaris_app'::regrole), '{}') as app_columns,
+      coalesce((select array_agg(att.attname || ':' || a.privilege_type order by att.attname, a.privilege_type) from pg_attribute att, aclexplode(att.attacl) a
+        where att.attrelid = c.oid and att.attacl is not null and a.grantee = 'bukalaris_platform'::regrole), '{}') as platform_columns
     from pg_class c join pg_namespace n on n.oid = c.relnamespace
-    where n.nspname = 'public' and c.relkind in ('r', 'p') order by 1`)) as unknown as (Omit<Rel, "appColumns"> & { app_columns: string[] })[];
-  return rows.map(({ app_columns, ...r }) => ({ ...r, appColumns: app_columns }));
+    where n.nspname = 'public' and c.relkind in ('r', 'p') order by 1`)) as unknown as (Omit<Rel, "appColumns" | "platformColumns"> & { app_columns: string[]; platform_columns: string[] })[];
+  return rows.map(({ app_columns, platform_columns, ...r }) => ({ ...r, appColumns: app_columns, platformColumns: platform_columns }));
 }
 
 /** Tables of the database against tables of the registry, in both directions. */
@@ -82,6 +86,8 @@ export function tableProblems(rel: Rel, entry: TableEntry, mode: "expand" | "con
   // Compared as sets: the registry lists a column's privileges in canonical order (SELECT before INSERT), the catalog alphabetically (T-104).
   const wantColumns = Object.entries(entry.appColumns ?? {}).flatMap(([c, ps]) => ps.split(",").map((p) => `${c}:${p}`)).sort();
   if (JSON.stringify([...rel.appColumns].sort()) !== JSON.stringify(wantColumns)) out.push(`${t}: bukalaris_app column grants ${JSON.stringify(rel.appColumns)} differ from ${JSON.stringify(wantColumns)}`);
+  const wantPlatformColumns = Object.entries(entry.platformColumns ?? {}).flatMap(([c, ps]) => ps.split(",").map((p) => `${c}:${p}`)).sort();
+  if (JSON.stringify([...rel.platformColumns].sort()) !== JSON.stringify(wantPlatformColumns)) out.push(`${t}: bukalaris_platform column grants ${JSON.stringify(rel.platformColumns)} differ from ${JSON.stringify(wantPlatformColumns)}`);
   if (entry.class === "shared-read" && rel.app !== "SELECT") out.push(`${t}: shared-read is SELECT only for the app role`);
 
   if (entry.class === "restricted") {

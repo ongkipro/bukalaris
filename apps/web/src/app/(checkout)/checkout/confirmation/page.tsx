@@ -4,7 +4,11 @@ import { SignalEvent } from "@/components/pixels/runtime";
 import { rupiah } from "@/lib/format";
 import { browserMatch, signalsFor } from "@/lib/signals";
 import { hostStoreScope, ORDER_COOKIE, servesStore } from "@/lib/storefront";
-import { channelReturnTarget, db, getBuyerOrder, purchaseEventId } from "@bukalaris/db";
+import { Notice } from "@/components/notice";
+import { cartCsrfToken } from "@/lib/auth-csrf";
+import { channelReturnTarget, db, getBuyerOrder, purchaseEventId, storefrontScope } from "@bukalaris/db";
+import { recheckPaymentAction, retryPaymentAction } from "../actions";
+import { PaymentActions, paymentSavedText } from "../payment-actions";
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 
@@ -15,7 +19,7 @@ const wibStamp = (s: string) => {
 };
 
 export default async function ConfirmationPage({ searchParams }: PageProps<"/checkout/confirmation">) {
-  const { order } = await searchParams;
+  const { order, saved, error } = await searchParams;
   const id = typeof order === "string" && /^[0-9]{1,15}$/.test(order) ? Number(order) : null;
   const cartId = (await cookies()).get(ORDER_COOKIE)?.value;
   const o = id ? await getBuyerOrder(db(), id, cartId) : null;
@@ -24,6 +28,10 @@ export default async function ConfirmationPage({ searchParams }: PageProps<"/che
   // Headless buyers return to the channel's registered origin + path (allowlist, channels track).
   const back = (await channelReturnTarget(db(), cartId)) ?? ((await hostStoreScope()) ? "/" : `/s/${o.storeSlug}`);
   const signals = await signalsFor(o.storeId);
+  // T-106: the buyer's payment actions carry the store's cart CSRF token (the order cookie is the authority, as for this page).
+  const sf = o.payment?.sellerAccount ? await storefrontScope(db(), o.storeSlug) : null;
+  const csrf = sf ? await cartCsrfToken(sf) : undefined;
+  const savedKey = typeof saved === "string" && saved in paymentSavedText ? saved : undefined;
   const match = signals ? browserMatch(o) : undefined;
   return (
     <section className="mx-auto grid w-full max-w-2xl gap-4 rounded-xl border bg-background p-6" aria-labelledby="done" data-purchase-event={o.paymentMethod === "cod" && signals ? purchaseEventId(o.id) : undefined}>
@@ -51,17 +59,24 @@ export default async function ConfirmationPage({ searchParams }: PageProps<"/che
           ? "Bayar di tempat (COD) saat barang tiba. Penjual akan menghubungi nomor HP Anda untuk konfirmasi sebelum pesanan dikirim."
           : !o.payment
             ? "Menunggu pembayaran. Instruksi pembayaran sedang disiapkan — muat ulang halaman ini nanti."
-            : o.payment.status === "paid"
+            : o.payment.status === "paid" || ["placed", "processing", "shipped", "completed"].includes(o.status)
               ? "Pembayaran terverifikasi. Terima kasih."
               : o.payment.requestState === "failed"
-                ? "Instruksi pembayaran tidak dapat dibuat. Hubungi penjual atau buat pesanan baru."
+                ? o.payment.sellerAccount
+                  ? "Instruksi pembayaran tidak dapat dibuat. Pesanan Anda tetap tersimpan: buat tagihan baru di bawah."
+                  : "Instruksi pembayaran tidak dapat dibuat. Hubungi penjual atau buat pesanan baru."
+                : o.payment.retryable
+                  ? "Batas waktu pembayaran sudah lewat. Bila Anda sudah membayar, cek status; bila belum, buat tagihan baru."
                 : o.payment.requestState === "unknown"
                   ? "Instruksi pembayaran sedang kami periksa ke penyedia pembayaran. Jangan membayar sebelum instruksi tampil; muat ulang halaman ini nanti."
                   : o.payment.requestState === "in_progress"
                     ? "Menunggu pembayaran. Instruksi pembayaran sedang disiapkan — muat ulang halaman ini nanti."
                     : "Menunggu pembayaran. Selesaikan pembayaran sebelum batas waktu di bawah."}
       </p>
-      {o.payment?.instruction && o.payment.status !== "paid" && (
+      <Notice error={typeof error === "string" ? error : undefined} saved={savedKey} savedText={savedKey ? paymentSavedText[savedKey] : undefined} />
+      {o.payment?.environment === "sandbox" && <p className="text-xs text-muted-foreground" data-testid="test-order">Pesanan uji: toko ini memakai akun pembayaran uji coba (sandbox), tidak ada uang sungguhan yang ditagih.</p>}
+      <PaymentActions payment={o.payment} orderStatus={o.status} recheck={recheckPaymentAction.bind(null, o.id)} retry={retryPaymentAction.bind(null, o.id)} csrf={csrf} />
+      {o.payment?.instruction && o.payment.status !== "paid" && !o.payment.retryable && (o.status === "awaiting_payment" || !o.payment.sellerAccount) && (
         <section aria-labelledby="instruksi" className="grid gap-2 rounded-lg border p-3 text-sm" data-testid="payment-instruction">
           <h2 id="instruksi" className="font-medium">Instruksi pembayaran · {o.payment.channelCode}</h2>
           {o.payment.instruction.virtualAccount && (

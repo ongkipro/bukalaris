@@ -75,10 +75,15 @@ GRANT SELECT, INSERT ON "order_redaction" TO bukalaris_platform;--> statement-br
 GRANT SELECT, DELETE ON "order_signal_context" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT ON "order_status_history" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "page" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT, INSERT ON "payment_anomaly" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE ON "payment_attempt" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT ON "payment_attempt_event" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "payment_callback" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT, INSERT, DELETE ON "payment_channel_lock" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT, INSERT ON "payment_fee_rate" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT ON "payment_manual_confirmation" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT ON "payment_observation" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT, UPDATE ON "payment_production_switch" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, UPDATE ON "payout" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, UPDATE ON "payout_control" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "payout_destination" TO bukalaris_platform;--> statement-breakpoint
@@ -111,6 +116,7 @@ GRANT SELECT, INSERT, UPDATE ON "signal_event" TO bukalaris_platform;--> stateme
 GRANT SELECT, INSERT, UPDATE ON "store" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, UPDATE ON "store_courier_rule" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "store_payment_account" TO bukalaris_platform;--> statement-breakpoint
+GRANT UPDATE ("key_fingerprint", "key_id", "sealed_at", "sealed_key") ON "store_payment_account" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "store_pickup_area" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT ON "store_risk_ack" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, UPDATE ON "store_shipping_account" TO bukalaris_platform;--> statement-breakpoint

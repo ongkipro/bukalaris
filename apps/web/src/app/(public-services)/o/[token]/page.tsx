@@ -5,10 +5,12 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { BANKS, refundReasonLabel, refundStatusLabel } from "@/lib/finance";
 import { rupiah } from "@/lib/format";
-import { BUYER_STATUS_LABEL, db, getOrderForLink, getRefundForLink, getShipmentForLink, providerStatusLabel, SHIPMENT_STATUS_LABEL, shipmentTimeline } from "@bukalaris/db";
+import { CopyButton } from "@/components/copy-button";
+import { BUYER_STATUS_LABEL, buyerOrderPayment, db, getOrderForLink, getRefundForLink, getShipmentForLink, providerStatusLabel, resolveBuyerOrder, SHIPMENT_STATUS_LABEL, shipmentTimeline } from "@bukalaris/db";
 import { servesStore } from "@/lib/storefront";
 import { notFound } from "next/navigation";
-import { submitRefundDestinationAction } from "./actions";
+import { PaymentActions, paymentSavedText } from "../../../(checkout)/checkout/payment-actions";
+import { recheckPaymentByLinkAction, retryPaymentByLinkAction, submitRefundDestinationAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +41,11 @@ export default async function OrderStatusPage({ params, searchParams }: PageProp
   // Courier tracking (T-39): only when the seller booked through Mengantar; resi alone shows above.
   const s = o.trackingNumber ? await getShipmentForLink(db(), token) : null;
   const tracking = s && s.trackingNumber ? s : null;
+  // T-106: the payment of a prepaid order on the store's own AutoLaris account: instruction, "check now" and a new instruction.
+  const ref = o.paymentMethod === "cod" ? null : await resolveBuyerOrder(db(), { token });
+  const pay = ref ? await buyerOrderPayment(db(), ref) : null;
+  const p = pay?.payment?.sellerAccount ? pay.payment : null;
+  const paySaved = typeof saved === "string" && saved in paymentSavedText ? saved : undefined;
   return (
     <section className="grid gap-4 rounded-xl border bg-background p-6" aria-labelledby="status-heading">
       <p className="text-sm font-medium text-muted-foreground">{o.storeName}</p>
@@ -98,6 +105,34 @@ export default async function OrderStatusPage({ params, searchParams }: PageProp
               Keterangan bebas dari kurir telah dihapus sesuai kebijakan privasi data pembeli; waktu dan status paket tetap tercatat.
             </p>
           )}
+        </section>
+      )}
+      {p && (
+        <section id="payment" aria-labelledby="payment-heading" className="grid gap-3 border-t pt-3 text-sm" data-testid="payment-section">
+          <h2 id="payment-heading" className="font-semibold">Pembayaran</h2>
+          {paySaved && <Notice saved={paySaved} savedText={paymentSavedText[paySaved]} />}
+          {!refund && <Notice error={typeof error === "string" ? error : undefined} />}
+          {p.environment === "sandbox" && <p className="text-xs text-muted-foreground" data-testid="test-order">Pesanan uji (akun pembayaran sandbox): tidak ada uang sungguhan yang ditagih.</p>}
+          <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 tabular-nums">
+            <dt>Metode</dt><dd className="text-right font-mono">{p.channelCode}</dd>
+            <dt>Biaya layanan pembayaran</dt><dd className="text-right">{rupiah(p.adminFeeIdr)}</dd>
+            <dt className="font-semibold">Total tagihan</dt><dd className="text-right font-semibold" data-testid="payment-total">{rupiah(p.totalIdr)}</dd>
+          </dl>
+          {pay!.orderStatus === "awaiting_payment" && p.instruction && !p.retryable && (
+            <div className="grid gap-1 rounded-lg border p-3" data-testid="payment-instruction">
+              {p.instruction.virtualAccount && (
+                <p className="flex flex-wrap items-center gap-2"><span>Nomor virtual account: <strong className="select-all font-mono" data-testid="payment-va">{p.instruction.virtualAccount}</strong></span><CopyButton value={p.instruction.virtualAccount} label="nomor virtual account" /></p>
+              )}
+              {p.instruction.paymentCode && <p>Kode pembayaran: <strong className="select-all font-mono">{p.instruction.paymentCode}</strong></p>}
+              {p.instruction.url && <p><a href={p.instruction.url} rel="noopener noreferrer" className="inline-flex min-h-6 items-center underline underline-offset-4">Buka halaman pembayaran</a></p>}
+              {p.instruction.qr && (
+                <label className="grid gap-1"><span>Kode QR (isi QRIS apa adanya)</span><textarea readOnly rows={3} defaultValue={p.instruction.qr} className="w-full rounded-md border bg-muted/40 p-2 font-mono text-xs" /></label>
+              )}
+              <p className="text-xs text-muted-foreground">Bayar sebelum {dt.format(p.expiresAt)} WIB.</p>
+            </div>
+          )}
+          {pay!.orderStatus === "awaiting_payment" && p.retryable && <p data-testid="payment-retry-note">{p.requestState === "failed" ? "Instruksi pembayaran tidak dapat dibuat." : "Batas waktu pembayaran sudah lewat."} Pesanan Anda tetap tersimpan; buat tagihan baru bila belum membayar.</p>}
+          <PaymentActions payment={p} orderStatus={pay!.orderStatus} recheck={recheckPaymentByLinkAction.bind(null, token)} retry={retryPaymentByLinkAction.bind(null, token)} />
         </section>
       )}
       {refund && (

@@ -10,7 +10,7 @@ import { SignalEvent } from "@/components/pixels/runtime";
 import { rupiah } from "@/lib/format";
 import { signalsFor } from "@/lib/signals";
 import { checkoutCart, clientIp } from "@/lib/storefront";
-import { checkoutPaymentChannels, checkoutShippingOptions, checkoutSummary, db, DomainError, feeLabel, formatShippingQuote, searchDestinationAreas, type Area, type PaymentChannel, type ShippingOption } from "@bukalaris/db";
+import { checkoutPaymentChannels, checkoutShippingOptions, checkoutSummary, db, DomainError, feeLabel, formatShippingQuote, searchDestinationAreas, type Area, type FeeSchedule, type PaymentChannel, type ShippingOption } from "@bukalaris/db";
 import { randomUUID } from "node:crypto";
 import { submitCheckout } from "./actions";
 import { CaptureProgress } from "./capture-progress";
@@ -70,10 +70,15 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
     }
   }
   let channels: PaymentChannel[] = [];
+  let schedule: FeeSchedule | null = null;
+  let sellerBearsFee = false;
   let channelError: string | undefined;
   if (area && summary.canShip) {
     try {
-      channels = await checkoutPaymentChannels();
+      // T-106: the same function the order submit checks again (store's own AutoLaris key, switch, exclusions, locks, fee schedule).
+      const methods = await checkoutPaymentChannels(db(), scope.storeId);
+      ({ channels, schedule } = methods);
+      sellerBearsFee = methods.account?.feeBearer === "seller";
     } catch (err) {
       if (!(err instanceof DomainError)) throw err;
       channelError = err.message;
@@ -237,7 +242,7 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
                         <input type="radio" name="paymentChannel" value={c.code} defaultChecked={i === 0} />
                         <span className="min-w-0 flex-1">
                           {c.name}
-                          <span className="block text-xs text-muted-foreground">{feeLabel(c.code)}</span>
+                          <span className="block text-xs text-muted-foreground">{sellerBearsFee ? "Tanpa biaya layanan tambahan" : schedule ? feeLabel(schedule, c.code) : null}</span>
                         </span>
                       </label>
                     ))}

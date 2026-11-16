@@ -10,10 +10,10 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { sellerScope } from "@/lib/context";
 import { tanggal } from "@/lib/format";
-import { can, sellerProviderAccounts, type PaymentAccountDetails, type ProviderAccountView, type Readiness } from "@bukalaris/db";
+import { can, sellerPaymentPreferences, sellerProviderAccounts, type PaymentAccountDetails, type PaymentPreferences, type ProviderAccountView, type Readiness } from "@bukalaris/db";
 import Link from "next/link";
-import { checkProviderNowAction, removeProviderKeyAction, savePaymentDetailsAction, saveProviderKeyAction } from "./actions";
-import { checkLabel, environmentLabel, gapLabel, providerName, savedLabel } from "./labels";
+import { checkProviderNowAction, removeProviderKeyAction, savePaymentDetailsAction, savePaymentPreferencesAction, saveProviderKeyAction } from "./actions";
+import { checkLabel, environmentLabel, feeBearerLabel, gapLabel, providerName, savedLabel } from "./labels";
 
 export const metadata = { title: "Akun penyedia — Bukalaris" };
 
@@ -30,7 +30,7 @@ export default async function ProviderAccountsPage({ searchParams }: PageProps<"
         <p role="note" data-testid="providers-denied" className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">Hanya pemilik toko yang dapat menghubungkan, mengganti atau menghapus kunci akun pengiriman dan pembayaran toko.</p>
       </section>
     );
-  const data = await sellerProviderAccounts(scope);
+  const [data, prefs] = await Promise.all([sellerProviderAccounts(scope), sellerPaymentPreferences(scope)]);
   const savedKey = typeof saved === "string" ? saved : undefined;
   return (
     <section className="grid max-w-3xl gap-6">
@@ -47,6 +47,13 @@ export default async function ProviderAccountsPage({ searchParams }: PageProps<"
 
       <ProviderSection account={data.autolaris} title="Pembayaran · AutoLaris" intro="Kunci API H2H dari AutoLaris untuk QRIS dan virtual account. Minta profil khusus pembayaran ke AutoLaris, lalu masukkan kuncinya di sini." />
       <DetailsForm details={data.details} connected={data.autolaris.connected || data.details !== null} />
+      {prefs.preferences && <PreferencesForm preferences={prefs.preferences} channels={prefs.channels} />}
+      {can(scope, "finance.confirm_payment") && (
+        <p className="text-sm">
+          <Link href="/seller/payments/transactions" className="inline-flex min-h-6 items-center font-medium underline underline-offset-4" data-testid="transactions-link">Transaksi pembayaran AutoLaris</Link>
+          <span className="text-muted-foreground"> — status tagihan, cek status sekarang dan konfirmasi manual.</span>
+        </p>
+      )}
       <ProviderSection account={data.mengantar} title="Pengiriman · Mengantar" intro="Kunci API dari akun Mengantar baru yang khusus dipakai toko ini. Ongkir, pemesanan kurir dan pelacakan berjalan di akun Anda." />
       <p className="text-xs text-muted-foreground">
         Tidak ada kolom alamat server: Bukalaris memakai alamat resmi penyedia sesuai lingkungan yang Anda pilih. Area dan alamat pickup diatur di <Link href="/seller/shipping" className="underline underline-offset-4">Pengiriman</Link>.
@@ -161,6 +168,44 @@ function DetailsForm({ details, connected }: { details: PaymentAccountDetails | 
         <span>AutoLaris sudah memasang profil khusus pembayaran di akun ini (Bukalaris hanya memakai AutoLaris untuk pembayaran, bukan pengiriman).</span>
       </label>
       <SubmitButton className="justify-self-start">Simpan data</SubmitButton>
+    </form>
+  );
+}
+
+// T-106 (ADR-0013 section 4, decision 18): the seller's AutoLaris switch, excluded channels and who bears the payment fee. Locked channels are
+// shown but cannot be chosen (the platform never offers them).
+function PreferencesForm({ preferences, channels }: { preferences: PaymentPreferences; channels: { code: string; locked: boolean }[] }) {
+  return (
+    <form action={savePaymentPreferencesAction} className="grid gap-3 rounded-lg border p-4" aria-label="Pengaturan pembayaran AutoLaris" data-testid="payment-preferences">
+      <CsrfField />
+      <h3 className="text-sm font-semibold">Pengaturan pembayaran</h3>
+      <label className="flex min-h-9 items-start gap-2 text-sm">
+        <input type="checkbox" name="enabled" defaultChecked={preferences.enabled} className="mt-0.5 size-4 accent-foreground" />
+        <span>Terima pembayaran QRIS/VA lewat AutoLaris di checkout</span>
+      </label>
+      <fieldset className="grid gap-2">
+        <legend className="text-sm font-medium">Channel yang tidak ditawarkan</legend>
+        <div className="grid gap-1 sm:grid-cols-2">
+          {channels.map((c) => (
+            <label key={c.code} className="flex min-h-9 items-center gap-2 text-sm">
+              <input type="checkbox" name="excluded" value={c.code} disabled={c.locked} defaultChecked={c.locked || preferences.excludedChannels.includes(c.code)} className="size-4 accent-foreground" />
+              <span className="font-mono">{c.code}</span>
+              {c.locked && <span className="text-xs text-muted-foreground">dikunci Bukalaris</span>}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <fieldset className="grid gap-2">
+        <legend className="text-sm font-medium">Biaya layanan pembayaran ditanggung</legend>
+        {(["buyer", "seller"] as const).map((v) => (
+          <label key={v} className="flex min-h-9 items-center gap-2 text-sm">
+            <input type="radio" name="feeBearer" value={v} defaultChecked={preferences.feeBearer === v} className="size-4 accent-foreground" />
+            <span>{feeBearerLabel[v]}</span>
+          </label>
+        ))}
+      </fieldset>
+      <p className="text-xs text-muted-foreground">Berlaku untuk pesanan baru. Pesanan yang sudah dibuat memakai pengaturan saat pesanan dibuat.</p>
+      <SubmitButton className="justify-self-start">Simpan pengaturan</SubmitButton>
     </form>
   );
 }

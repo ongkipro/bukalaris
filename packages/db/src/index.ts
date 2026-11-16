@@ -13,6 +13,8 @@ export * from "./payments/signature.ts";
 export * from "./payments/view.ts";
 export * from "./payments/fake.ts";
 export * from "./payments/settings.ts";
+// T-106: the seller-key services (the opened key and the transport stay server-internal behind `storeAutoLaris`).
+export { buyerOrderPayment, confirmPaymentByHand, currentFeeSchedule, paymentPlatformSettings, publishPaymentFeeRates, recordAutoLarisSandboxPass, requestAutoLarisProduction, requestPaymentCheck, resolveBuyerOrder, retryOrderPayment, sellerPaymentAttempts, sellerPaymentPreferences, sellerRequestPaymentCheck, setAutoLarisProduction, setPaymentChannelLock, setPaymentPreferences, type BuyerOrderRef, type PaymentPreferences, type SellerAttemptView, type StorePaymentMethods } from "./payments/seller.ts";
 // T-104: the seller screen and readiness only; `openProviderKey` and the check transport seam stay server-internal.
 export { checkProviderNow, paymentReadiness, PROVIDER_NAME, PROVIDERS, removeProviderKey, saveProviderKey, sellerProviderAccounts, setPaymentAccountDetails, shippingReadiness, storeReadiness, type PaymentAccountDetails, type Provider, type ProviderAccountView, type Readiness, type ReadinessGap } from "./payments/provider-accounts.ts";
 export * from "./platform/membership.ts";

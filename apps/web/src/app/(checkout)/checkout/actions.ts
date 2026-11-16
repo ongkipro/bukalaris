@@ -2,11 +2,11 @@
 
 import { requireCartCsrf } from "@/lib/auth-csrf";
 
-import { captureCheckoutSession, checkoutPromotionPreview, db, placeOrder } from "@bukalaris/db";
+import { captureCheckoutSession, checkoutPromotionPreview, db, defaultProviders, DomainError, getBuyerOrder, placeOrder, requestPaymentCheck, resolveBuyerOrder, retryOrderPayment, storefrontScope } from "@bukalaris/db";
 import { userError, withError } from "@/lib/errors";
 import { referralContext } from "@/lib/referral";
 import { requestSignalContext } from "@/lib/signals";
-import { cartCookie, checkoutCart, clientIp, cookieOpts, ORDER_COOKIE } from "@/lib/storefront";
+import { cartCookie, checkoutCart, clientIp, cookieOpts, ORDER_COOKIE, servesStore } from "@/lib/storefront";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -69,4 +69,32 @@ export async function submitCheckout(f: FormData) {
   jar.set(ORDER_COOKIE, cartId!, cookieOpts);
   jar.delete(cart);
   redirect(`/checkout/confirmation?order=${orderId}`);
+}
+
+/**
+ * T-106: "check now" and "new instruction" on the confirmation page. The authority is the order cookie of the cart the order came from (the
+ * same check as the page itself) plus the cart CSRF token of the store; the services re-check the order, the limits and the method rules.
+ */
+async function confirmationPayment(orderId: number, f: FormData, op: (ref: { storeId: number; orderId: number }, ip: string | undefined) => Promise<unknown>, saved: string) {
+  const back = `/checkout/confirmation?order=${orderId}`;
+  let target = `${back}&saved=${saved}`;
+  try {
+    const cartId = (await cookies()).get(ORDER_COOKIE)?.value;
+    const o = cartId ? await getBuyerOrder(db(), orderId, cartId) : null;
+    const scope = o ? await storefrontScope(db(), o.storeSlug) : null;
+    const ref = cartId ? await resolveBuyerOrder(db(), { orderId, cartId }) : null;
+    // A store host acts only for its own store's order (T-103).
+    if (!o || !scope || !ref || !(await servesStore(o.storeSlug))) throw new DomainError("not_found", "Pesanan tidak ditemukan.");
+    await requireCartCsrf(scope, f);
+    await op(ref, await clientIp());
+  } catch (err) {
+    target = withError(back, userError(err));
+  }
+  redirect(target);
+}
+export async function recheckPaymentAction(orderId: number, f: FormData) {
+  await confirmationPayment(orderId, f, (ref, ip) => requestPaymentCheck(db(), ref, { clientIp: ip }), "recheck");
+}
+export async function retryPaymentAction(orderId: number, f: FormData) {
+  await confirmationPayment(orderId, f, (ref, ip) => retryOrderPayment(db(), ref, defaultProviders().payment, { clientIp: ip }), "retry");
 }

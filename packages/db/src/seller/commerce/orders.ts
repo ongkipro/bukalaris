@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Executor } from "../../client.ts";
 import { enqueueOrderNotifications } from "../../ops/jobs/notify.ts";
@@ -6,6 +6,7 @@ import { auditLog, order, orderLine, ORDER_STATUS_LABEL, ORDER_STATUSES, orderSt
 import { bookCodSale, settleTerminalOrder } from "../../ledger/ledger.ts";
 import { phoneMatches } from "../../buyer/normalize-sql.ts";
 import { orderPaymentView } from "../../payments/view.ts";
+import { paymentAttempt } from "../../payments/schema-payments.ts";
 import { DomainError, requireCap, type SellerScope } from "../../platform/scoped.ts";
 import { enqueuePurchase } from "../../storefront/signals.ts";
 import { inStore } from "../../platform/tenant.ts";
@@ -106,7 +107,10 @@ export async function getOrder(scope: SellerScope, orderId: number) {
     // order's own created_at is the "placed by buyer" moment.
     const { requestHash: _hash, idempotencyKey: _key, ...safe } = o;
     const risk = o.paymentMethod === "cod" && (o.status === "awaiting_confirmation" || o.status === "on_hold") ? await codRiskReasons(scope, o) : [];
-    return { ...safe, lines, history, payment: await orderPaymentView(scope.exec, scope.storeId, orderId), actions: allowedActions(o.status), risk };
+    const payment = await orderPaymentView(scope.exec, scope.storeId, orderId);
+    // T-106: an order on the store's own AutoLaris account is confirmed on the payments screen (reason and evidence), never by the bare "pay" action.
+    const actions = allowedActions(o.status).filter((a) => a !== "pay" || !payment?.sellerAccount);
+    return { ...safe, lines, history, payment, actions, risk };
   });
 }
 
@@ -177,7 +181,13 @@ export async function transitionOrder(scope: SellerScope, orderId: number, actio
   requireCap(scope, "orders.fulfill");
   if (!Object.hasOwn(TRANSITIONS, action)) throw new DomainError("invalid_action", "Aksi tidak dikenal.");
   const note = action === "ship" ? shipInput.parse(raw).trackingNumber : REASONED.includes(action) ? reasonInput.parse(raw).reason : null;
-  return inStore(scope, ({ exec }) => applyTransition(exec, scope.storeId, orderId, action, note, scope.userId));
+  return inStore(scope, async ({ exec }) => {
+    // T-106 (ADR-0013 decision 24, review finding 2): an order paying through the store's own AutoLaris account is confirmed by hand only with
+    // a reason and evidence on the payments screen (`confirmPaymentByHand`, one record per attempt); the bare "pay" action is refused (also in the database).
+    if (action === "pay" && (await exec.select({ id: paymentAttempt.id }).from(paymentAttempt).where(and(eq(paymentAttempt.storeId, scope.storeId), eq(paymentAttempt.orderId, orderId), isNotNull(paymentAttempt.paymentAccountId))).limit(1)).length > 0)
+      throw new DomainError("manual_confirmation_required", "Pembayaran lewat akun pembayaran milik toko dikonfirmasi di menu Transaksi pembayaran dengan alasan dan bukti.");
+    return applyTransition(exec, scope.storeId, orderId, action, note, scope.userId);
+  });
 }
 
 /**

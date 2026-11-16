@@ -10,6 +10,7 @@ import { sellerScope } from "@/lib/context";
 import { rupiah, tanggal } from "@/lib/format";
 import { orderActionLabel, orderStatusLabel, orderStatusTone, paymentLabel, type Tone } from "@/lib/status";
 import { BOOKABLE, can, codBookingAllowed, getOrder, getShipment, providerStatusLabel, RETRYABLE, SHIPMENT_STATUS_LABEL, shipmentTimeline, TERMINAL, whiteLabel, type OrderStatus, type ShipmentStatus } from "@bukalaris/db";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { orderAction } from "../actions";
 import { parseId } from "../status";
@@ -99,6 +100,12 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
           {o.actions.includes("pay") && (
             <p className="text-sm text-muted-foreground">
               Tandai dibayar hanya setelah Anda memeriksa transfer masuk sendiri. Ini konfirmasi manual, bukan rekonsiliasi otomatis dari penyedia pembayaran.
+            </p>
+          )}
+          {o.status === "awaiting_payment" && o.payment?.sellerAccount && (
+            <p className="text-sm text-muted-foreground" data-testid="own-account-confirm">
+              Pembayaran pesanan ini lewat akun pembayaran milik toko. Status dicek otomatis; bila uangnya sudah masuk tetapi belum terverifikasi, konfirmasi dengan alasan dan bukti di{" "}
+              <Link href="/seller/payments/transactions" className="font-medium text-foreground underline underline-offset-4">Transaksi pembayaran</Link>.
             </p>
           )}
           {simple.length > 0 && (
