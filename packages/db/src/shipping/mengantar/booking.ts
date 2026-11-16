@@ -2,7 +2,7 @@ import { MengantarClient, MengantarError } from "./client.ts";
 import { PARTNER_DISPATCH_LOCKED_MESSAGE } from "../copy.ts";
 import { trackingInfoSchema, type CreatedOrder, type TrackingInfo } from "./schemas.ts";
 import type { ShippingAccountKind } from "../schema-accounts.ts";
-import type { PickupType } from "../schema-fulfillment.ts";
+import { PROVIDER_FIGURE_FIELDS, type PickupType, type ProviderFigures } from "../schema-fulfillment.ts";
 
 // Shipment booking + tracking over the platform-owned Mengantar account (T-39, PR-5, Q-2).
 // `createOrder` and `payUnpaid` are WRITES: the client refuses them unless
@@ -37,6 +37,8 @@ export type BookingInput = {
 };
 
 export type BookingResult = {
+  /** T-115 (decision 45): the documented per-parcel money fields of the answer, integer IDR as given; absent ones are not invented. */
+  figures?: ProviderFigures;
   providerOrderId: string;
   providerBatchId: string | null;
   /** Resi; null when the provider created the order unpaid (insufficient balance). */
@@ -46,6 +48,9 @@ export type BookingResult = {
 };
 
 export type TrackingResult = {
+  /** T-115: the provider's `lastStatusChange` (ISO) when the answer carries it. */
+  statusChangedAt?: string | null;
+  figures?: ProviderFigures;
   trackingNumber: string | null;
   providerStatus: string | null;
   paid: boolean | null;
@@ -84,9 +89,28 @@ export const CREATE_ORDER_COURIER: Record<string, { courier: string; cargo?: boo
 };
 export const toCreateOrderCourier = (code: string) => CREATE_ORDER_COURIER[code] ?? { courier: code };
 
+/** The documented money fields of a provider order object (decision 45): finite numbers only, rounded to whole rupiah; anything else is left out. */
+export function figuresOf(obj: unknown): ProviderFigures {
+  const out: ProviderFigures = {};
+  if (!obj || typeof obj !== "object") return out;
+  for (const f of PROVIDER_FIGURE_FIELDS) {
+    const raw = (obj as Record<string, unknown>)[f];
+    const n = typeof raw === "string" && /^-?\d+(\.\d+)?$/.test(raw) ? Number(raw) : raw;
+    if (typeof n === "number" && Number.isFinite(n) && Math.abs(n) <= 1e12) out[f] = Math.round(n);
+  }
+  return out;
+}
+
+const withFigures = (obj: unknown): { figures?: ProviderFigures } => {
+  const figures = figuresOf(obj);
+  return Object.keys(figures).length > 0 ? { figures } : {};
+};
+
 /** `history[].date` + `desc` → stored event; lines without text are dropped. */
 export function toTrackingResult(info: TrackingInfo): TrackingResult {
   return {
+    ...(info.lastStatusChange ? { statusChangedAt: info.lastStatusChange } : {}),
+    ...withFigures(info),
     trackingNumber: info.cnote_no ?? null,
     providerStatus: info.statusCategory ?? info.status ?? null,
     paid: info.isPaid ?? null,
@@ -113,6 +137,7 @@ export function toBookingResult(created: CreatedOrder, batchId: string | undefin
   if (!created.ORDER_ID) throw new MengantarError("invalid_shape", "Mengantar create-order response has no ORDER_ID", 200, created);
   const trackingNumber = created.cnote_no ?? null;
   return {
+    ...withFigures(created),
     providerOrderId: created.ORDER_ID,
     providerBatchId: created.batch_id ?? batchId ?? null,
     trackingNumber,

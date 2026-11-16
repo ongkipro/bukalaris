@@ -256,7 +256,8 @@ async function restockOrder(tx: Executor, storeId: number, orderId: number, labe
   }
 }
 
-export type ProviderTransition = "completed" | "returned" | "cancelled";
+/** `released` (T-115, ADR-0013 decision 44): a parcel cancelled in the store's OWN courier account gives the order back to `processing`. */
+export type ProviderTransition = "completed" | "returned" | "cancelled" | "released";
 export type ProviderTransitionOutcome = { outcome: "applied" | "noop" | "rejected"; status: OrderStatus; reason?: string };
 export const PROVIDER_ACTOR = "system:provider-status";
 
@@ -280,7 +281,7 @@ export async function applyProviderTransition(
 ): Promise<ProviderTransitionOutcome> {
   const actor = ctx.actorUserId ?? PROVIDER_ACTOR;
   const [o] = await tx
-    .select({ status: order.status, paymentMethod: order.paymentMethod, trackingNumber: order.trackingNumber })
+    .select({ status: order.status, paymentMethod: order.paymentMethod, trackingNumber: order.trackingNumber, accountKind: order.shippingAccountKind })
     .from(order)
     .where(and(eq(order.storeId, storeId), eq(order.id, orderId)))
     .for("update");
@@ -290,11 +291,21 @@ export async function applyProviderTransition(
     completed: ["placed", "processing", "shipped"],
     returned: ["shipped"],
     cancelled: ["awaiting_confirmation", "on_hold", "awaiting_payment", "placed", "processing", "shipped"],
+    released: ["shipped"],
   };
   const reject = async (reason: string): Promise<ProviderTransitionOutcome> => {
     await tx.insert(auditLog).values({ storeId, actorUserId: actor, action: "order.transition_rejected", subjectKind: "order", subjectId: String(orderId), reason: `${o.status} -> ${target}: ${reason}`.slice(0, 400), outcome: "denied" });
     return { outcome: "rejected", status: o.status, reason };
   };
+  if (target === "released") {
+    // T-115: nothing left the seller (the parcel was cancelled before pickup), so nothing is restocked or settled; the resi of the cancelled parcel is cleared.
+    if (o.status === "placed" || o.status === "processing") return { outcome: "noop", status: o.status }; // no resi was issued: the booking alone is released
+    if (o.accountKind !== "seller_owned") return reject("not_own_account");
+    if (!legal.released.includes(o.status)) return reject("illegal_transition");
+    await tx.update(order).set({ status: "processing", trackingNumber: null, updatedAt: new Date() }).where(and(eq(order.storeId, storeId), eq(order.id, orderId)));
+    await tx.insert(orderStatusHistory).values({ storeId, orderId, fromStatus: o.status, toStatus: "processing", actorUserId: actor, note: `${ctx.note ?? "Paket dibatalkan di akun kurir"}; booking dilepas, pesanan bisa dibooking lagi (status kurir)`.slice(0, 500) });
+    return { outcome: "applied", status: "processing" };
+  }
   if (!legal[target].includes(o.status)) return reject("illegal_transition");
   if (target === "completed" && !o.trackingNumber) return reject("missing_tracking_number");
   const now = new Date();

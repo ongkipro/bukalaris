@@ -2,6 +2,7 @@
 // a module that merely needs the account services must not add schedules to the process.
 import { registerHandler, registerPlatformHandler } from "../ops/jobs/jobs.ts";
 import { registerSchedule } from "../ops/jobs/scheduler.ts";
+import { SHIPPING_ACCOUNT_SCAN_SWEEP, SHIPPING_PARCEL_SWEEP, sweepAccountScans, sweepParcels } from "./sync.ts";
 import { partnerClientAvailable, provisionShippingAccount, resealShippingCredentials, SHIPPING_ACCOUNT_PROVISION, SHIPPING_ACCOUNT_SWEEP, SHIPPING_ACCOUNT_SYNC, SHIPPING_CREDENTIAL_RESEAL, sweepPendingAccounts, syncShippingAccounts } from "./accounts.ts";
 
 // A store-scoped recovery job (queued by the Owner console) and three platform schedules: the automatic provisioning sweep (every store gets its account),
@@ -19,3 +20,10 @@ registerSchedule({ kind: SHIPPING_ACCOUNT_SYNC, period: "hour", catchUp: 0 });
 registerPlatformHandler(SHIPPING_ACCOUNT_SYNC, async ({ db }) => { if (!partnerOffline(SHIPPING_ACCOUNT_SYNC)) await syncShippingAccounts(db); }, { replaySafe: true });
 registerSchedule({ kind: SHIPPING_CREDENTIAL_RESEAL, period: "hour", catchUp: 0 });
 registerPlatformHandler(SHIPPING_CREDENTIAL_RESEAL, async ({ db }) => { await resealShippingCredentials(db); }, { replaySafe: true });
+// T-115 (ADR-0013 decisions 41, 43 and 45): the scheduled read of every non-final parcel on a store's own account (each minute, the stalest of each
+// store first) and the account scan (foreign parcels, balance and invoices; each hour, least recently scanned stores first). Importing `sync.ts`
+// also registers the per-store scan handler.
+registerSchedule({ kind: SHIPPING_PARCEL_SWEEP, period: "minute", catchUp: 0 });
+registerPlatformHandler(SHIPPING_PARCEL_SWEEP, async ({ db }) => { await sweepParcels(db); }, { replaySafe: true });
+registerSchedule({ kind: SHIPPING_ACCOUNT_SCAN_SWEEP, period: "hour", catchUp: 0 });
+registerPlatformHandler(SHIPPING_ACCOUNT_SCAN_SWEEP, async ({ db }) => { await sweepAccountScans(db); }, { replaySafe: true });

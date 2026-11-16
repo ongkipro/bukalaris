@@ -10,6 +10,7 @@ import { auditLog, membership, storePickupArea, user } from "../schema.ts";
 import { enforceLimits } from "../seller/commerce/checkout.ts";
 import { keyFingerprint, keyHint, sealCredential, unsealCredential, type CredentialPurpose } from "../shipping/credentials.ts";
 import { PROVIDER_ENVIRONMENTS, storeShippingAccount, type ProviderEnvironment } from "../shipping/schema-accounts.ts";
+import { storeShippingSync } from "../shipping/schema-fulfillment.ts";
 import { fakeAutoLaris } from "./fake.ts";
 import { FAKE_AREAS, fakeMengantar } from "./providers.ts";
 import { paymentProductionSwitch, storePaymentAccount } from "./schema-payments.ts";
@@ -177,18 +178,22 @@ const view = (provider: Provider, r: AccountRow | undefined): ProviderAccountVie
 });
 
 // ── Readiness (ADR-0013 decisions 12 to 14) ─────────────────────────────────────────────────────────────────────
-export type ReadinessGap = "key" | "check" | "pickup_area" | "pickup_registered" | "order_fields" | "sender_address" | "payment_only" | "production_off";
+export type ReadinessGap = "key" | "check" | "dedicated" | "pickup_area" | "pickup_registered" | "order_fields" | "sender_address" | "payment_only" | "production_off";
 export type Readiness = { ready: boolean; missing: ReadinessGap[] };
 type ReadScope = Pick<SellerScope | StorefrontScope, "exec" | "storeId">;
 const readiness = (missing: (ReadinessGap | false)[]): Readiness => {
   const gaps = missing.filter((g): g is ReadinessGap => g !== false);
   return { ready: gaps.length === 0, missing: gaps };
 };
-function shippingGaps(a: AccountRow | undefined, pickupArea: boolean): Readiness {
+function shippingGaps(a: AccountRow | undefined, pickupArea: boolean, dedicated: DedicatedRow | undefined): Readiness {
   const keyed = a?.status === "active";
-  // Decision 41's dedicated-account check joins this list in T-115; the pickup registration is written by T-105.
-  return readiness([!keyed && "key", keyed && a!.lastResult !== "ready" && "check", !pickupArea && "pickup_area", !a?.pickupRegisteredAt && "pickup_registered"]);
+  // T-115 (decision 41): the seller confirmed THIS key's account as new and dedicated, after its order list was checked.
+  const isDedicated = !!dedicated?.confirmedAt && dedicated.fingerprint === a?.keyFingerprint && dedicated.environment === a?.environment;
+  return readiness([!keyed && "key", keyed && a!.lastResult !== "ready" && "check", keyed && !isDedicated && "dedicated", !pickupArea && "pickup_area", !a?.pickupRegisteredAt && "pickup_registered"]);
 }
+type DedicatedRow = { confirmedAt: Date | null; fingerprint: string | null; environment: string | null };
+const readDedicated = async (exec: Executor, storeId: number): Promise<DedicatedRow | undefined> =>
+  (await exec.select({ confirmedAt: storeShippingSync.dedicatedConfirmedAt, fingerprint: storeShippingSync.dedicatedFingerprint, environment: storeShippingSync.dedicatedEnvironment }).from(storeShippingSync).where(eq(storeShippingSync.storeId, storeId)))[0];
 function paymentGaps(a: AccountRow | undefined, productionOn: boolean): Readiness {
   const keyed = a?.status === "active";
   return readiness([
@@ -209,8 +214,8 @@ export async function autolarisProductionOn(exec: Executor): Promise<boolean> {
 /** Shipping is ready (decision 12): a sealed Mengantar key whose last check passed, a pickup area and a pickup address registered with that account. */
 export async function shippingReadiness(scope: ReadScope): Promise<Readiness> {
   return inStore(scope, async ({ exec }) => {
-    const [a, [pickup]] = await Promise.all([readAccount(exec, scope.storeId, "mengantar"), exec.select({ storeId: storePickupArea.storeId }).from(storePickupArea).where(eq(storePickupArea.storeId, scope.storeId))]);
-    return shippingGaps(a, !!pickup);
+    const [a, [pickup], dedicated] = await Promise.all([readAccount(exec, scope.storeId, "mengantar"), exec.select({ storeId: storePickupArea.storeId }).from(storePickupArea).where(eq(storePickupArea.storeId, scope.storeId)), readDedicated(exec, scope.storeId)]);
+    return shippingGaps(a, !!pickup, dedicated);
   });
 }
 /** QRIS/VA is ready (decision 13): a sealed AutoLaris key whose last check passed, the order fields, a sender address and the recorded payment-only profile. */
@@ -231,9 +236,9 @@ export async function storeReadiness(scope: ReadScope) {
 export async function sellerProviderAccounts(scope: SellerScope) {
   requireCap(scope, "integrations.manage");
   return inStore(scope, async ({ exec }) => {
-    const [ship, pay, [pickup]] = await Promise.all([readAccount(exec, scope.storeId, "mengantar"), readAccount(exec, scope.storeId, "autolaris"), exec.select({ storeId: storePickupArea.storeId }).from(storePickupArea).where(eq(storePickupArea.storeId, scope.storeId))]);
+    const [ship, pay, [pickup], dedicated] = await Promise.all([readAccount(exec, scope.storeId, "mengantar"), readAccount(exec, scope.storeId, "autolaris"), exec.select({ storeId: storePickupArea.storeId }).from(storePickupArea).where(eq(storePickupArea.storeId, scope.storeId)), readDedicated(exec, scope.storeId)]);
     const details: PaymentAccountDetails | null = pay ? { originAreaId: pay.originAreaId ?? null, destinationAreaId: pay.destinationAreaId ?? null, shipperEmail: pay.shipperEmail ?? null, senderAddress: pay.senderAddress ?? null, paymentOnlyConfirmedAt: pay.paymentOnlyConfirmedAt ?? null } : null;
-    const shipping = shippingGaps(ship, !!pickup), qrisVa = paymentGaps(pay, await autolarisProductionOn(exec));
+    const shipping = shippingGaps(ship, !!pickup, dedicated), qrisVa = paymentGaps(pay, await autolarisProductionOn(exec));
     return { mengantar: view("mengantar", ship), autolaris: view("autolaris", pay), details, readiness: { shipping, qrisVa, canOpen: qrisVa.ready || shipping.ready, physicalProducts: shipping.ready } };
   });
 }
@@ -305,6 +310,10 @@ export async function saveProviderKey(scope: SellerScope, raw: unknown): Promise
   const result = await runCheck(scope, provider, environment, value);
   if (!result.ok) throw new DomainError("check_failed", `${CHECK_MESSAGE[result.code]} Tidak ada yang diubah; kunci sebelumnya tetap dipakai.`);
   const fingerprint = keyFingerprint(PURPOSE[provider], value);
+  // T-115 (ADR-0013 decision 41): another Mengantar account (a new key or environment) must hold no order Bukalaris did not create for this store.
+  if (provider === "mengantar" && !(connected && current!.keyFingerprint === fingerprint && current!.environment === environment)) {
+    await (await import("../shipping/sync.ts")).assertDedicatedAccount(scope, environment, value);
+  }
   return withStore(scope.exec, scope.storeId, async (tx) => {
     await consumeSellerStepUp(tx, scope, input.proofId, { action: PROVIDER_KEY_ACTION, subjectId: provider });
     const row = await lockedAccount(tx, scope.storeId, provider, environment);
