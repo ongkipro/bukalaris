@@ -230,7 +230,7 @@ describe("T-104 seller provider accounts: sealed keys, environment, connection c
     const s = await makeStore("toko-a");
     const me = await ownerOf(s);
     await connect(me, "mengantar");
-    await admin.execute(sql`update store_shipping_account set pickup_registered_at = now() where store_id = ${s.storeId} and kind = 'seller_owned'`);
+    await admin.execute(sql`update store_shipping_account set pickup_registered_at = now(), pickup_address_id = 'pickup1' where store_id = ${s.storeId} and kind = 'seller_owned'`);
     const removed = await removeProviderKey(me, { provider: "mengantar", proofId: await proof(me, "mengantar") });
     expect(removed).toEqual({ provider: "mengantar", connected: false, environment: "sandbox", keyHint: null, lastCheckedAt: null, lastResult: null, revision: 2 });
     expect(await shipRow(s.storeId)).toMatchObject({ status: "needs_key", sealedKey: null, keyId: null, keyFingerprint: null, keyHint: null, pickupRegisteredAt: null });
@@ -310,7 +310,7 @@ describe("T-104 seller provider accounts: sealed keys, environment, connection c
     // Shipping: a connected, checked key still waits for the pickup registration of that account (written by T-105).
     await connect(me, "mengantar");
     expect(await shippingReadiness(me)).toEqual({ ready: false, missing: ["pickup_registered"] });
-    await admin.execute(sql`update store_shipping_account set pickup_registered_at = now() where store_id = ${s.storeId} and kind = 'seller_owned'`);
+    await admin.execute(sql`update store_shipping_account set pickup_registered_at = now(), pickup_address_id = 'pickup1' where store_id = ${s.storeId} and kind = 'seller_owned'`);
     expect(await storeReadiness(me)).toMatchObject({ shipping: { ready: true, missing: [] }, canOpen: true, physicalProducts: true });
     // Another account (a different key) needs its own registration.
     await connect(me, "mengantar", "a-different-mengantar-account-key-0000");

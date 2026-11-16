@@ -12,10 +12,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { consoleGate } from "@/lib/console-gate";
 import { allowed } from "@/lib/context";
 import { rupiah, tanggal } from "@/lib/format";
-import { applyMargin, db, getMarginRule, marginRuleAudit, ROUND_TO_OPTIONS, shippingAccountHealth, shippingPolicyOverview } from "@bukalaris/db";
+import { applyMargin, db, getMarginRule, marginRuleAudit, mengantarLiveSetting, ROUND_TO_OPTIONS, shippingAccountHealth, shippingPolicyOverview } from "@bukalaris/db";
 import Link from "next/link";
 import { AccessDenied } from "../access-denied";
-import { applyMarginAction, applySettingsAction, recoverAccountAction, requestMarginAction, requestSettingsAction, saveCashbackRuleAction, setCourierPolicyAction } from "./actions";
+import { applyMarginAction, applySettingsAction, recordSandboxPassAction, recoverAccountAction, requestMarginAction, requestProductionAction, requestSettingsAction, saveCashbackRuleAction, setCourierPolicyAction, setProductionCallsAction } from "./actions";
 
 export const metadata = { title: "Margin ongkir dan akun pengiriman" };
 
@@ -29,10 +29,13 @@ const SAVED: Record<string, string> = {
   cashback_saved: "Aturan cashback tersimpan sebagai draf. Cashback tetap mati: belum ada aturan yang berlaku.",
   courier_saved: "Kebijakan layanan kurir tersimpan; hanya berlaku untuk pesanan baru.",
   recovery_queued: "Pemulihan akun dijadwalkan. Hasilnya muncul di kolom Hasil terakhir.",
+  sandbox_pass: "Uji sandbox Mengantar tercatat.",
+  production_switch: "Sakelar panggilan produksi Mengantar tersimpan.",
+  production_requested: "Pembukaan panggilan produksi diajukan. Orang kedua menyetujuinya di Persetujuan, lalu Anda menerapkannya di sini dengan ID persetujuan.",
 };
 const STATUS_LABEL: Record<string, string> = { pending: "Menunggu pembuatan", active: "Aktif", needs_key: "Perlu pemulihan kunci", disabled: "Dinonaktifkan" };
 const STATUS_TONE: Record<string, "success" | "warning" | "destructive" | "secondary"> = { pending: "warning", active: "success", needs_key: "warning", disabled: "destructive" };
-const KIND_LABEL: Record<string, string> = { partner_managed: "Akun mitra toko", platform_master: "Akun induk" };
+const KIND_LABEL: Record<string, string> = { partner_managed: "Akun mitra toko", platform_master: "Akun induk", seller_owned: "Akun milik penjual" };
 
 export default async function AdminShippingPage({ searchParams }: PageProps<"/admin/shipping">) {
   const g = await consoleGate("/admin/shipping");
@@ -41,7 +44,7 @@ export default async function AdminShippingPage({ searchParams }: PageProps<"/ad
   const cursor = typeof after === "string" && /^\d{1,15}$/.test(after) ? Number(after) : 0;
   const audit = await allowed(marginRuleAudit(g.op));
   if (audit === undefined) return <AccessDenied capability="shipping.manage" />;
-  const [rule, policy, health] = await Promise.all([getMarginRule(db()), shippingPolicyOverview(g.op), shippingAccountHealth(g.op, cursor)]);
+  const [rule, policy, health, live] = await Promise.all([getMarginRule(db()), shippingPolicyOverview(g.op), shippingAccountHealth(g.op, cursor), mengantarLiveSetting(g.op)]);
   const { settings } = policy;
   const nextCursor = health.accounts.length === 100 ? health.accounts[99]!.id : null;
   return (
@@ -53,6 +56,66 @@ export default async function AdminShippingPage({ searchParams }: PageProps<"/ad
         <h2 id="gerbang" className="text-lg font-semibold">Gerbang akses penyedia</h2>
         <p className="text-sm" data-testid="gate-state">{health.rotationRecorded ? "Rotasi Partner Secret tercatat. Panggilan penyedia diizinkan oleh gerbang ini." : "Terkunci: rotasi Partner Secret belum dicatat. Tidak ada panggilan ke penyedia (termasuk sandbox) yang dapat dilakukan; adaptor simulasi tetap berjalan."}</p>
         <p className="text-xs text-muted-foreground">Gerbang dibuka oleh pemilik lewat secret store dan RUNBOOK (tanpa nilai secret di layar ini). Akun mitra di bawah baru dipakai untuk pengiriman nyata setelah settlement mitra (OPEN-F9) terverifikasi.</p>
+      </section>
+
+      <section aria-labelledby="produksi" className="grid gap-3 rounded-lg border p-4" data-testid="mengantar-production">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 id="produksi" className="text-lg font-semibold">Panggilan produksi pada akun Mengantar milik penjual</h2>
+          <StatusBadge label={live.productionEnabled ? "Terbuka" : "Tertutup"} tone={live.productionEnabled ? "success" : "secondary"} data-testid="production-state" />
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Tertutup secara bawaan. Selama tertutup, akun penjual di lingkungan produksi tidak dipanggil sama sekali (cek kunci, cek ongkir, pendaftaran alamat, booking, pelacakan); akun sandbox tidak terpengaruh. Hanya bisa dibuka setelah uji sandbox yang lolos dicatat, dengan persetujuan operator kedua; menutupnya berlaku seketika.
+        </p>
+        <p className="text-sm" data-testid="sandbox-pass">
+          {live.sandboxPassedAt ? <>Uji sandbox tercatat {tanggal(live.sandboxPassedAt)}: <span className="break-words">{live.sandboxPassNote}</span></> : "Belum ada uji sandbox yang tercatat."}
+        </p>
+        <form action={recordSandboxPassAction} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" aria-label="Catat uji sandbox Mengantar">
+          <CsrfField />
+          <input type="hidden" name="revision" value={live.revision} />
+          <div className="grid gap-2">
+            <Label htmlFor="sandboxNote">Bukti uji sandbox</Label>
+            <Input id="sandboxNote" name="note" required minLength={10} maxLength={500} placeholder="Tanggal, hasil, letak catatan uji" />
+          </div>
+          <SubmitButton variant="outline" pendingText="Mencatat…">Catat uji sandbox</SubmitButton>
+        </form>
+        {live.productionEnabled ? (
+          <form action={setProductionCallsAction} className="grid gap-2 border-t pt-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" aria-label="Tutup panggilan produksi Mengantar">
+            <CsrfField />
+            <input type="hidden" name="revision" value={live.revision} />
+            <input type="hidden" name="enabled" value="off" />
+            <div className="grid gap-2">
+              <Label htmlFor="switchReason">Alasan</Label>
+              <Input id="switchReason" name="reason" required minLength={5} maxLength={300} placeholder="mis. Gangguan di penyedia" />
+            </div>
+            <SubmitButton variant="destructive" pendingText="Menyimpan…">Tutup panggilan produksi</SubmitButton>
+          </form>
+        ) : (
+          <>
+            <form action={requestProductionAction} className="grid gap-2 border-t pt-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" aria-label="Ajukan pembukaan panggilan produksi Mengantar">
+              <CsrfField />
+              <input type="hidden" name="revision" value={live.revision} />
+              <div className="grid gap-2">
+                <Label htmlFor="switchReason">Alasan</Label>
+                <Input id="switchReason" name="reason" required minLength={5} maxLength={300} placeholder="mis. Uji sandbox lolos, pilot dimulai" />
+              </div>
+              <SubmitButton pendingText="Mengajukan…">Ajukan pembukaan</SubmitButton>
+            </form>
+            <form action={setProductionCallsAction} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end" aria-label="Terapkan pembukaan panggilan produksi Mengantar">
+              <CsrfField />
+              <input type="hidden" name="revision" value={live.revision} />
+              <input type="hidden" name="enabled" value="on" />
+              <div className="grid gap-2">
+                <Label htmlFor="productionApproval">ID persetujuan</Label>
+                <Input id="productionApproval" name="approvalId" inputMode="numeric" required pattern="[0-9]+" />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="applyReason">Alasan</Label>
+                <Input id="applyReason" name="reason" required minLength={5} maxLength={300} />
+              </div>
+              <SubmitButton variant="outline" pendingText="Menerapkan…">Buka panggilan produksi</SubmitButton>
+            </form>
+          </>
+        )}
       </section>
 
       <section aria-labelledby="margin" className="grid gap-3">

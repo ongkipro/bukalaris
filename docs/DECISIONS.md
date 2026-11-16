@@ -525,3 +525,15 @@ The owner answered the four points D-32 left open. Decided, not implemented; doc
 4. **Rate limits for the new actions (starting values, accepted recommendation).** Listed in `16-OBSERVABILITY-RATE-LIMITING.md` "Rate-limit register additions (D-33)". They are Owner-configurable settings, measured again after the pilot.
 5. **Sandbox origins** stay as decided in D-31 (OPEN-P7): read from each provider's official documentation in T-105 and T-106.
 
+## D-34 — Seller-account readiness columns stay written by the application role (2026-11-16, T-105, deliberate ceiling)
+
+Context: T-104 left the readiness columns of a store's own Mengantar account (`last_result`, `last_checked_at`, `pickup_registered_at`, now `pickup_address_id`) writable by the application role without a step-up. The provider call that proves them (connection check, pickup registration) runs in the seller's request.
+
+Decision: the writes stay app-side. `provider_account_guard` (migration 0019) narrows them: a check time and a registration carry the statement's own time, a passed check carries its check time, a registration needs a connected key whose last check passed and a provider pickup id, and a key or environment change clears the registration for every role. This narrows the gap; it does not close it: code running as `bukalaris_app` can still record `last_result = 'ready'` with `now()` for its own store without having called the provider.
+
+Accepted cost: a compromised application process can make its own store look ready; the next real provider call (quote, registration, booking) on that key still fails, so no order can be booked on an unchecked key, and nothing crosses stores (FORCE RLS, the envelope function).
+
+Upgrade path: move the connection check and the pickup registration to worker jobs on the platform role (asynchronous "check now"), and revoke the application role's UPDATE on the readiness columns.
+
+Revisit when: a second tenant-facing writer of these columns appears, or the review of the hosting threat model asks for it.
+

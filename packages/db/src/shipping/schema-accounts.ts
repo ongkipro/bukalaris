@@ -6,8 +6,8 @@ import { bigint, boolean, check, integer, pgTable, text, timestamp, unique, uuid
 import { store } from "../schema.ts";
 
 export const SHIPPING_ACCOUNT_KINDS = ["partner_managed", "platform_master", "seller_owned"] as const;
-/** The kinds an order runs on today (T-48). A `seller_owned` account (T-104) carries orders only once T-105 routes them to it. */
-export type ShippingAccountKind = "partner_managed" | "platform_master";
+/** The kinds an order runs on: the T-48 kinds and, since T-105, the store's own account (`seller_owned`, ADR-0013 decision 2). */
+export type ShippingAccountKind = (typeof SHIPPING_ACCOUNT_KINDS)[number];
 /** The only way a seller account names a provider origin: the platform maps it to a fixed origin from server configuration (ADR-0013 decision 10). */
 export const PROVIDER_ENVIRONMENTS = ["sandbox", "production"] as const;
 export type ProviderEnvironment = (typeof PROVIDER_ENVIRONMENTS)[number];
@@ -35,6 +35,8 @@ export const storeShippingAccount = pgTable("store_shipping_account", {
   keyHint: text("key_hint"),
   /** Set when the pickup address was registered with this account (T-105); cleared when the key changes to another account. */
   pickupRegisteredAt: at("pickup_registered_at"),
+  /** T-105: the provider's id of the registered pickup address (`pickup.address_id` of a booking); present exactly while `pickup_registered_at` is. */
+  pickupAddressId: text("pickup_address_id"),
   /** The step-up proof consumed by the last key or environment change (provider_account_guard). */
   stepUpRef: uuid("step_up_ref"),
   revision: integer("revision").notNull().default(0),
@@ -55,6 +57,7 @@ export const storeShippingAccount = pgTable("store_shipping_account", {
     and (${t.sealedKey} is null or ${t.kind} <> 'seller_owned' or (${t.keyFingerprint} is not null and ${t.keyHint} is not null))
     and (${t.sealedKey} is not null or (${t.keyFingerprint} is null and ${t.keyHint} is null and ${t.pickupRegisteredAt} is null))`),
   check("shipping_account_attempts_chk", sql`${t.registrationAttempts} >= 0`),
+  check("shipping_account_pickup_chk", sql`(${t.pickupRegisteredAt} is null) = (${t.pickupAddressId} is null) and (${t.pickupAddressId} is null or ${t.pickupAddressId} ~ '^[A-Za-z0-9_-]{1,64}$')`),
 ]);
 
 /** Named conservative settings; an empty/off cashback policy cannot invent provider income (D-22, OPEN-F9). */

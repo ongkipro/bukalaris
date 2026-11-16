@@ -142,6 +142,8 @@ export const FOUR_EYES_MATRIX = [
   { actionKey: "shipping.margin", capability: "shipping.manage", phase: "P1", active: true },
   { actionKey: "affiliate.rate_bounds", capability: "affiliate.policy.manage", phase: "P1", active: true },
   { actionKey: "providers.rotate", capability: "providers.manage", phase: "P1", active: true },
+  // T-106 (ADR-0013 decision 34): switching production calls on seller provider keys ON (target id = the provider; the same row serves T-105's Mengantar switch).
+  { actionKey: "providers.production_on", capability: "providers.manage", phase: "P1", active: true },
   { actionKey: "mfa.reset", capability: "accounts.support", phase: "P1", active: true },
   // T-63: the staff-target variant of the IAM-15 `mfa.reset` row (capability `staff.manage`, never `accounts.*`).
   { actionKey: "staff.mfa_reset", capability: "staff.manage", phase: "P1", active: true },

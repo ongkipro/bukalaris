@@ -120,7 +120,8 @@ describe("credentials never leave the sealed column (canary tests)", () => {
     const health = await shippingAccountHealth(op);
     const dtos = JSON.stringify([owner, health, await selectShippingAccount({ exec: db, storeId: s.storeId })]);
     expect(dtos).not.toContain(KNOWN_SECRET_CANARY);
-    const allowed = ["id", "kind", "lastCheckedAt", "lastResult", "revision", "status", "storeId"];
+    // T-105: `environment` (sandbox or production of a store's own account; null for the T-48 kinds) joined the allow-list; never a key.
+    const allowed = ["environment", "id", "kind", "lastCheckedAt", "lastResult", "revision", "status", "storeId"];
     for (const a of owner.accounts) expect(Object.keys(a).sort()).toEqual(allowed);
     // The operator-only health view adds exactly two non-secret retry counters (T-48 fix 8); every sealed or identity column stays out.
     for (const a of health.accounts) expect(Object.keys(a).sort()).toEqual([...allowed, "autoRetryStopped", "registrationAttempts"].sort());

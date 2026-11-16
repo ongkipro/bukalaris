@@ -5,10 +5,15 @@ import { enqueue, MAX_ATTEMPTS, registerHandler, sanitizeError } from "../ops/jo
 import { mengantarBookingFromEnv, type BookingAdapter, type BookingInput, type BookingResult, type TrackingResult } from "./mengantar/booking.ts";
 import { MengantarError } from "./mengantar/client.ts";
 import { verifyOrderLink } from "../ops/jobs/notify.ts";
-import { applyProviderTransition, applyTransition } from "../seller/commerce/orders.ts";
+import { applyProviderTransition, applyTransition, PROVIDER_ACTOR } from "../seller/commerce/orders.ts";
 import { requoteOrder, reserveShippingCost, reverseShippingReservation } from "../ledger/booking.ts";
 import { codAllowedCouriers } from "./shipping.ts";
-import { order, ORDER_STATUS_LABEL, orderLine, orderRedaction, shipment, SHIPMENT_STATUS_LABEL, type OrderStatus, type ShipmentStatus, type TrackingEvent } from "../schema.ts";
+import { auditLog, membership, order, ORDER_STATUS_LABEL, orderLine, orderRedaction, shipment, SHIPMENT_STATUS_LABEL, user, type OrderStatus, type ShipmentStatus, type TrackingEvent } from "../schema.ts";
+import { PICKUP_TYPES } from "./schema-fulfillment.ts";
+import { storeCourierRule } from "./schema-shipping.ts";
+import { openSellerKeyAsWorker, sellerMengantar } from "./seller.ts";
+import { sellerAccount } from "./rules.ts";
+import { dbMailer } from "../platform/accounts.ts";
 import { PROVIDER_CODE_RE_SOURCE, REDACTED } from "../seller/commerce/privacy.ts";
 import { DomainError, requireCap, type SellerScope } from "../platform/scoped.ts";
 import { resolveOrderStore } from "../platform/resolvers.ts";
@@ -17,6 +22,7 @@ import { orderShippingAccount, type ShippingAccountView } from "./accounts.ts";
 import { withShippingDispatch } from "./dispatch.ts";
 import { PARTNER_DISPATCH_LOCKED_MESSAGE, scrubProviderText, UNKNOWN_PROVIDER_STATUS_LABEL } from "./copy.ts";
 export { SHIPMENT_STATUS_LABEL, SHIPMENT_STATUSES, type ShipmentStatus, type TrackingEvent } from "../schema.ts";
+export { PICKUP_TYPES, type PickupType } from "./schema-fulfillment.ts";
 export { CREATE_ORDER_COURIER, mengantarBooking, mengantarBookingFromEnv, type BookingAdapter, type BookingInput, type BookingResult, type TrackingResult } from "./mengantar/booking.ts";
 
 // Shipment booking and tracking through the outbox (T-39, PR-5, Q-2, Q-17). The seller
@@ -44,6 +50,11 @@ export const TRACK_HISTORY_MAX = 50;
 export const BOOKABLE: readonly OrderStatus[] = ["placed", "processing"];
 /** Nothing left to poll in these states; `awaiting_balance` and `failed` accept a seller retry. */
 export const TERMINAL: readonly ShipmentStatus[] = ["delivered", "returned", "cancelled", "failed"];
+/**
+ * A seller retry is accepted only here. `unknown` (T-105, ADR-0013 decision 30) is deliberately absent: after a timeout, a dropped connection,
+ * a provider 5xx or a lost worker the provider may hold an order, so the shipment is blocked until a person releases it or links the shipment
+ * the provider did accept (`releaseUnknownBooking`, `linkUnknownBooking`). It is never retried blindly.
+ */
 export const RETRYABLE: readonly ShipmentStatus[] = ["awaiting_account", "awaiting_balance", "failed"];
 
 /** Q-17 (COD remittance) is open: COD bookings stay refused unless the owner sets ALLOW_COD_BOOKING=1. */
@@ -124,11 +135,13 @@ export type BookOutcome = { shipmentId: number; attempt: number; created: boolea
  * (`created: false`); `awaiting_balance`/`failed` shipments get a new attempt (new job key);
  * anything already booked is refused. COD orders are refused while Q-17 is open.
  */
-export async function bookShipment(scope: SellerScope, orderId: number): Promise<BookOutcome> {
+const bookInput = z.strictObject({ pickupType: z.enum(PICKUP_TYPES, { error: "Pilih cara serah paket: dijemput kurir atau antar sendiri." }).default("scheduled_pickup") });
+export async function bookShipment(scope: SellerScope, orderId: number, raw: unknown = {}): Promise<BookOutcome> {
   requireCap(scope, "orders.fulfill");
+  const { pickupType } = bookInput.parse(raw);
   return inStore(scope, async ({ exec: tx }) => {
     const [o] = await tx
-      .select({ status: order.status, paymentMethod: order.paymentMethod, courierCode: order.courierCode, originAreaId: order.originAreaId, destinationAreaId: order.destinationAreaId, weightKg: order.weightKg, total: order.total })
+      .select({ status: order.status, paymentMethod: order.paymentMethod, courierCode: order.courierCode, originAreaId: order.originAreaId, destinationAreaId: order.destinationAreaId, weightKg: order.weightKg, total: order.total, accountKind: order.shippingAccountKind })
       .from(order)
       .where(and(eq(order.storeId, scope.storeId), eq(order.id, orderId)))
       .for("update");
@@ -137,10 +150,14 @@ export async function bookShipment(scope: SellerScope, orderId: number): Promise
     if (existing && (existing.status === "queued" || existing.status === "booking")) {
       return { shipmentId: existing.id, attempt: existing.bookingAttempts, created: false }; // duplicate click: the job already exists
     }
+    if (existing?.status === "unknown") throw new DomainError("booking_unknown", UNKNOWN_BLOCK_MESSAGE);
     if (existing && !RETRYABLE.includes(existing.status)) throw new DomainError("already_booked", `Pesanan ini sudah dibooking (${SHIPMENT_STATUS_LABEL[existing.status].toLowerCase()}).`);
     if (!BOOKABLE.includes(o.status)) throw new DomainError("not_bookable", `Pesanan berstatus "${ORDER_STATUS_LABEL[o.status]}" tidak bisa dibooking; booking hanya untuk pesanan Baru atau Diproses.`);
-    if (o.paymentMethod === "cod" && !codBookingAllowed()) throw new DomainError("cod_booking_disabled", COD_BOOKING_MESSAGE);
-    if (o.paymentMethod === "cod" && !(await codAllowedCouriers(tx)).has(o.courierCode.toLowerCase())) throw new DomainError("cod_courier_not_allowed", COD_COURIER_MESSAGE);
+    // The Q-17 COD gate and the free-return COD list protect the platform-held money of ADR-0006; a store on its own account collects its own COD
+    // (ADR-0013 section 8, decision 32): the COD order was already checked against the seller's filters at submit.
+    const own = o.accountKind === "seller_owned";
+    if (!own && o.paymentMethod === "cod" && !codBookingAllowed()) throw new DomainError("cod_booking_disabled", COD_BOOKING_MESSAGE);
+    if (!own && o.paymentMethod === "cod" && !(await codAllowedCouriers(tx)).has(o.courierCode.toLowerCase())) throw new DomainError("cod_courier_not_allowed", COD_COURIER_MESSAGE);
 
     let shipmentId: number;
     let attempt = 0;
@@ -156,6 +173,7 @@ export async function bookShipment(scope: SellerScope, orderId: number): Promise
           destinationAreaId: o.destinationAreaId,
           weightKg: o.weightKg,
           codAmount: o.paymentMethod === "cod" ? o.total : 0,
+          pickupType,
         })
         .returning({ id: shipment.id });
       shipmentId = row!.id;
@@ -165,7 +183,7 @@ export async function bookShipment(scope: SellerScope, orderId: number): Promise
       // provider order (providerOrderId set) instead of creating a new one.
       await tx
         .update(shipment)
-        .set({ bookingAttempts: attempt, status: "queued", lastError: null, updatedAt: new Date() })
+        .set({ bookingAttempts: attempt, status: "queued", pickupType, lastError: null, updatedAt: new Date() })
         .where(eq(shipment.id, existing.id));
       shipmentId = existing.id;
     }
@@ -187,6 +205,83 @@ export async function refreshTracking(scope: SellerScope, orderId: number): Prom
     await tx.update(shipment).set({ manualPolls: n, updatedAt: new Date() }).where(eq(shipment.id, s.id));
     await enqueue(tx, { kind: SHIPMENT_TRACK, storeId: scope.storeId, key: `track:${orderId}:m:${n}`, payload: { orderId } });
   });
+}
+
+const releaseInput = z.strictObject({ reason: z.string().trim().min(5, "Tulis alasan minimal 5 karakter (apa yang Anda periksa di akun kurir).").max(300) });
+const linkInput = z.strictObject({ providerOrderId: z.string().trim().regex(/^[A-Za-z0-9_-]{3,64}$/, "Isi ID order dari akun kurir (huruf, angka, - atau _).") });
+/**
+ * The shipment of an unknown outcome, locked. Only an order on the store's OWN account (review M1): the seller can inspect only that account,
+ * and a tracking read of a linked id runs on that account's key, so no parcel of another store can be adopted.
+ */
+async function unknownShipment(tx: Executor, scope: SellerScope, orderId: number) {
+  const [row] = await tx
+    .select({ s: shipment, kind: order.shippingAccountKind })
+    .from(shipment)
+    .innerJoin(order, and(eq(order.storeId, shipment.storeId), eq(order.id, shipment.orderId)))
+    .where(and(eq(shipment.storeId, scope.storeId), eq(shipment.orderId, orderId)))
+    .for("update", { of: shipment });
+  if (!row) throw new DomainError("not_found", "Pesanan ini belum dibooking.");
+  if (row.kind !== "seller_owned") throw new DomainError("not_own_account", "Booking ini memakai akun pengiriman Bukalaris; pemulihannya dilakukan oleh Bukalaris.");
+  if (row.s.status !== "unknown") throw new DomainError("not_unknown", "Hanya booking dengan hasil tidak pasti yang bisa dilepas atau ditautkan.");
+  return row.s;
+}
+const auditShipment = (tx: Executor, scope: SellerScope, orderId: number, action: string, reason: string) =>
+  tx.insert(auditLog).values({ storeId: scope.storeId, actorUserId: scope.userId, actorCapability: "orders.fulfill", action, subjectKind: "order", subjectId: String(orderId), accessLevel: "write", outcome: "allowed", reason: reason.slice(0, 500) });
+
+/**
+ * Recovery path 1 of an unknown outcome (ADR-0013 decision 30): the seller checked their courier account and found NO order for this parcel.
+ * The shipment becomes `failed` with the reason on record, which lets the seller book again (a new attempt, a new idempotency key).
+ */
+export async function releaseUnknownBooking(scope: SellerScope, orderId: number, raw: unknown): Promise<void> {
+  requireCap(scope, "orders.fulfill");
+  const { reason } = releaseInput.parse(raw);
+  await inStore(scope, async ({ exec: tx }) => {
+    const s = await unknownShipment(tx, scope, orderId);
+    await setShipment(tx, s.id, { status: "failed", lastError: `${RELEASED_MESSAGE} Catatan: ${reason}` });
+    await auditShipment(tx, scope, orderId, "shipment.unknown.release", `attempt=${s.bookingAttempts}; ${reason}`);
+  });
+}
+
+/**
+ * Recovery path 2: the seller found the order the provider DID create and links its order id. Nothing is booked again and nothing ships yet:
+ * an immediate tracking read on the store's own key must find that order, and only the resi it returns ships the order (review nit). One
+ * provider order belongs to one shipment of the store (`shipment_provider_order_uq`).
+ */
+export async function linkUnknownBooking(scope: SellerScope, orderId: number, raw: unknown): Promise<void> {
+  requireCap(scope, "orders.fulfill");
+  const { providerOrderId } = linkInput.parse(raw);
+  // Confirmation review 1: one tracking read on the store's own key BEFORE anything is written. An id the provider does not know (a typo) is
+  // refused and the shipment stays `unknown`, so release or another link remain possible; nothing ships here either way.
+  await inStore(scope, ({ exec: tx }) => unknownShipment(tx, scope, orderId));
+  try {
+    await (await sellerTrackingAdapter(scope)).track({ providerOrderId, trackingNumber: null });
+  } catch (err) {
+    if (err instanceof DomainError) throw err;
+    const e = new DomainError("provider_order_unknown", "Akun kurir toko tidak mengenal ID order ini. Periksa lagi ID order di akun kurir; booking tetap terkunci sampai dilepas atau ditautkan.");
+    e.cause = err;
+    throw e;
+  }
+  try {
+    await inStore(scope, async ({ exec: tx }) => {
+      const s = await unknownShipment(tx, scope, orderId);
+      await setShipment(tx, s.id, { status: "booked", providerOrderId, trackingNumber: null, paid: false, lastError: LINKED_MESSAGE });
+      await enqueue(tx, { kind: SHIPMENT_TRACK, storeId: scope.storeId, key: `track:${orderId}:link:${s.bookingAttempts}`, payload: { orderId, poll: 0 } });
+      await auditShipment(tx, scope, orderId, "shipment.unknown.link", `attempt=${s.bookingAttempts}; provider_order=${providerOrderId}`);
+    });
+  } catch (err) {
+    const code = (err as { cause?: { code?: string }; code?: string }).cause?.code ?? (err as { code?: string }).code;
+    if (code === "23505") throw new DomainError("provider_order_taken", "ID order ini sudah tertaut ke pesanan lain di toko ini. Periksa lagi ID order di akun kurir.");
+    throw err;
+  }
+}
+
+/** The read side of the one seller client for a request (the seller's own key opened through the application role), or the test seam. */
+async function sellerTrackingAdapter(scope: SellerScope): Promise<BookingAdapter> {
+  if (adapterOverride) return adapterOverride;
+  const own = await inStore(scope, ({ exec }) => sellerAccount(exec, scope.storeId));
+  if (own?.status !== "active") throw new DomainError("awaiting_account", "Kunci akun kurir toko belum terhubung.");
+  const { openProviderKey } = await import("../payments/provider-accounts.ts"); // loaded on use, as in rules.ts
+  return (await sellerMengantar(scope.exec, await openProviderKey(scope, "mengantar"), own.environment)).booking(own.pickupAddressId ?? "", fakeMengantarBooking);
 }
 
 export type ShipmentView = typeof shipment.$inferSelect;
@@ -238,10 +333,19 @@ export function shipmentTimeline(s: { createdAt: Date; bookedAt: Date | null; de
 const bookPayload = z.object({ orderId: z.number().int().positive(), attempt: z.number().int().min(0).default(0) });
 const trackPayload = z.object({ orderId: z.number().int().positive(), poll: z.number().int().min(0).optional() });
 
-/** Select a test/fake adapter, or the explicitly gated master transport. A partner snapshot is NEVER sent on a master credential. */
-function accountBookingAdapter(account: ShippingAccountView): BookingAdapter {
+/**
+ * Select a test/fake adapter, or the explicitly gated master transport. A partner snapshot is NEVER sent on a master credential. A `seller_owned`
+ * order (T-105) books and tracks on that store's own key through the one seller client (its fake, a live origin, or a refusal: `seller.ts`).
+ */
+async function accountBookingAdapter(db: Db, account: ShippingAccountView): Promise<{ adapter: BookingAdapter; pickupAddressId: string | null }> {
+  if (account.kind === "seller_owned") {
+    const { key, account: own } = await openSellerKeyAsWorker(db, account.storeId, account.id);
+    if (adapterOverride) return { adapter: adapterOverride, pickupAddressId: own.pickupAddressId };
+    const client = await sellerMengantar(db, key, own.environment);
+    return { adapter: client.booking(own.pickupAddressId ?? "", fakeMengantarBooking), pickupAddressId: own.pickupAddressId };
+  }
   if (!adapterOverride && process.env.MENGANTAR_API_KEY && account.kind === "partner_managed") throw new DomainError("awaiting_account", PARTNER_DISPATCH_LOCKED_MESSAGE);
-  return bookingAdapter();
+  return { adapter: bookingAdapter(), pickupAddressId: null };
 }
 
 const loadShipment = async (db: Db, storeId: number, orderId: number) => (await db.select().from(shipment).where(and(eq(shipment.storeId, storeId), eq(shipment.orderId, orderId))))[0] ?? null;
@@ -257,9 +361,40 @@ export function isRetryableBookingError(err: unknown): boolean {
 }
 /** Outcome unknown: the request may have reached the provider. */
 const isUncertainWrite = (err: unknown) => err instanceof MengantarError && (err.code === "timeout" || err.code === "network" || (err.code === "http" && err.status >= 500));
+/** An unreadable success: unknown on the store's own account (ADR-0013 decision 30); a platform account keeps the T-39 classification. */
+const isUnreadable = (err: unknown) => err instanceof MengantarError && err.code === "invalid_shape";
+/**
+ * The provider refused COD for this seller on this courier (documented for Pos Indonesia: 403 with status `new_seller`, `insufficient` or
+ * `blocked`). Matched on the documented body status, or on a 403 whose message names COD as not available.
+ */
+export function isCodRefusal(err: unknown): boolean {
+  if (!(err instanceof MengantarError) || err.code !== "http" || err.status !== 403) return false;
+  const status = (err.body as { status?: unknown } | null | undefined)?.status;
+  return ["new_seller", "insufficient", "blocked"].includes(String(status)) || /\bCOD\b[^.]*\bnot available\b/i.test(err.message);
+}
+/** ADR-0013 section 4, last row: the courier's COD is switched off for the store (only the seller turns it on again) and every owner is told. */
+async function refuseCourierCod(db: Db, s: ShipmentView): Promise<void> {
+  await withStore(db, s.storeId, async (tx) => {
+    await tx.update(storeCourierRule).set({ codEnabled: false, codRefusedAt: new Date(), updatedBy: PROVIDER_ACTOR, updatedAt: new Date() }).where(and(eq(storeCourierRule.storeId, s.storeId), eq(storeCourierRule.courierCode, s.courierCode)));
+    await tx.insert(auditLog).values({ storeId: s.storeId, actorUserId: PROVIDER_ACTOR, action: "shipping.courier_cod.refused", subjectKind: "store_courier_rule", subjectId: s.courierCode, accessLevel: "write", outcome: "allowed", reason: `order=${s.orderId}` });
+    const owners = await tx.select({ email: user.email }).from(membership).innerJoin(user, eq(user.id, membership.userId)).where(and(eq(membership.storeId, s.storeId), eq(membership.role, "owner")));
+    for (const to of new Set(owners.map((o) => o.email))) {
+      await dbMailer(tx).send({ to, subject: `COD kurir ${s.courierCode} dimatikan untuk toko Anda`, text: `Penyedia menolak COD untuk akun kurir toko Anda pada layanan ${s.courierCode} (pesanan #${s.orderId}). COD layanan ini sudah dimatikan di pengaturan pengiriman toko agar pembeli tidak lagi memilihnya; Anda dapat menyalakannya lagi kapan saja di Seller Admin, Pengiriman.` });
+    }
+  });
+}
+
 export const WRITE_DISABLED_MESSAGE = "Booking Bukalaris Kirim dinonaktifkan di server ini (perlu persetujuan pemilik).";
 export const UNPAID_MESSAGE = "Saldo akun Bukalaris Kirim tidak cukup: order dibuat sebagai unpaid tanpa resi. Tambah saldo, lalu klik Coba lagi.";
 export const UNCERTAIN_MESSAGE = "Hasil booking tidak pasti (Bukalaris Kirim tidak menjawab). Hubungi Bukalaris sebelum mencoba lagi agar tidak terbit dua order.";
+/** T-105: the same outcome on the store's own account, where the seller can check the account and release or link. */
+export const OWN_UNCERTAIN_MESSAGE = "Hasil booking tidak pasti: penyedia tidak menjawab dengan jelas, jadi order mungkin sudah terbit. Periksa daftar order di akun kurir, lalu lepaskan booking ini bila tidak ada order, atau tautkan order yang terbit. Booking ulang dikunci sampai itu dilakukan agar tidak terbit dua order.";
+export const PAY_UNCERTAIN_MESSAGE = "Pembayaran order kurir belum pasti terkirim. Periksa saldo dan status order di akun kurir; resi diambil otomatis bila sudah dibayar, atau klik Coba lagi bila order masih belum dibayar (tidak menerbitkan order kedua).";
+export const LINKED_MESSAGE = "Order dari akun kurir ditautkan; resi dan status diambil dari akun kurir toko sebelum pesanan dikirim.";
+export const UNKNOWN_BLOCK_MESSAGE = "Booking sebelumnya berhasil-tidaknya belum pasti. Periksa akun kurir, lalu lepaskan atau tautkan booking itu sebelum membooking lagi.";
+export const RELEASED_MESSAGE = "Booking dilepas penjual setelah memeriksa akun kurir: tidak ada order yang terbit. Booking boleh diulang.";
+export const COD_REFUSED_MESSAGE = "Penyedia menolak COD untuk akun Anda pada kurir ini. COD kurir ini sudah dimatikan di pengaturan pengiriman toko; hanya Anda yang bisa menyalakannya lagi. Kirim pesanan ini dengan resi manual atau hubungi pembeli.";
+export const NO_PICKUP_MESSAGE = "Alamat pickup toko belum terdaftar di akun kurir toko. Simpan alamat pickup di halaman Pengiriman, lalu coba lagi.";
 export const PAID_WAITING_MESSAGE = "Pembayaran order Bukalaris Kirim terkirim; resi diambil otomatis saat terbit.";
 export const COD_COURIER_MESSAGE = "Layanan kurir ini tidak masuk daftar COD Bukalaris Kirim (COD hanya untuk layanan dengan retur gratis). Pilih kurir lain atau bayar transfer.";
 export const RESERVE_MESSAGES = {
@@ -269,8 +404,8 @@ export const RESERVE_MESSAGES = {
   cod_amount_mismatch: "Nilai COD yang dikirim berbeda dari total pesanan (cod_amount_mismatch). Booking dibatalkan sebelum ke kurir.",
   quote_unavailable: "Kurir tidak lagi melayani rute ini; booking dibatalkan sebelum ke penyedia.",
 } as const;
-const bookingErrorMessage = (err: unknown) =>
-  err instanceof MengantarError && err.code === "write_disabled" ? WRITE_DISABLED_MESSAGE : isUncertainWrite(err) ? `${UNCERTAIN_MESSAGE} (${sanitizeError(err)})` : sanitizeError(err);
+const bookingErrorMessage = (err: unknown, own = false) =>
+  err instanceof MengantarError && err.code === "write_disabled" ? WRITE_DISABLED_MESSAGE : isUncertainWrite(err) || (own && isUnreadable(err)) ? `${own ? OWN_UNCERTAIN_MESSAGE : UNCERTAIN_MESSAGE} (${sanitizeError(err)})` : sanitizeError(err);
 
 async function bookingInput(db: Db, storeId: number, orderId: number, s: ShipmentView): Promise<(BookingInput & { status: OrderStatus; paymentMethod: string }) | null> {
   const [o] = await db
@@ -339,9 +474,11 @@ async function recordBooking(db: Db, s: ShipmentView, r: BookingResult): Promise
  */
 async function reserveBooking(db: Db, s: ShipmentView, input: BookingInput & { paymentMethod: string }): Promise<string | null> {
   const cod = input.paymentMethod === "cod";
+  const kind = input.shippingAccountKind;
+  if (kind === undefined || kind === "seller_owned") return null; // the platform reserves nothing for a store on its own account (ADR-0013 C-P7)
   let requote;
   try {
-    requote = await requoteOrder({ originAreaId: s.originAreaId, destinationAreaId: s.destinationAreaId, weightKg: s.weightKg, courierCode: s.courierCode, cod, payableIdr: input.codAmount, shippingAccountId: input.shippingAccountId!, shippingAccountKind: input.shippingAccountKind! });
+    requote = await requoteOrder({ originAreaId: s.originAreaId, destinationAreaId: s.destinationAreaId, weightKg: s.weightKg, courierCode: s.courierCode, cod, payableIdr: input.codAmount, shippingAccountId: input.shippingAccountId!, shippingAccountKind: kind });
   } catch (err) {
     if (err instanceof DomainError) return RESERVE_MESSAGES.quote_unavailable;
     throw err;
@@ -355,10 +492,12 @@ registerHandler(SHIPMENT_BOOK, async ({ db }, j) => {
   const s = await loadShipment(db, j.storeId, orderId);
   if (!s || attempt !== s.bookingAttempts) return; // superseded attempt (stale job): never acts
   if (s.status === "booking") {
-    // lazy: a worker died between the provider call and the write. `createOrder` carries no client
-    // reference we could look the order up by, so never book again blindly: fail closed and let the
-    // seller retry after checking the Mengantar dashboard. Upgrade path: GET /order?keyword=<ref>.
-    await setShipment(db, s.id, { status: "failed", lastError: "Booking terputus sebelum hasil tersimpan; hubungi Bukalaris sebelum mencoba lagi." });
+    // A worker died between the provider call and the write: the provider may hold an order. Never book again blindly. On the store's own
+    // account (ADR-0013 decision 30) the shipment is blocked as an unknown outcome until the seller releases it or links the order; a platform
+    // account keeps the T-39 rule (failed, the seller asks Bukalaris before retrying), since the seller cannot inspect that account (review M1).
+    const [o] = await db.select({ kind: order.shippingAccountKind }).from(order).where(and(eq(order.storeId, s.storeId), eq(order.id, s.orderId)));
+    if (o?.kind === "seller_owned") await setShipment(db, s.id, { status: "unknown", lastError: `Booking terputus sebelum hasilnya tersimpan. ${OWN_UNCERTAIN_MESSAGE}` });
+    else await setShipment(db, s.id, { status: "failed", lastError: "Booking terputus sebelum hasil tersimpan; hubungi Bukalaris sebelum mencoba lagi." });
     return;
   }
   if (s.status !== "queued") return; // already handled (re-run after a lost lease)
@@ -368,11 +507,13 @@ registerHandler(SHIPMENT_BOOK, async ({ db }, j) => {
     await setShipment(db, s.id, { status: s.providerOrderId ? "awaiting_balance" : "failed", lastError: `Pesanan berstatus "${ORDER_STATUS_LABEL[input.status]}" saat booking dijalankan; tidak dibooking.` });
     return;
   }
-  if (input.paymentMethod === "cod" && !codBookingAllowed()) {
+  // T-105: the Q-17 gate and the free-return COD list guard platform-held money only; a store on its own account collects its own COD.
+  const own = input.shippingAccountKind === "seller_owned";
+  if (!own && input.paymentMethod === "cod" && !codBookingAllowed()) {
     await setShipment(db, s.id, { status: s.providerOrderId ? "awaiting_balance" : "failed", lastError: COD_BOOKING_MESSAGE });
     return;
   }
-  if (input.paymentMethod === "cod" && !(await codAllowedCouriers(db)).has(s.courierCode.toLowerCase())) {
+  if (!own && input.paymentMethod === "cod" && !(await codAllowedCouriers(db)).has(s.courierCode.toLowerCase())) {
     await setShipment(db, s.id, { status: s.providerOrderId ? "awaiting_balance" : "failed", lastError: COD_COURIER_MESSAGE });
     return;
   }
@@ -380,15 +521,20 @@ registerHandler(SHIPMENT_BOOK, async ({ db }, j) => {
   let adapter: BookingAdapter;
   try {
     account = await orderShippingAccount(db, s.storeId, orderId);
-    adapter = accountBookingAdapter(account);
+    const chosen = await accountBookingAdapter(db, account);
+    adapter = chosen.adapter;
+    if (own && !chosen.pickupAddressId) {
+      await setShipment(db, s.id, { status: s.providerOrderId ? "awaiting_balance" : "failed", lastError: NO_PICKUP_MESSAGE });
+      return;
+    }
   } catch (err) {
-    if (!(err instanceof DomainError) || err.code !== "awaiting_account") throw err;
+    if (!(err instanceof DomainError) || !["awaiting_account", "provider_unavailable", "provider_off"].includes(err.code)) throw err;
     await setShipment(db, s.id, { status: "awaiting_account", lastError: err.message });
     return;
   }
-  if (!s.providerOrderId) {
+  if (!s.providerOrderId && !own) {
     // ADR-0006 decision 7: live re-quote outside any lock, then ONE transaction reserves the cost and the seller's debit, and refuses before the provider
-    // call when it cannot be covered. The provider is called only after this commits.
+    // call when it cannot be covered. The provider is called only after this commits. A store on its own account pays its courier itself (ADR-0013 C-P7).
     const failure = await reserveBooking(db, s, input);
     if (failure) {
       await setShipment(db, s.id, { status: "failed", lastError: failure });
@@ -398,20 +544,31 @@ registerHandler(SHIPMENT_BOOK, async ({ db }, j) => {
 
   // account and adapter above are derived from the order snapshot, not current store routing.
   const fallback: ShipmentStatus = s.providerOrderId ? "awaiting_balance" : "failed";
+  const request: BookingInput = { ...input, pickupType: own ? s.pickupType : undefined, idempotencyKey: `bk-${s.storeId}-${orderId}-${attempt}` };
   let result: BookingResult | null = null;
   try {
     if (!s.providerOrderId) {
       await setShipment(db, s.id, { status: "booking" });
-      result = await withShippingDispatch(db, account, () => adapter.createOrder(input));
+      result = await withShippingDispatch(db, account, () => adapter.createOrder(request));
     } else {
       // Unpaid order from an earlier attempt (seller topped up and retried): pay the batch.
       await withShippingDispatch(db, account, () => adapter.payUnpaid(s.providerBatchId ?? s.providerOrderId!, s.courierCode));
     }
   } catch (err) {
     if (!isRetryableBookingError(err) || j.attempts >= MAX_ATTEMPTS) {
-      await setShipment(db, s.id, { status: fallback, lastError: bookingErrorMessage(err) });
-      // A definite rejection created nothing, so the reserved debit is returned; an unknown outcome keeps it until the outcome is proven.
-      if (!s.providerOrderId && !isUncertainWrite(err)) await reverseShippingReservation(db, s.storeId, orderId);
+      if (own && !s.providerOrderId && (isUncertainWrite(err) || isUnreadable(err))) {
+        // ADR-0013 decision 30: the provider may have created the order; blocked until the seller releases or links it.
+        await setShipment(db, s.id, { status: "unknown", lastError: bookingErrorMessage(err, true) });
+        return;
+      }
+      const codRefused = own && input.paymentMethod === "cod" && isCodRefusal(err);
+      // Confirmation review 3: an uncertain pay-unpaid on the store's own account stays `awaiting_balance` (retrying it cannot create a second
+      // order) and says so; the release/link wording belongs to `unknown` only.
+      const payUncertain = own && s.providerOrderId && isUncertainWrite(err);
+      await setShipment(db, s.id, { status: fallback, lastError: codRefused ? COD_REFUSED_MESSAGE : payUncertain ? `${PAY_UNCERTAIN_MESSAGE} (${sanitizeError(err)})` : bookingErrorMessage(err, own && !s.providerOrderId) });
+      if (codRefused) await refuseCourierCod(db, s);
+      // A definite rejection created nothing, so the reserved debit is returned; an unknown outcome keeps it until the outcome is proven (T-48 kinds).
+      if (!s.providerOrderId && !own && !isUncertainWrite(err)) await reverseShippingReservation(db, s.storeId, orderId);
       return;
     }
     await setShipment(db, s.id, { status: "queued", lastError: sanitizeError(err) });
@@ -481,9 +638,14 @@ registerHandler(SHIPMENT_TRACK, async ({ db }, j) => {
   if (!s || !s.providerOrderId || TERMINAL.includes(s.status)) return;
   // Read-only provider call outside any transaction; a failure retries through the outbox backoff.
   let account: ShippingAccountView;
-  try { account = await orderShippingAccount(db, s.storeId, orderId); }
-  catch (err) {
-    if (!(err instanceof DomainError) || err.code !== "awaiting_account") throw err;
+  let adapter: BookingAdapter | undefined;
+  try {
+    account = await orderShippingAccount(db, s.storeId, orderId);
+    // Confirmation review 4: only a `seller_owned` account's adapter refusals (key removed, live transport closed by the production switch) wait
+    // with the fixed re-queue; a platform kind's adapter error keeps the T-48 behaviour (it fails the job, outside this catch).
+    if (account.kind === "seller_owned") adapter = (await accountBookingAdapter(db, account)).adapter;
+  } catch (err) {
+    if (!(err instanceof DomainError) || !["awaiting_account", "provider_unavailable", "provider_off"].includes(err.code)) throw err;
     // Wave 4 review: a parcel that is already booked keeps its real status (the buyer page must not say "awaiting account" for a parcel in transit) and tracking is
     // re-queued with a fixed delay, so it resumes by itself once the account is usable again; before this the chain ended here and DELIVERED -> completed waited for a manual refresh.
     await setShipment(db, s.id, { lastError: err.message });
@@ -491,6 +653,7 @@ registerHandler(SHIPMENT_TRACK, async ({ db }, j) => {
     await enqueue(db, { kind: SHIPMENT_TRACK, storeId: s.storeId, key: `track:${s.orderId}:${poll ?? 0}:acct:${bucket}`, payload: { orderId: s.orderId, poll: poll ?? 0 }, runAt: new Date((bucket + 1) * ACCOUNT_RETRY_MS) });
     return;
   }
-  const t = await accountBookingAdapter(account).track({ providerOrderId: s.providerOrderId, trackingNumber: s.trackingNumber, shippingAccountId: account.id, shippingAccountKind: account.kind });
+  adapter ??= (await accountBookingAdapter(db, account)).adapter;
+  const t = await adapter.track({ providerOrderId: s.providerOrderId, trackingNumber: s.trackingNumber, shippingAccountId: account.id, shippingAccountKind: account.kind });
   await applyTracking(db, s, t, poll === undefined ? undefined : poll + 1);
 });

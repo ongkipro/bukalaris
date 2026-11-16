@@ -13,12 +13,13 @@ import { BOOKABLE, can, codBookingAllowed, getOrder, getShipment, providerStatus
 import { notFound } from "next/navigation";
 import { orderAction } from "../actions";
 import { parseId } from "../status";
-import { bookShipmentAction, refreshTrackingAction } from "./actions";
+import { bookShipmentAction, linkUnknownBookingAction, refreshTrackingAction, releaseUnknownBookingAction } from "./actions";
 
 const label = (s: string) => orderStatusLabel[s as OrderStatus] ?? s;
 const shipmentTone: Record<ShipmentStatus, Tone> = {
   queued: "warning",
   booking: "warning",
+  unknown: "destructive",
   awaiting_account: "warning",
   awaiting_balance: "warning",
   booked: "outline",
@@ -32,7 +33,13 @@ const shipmentTone: Record<ShipmentStatus, Tone> = {
 const savedText: Record<string, string> = {
   booking: "Booking diminta. Resi dan status pesanan diperbarui otomatis; muat ulang halaman ini sebentar lagi.",
   tracking: "Pembaruan status diminta; muat ulang halaman ini sebentar lagi.",
+  released: "Booking dilepas. Anda boleh membooking pesanan ini lagi.",
+  linked: "Order dari akun kurir ditautkan. Status diperbarui otomatis dari akun kurir Anda.",
 };
+const pickupChoices = [
+  { value: "scheduled_pickup", label: "Dijemput kurir di alamat pickup" },
+  { value: "drop_off", label: "Antar sendiri ke agen kurir" },
+] as const;
 
 export default async function OrderPage({ params, searchParams }: PageProps<"/seller/orders/[id]">) {
   const { id } = await params;
@@ -44,7 +51,10 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
   const shipmentRow = await getShipment(scope, o.id);
   const fulfil = can(scope, "orders.fulfill");
   const bookable = (BOOKABLE as readonly string[]).includes(o.status);
-  const codLocked = o.paymentMethod === "cod" && !codBookingAllowed();
+  // T-105: a store on its own courier account collects its own COD; the platform COD gate does not apply to it.
+  const ownAccount = o.shippingAccountKind === "seller_owned";
+  const codLocked = !ownAccount && o.paymentMethod === "cod" && !codBookingAllowed();
+  const carrier = ownAccount ? "akun kurir toko" : "Bukalaris Kirim";
   const simple = o.actions.filter((a) => a === "confirm" || a === "pay" || a === "process");
   const confirming = o.status === "awaiting_confirmation" || o.status === "on_hold";
 
@@ -156,7 +166,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
       {(shipmentRow || (fulfil && bookable)) && (
         <section aria-labelledby="shipment" className="grid gap-4 rounded-lg border p-4" data-testid="shipment">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 id="shipment" className="text-base font-semibold">Pengiriman Bukalaris Kirim</h2>
+            <h2 id="shipment" className="text-base font-semibold">{ownAccount ? "Pengiriman lewat akun kurir toko" : "Pengiriman Bukalaris Kirim"}</h2>
             {shipmentRow && <StatusBadge label={SHIPMENT_STATUS_LABEL[shipmentRow.status]} tone={shipmentTone[shipmentRow.status]} data-testid="shipment-status" />}
           </div>
 
@@ -166,13 +176,16 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
             </p>
           )}
           {!shipmentRow && !codLocked && (
-            <form action={bookShipmentAction.bind(null, o.id)} className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
-        <CsrfField />
-              <p className="text-sm text-muted-foreground">
-                Booking {o.courier} ke {o.destinationAreaLabel} ({o.weightKg} kg{o.paymentMethod === "cod" ? `, COD ${rupiah(o.total)}` : ""}) lewat Bukalaris Kirim. Resi terbit otomatis dan pesanan berpindah ke
-                &ldquo;Dikirim&rdquo;; pembeli diberi tahu sekali.
-              </p>
-              <SubmitButton pendingText="Mengantre…">Kirim dengan Bukalaris Kirim</SubmitButton>
+            <form action={bookShipmentAction.bind(null, o.id)} className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end" aria-label="Booking pengiriman">
+              <CsrfField />
+              <div className="grid gap-3">
+                <p className="text-sm text-muted-foreground">
+                  Booking {o.courier} ke {o.destinationAreaLabel} ({o.weightKg} kg{o.paymentMethod === "cod" ? `, COD ${rupiah(o.total)}` : ""}) lewat {carrier}. Resi terbit otomatis dan pesanan berpindah ke
+                  &ldquo;Dikirim&rdquo;; pembeli diberi tahu sekali.
+                </p>
+                {ownAccount && <PickupChoice />}
+              </div>
+              <SubmitButton pendingText="Mengantre…">{ownAccount ? "Booking sekarang" : "Kirim dengan Bukalaris Kirim"}</SubmitButton>
             </form>
           )}
 
@@ -183,7 +196,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
                 <dd className="font-mono break-all" data-testid="shipment-resi">{shipmentRow.trackingNumber ?? "Belum terbit"}</dd>
                 <dt className="text-muted-foreground">Status kurir</dt>
                 <dd data-testid="shipment-provider-status">{providerStatusLabel(shipmentRow.providerStatus) ?? "Belum ada pembaruan"}</dd>
-                <dt className="text-muted-foreground">Order Bukalaris Kirim</dt>
+                <dt className="text-muted-foreground">{ownAccount ? "ID order kurir" : "Order Bukalaris Kirim"}</dt>
                 <dd className="font-mono break-all">{shipmentRow.providerOrderId ?? "—"}</dd>
                 <dt className="text-muted-foreground">Diperbarui</dt>
                 <dd>{shipmentRow.lastTrackedAt ? tanggal(shipmentRow.lastTrackedAt) : "—"}</dd>
@@ -193,12 +206,36 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
                   {whiteLabel(shipmentRow.lastError)}
                 </p>
               )}
+              {fulfil && ownAccount && shipmentRow.status === "unknown" && (
+                <div className="grid gap-4 rounded-lg border border-destructive/30 p-3" data-testid="shipment-unknown">
+                  <p className="text-sm">Booking ulang dikunci. Buka daftar order di akun kurir, lalu pilih salah satu:</p>
+                  <form action={linkUnknownBookingAction.bind(null, o.id)} className="grid gap-2" aria-label="Tautkan order kurir">
+                    <CsrfField />
+                    <p className="text-sm font-medium">Order ada di akun kurir: tautkan</p>
+                    <div className="grid gap-2">
+                      <Label htmlFor="providerOrderId">ID order kurir</Label>
+                      <Input id="providerOrderId" name="providerOrderId" required minLength={3} maxLength={64} autoComplete="off" aria-describedby="link-help" />
+                      <p id="link-help" className="text-xs text-muted-foreground">Resi dan status diambil dari akun kurir toko; pesanan berpindah ke &ldquo;Dikirim&rdquo; setelah resinya terbaca.</p>
+                    </div>
+                    <SubmitButton variant="outline" className="justify-self-start" pendingText="Menautkan…">Tautkan order</SubmitButton>
+                  </form>
+                  <form action={releaseUnknownBookingAction.bind(null, o.id)} className="grid gap-2 border-t pt-4" aria-label="Lepaskan booking">
+                    <CsrfField />
+                    <Label htmlFor="releaseReason">Tidak ada order di akun kurir: lepaskan booking</Label>
+                    <Input id="releaseReason" name="reason" required minLength={5} maxLength={300} placeholder="mis. Daftar order akun kurir sudah dicek, kosong" />
+                    <ConfirmSubmit variant="destructive" className="justify-self-start" message={`Lepaskan booking pesanan #${o.id}? Pastikan akun kurir tidak memuat order untuk paket ini, agar tidak terbit dua order.`}>
+                      Lepaskan booking
+                    </ConfirmSubmit>
+                  </form>
+                </div>
+              )}
               {fulfil && ((RETRYABLE as readonly string[]).includes(shipmentRow.status) || (shipmentRow.providerOrderId && !(TERMINAL as readonly string[]).includes(shipmentRow.status))) && (
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-end gap-2">
                   {(RETRYABLE as readonly string[]).includes(shipmentRow.status) && bookable && (
-                    <form action={bookShipmentAction.bind(null, o.id)}>
-        <CsrfField />
-                      <SubmitButton pendingText="Mengantre…">Coba lagi</SubmitButton>
+                    <form action={bookShipmentAction.bind(null, o.id)} className="grid gap-2">
+                      <CsrfField />
+                      {ownAccount && <PickupChoice current={shipmentRow.pickupType} />}
+                      <SubmitButton className="justify-self-start" pendingText="Mengantre…">Coba lagi</SubmitButton>
                     </form>
                   )}
                   {shipmentRow.providerOrderId && !(TERMINAL as readonly string[]).includes(shipmentRow.status) && (
@@ -235,7 +272,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
           <p className="text-muted-foreground">Area: {o.destinationAreaLabel}</p>
           <p className="text-muted-foreground">Kurir: {o.courier} <span className="font-mono text-xs">({o.courierCode})</span> · {o.weightKg} kg</p>
           <p className="text-muted-foreground" data-testid="order-shipping-account">
-            Akun Bukalaris Kirim: {o.shippingAccountKind === "partner_managed" ? "Akun khusus toko Anda" : "Akun induk Bukalaris Kirim"}
+            {ownAccount ? "Akun kurir: milik toko Anda" : `Akun Bukalaris Kirim: ${o.shippingAccountKind === "partner_managed" ? "Akun khusus toko Anda" : "Akun induk Bukalaris Kirim"}`}
           </p>
           {o.trackingNumber && <p>Resi: <span className="font-mono font-medium" data-testid="tracking">{o.trackingNumber}</span></p>}
           {o.status === "returned" && (
@@ -349,5 +386,20 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
         </ol>
       </section>
     </section>
+  );
+}
+
+/** T-105 (ADR-0013 decision 28): how the parcel reaches the courier, chosen on every booking request. */
+function PickupChoice({ current = "scheduled_pickup" }: { current?: string }) {
+  return (
+    <fieldset className="grid gap-1.5">
+      <legend className="mb-1 text-sm font-medium">Cara serah paket</legend>
+      {pickupChoices.map((c) => (
+        <label key={c.value} className="flex min-h-6 items-center gap-2 text-sm">
+          <input type="radio" name="pickupType" value={c.value} defaultChecked={current === c.value} required className="size-4 accent-foreground" />
+          {c.label}
+        </label>
+      ))}
+    </fieldset>
   );
 }

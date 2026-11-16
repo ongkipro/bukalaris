@@ -43,7 +43,7 @@ const KEY_RE = /^[\x21-\x7e]{8,512}$/;
 
 export type CheckCode = "AUTH_FAILED" | "PROVIDER_UNAVAILABLE" | "INVALID_RESPONSE";
 export type ProviderCheckResult = { ok: true } | { ok: false; code: CheckCode };
-export type ProviderCheckInput = { provider: Provider; environment: ProviderEnvironment; origin: string | null; apiKey: string; pickupAreaId: string | null };
+export type ProviderCheckInput = { provider: Provider; environment: ProviderEnvironment; origin: string | null; apiKey: string; pickupAreaId: string | null; exec?: Executor };
 /** One call that proves a key works (ADR-0013 decision 8): Mengantar a rate estimate from the pickup area, AutoLaris the channel list. */
 export interface ProviderCheckTransport {
   readonly mode: "fake" | "live";
@@ -89,8 +89,14 @@ export function setProviderCheckTransport(t: ProviderCheckTransport | null) { ch
 export function fakeCheckAllowed(origin: string | null, env: NodeJS.ProcessEnv = process.env): boolean {
   return origin === null && (env.NODE_ENV !== "production" || (env.PROVIDER_CHECK_FAKE === "1" && surfaceOriginsAreLoopback(env)));
 }
-function checkTransport(origin: string | null): ProviderCheckTransport {
+/** T-105 / T-106: the live check of each provider, used only for a configured origin (loaded on use: the provider modules import this one). */
+const LIVE_CHECK: Partial<Record<Provider, () => Promise<ProviderCheckTransport>>> = {
+  mengantar: async () => (await import("../shipping/seller.ts")).mengantarLiveCheck,
+};
+async function checkTransport(origin: string | null, provider: Provider): Promise<ProviderCheckTransport> {
   if (checkOverride) return checkOverride;
+  const live = origin === null ? undefined : LIVE_CHECK[provider];
+  if (live) return live();
   if (!fakeCheckAllowed(origin)) throw new DomainError("provider_unavailable", "Pengecekan koneksi penyedia belum tersedia di server ini. Tidak ada yang diubah.");
   return fakeCheck;
 }
@@ -116,10 +122,10 @@ export function providerOrigin(provider: Provider, environment: ProviderEnvironm
 /** Runs the check; a thrown transport error becomes a code without its message being read (the Mengantar key travels in the URL path). */
 async function runCheck(scope: Pick<SellerScope, "exec" | "storeId">, provider: Provider, environment: ProviderEnvironment, apiKey: string): Promise<ProviderCheckResult> {
   const origin = providerOrigin(provider, environment);
-  const transport = checkTransport(origin);
+  const transport = await checkTransport(origin, provider);
   const [pickup] = provider === "mengantar" ? await inStore(scope, ({ exec }) => exec.select({ areaId: storePickupArea.areaId }).from(storePickupArea).where(eq(storePickupArea.storeId, scope.storeId))) : [];
   try {
-    const r = await transport.check({ provider, environment, origin, apiKey, pickupAreaId: pickup?.areaId ?? null });
+    const r = await transport.check({ provider, environment, origin, apiKey, pickupAreaId: pickup?.areaId ?? null, exec: scope.exec });
     return r.ok ? { ok: true } : { ok: false, code: (["AUTH_FAILED", "PROVIDER_UNAVAILABLE", "INVALID_RESPONSE"] as const).includes(r.code) ? r.code : "INVALID_RESPONSE" };
   } catch {
     return { ok: false, code: "PROVIDER_UNAVAILABLE" };

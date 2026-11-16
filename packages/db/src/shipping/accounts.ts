@@ -7,7 +7,7 @@ import { inStore, withStore } from "../platform/tenant.ts";
 import { requirePlatformCap } from "../ops/capabilities.ts";
 import { consoleMutation } from "../ops/console.ts";
 import { enqueue } from "../ops/jobs/jobs.ts";
-import { shippingControl, storeShippingAccount, type ShippingAccountKind } from "./schema-accounts.ts";
+import { shippingControl, storeShippingAccount, type ProviderEnvironment, type ShippingAccountKind } from "./schema-accounts.ts";
 import { courierServicePolicy, order } from "../schema.ts";
 import { keyFingerprint, sealShippingKey, shippingKeyring, unsealShippingKey } from "./credentials.ts";
 import { FakePartnerTransport, PartnerClient, PartnerError, PARTNER_CONFLICT_ROUNDS_MAX, PARTNER_EMAIL_ATTEMPTS, PARTNER_MAX_PAGES, PARTNER_PROVISION_LEASE_MS, partnerRetryDelayMs, PARTNER_SWEEP_BATCH, type PartnerCredentials } from "./mengantar/partner.ts";
@@ -22,10 +22,12 @@ export const SHIPPING_ACCOUNT_VIEW = {
   id: storeShippingAccount.id, storeId: storeShippingAccount.storeId, kind: storeShippingAccount.kind,
   status: storeShippingAccount.status, lastCheckedAt: storeShippingAccount.lastCheckedAt,
   lastResult: storeShippingAccount.lastResult, revision: storeShippingAccount.revision,
+  /** `seller_owned` only (T-104): sandbox or production; null for the T-48 kinds. */
+  environment: storeShippingAccount.environment,
 };
 /** Operator-only: the allowlist plus the failed-round counter (never part of a seller or checkout DTO). */
 const SHIPPING_ACCOUNT_OPERATOR_VIEW = { ...SHIPPING_ACCOUNT_VIEW, registrationAttempts: storeShippingAccount.registrationAttempts };
-export type ShippingAccountView = { id: number; storeId: number; kind: ShippingAccountKind; status: "pending" | "active" | "needs_key" | "disabled"; lastCheckedAt: Date | null; lastResult: string | null; revision: number };
+export type ShippingAccountView = { id: number; storeId: number; kind: ShippingAccountKind; status: "pending" | "active" | "needs_key" | "disabled"; lastCheckedAt: Date | null; lastResult: string | null; revision: number; environment: ProviderEnvironment | null };
 const fakePartner = new FakePartnerTransport();
 let partnerOverride: FakePartnerTransport | null = null;
 /** Test seam is fake-only; a live transport is not built (production base URL, egress IP and the rotation gate are owner steps). */
@@ -42,9 +44,18 @@ export function partnerClientAvailable(): boolean {
 /** Stores whose 409 retries are exhausted: no automatic provisioning until the owner recovers the account (which resets the counter). */
 const conflictRoundsExhausted = sql`(${storeShippingAccount.registrationAttempts} >= ${PARTNER_CONFLICT_ROUNDS_MAX} and ${storeShippingAccount.lastResult} = 'EMAIL_ALREADY_REGISTERED')`;
 
+/**
+ * The account new orders of the store run on. T-105 (ADR-0013 decisions 1 and 2): a store that connected its own Mengantar account ships only on
+ * it — never on a platform account, also while its key is removed or being replaced; the others keep the T-48 routing.
+ */
 export async function selectShippingAccount(scope: Pick<SellerScope | StorefrontScope, "exec" | "storeId">): Promise<ShippingAccountView> {
   return inStore(scope, async ({ exec }) => {
     const accounts = await exec.select(SHIPPING_ACCOUNT_VIEW).from(storeShippingAccount).where(eq(storeShippingAccount.storeId, scope.storeId));
+    const own = accounts.find((a) => a.kind === "seller_owned");
+    if (own) {
+      if (own.status !== "active") throw new DomainError("awaiting_account", "Toko ini belum siap mengirim pesanan: akun kurir toko belum terhubung.");
+      return own as ShippingAccountView;
+    }
     const [control] = await exec.select({ preferPartner: shippingControl.preferPartner }).from(shippingControl).where(eq(shippingControl.key, "default"));
     const chosen = (control?.preferPartner ? accounts.find((a) => a.kind === "partner_managed" && a.status === "active") : undefined)
       ?? accounts.find((a) => a.kind === "platform_master" && a.status === "active");
@@ -68,7 +79,7 @@ export async function orderShippingAccount(exec: Executor, storeId: number, orde
     return a;
   });
   if (!account || account.status !== "active") throw new DomainError("awaiting_account", "Akun pengiriman pesanan ini perlu dipulihkan. Pesanan tidak dialihkan ke akun lain.");
-  return account as ShippingAccountView; // joined on the order snapshot, whose kind is never `seller_owned` yet
+  return account as ShippingAccountView; // joined on the order snapshot (any kind, `seller_owned` since T-105)
 }
 
 /** Worker entry; one durable claim, no provider I/O in the claim/save transaction. A concurrent invocation returns the SAME binding. */
