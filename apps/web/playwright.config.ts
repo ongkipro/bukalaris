@@ -57,7 +57,20 @@ export default defineConfig({
   timeout: 90_000,
   workers: 1,
   reporter: [["list"]],
-  use: { baseURL: `http://localhost:${PORT}`, trace: "retain-on-failure" },
+  use: {
+    baseURL: `http://localhost:${PORT}`,
+    trace: "retain-on-failure",
+    // T-125: a store's seller pixels (enabled by signals.spec in the shared E2E database) must never fetch the real provider
+    // scripts: their beacons change without notice and broke a CSP assertion. The browser cannot resolve these hosts;
+    // a spec that needs a pixel script fulfils it with `page.route`, which runs before name resolution.
+    launchOptions: {
+      args: [
+        `--host-resolver-rules=${["facebook.net", "facebook.com", "tiktok.com", "tiktokw.us", "googletagmanager.com", "google.com", "google.co.id", "googleadservices.com", "doubleclick.net", "google-analytics.com"]
+          .flatMap((d) => [`MAP ${d} ~NOTFOUND`, `MAP *.${d} ~NOTFOUND`])
+          .join(", ")}`,
+      ],
+    },
+  },
   projects: [
     { name: "mobile-320", testIgnore: /host-mode/, use: { ...devices["Desktop Chrome"], viewport: { width: 320, height: 720 }, isMobile: true, hasTouch: true } },
     { name: "desktop", testIgnore: /host-mode/, use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } } },

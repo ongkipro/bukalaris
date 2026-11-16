@@ -1836,3 +1836,15 @@ Source: [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md), 
   - `apps/web/src/lib/auth.ts` `createAuth` refuses to build any surface while `BETTER_AUTH_SECRETS` is set (fail closed); `docs/DEPLOY-COOLIFY.md` says never to set it.
   - Test: `apps/web/e2e/host-mode-t124-secrets.spec.ts` starts a production server with the variable set (own port, `E2E_PORT + 5`): no surface (`owner`, `app`, `affiliate`, `buyer`) signs in or issues a session cookie. Mutation (guard removed, rebuilt): the test fails with status 200 instead of >= 500. With the guard: the spec and the host-mode project pass (17/17); lint and typecheck pass.
   - Deviation: the test is an E2E spec rather than a unit test, because `auth.ts` is a server-only module of the web app and only `packages/db` has unit tests.
+### T-125 — Keep the E2E browser away from the real pixel provider hosts
+- Status: Done locally (2026-11-16, branch `task/t125-e2e-third-party`)
+- Primary requirement: PR-14
+- Risk Level: R1
+- Allowed Paths: `apps/web/playwright.config.ts`, `apps/web/e2e/**`, `docs/TASKS.md`
+- Finding: the T-106 integration run (2026-11-16) failed `[host-mode] host-mode-two-root.spec.ts:183` on a CSP violation `connect-src https://analytics-ipv6.tiktokw.us/ipv6/enrich_ipv6`. `signals.spec.ts` enables TikTok and Meta pixels on `toko-a` in the shared E2E database and fulfils the provider scripts with `page.route` only inside its own pages; every later spec that opens a `toko-a` page loaded the real provider scripts from the internet, whose beacons change without notice. The result depended on the network and on the providers, locally and in CI.
+- Done when: the E2E browser cannot resolve the pixel provider hosts (a spec proves it); `signals.spec.ts` (route-fulfilled scripts) and the host-mode specs pass; no application code changes.
+- Outcome 2026-11-16:
+  - `apps/web/playwright.config.ts`: the E2E browser starts with `--host-resolver-rules` that map the pixel provider domains (and their subdomains) to "not found": `facebook.net`, `facebook.com`, `tiktok.com`, `tiktokw.us`, `googletagmanager.com`, `google.com`, `google.co.id`, `googleadservices.com`, `doubleclick.net`, `google-analytics.com`. `page.route` runs before name resolution, so `signals.spec.ts` keeps its fulfilled scripts.
+  - Test `apps/web/e2e/t125-third-party.spec.ts`: a page fetch to four provider URLs (including the TikTok IPv6 beacon that broke the run) fails, and a route-fulfilled script still loads.
+  - Commands (CI-style placeholder env, databases `bukalaris_t125*`, port 4100): `pnpm build`, then `playwright test t125-third-party.spec.ts signals.spec.ts host-mode-two-root.spec.ts security-headers.spec.ts`: 25 passed, 1 skipped. Lint and typecheck pass.
+  - Mutation: launch arguments emptied (`args: [] || [...]`): the first T-125 test failed (`https://analytics.tiktok.com/i18n/pixel/events.js` reached); config restored, sha256 matched.
