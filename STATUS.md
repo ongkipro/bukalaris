@@ -1,12 +1,12 @@
 # Bukalaris — status
 
-Updated: 2026-11-16. `main` = `origin/main` = `b354506` (T-103), repository PUBLIC on GitHub, nothing deployed. Every change reaches `main` through a pull request with green CI (`verify` and `image`); the owner asked for commit and push of all work (2026-11-16). In progress in task worktrees under `../bukalaris-wt/`: `t105-mengantar-seller-key` (T-105) and `t106-autolaris-seller-key` (T-106).
+Updated: 2026-11-16. `main` = `origin/main` = `97665d2` (T-123), repository PUBLIC on GitHub, nothing deployed. Every change reaches `main` through a pull request with green CI (`verify` and `image`); the owner asked for commit and push of all work (2026-11-16). In progress in task worktrees under `../bukalaris-wt/`: `t115-mengantar-lock` (T-115, in independent review) and `t107-money-boundary` (T-107).
 
 This file owns the current state and the next task. Evidence: `BUILD-LOG.md`, `docs/TASKS.md` and the track reports in `docs/tracks/`. Earlier checkpoints: [`docs/archive/STATUS-history-2026-11-05.md`](docs/archive/STATUS-history-2026-11-05.md).
 
 ## Where the project stands
 
-- **Code:** `main` still carries the earlier platform-managed model (platform-held money, Partner Mengantar accounts, platform affiliate wallet) on fake adapters, and now the first parts of the new direction: two root domains (T-102), checkout, order status and refund on the store's own host (T-103), seller provider accounts with sealed keys (T-104). CI green at `b354506`. The rest is built task by task.
+- **Code:** `main` still carries the earlier platform-managed model (platform-held money, Partner Mengantar accounts, platform affiliate wallet) on fake adapters, and now the first parts of the new direction: two root domains (T-102), checkout, order status and refund on the store's own host (T-103), seller provider accounts with sealed keys (T-104), Mengantar and AutoLaris on the seller's own key (T-105, T-106). CI green at `97665d2`. The rest is built task by task.
 - **Documents:** carry the owner's direction change as accepted decisions (D-27 to D-33, ADR-0013 to ADR-0016), with the precision fixes of the 2026-11-14 review (T-122). Accepted decisions are not implementation evidence beyond the tasks named Done.
 - **Owner instruction (2026-11-16):** development resumed, in parallel streams: the task order below plus the precision fixes of the 2026-11-14 review (T-122, from the `pi` session's findings).
 
@@ -28,7 +28,8 @@ This file owns the current state and the next task. Evidence: `BUILD-LOG.md`, `d
 2. **T-114** (Partial, structure done 2026-11-15): this file trimmed, open-task index at the top of `docs/TASKS.md`, ADRs in `docs/adr/`, superseded material in `docs/archive/`, links and checks updated. `RUNBOOK.md`, `DEPLOY-COOLIFY.md` and `DEMO.md` stay in `docs/` because code and applied migrations cite their paths. Left: the final search for superseded text, done with the T-101 remainder.
 3. **T-100** Done 2026-11-16: CI on `main` green with `verify` and `image` (run 43740385003, second attempt; the first attempt hit an intermittent test, now T-123).
 4. Done and merged 2026-11-16: **T-102** (PR #3), **T-122** (PR #2; owner-gated parts of F-15 left), **T-104** (PR #6), **T-124** (PR #5, `BETTER_AUTH_SECRETS` refused), **T-103** (PR #7). **T-123** Partial (PR #4): two of five intermittent failures fixed, two unexplained.
-5. Now: **T-105** and **T-106** (Mengantar and AutoLaris on the seller's key) in worktrees. Then: T-115 → T-107 → T-113 → T-116 → T-111 → T-112 → T-117 → T-108 → T-109 → T-110. Deferred: T-118 to T-121.
+5. Done and merged 2026-11-16 (second batch): **T-105** (PR #9), **T-106** (PR #10), **T-125** (PR #11, E2E never loads the real pixel scripts), **T-123** no-JS click hang (PR #12; the `content.spec.ts` save stays open).
+6. Now: **T-115** (built, in independent review) and **T-107** (in progress) in worktrees. Then: T-113 → T-116 → T-111 → T-112 → T-117 → T-108 → T-109 → T-110. Deferred: T-118 to T-121.
 
 ## Open items that need a person
 
