@@ -4,7 +4,7 @@ Each task's Status line owns its scoped delivery state; Done locally or delivere
 
 Naming and ids: "Super Admin" and "Bos" in older task text mean the Owner console (`owner.bukalaris.com`, ADR-0011) and "Tenant Admin" means Seller Admin. Review ids from `docs/reviews/2026-10-27-code-vs-spec-gap-report.md` are written `CRMON-nn`, `CRSEC-nn`, `CRUXR-nn` and `CRDAT-nn` so they never collide with spec ids (`SEC-n`, `DATA-n`). Status and phase words follow the legend in the README. A `Dependencies:` line lists task ids only; explanations go in a `Notes:` line.
 
-## Open-task index (2026-11-15)
+## Open-task index (2026-11-16)
 
 A reading aid. Each task block below owns its own status and text; when the two disagree, the block wins and this index is corrected. Tasks that are Done are not listed. Task blocks stay in the order they were written, so search for `### T-<number>`.
 
@@ -14,10 +14,7 @@ A reading aid. Each task block below owns its own status and text; when the two 
 |---|---|---|---|
 | 1 | T-101 | Align the specification pack with D-27 to D-33 | Partial; the rest is done by each building task |
 | 2 | T-114 | Tidy repository and documentation structure | Partial; structure done 2026-11-15, final search for superseded text left |
-| 4 | T-102 | Two root domains in host dispatch | Planned |
-| 5 | T-103 | Checkout and referral click on the store host; link origins | Planned |
-| 6 | T-104 | Seller provider accounts: sealed keys, environment, connection check | Planned |
-| 7 | T-105, T-106 | Mengantar and AutoLaris on the seller's key | Planned |
+| 7 | T-105, T-106 | Mengantar and AutoLaris on the seller's key | In progress (2026-11-16, worktrees) |
 | 8 | T-115 | Mengantar lock, dedicated account, parcel sync | Planned |
 | 9 | T-107 | Money boundary for seller-owned stores | Planned |
 | 10 | T-113 | Bank transfer to the seller's account, buyer proof upload | Planned |
@@ -36,6 +33,7 @@ A reading aid. Each task block below owns its own status and text; when the two 
 | Planned runtime and release work | T-76, T-77, T-79 |
 | Gated on a product, finance, security or integration decision | T-88, T-89, T-90, T-91, T-92, T-93, T-94 |
 | Decided in direction, provider still open | T-15 (custom domains: target `cname.bukalaris.id` decided by D-28, subdomain only by D-31; provider and lifecycle open, Q-8) |
+| Open finding | T-123 (intermittent E2E failures: two of five explained and fixed, two still unexplained) |
 
 **3. Unused, superseded or deferred**
 
@@ -1555,7 +1553,7 @@ Source: [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md), 
 - Done when: (1) PR-5, PR-23 and PR-27 describe seller-owned Mengantar and AutoLaris accounts, the filter table and the fee bearers; PR-32 describes digital products (ADR-0016); PR-18 states subscription as the only platform revenue; PR-28 and PR-29 describe the seller-run programme and the deferred storefront; PR-3 and PR-13 use `<store-slug>.bukalaris.id` and `cname.bukalaris.id`. (2) BILL-1 to BILL-6 and BILL-8 and the "Provider ownership decision" section mark what applies only to platform-held money. (3) DATA-7, DATA-9 and DATA-11 list the new and unused tables named in T-104, T-107, T-108, T-109, T-111 and T-112. (4) The 08 platform domain map, DOM-1, DOM-5 and DOM-6 carry both roots and store-host checkout. (5) UX-17 and the seller shipping, payment and affiliate screen contracts match the ADRs, including the "paid by the seller" statement. (6) Q-1, Q-2, Q-12, Q-17 and OPEN-F3/F6..F9 are re-stated as not gating a `seller_owned` store; the former OPEN-P, OPEN-D, OPEN-A and OPEN-G items are listed as decided by D-31. (7) `STATUS.md` names this direction and the task order. (8) `python3 docs/check-spec.py` and `pnpm map:check` pass, and a search for `<store-slug>.bukalaris.com`, `Bukalaris Kirim` and "never paste" finds only superseded or historical text.
 
 ### T-102 — Two root domains in host dispatch
-- Status: Done locally (2026-11-16, branch `task/t102-two-roots`; independent review accepted after fixes; track report [`docs/tracks/t102-two-roots.md`](tracks/t102-two-roots.md))
+- Status: Done (2026-11-16; merged to `main` as `8984446` through pull request #3, CI green; independent review accepted after fixes; track report [`docs/tracks/t102-two-roots.md`](tracks/t102-two-roots.md)). Local only: no DNS, no deploy
 - Primary requirement: PR-3
 - Constraints: ADR-0014 decisions 1 to 3 and 6; DOM-1, DOM-5, DOM-6, D-25; TEN-2; no DNS, no deploy
 - Dependencies: T-101
@@ -1571,7 +1569,7 @@ Source: [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md), 
   - Deviation: the two-root server is started by the spec (playwright config not in Allowed Paths); `console.ts` unchanged.
 
 ### T-103 — Checkout on the store host and link origins by link type
-- Status: Done locally, independent review findings fixed (2026-11-16, branch `task/t103-store-host-checkout` on top of the uncommitted T-102 change; track report [`docs/tracks/t103-store-host-checkout.md`](tracks/t103-store-host-checkout.md); not committed)
+- Status: Done (2026-11-16; merged to `main` as `b354506` through pull request #7, CI green: `verify` 32 min and `image`; independent review findings fixed and proven by mutation; track report [`docs/tracks/t103-store-host-checkout.md`](tracks/t103-store-host-checkout.md)). Local only. Open and owned elsewhere: referral clicks on the apex `/r` are not attributable (T-108); custom-domain primary host (T-15)
 - Primary requirement: PR-4
 - Constraints: ADR-0014 decisions 5 and 7; DOM-4, DOM-6; PR-16 hosted hand-off unchanged; PR-20 first-party click ids; the store host serves the referral click route for its own store (C-D1) under RL-CLICK (doc 16, D-33)
 - Dependencies: T-102
@@ -1592,7 +1590,7 @@ Source: [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md), 
   - Open: the full E2E run loads real Meta/TikTok pixel scripts once earlier specs enable seller pixels (pre-existing PR-20 behaviour, noted in the track report).
 
 ### T-104 — Seller provider accounts: sealed keys, environment, connection check
-- Status: Done locally 2026-11-16; independent review done (no blocker), its findings fixed, confirmation of the fixes pending (branch `task/t104-provider-accounts`, not committed; track report `docs/tracks/t104-provider-accounts.md`)
+- Status: Done (2026-11-16; merged to `main` as `61ee430` through pull request #6, CI green; independent review (no blocker) and confirmation review done, findings fixed; track report `docs/tracks/t104-provider-accounts.md`). Fake connection check only: no provider call, no real key
 - Primary requirement: PR-27
 - Constraints: ADR-0013 sections 1 to 3; ADR-0005 (RLS, isolation registry); IAM step-up; SEC-3; no key in any response, log, audit row or export; no free-form provider URL; RL-PROVIDER-CHECK (doc 16, D-33)
 - Dependencies: T-101
@@ -1762,7 +1760,7 @@ Source: [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md), 
 - Done when: defined after the entry criteria.
 
 ### T-122 — Precision pass on root, operations and specification documents (review 2026-11-14)
-- Status: Done locally 2026-11-16 (documents and `.env.example` only; checked against the files at `2b4d0a4`). What remains is owner-gated and stays with the owner and T-86 (see F-15 below).
+- Status: Done 2026-11-16 (documents and `.env.example` only; checked against the files at `2b4d0a4`; merged to `main` as `a78010c` through pull request #2). What remains is owner-gated and stays with the owner and T-86 (see F-15 below).
 - Primary requirement: PR-14
 - Risk Level: R0
 - Source: [precision review 2026-11-14](reviews/2026-11-14-carbon-docs-vs-code-precision-review.md), findings F-02 and F-04 to F-17; F-01 and F-03 were re-checked only, F-18 needs no document change.
@@ -1794,7 +1792,7 @@ Source: [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md), 
 
 
 ### T-123 — Diagnose the intermittent no-JS add-to-cart timeout in `auth-csrf.spec.ts:123`
-- Status: Partial (2026-11-16): one of three intermittent failures explained and fixed (`t68.spec.ts`); `auth-csrf.spec.ts:123` and the `content.spec.ts` settings save remain unexplained
+- Status: Partial (2026-11-16; fixes merged to `main` through pull request #4): two of five occurrences explained and fixed (`t68.spec.ts` submit race, `notify.test.ts` tamper case); the no-JS add-to-cart click on `auth-csrf.spec.ts` ("element is not stable") and the `content.spec.ts` settings save remain unexplained
 - Primary requirement: PR-14
 - Risk Level: R2
 - Allowed Paths: `apps/web/e2e/auth-csrf.spec.ts`, `apps/web/e2e/helpers.ts`; application files only for an evidenced root cause
@@ -1808,7 +1806,7 @@ Source: [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md), 
   - (1) and (3) have no trace (`auth-csrf.spec.ts` turns traces off; (3) was a local run). Left open: next time, keep the trace of `content.spec.ts`, and give `auth-csrf.spec.ts` a body- and header-free diagnostic (request log of the click) before guessing.
 
 ### T-124 — Check whether `BETTER_AUTH_SECRETS` can override the per-surface auth secrets
-- Status: Done locally (2026-11-16): risk confirmed from the library source, guard added and proven by mutation
+- Status: Done (2026-11-16; merged to `main` through pull request #5, CI green): risk confirmed from the library source, guard added and proven by mutation
 - Primary requirement: PR-14
 - Risk Level: R3
 - Allowed Paths: `apps/web/src/lib/auth.ts`, a test under `packages/db/test/` or `apps/web/e2e/`, `docs/DEPLOY-COOLIFY.md`, `docs/RUNBOOK.md`

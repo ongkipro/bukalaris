@@ -1,13 +1,13 @@
 # Bukalaris — status
 
-Updated: 2026-11-16. `main` = `origin/main` = `2b4d0a4` (T-100), repository PUBLIC on GitHub, nothing deployed. CI on `main` is green (`verify` and `image`). Work in progress lives in task worktrees under `../bukalaris-wt/`, uncommitted until the owner asks: `t102-two-roots` (T-102), `t103-store-host-checkout` (T-103, built on T-102), `t104-provider-accounts` (T-104), `t122-doc-precision` (T-122).
+Updated: 2026-11-16. `main` = `origin/main` = `b354506` (T-103), repository PUBLIC on GitHub, nothing deployed. Every change reaches `main` through a pull request with green CI (`verify` and `image`); the owner asked for commit and push of all work (2026-11-16). In progress in task worktrees under `../bukalaris-wt/`: `t105-mengantar-seller-key` (T-105) and `t106-autolaris-seller-key` (T-106).
 
 This file owns the current state and the next task. Evidence: `BUILD-LOG.md`, `docs/TASKS.md` and the track reports in `docs/tracks/`. Earlier checkpoints: [`docs/archive/STATUS-history-2026-11-05.md`](docs/archive/STATUS-history-2026-11-05.md).
 
 ## Where the project stands
 
-- **Code:** `main` implements the earlier platform-managed model (platform-held money, Partner Mengantar accounts, platform affiliate wallet) on fake adapters; CI green at `2b4d0a4`. The new direction is being built task by task in the worktrees above.
-- **Documents:** carry the owner's direction change as accepted decisions (D-27 to D-33, ADR-0013 to ADR-0016). Accepted decisions are not implementation evidence; nothing of the new direction is built.
+- **Code:** `main` still carries the earlier platform-managed model (platform-held money, Partner Mengantar accounts, platform affiliate wallet) on fake adapters, and now the first parts of the new direction: two root domains (T-102), checkout, order status and refund on the store's own host (T-103), seller provider accounts with sealed keys (T-104). CI green at `b354506`. The rest is built task by task.
+- **Documents:** carry the owner's direction change as accepted decisions (D-27 to D-33, ADR-0013 to ADR-0016), with the precision fixes of the 2026-11-14 review (T-122). Accepted decisions are not implementation evidence beyond the tasks named Done.
 - **Owner instruction (2026-11-16):** development resumed, in parallel streams: the task order below plus the precision fixes of the 2026-11-14 review (T-122, from the `pi` session's findings).
 
 ## Decisions in force (2026-11-14 and 2026-11-15)
@@ -27,8 +27,8 @@ This file owns the current state and the next task. Evidence: `BUILD-LOG.md`, `d
 1. **T-101** (Partial): document alignment. Remaining parts are done by the task that builds each feature.
 2. **T-114** (Partial, structure done 2026-11-15): this file trimmed, open-task index at the top of `docs/TASKS.md`, ADRs in `docs/adr/`, superseded material in `docs/archive/`, links and checks updated. `RUNBOOK.md`, `DEPLOY-COOLIFY.md` and `DEMO.md` stay in `docs/` because code and applied migrations cite their paths. Left: the final search for superseded text, done with the T-101 remainder.
 3. **T-100** Done 2026-11-16: CI on `main` green with `verify` and `image` (run 43740385003, second attempt; the first attempt hit an intermittent test, now T-123).
-4. **T-102** Done locally (two root domains; independent review accepted after fixes; `pnpm verify` green). **T-103** in progress on top of it. **T-104** in progress in parallel. **T-122** done locally (review findings F-02, F-04 to F-17; owner-gated parts of F-15 left).
-5. Then: T-105 and T-106 → T-115 → T-107 → T-113 → T-116 → T-111 → T-112 → T-117 → T-108 → T-109 → T-110. Deferred: T-118 to T-121. New findings: T-123 (intermittent CI test), T-124 (`BETTER_AUTH_SECRETS` override, unverified).
+4. Done and merged 2026-11-16: **T-102** (PR #3), **T-122** (PR #2; owner-gated parts of F-15 left), **T-104** (PR #6), **T-124** (PR #5, `BETTER_AUTH_SECRETS` refused), **T-103** (PR #7). **T-123** Partial (PR #4): two of five intermittent failures fixed, two unexplained.
+5. Now: **T-105** and **T-106** (Mengantar and AutoLaris on the seller's key) in worktrees. Then: T-115 → T-107 → T-113 → T-116 → T-111 → T-112 → T-117 → T-108 → T-109 → T-110. Deferred: T-118 to T-121.
 
 ## Open items that need a person
 
@@ -41,4 +41,4 @@ This file owns the current state and the next task. Evidence: `BUILD-LOG.md`, `d
 
 ## Standing rules
 
-Local only: no deploy, no DNS, no live provider call, no real secret. No commit or push unless the owner asks. Mengantar and AutoLaris are fake adapters. Known and accepted by the owner: the Mengantar Partner Secret pasted in chat on 2026-10-27 is not rotated, and the repository is public.
+Local only: no deploy, no DNS, no live provider call, no real secret. No commit or push unless the owner asks (asked on 2026-11-16 for the current work: pull requests into `main`, merged after green CI). Mengantar and AutoLaris are fake adapters. Known and accepted by the owner: the Mengantar Partner Secret pasted in chat on 2026-10-27 is not rotated, and the repository is public.
