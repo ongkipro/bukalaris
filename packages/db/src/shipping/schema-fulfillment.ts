@@ -1,6 +1,6 @@
 // M2 wave-4 fulfillment track (T-39): one provider shipment per order. Re-exported by schema.ts.
 import { sql } from "drizzle-orm";
-import { bigint, boolean, check, foreignKey, index, integer, jsonb, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, foreignKey, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex } from "drizzle-orm/pg-core";
 import { order, store } from "../schema.ts";
 
 /**
@@ -8,12 +8,16 @@ import { order, store } from "../schema.ts";
  * tracking states the provider status category maps to. `delivered`, `returned`, `cancelled`
  * and `failed` are terminal for polling; `awaiting_balance` and `failed` accept a seller retry.
  */
-export const SHIPMENT_STATUSES = ["queued", "booking", "awaiting_account", "awaiting_balance", "booked", "in_transit", "delivered", "returned", "problem", "cancelled", "failed"] as const;
+export const SHIPMENT_STATUSES = ["queued", "booking", "unknown", "awaiting_account", "awaiting_balance", "booked", "in_transit", "delivered", "returned", "problem", "cancelled", "failed"] as const;
 export type ShipmentStatus = (typeof SHIPMENT_STATUSES)[number];
+/** T-105: how the parcel reaches the courier (ADR-0013 decision 28): a scheduled pickup at the registered address, or the seller drops it off. */
+export const PICKUP_TYPES = ["scheduled_pickup", "drop_off"] as const;
+export type PickupType = (typeof PICKUP_TYPES)[number];
 
 export const SHIPMENT_STATUS_LABEL: Record<ShipmentStatus, string> = {
   queued: "Menunggu booking",
   booking: "Sedang booking",
+  unknown: "Hasil booking tidak pasti",
   awaiting_account: "Menunggu pemulihan akun Bukalaris Kirim",
   awaiting_balance: "Menunggu saldo Bukalaris Kirim",
   booked: "Resi terbit, menunggu pickup",
@@ -49,6 +53,8 @@ export const shipment = pgTable(
     weightKg: integer("weight_kg").notNull(),
     /** Integer IDR the courier collects; 0 for prepaid shipments. */
     codAmount: bigint("cod_amount", { mode: "number" }).notNull().default(0),
+    /** T-105: chosen by the seller on each booking request; a platform-account booking always uses the platform's scheduled pickup. */
+    pickupType: text("pickup_type", { enum: PICKUP_TYPES }).notNull().default("scheduled_pickup"),
     // Provider references.
     providerOrderId: text("provider_order_id"),
     providerBatchId: text("provider_batch_id"),
@@ -73,11 +79,14 @@ export const shipment = pgTable(
   (t) => [
     foreignKey({ name: "shipment_order_fk", columns: [t.storeId, t.orderId], foreignColumns: [order.storeId, order.id] }),
     unique("shipment_order_uq").on(t.storeId, t.orderId),
+    // T-105 review M1: one provider order belongs to one shipment of a store (a store has one own courier account), so a link can never adopt a parcel twice.
+    uniqueIndex("shipment_provider_order_uq").on(t.storeId, t.providerOrderId).where(sql`${t.providerOrderId} is not null`),
     index("shipment_store_status_idx").on(t.storeId, t.status),
-    check("shipment_status_chk", sql`${t.status} in ('queued', 'booking', 'awaiting_account', 'awaiting_balance', 'booked', 'in_transit', 'delivered', 'returned', 'problem', 'cancelled', 'failed')`),
+    check("shipment_status_chk", sql`${t.status} in ('queued', 'booking', 'unknown', 'awaiting_account', 'awaiting_balance', 'booked', 'in_transit', 'delivered', 'returned', 'problem', 'cancelled', 'failed')`),
     check("shipment_amounts_chk", sql`${t.codAmount} >= 0 and ${t.weightKg} >= 1 and ${t.bookingAttempts} >= 0 and ${t.manualPolls} >= 0`),
-    // A shipment past booking carries its provider reference; a resi implies a paid order.
-    check("shipment_booked_chk", sql`${t.status} in ('queued', 'booking', 'awaiting_account', 'failed') or ${t.providerOrderId} is not null`),
+    check("shipment_pickup_type_chk", sql`${t.pickupType} in ('scheduled_pickup', 'drop_off')`),
+    // A shipment past booking carries its provider reference; a resi implies a paid order. `unknown` (T-105): the provider may or may not hold an order.
+    check("shipment_booked_chk", sql`${t.status} in ('queued', 'booking', 'unknown', 'awaiting_account', 'failed') or ${t.providerOrderId} is not null`),
     check("shipment_resi_chk", sql`${t.trackingNumber} is null or ${t.paid}`),
     check("shipment_history_chk", sql`octet_length(${t.trackingHistory}::text) <= 16384`),
   ],

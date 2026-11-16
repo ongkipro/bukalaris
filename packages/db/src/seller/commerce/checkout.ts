@@ -23,6 +23,7 @@ import { resolveCartStore } from "../../platform/resolvers.ts";
 import { hit, type LimitRule } from "../../platform/rate-limit.ts";
 import { DomainError, storefrontScope, type StorefrontScope } from "../../platform/scoped.ts";
 import { defaultProviders, defaultShippingAdapter, shippingOptions, type CartForShipping } from "../../shipping/shipping.ts";
+import { chosenShippingFee, searchSellerAreas, sellerAccount, SHIPPING_QUOTE_RE } from "../../shipping/rules.ts";
 import { withStore } from "../../platform/tenant.ts";
 
 // Hosted checkout (SF-07/SF-08). The client sends only contact, destination area,
@@ -50,6 +51,8 @@ export const checkoutInput = z.strictObject({
   voucherCode: z.string().trim().max(64).optional(),
   // T-52: an affiliate code typed by the buyer. A selector only: unknown, expired, blocked or malformed codes never fail the order (ADR-0009 section 4).
   affiliateCode: z.string().trim().max(64).optional(),
+  // T-105 (ADR-0013 decision 16): the courier fees the buyer was shown, only to refuse a stale price at submit; never a price source.
+  shippingQuote: z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), z.string().max(2000).refine((v) => SHIPPING_QUOTE_RE.test(v), "Muat ulang halaman checkout.").optional()), // lazy: shipping/rules.ts is in an import cycle with this module
 });
 export type CheckoutInput = z.input<typeof checkoutInput>;
 
@@ -244,16 +247,24 @@ export async function checkoutSummary(exec: Executor, cartId: string | undefined
   });
 }
 
-/** Server-side destination search for the checkout address step (never a provider write). */
-export async function searchDestinationAreas(keyword: string, adapter: ShippingAdapter = defaultShippingAdapter()) {
+/**
+ * Server-side destination search for the checkout address step (never a provider write). A store on its own account (T-105) searches with its
+ * own key and remembers each area's province for the COD-province filter.
+ */
+export async function searchDestinationAreas(keyword: string, adapter: ShippingAdapter = defaultShippingAdapter(), scope?: StorefrontScope, ctx: ClientContext = {}) {
   const k = keyword.trim();
   if (k.length < 3) throw new DomainError("keyword", "Ketik minimal 3 huruf nama kelurahan, kecamatan atau kota.");
+  const own = scope ? await withStore(scope.exec, scope.storeId, (tx) => sellerAccount(tx, scope.storeId)) : null;
+  if (scope && own) {
+    if (own.status !== "active") throw new DomainError("shipping_not_ready", "Toko ini belum siap mengirim pesanan. Hubungi penjual.");
+    return providerGuard(() => searchSellerAreas(scope, k, own.environment, ctx.clientIp));
+  }
   return providerGuard(() => adapter.searchArea(k));
 }
 
 /** Courier options for the checkout page; same service `placeOrder` re-quotes with. */
-export function checkoutShippingOptions(scope: StorefrontScope, destinationAreaId: string, cart: CartForShipping, adapter: ShippingAdapter = defaultShippingAdapter()) {
-  return providerGuard(() => shippingOptions(scope, destinationAreaId, cart, adapter));
+export function checkoutShippingOptions(scope: StorefrontScope, destinationAreaId: string, cart: CartForShipping, adapter: ShippingAdapter = defaultShippingAdapter(), ctx: ClientContext = {}) {
+  return providerGuard(() => shippingOptions(scope, destinationAreaId, cart, adapter, ctx.clientIp));
 }
 
 export async function placeOrder(
@@ -306,11 +317,10 @@ export async function placeOrder(
   if (preview.length === 0) throw new DomainError("empty", "Keranjang kosong.");
   const scope = slug ? await storefrontScope(exec, slug) : null;
   if (!scope) throw new DomainError("store_unavailable", "Toko sedang tidak menerima pesanan.");
-  const quote = await checkoutShippingOptions(scope, input.destinationAreaId, { lines: preview, subtotal: sumOf(preview) }, providers.shipping);
-  const option = quote.options.find((o) => o.courier === input.courier);
-  if (!option) throw new DomainError("courier", "Pilihan kurir tidak tersedia untuk area tujuan ini.");
-  const fee = input.paymentMethod === "cod" ? option.cod : option.prepaid;
-  if (!fee) throw new DomainError("courier_cod", `${option.label} tidak melayani COD ke area tujuan ini. Pilih kurir lain atau bayar transfer.`);
+  // The same eligibility function as the method list (ADR-0013 section 4): a hidden courier, COD where it is not allowed, or a changed price is refused.
+  const quote = await checkoutShippingOptions(scope, input.destinationAreaId, { lines: preview, subtotal: sumOf(preview) }, providers.shipping, ctx);
+  const option = quote.options.find((o) => o.courier === input.courier)!;
+  const fee = chosenShippingFee(quote.options, input.courier, input.paymentMethod, input.shippingQuote, quote.shippingAccountKind === "seller_owned");
   const channel = input.paymentMethod === "manual_transfer" ? await pickPaymentChannel(providers.payment, input.paymentChannel) : null;
 
   let orderId: number;
@@ -345,6 +355,7 @@ export async function placeOrder(
           courierCode: option.courier,
           shippingAccountId: quote.shippingAccountId,
           shippingAccountKind: quote.shippingAccountKind,
+          testOrder: quote.environment === "sandbox",
           courier: option.label,
           originAreaId: quote.originAreaId,
           destinationAreaId: quote.destinationAreaId,
@@ -497,9 +508,7 @@ export async function checkoutPromotionPreview(exec: Executor, cartId: string | 
   if (!summary || summary.store.status !== "active") throw new DomainError("no_cart", "Keranjang tidak ditemukan.");
   await limitVoucherRedemption(exec, summary.storeId, input.buyerPhone, ctx);
   const scope = (await storefrontScope(exec, summary.store.slug))!;
-  const quote = await checkoutShippingOptions(scope, input.destinationAreaId, { lines: summary.lines, subtotal: summary.subtotal });
-  const option = quote.options.find((o) => o.courier === input.courier);
-  const fee = input.paymentMethod === "cod" ? option?.cod : option?.prepaid;
-  if (!fee) throw new DomainError("courier", "Pilih kurir yang tersedia.");
+  const quote = await checkoutShippingOptions(scope, input.destinationAreaId, { lines: summary.lines, subtotal: summary.subtotal }, undefined, ctx);
+  const fee = chosenShippingFee(quote.options, input.courier, input.paymentMethod);
   return withStore(exec, summary.storeId, async (tx) => (await checkoutPromotions(tx, summary.storeId, summary.lines, fee, input.voucherCode, input.buyerPhone, false)).finance);
 }

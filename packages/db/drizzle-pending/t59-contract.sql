@@ -87,6 +87,7 @@ GRANT SELECT, UPDATE ON "platform_operator" TO bukalaris_platform;--> statement-
 GRANT SELECT ON "product" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "promo_hub" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "promo_hub_collection" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT, INSERT, UPDATE ON "provider_live_setting" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, DELETE ON "rate_limit" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE ON "reconciliation_batch" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE ON "reconciliation_batch_item" TO bukalaris_platform;--> statement-breakpoint
@@ -100,6 +101,7 @@ GRANT SELECT, DELETE ON "session" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE, DELETE ON "session_mfa" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, UPDATE ON "shipment" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT ON "shipment_cost" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT ON "shipping_area" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, UPDATE ON "shipping_control" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE ON "shipping_dispatch_lease" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE ON "shipping_margin_rule" TO bukalaris_platform;--> statement-breakpoint
@@ -107,10 +109,12 @@ GRANT SELECT, INSERT, UPDATE ON "shipping_partner_budget" TO bukalaris_platform;
 GRANT SELECT ON "signal_destination" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE ON "signal_event" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE ON "store" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT, UPDATE ON "store_courier_rule" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "store_payment_account" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "store_pickup_area" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT ON "store_risk_ack" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, UPDATE ON "store_shipping_account" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT ON "store_shipping_setting" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "store_step_up_proof" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, UPDATE ON "store_subscription" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT ON "subscription_event" TO bukalaris_platform;--> statement-breakpoint

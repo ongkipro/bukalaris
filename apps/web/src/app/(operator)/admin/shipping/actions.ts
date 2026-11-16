@@ -2,7 +2,7 @@
 
 import { requirePortalCsrf } from "@/lib/auth-csrf";
 
-import { applyApprovedMargin, applyShippingSettings, queueShippingAccountRecovery, requestMarginRule, requestShippingSettings, saveCashbackRule, setCourierPolicy, DomainError, marginRuleInput } from "@bukalaris/db";
+import { applyApprovedMargin, applyShippingSettings, queueShippingAccountRecovery, recordMengantarSandboxPass, requestMarginRule, requestMengantarProductionOn, requestShippingSettings, saveCashbackRule, setCourierPolicy, setMengantarProductionCalls, DomainError, marginRuleInput } from "@bukalaris/db";
 import { consoleActionOp } from "@/lib/console-gate";
 import { userError, withError } from "@/lib/errors";
 import { redirect } from "next/navigation";
@@ -112,4 +112,43 @@ export async function recoverAccountAction(f: FormData) {
     error = userError(err);
   }
   redirect(done(error, "recovery_queued"));
+}
+
+/** T-105 (ADR-0013 decision 34): record the sandbox pass that allows the production switch. */
+export async function recordSandboxPassAction(f: FormData) {
+  let error: string | undefined;
+  try {
+    const { op } = await consoleActionOp("/admin/shipping", "shipping.manage");
+    await requirePortalCsrf(f);
+    await recordMengantarSandboxPass(op, { revision: text(f, "revision"), note: text(f, "note") });
+  } catch (err) {
+    error = userError(err);
+  }
+  redirect(done(error, "sandbox_pass"));
+}
+
+/** T-105 (ADR-0013 decision 34): switch calls on sellers' production Mengantar keys on or off (audited, reason required). */
+export async function setProductionCallsAction(f: FormData) {
+  let error: string | undefined;
+  try {
+    const { op } = await consoleActionOp("/admin/shipping", "shipping.manage");
+    await requirePortalCsrf(f);
+    await setMengantarProductionCalls(op, { revision: text(f, "revision"), enabled: text(f, "enabled") === "on", reason: text(f, "reason"), ...(text(f, "approvalId") ? { approvalId: text(f, "approvalId") } : {}) });
+  } catch (err) {
+    error = userError(err);
+  }
+  redirect(done(error, "production_switch"));
+}
+
+/** T-105 review: switching production calls ON is four-eyes; this files the request a second operator approves (SA-28). */
+export async function requestProductionAction(f: FormData) {
+  let error: string | undefined;
+  try {
+    const { op } = await consoleActionOp("/admin/shipping", "shipping.manage");
+    await requirePortalCsrf(f);
+    await requestMengantarProductionOn(op, { revision: text(f, "revision"), reason: text(f, "reason") });
+  } catch (err) {
+    error = userError(err);
+  }
+  redirect(done(error, "production_requested"));
 }

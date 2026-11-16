@@ -10,7 +10,7 @@ import { cartCookie, checkoutCart, clientIp, cookieOpts, ORDER_COOKIE } from "@/
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-const FIELDS = ["idempotencyKey", "buyerName", "buyerPhone", "buyerEmail", "shippingAddress", "destinationAreaId", "destinationAreaLabel", "courier", "paymentMethod", "paymentChannel", "voucherCode", "affiliateCode"] as const;
+const FIELDS = ["idempotencyKey", "buyerName", "buyerPhone", "buyerEmail", "shippingAddress", "destinationAreaId", "destinationAreaLabel", "courier", "paymentMethod", "paymentChannel", "voucherCode", "affiliateCode", "shippingQuote"] as const;
 
 export type VoucherPreview = { error: string } | { goodsDiscount: number; shippingDiscount: number; shipping: number; total: number; subtotal: number };
 /** Read-only: same rules and quote as submit, no stock or quota reservation, and the cart is never changed. */

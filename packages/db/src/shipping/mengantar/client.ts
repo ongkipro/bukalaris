@@ -21,10 +21,10 @@ const DEFAULT_BASE = "https://api-public.mengantar.com";
 const DEFAULT_TIMEOUT_MS = 8_000;
 const READ_ATTEMPTS = 2; // one retry for idempotent reads on network error, timeout, 429 or 5xx
 
-/** Replace the key segment of a keyed URL (and any other occurrence of the key) with a placeholder. */
+/** Replace the key segment of a keyed URL and every other occurrence of the key, raw or URL-encoded (ADR-0013 decision 9), with a placeholder. */
 export function redactUrl(url: string, apiKey?: string): string {
-  let out = url.replace(/\/api\/public\/[^/?#]+/, "/api/public/**redacted**");
-  if (apiKey) out = out.replaceAll(apiKey, "**redacted**");
+  let out = url.replace(/\/api\/public\/[^/?#\s"']+/g, "/api/public/**redacted**");
+  if (apiKey) for (const form of new Set([apiKey, encodeURIComponent(apiKey), JSON.stringify(apiKey).slice(1, -1)])) out = out.replaceAll(form, "**redacted**");
   return out;
 }
 
@@ -70,6 +70,11 @@ export type ClientOptions = {
   writeEnabled?: boolean;
   /** Called per attempt with the redacted URL only. */
   onRequest?: (info: { method: string; url: string; attempt: number }) => void;
+  /**
+   * The T-48 entry gate (Partner Secret rotation) guards every call made with PLATFORM credentials. A call made with a seller's own key is not
+   * gated by it (ADR-0013 section 8); only the seller client (`shipping/seller.ts`) passes `false`.
+   */
+  partnerGate?: boolean;
 };
 
 export type EstimateInput = {
@@ -90,6 +95,7 @@ export class MengantarClient {
   readonly #timeoutMs: number;
   readonly #writeEnabled: boolean;
   readonly #onRequest?: ClientOptions["onRequest"];
+  readonly #partnerGate: boolean;
 
   constructor(opts: ClientOptions) {
     if (!opts.apiKey) throw new Error("MengantarClient: apiKey is required");
@@ -99,6 +105,7 @@ export class MengantarClient {
     this.#timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.#writeEnabled = opts.writeEnabled ?? process.env.MENGANTAR_WRITE_ENABLED === "1";
     this.#onRequest = opts.onRequest;
+    this.#partnerGate = opts.partnerGate ?? true;
   }
 
   get writeEnabled(): boolean {
@@ -162,8 +169,13 @@ export class MengantarClient {
   // ── Writes (disabled unless MENGANTAR_WRITE_ENABLED=1) ───────────────────
 
   /** Returns the whole response body (`batch_id` and `errors` live beside `data`), parsed loosely. */
-  async createOrder(payload: { courier: string; pickup: Record<string, unknown>; orders: Record<string, unknown>[] }) {
-    return createOrderResponseSchema.parse(await this.#write("createOrder", "POST", this.#keyed("/order"), payload, true));
+  /** `idempotencyKey` (1-50 characters, header only, remembered 24 h per account) makes a resent identical request return the first answer. */
+  async createOrder(payload: { courier: string; pickup: Record<string, unknown>; orders: Record<string, unknown>[] }, idempotencyKey?: string) {
+    const body = await this.#write("createOrder", "POST", this.#keyed("/order"), payload, true, idempotencyKey ? { idempotencyKey } : undefined);
+    const parsed = createOrderResponseSchema.safeParse(body);
+    // An unreadable success is an unknown outcome (ADR-0013 decision 30), never a definite refusal: a typed error the booking job can classify.
+    if (!parsed.success) throw new MengantarError("invalid_shape", "Mengantar create-order response shape mismatch", 200, this.#sanitize(body));
+    return parsed.data;
   }
   upsertOrigin(input: Record<string, unknown>) {
     return this.#write("upsertOrigin", "POST", this.#keyed("/address"), input);
@@ -190,35 +202,35 @@ export class MengantarClient {
   // ── Internals ────────────────────────────────────────────────────────────
 
   #keyed(path: string, query: Query = {}): string {
-    return `${this.#base}/api/public/${this.#apiKey}${path}${qs(query)}`;
+    return `${this.#base}/api/public/${encodeURIComponent(this.#apiKey)}${path}${qs(query)}`;
   }
 
   #redact(s: string) {
     return redactUrl(s, this.#apiKey);
   }
 
-  async #write(operation: string, method: string, url: string, body: unknown, raw = false): Promise<unknown> {
+  async #write(operation: string, method: string, url: string, body: unknown, raw = false, headers?: Record<string, string>): Promise<unknown> {
     if (!this.#writeEnabled) throw new MengantarWriteDisabledError(operation);
-    return this.#request(method, url, { body, attempts: 1, raw });
+    return this.#request(method, url, { body, attempts: 1, raw, headers });
   }
 
   async #get<T>(url: string, schema: z.ZodType<T>): Promise<T> {
     const data = await this.#request("GET", url, { attempts: READ_ATTEMPTS });
     const parsed = schema.safeParse(data);
     if (!parsed.success) {
-      throw new MengantarError("invalid_shape", `Mengantar response shape mismatch: ${parsed.error.issues[0]?.path.join(".") || "(root)"}`, 200, this.#sanitize(data));
+      throw new MengantarError("invalid_shape", `Mengantar response shape mismatch: ${this.#redact(parsed.error.issues[0]?.path.join(".") || "(root)")}`, 200, this.#sanitize(data));
     }
     return parsed.data;
   }
 
   /** Returns the envelope's `data` (or the whole body when there is no envelope, or when `raw`). */
-  async #request(method: string, url: string, opts: { body?: unknown; attempts: number; raw?: boolean }): Promise<unknown> {
-    if (!mengantarRotationRecorded()) throw new MengantarError("entry_gate", MENGANTAR_ENTRY_GATE_MESSAGE);
+  async #request(method: string, url: string, opts: { body?: unknown; attempts: number; raw?: boolean; headers?: Record<string, string> }): Promise<unknown> {
+    if (this.#partnerGate && !mengantarRotationRecorded()) throw new MengantarError("entry_gate", MENGANTAR_ENTRY_GATE_MESSAGE);
     let last: MengantarError | undefined;
     for (let attempt = 1; attempt <= opts.attempts; attempt++) {
       this.#onRequest?.({ method, url: this.#redact(url), attempt });
       try {
-        return await this.#once(method, url, opts.body, opts.raw === true);
+        return await this.#once(method, url, opts.body, opts.raw === true, opts.headers);
       } catch (err) {
         if (!(err instanceof MengantarError)) throw err;
         last = err;
@@ -230,12 +242,12 @@ export class MengantarClient {
     throw last!;
   }
 
-  async #once(method: string, url: string, body: unknown, raw: boolean): Promise<unknown> {
+  async #once(method: string, url: string, body: unknown, raw: boolean, headers?: Record<string, string>): Promise<unknown> {
     let res: Response;
     try {
       res = await this.#fetch(url, {
         method,
-        headers: { Accept: "application/json", ...(body !== undefined && { "Content-Type": "application/json" }) },
+        headers: { Accept: "application/json", ...(body !== undefined && { "Content-Type": "application/json" }), ...headers },
         body: body === undefined ? undefined : JSON.stringify(body),
         signal: AbortSignal.timeout(this.#timeoutMs),
       });
@@ -254,7 +266,7 @@ export class MengantarClient {
     const envelope = env.success ? env.data : undefined;
     if (!res.ok || envelope?.success === false) {
       const message = envelope?.errorsFront || envelope?.message || `HTTP ${res.status}`;
-      throw new MengantarError(res.ok ? "provider" : "http", `Mengantar: ${this.#redact(message)}`, res.status, this.#sanitize(parsed), detectCode(envelope));
+      throw new MengantarError(res.ok ? "provider" : "http", `Mengantar: ${this.#redact(message)}`, res.status, this.#sanitize(parsed), ((c) => c && this.#redact(c))(detectCode(envelope)));
     }
     return !raw && envelope && "data" in envelope ? envelope.data : parsed;
   }

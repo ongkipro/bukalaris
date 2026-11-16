@@ -9,8 +9,8 @@ import { Pixels } from "@/components/pixels/pixels";
 import { SignalEvent } from "@/components/pixels/runtime";
 import { rupiah } from "@/lib/format";
 import { signalsFor } from "@/lib/signals";
-import { checkoutCart } from "@/lib/storefront";
-import { checkoutPaymentChannels, checkoutShippingOptions, checkoutSummary, db, DomainError, feeLabel, searchDestinationAreas, type Area, type PaymentChannel, type ShippingOption } from "@bukalaris/db";
+import { checkoutCart, clientIp } from "@/lib/storefront";
+import { checkoutPaymentChannels, checkoutShippingOptions, checkoutSummary, db, DomainError, feeLabel, formatShippingQuote, searchDestinationAreas, type Area, type PaymentChannel, type ShippingOption } from "@bukalaris/db";
 import { randomUUID } from "node:crypto";
 import { submitCheckout } from "./actions";
 import { CaptureProgress } from "./capture-progress";
@@ -51,7 +51,7 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
   let searchError: string | undefined;
   if (q) {
     try {
-      results = await searchDestinationAreas(q);
+      results = await searchDestinationAreas(q, undefined, scope, { clientIp: await clientIp() });
     } catch (err) {
       if (!(err instanceof DomainError)) throw err;
       searchError = err.message;
@@ -63,7 +63,7 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
   let quoteError: string | undefined;
   if (area && summary.canShip) {
     try {
-      ({ options } = await checkoutShippingOptions(scope, area.id, { lines: summary.lines, subtotal: summary.subtotal }));
+      ({ options } = await checkoutShippingOptions(scope, area.id, { lines: summary.lines, subtotal: summary.subtotal }, undefined, { clientIp: await clientIp() }));
     } catch (err) {
       if (!(err instanceof DomainError)) throw err;
       quoteError = err.message;
@@ -166,6 +166,8 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
               <input type="hidden" name="q" value={q} />
               <input type="hidden" name="destinationAreaId" value={area.id} />
               <input type="hidden" name="destinationAreaLabel" value={area.label} />
+              {/* The fees shown below: the server refuses the order when the courier or its price changed meanwhile (never a price source). */}
+              {options.length > 0 && <input type="hidden" name="shippingQuote" value={formatShippingQuote(options)} />}
               <CaptureProgress store={scope.storeSlug} />
               <fieldset className="grid gap-2">
                 <legend className="mb-2 font-medium">2. Kurir</legend>

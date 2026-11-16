@@ -288,7 +288,9 @@ export const order = pgTable(
     // Shipping snapshot (T-34, Q-12): provider courier key + label, route area ids, and the
     // fee split. `shipping_fee` is what the buyer pays = provider cost + platform margin.
     shippingAccountId: bigint("shipping_account_id", { mode: "number" }).notNull().default(0),
-    shippingAccountKind: text("shipping_account_kind", { enum: ["partner_managed", "platform_master"] }).notNull().default("platform_master"),
+    shippingAccountKind: text("shipping_account_kind", { enum: ["partner_managed", "platform_master", "seller_owned"] }).notNull().default("platform_master"),
+    /** T-105 (ADR-0013 decision 11, C-P10): created under a sandbox account; never counted in sales figures or affiliate commission. Set once at submit. */
+    testOrder: boolean("test_order").notNull().default(false),
     courierCode: text("courier_code").notNull(),
     courier: text("courier").notNull(),
     originAreaId: text("origin_area_id").notNull(),

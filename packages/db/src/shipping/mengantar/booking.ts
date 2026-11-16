@@ -1,6 +1,8 @@
 import { MengantarClient, MengantarError } from "./client.ts";
 import { PARTNER_DISPATCH_LOCKED_MESSAGE } from "../copy.ts";
 import { trackingInfoSchema, type CreatedOrder, type TrackingInfo } from "./schemas.ts";
+import type { ShippingAccountKind } from "../schema-accounts.ts";
+import type { PickupType } from "../schema-fulfillment.ts";
 
 // Shipment booking + tracking over the platform-owned Mengantar account (T-39, PR-5, Q-2).
 // `createOrder` and `payUnpaid` are WRITES: the client refuses them unless
@@ -13,8 +15,12 @@ export type BookingInput = {
   orderId: number;
   storeId: number;
   shippingAccountId?: number;
-  shippingAccountKind?: "partner_managed" | "platform_master";
+  shippingAccountKind?: ShippingAccountKind;
   pickupAreaId?: string;
+  /** T-105: drop-off or scheduled pickup, chosen by the seller (ADR-0013 decision 28); a platform-account booking uses the scheduled pickup. */
+  pickupType?: PickupType;
+  /** Provider `idempotencyKey` header (1-50 characters): one per booking attempt, so a resent identical request never creates a second order. */
+  idempotencyKey?: string;
   pickupAddress?: string;
   courierCode: string;
   destinationAreaId: string;
@@ -52,7 +58,7 @@ export interface BookingAdapter {
   /** WRITE. Pays an unpaid batch after a top-up; the resi is then fetched with `track`. */
   payUnpaid(batchId: string, courierCode: string): Promise<void>;
   /** READ. Current provider status and history of a booked shipment. */
-  track(ref: { providerOrderId: string | null; trackingNumber: string | null; shippingAccountId?: number; shippingAccountKind?: "partner_managed" | "platform_master" }): Promise<TrackingResult>;
+  track(ref: { providerOrderId: string | null; trackingNumber: string | null; shippingAccountId?: number; shippingAccountKind?: ShippingAccountKind }): Promise<TrackingResult>;
 }
 
 /**
@@ -118,7 +124,7 @@ export function toBookingResult(created: CreatedOrder, batchId: string | undefin
 
 export type BookingEnv = { pickupAddressId: string; pickupTimeId?: string | undefined };
 
-export function mengantarBooking(client: MengantarClient, env: BookingEnv): BookingAdapter {
+export function mengantarBooking(client: Pick<MengantarClient, "createOrder" | "payUnpaid" | "getOrder">, env: BookingEnv): BookingAdapter {
   return {
     async createOrder(input) {
       if (input.shippingAccountKind === "partner_managed") throw new MengantarError("write_disabled", PARTNER_DISPATCH_LOCKED_MESSAGE);
@@ -127,7 +133,8 @@ export function mengantarBooking(client: MengantarClient, env: BookingEnv): Book
         courier,
         // Pickup from the platform's registered address (docs 01 §3.3/§4); a seller-specific origin
         // would need `upsertOrigin` (write) — see docs/tracks/shipping.md "Pickup origin at the provider".
-        pickup: { type: "scheduledPickup", address_id: env.pickupAddressId, ...(env.pickupTimeId && { time_id: env.pickupTimeId }) },
+        // UNVERIFIED (T-105): whether a scheduled pickup needs a `time_id`; none is sent for a seller account (the seller's own pickup slots stay in their account).
+        pickup: { type: input.pickupType === "drop_off" ? "dropOff" : "scheduledPickup", address_id: env.pickupAddressId, ...(env.pickupTimeId && { time_id: env.pickupTimeId }) },
         orders: [
           {
             customerAddressDataId: input.destinationAreaId,
@@ -142,7 +149,7 @@ export function mengantarBooking(client: MengantarClient, env: BookingEnv): Book
             ...(input.codAmount > 0 ? { COD: input.codAmount } : { goodsValue: input.goodsValue }),
           },
         ],
-      });
+      }, input.idempotencyKey);
       const [created] = res.data ?? [];
       if (!created) {
         const err = res.errors?.[0];

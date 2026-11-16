@@ -541,6 +541,7 @@ the action re-checks the capability at execution.
 | `shipping.margin` | `shipping.manage` | Change the platform shipping margin, shipping discount or cashback split rules (SA-07) | P1 |
 | `affiliate.rate_bounds` | `affiliate.policy.manage` | Change programme rate bounds or the affiliate hold period (`affiliate_hold_days`, default 3 days) | P1 |
 | `providers.rotate` | `providers.manage` | Record a provider credential rotation | P1 |
+| `providers.production_on` | `providers.manage` | Switch production calls on a seller provider key ON after the recorded sandbox pass (ADR-0013 decision 34). Target id = the provider: `mengantar` (T-105; the requester and applier also need `shipping.manage`, Owner console SA-07) or `autolaris` (T-106). The approval payload names the provider, the recorded sandbox pass and the row revision, so a new sandbox pass voids it; switching OFF is immediate | P1 |
 | `mfa.reset` | `accounts.support` | Reset a second factor of a store-owner or affiliate account. A non-owner seller team member's reset is a single-approver action with case, reason and notice to the previous contact | P1 |
 | `staff.mfa_reset` | `staff.manage` | Reset a staff member's second factor (the staff-target variant of `mfa.reset`, added by T-63): never through `accounts.*`, the requester cannot be the target | P1 |
 | `account.close` | `accounts.suspend` | Close an account through a privacy case | P1 |

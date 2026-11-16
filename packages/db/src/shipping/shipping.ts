@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Executor } from "../client.ts";
 import { mengantarFromEnv } from "./mengantar/adapter.ts";
@@ -9,10 +9,16 @@ import { inStore } from "../platform/tenant.ts";
 import { requirePlatformCap } from "../ops/capabilities.ts";
 import { selectShippingAccount } from "./accounts.ts";
 import { applyApprovedMargin, applyShippingDiscount, effectiveShippingDiscount } from "./policy.ts";
-import type { ShippingAccountKind } from "./schema-accounts.ts";
+import type { ProviderEnvironment, ShippingAccountKind } from "./schema-accounts.ts";
+import { storeShippingAccount } from "./schema-accounts.ts";
+import { searchSellerAreas, sellerAccount, sellerShippingOptions } from "./rules.ts";
+import { sellerMengantar } from "./seller.ts";
 
 export { MengantarClient, MengantarError, MengantarWriteDisabledError, redactUrl } from "./mengantar/client.ts";
 export { COURIER_LABELS, mengantarAdapter, mengantarFromEnv, toProviderQuote } from "./mengantar/adapter.ts";
+export * from "./rules.ts";
+export * from "./live-setting.ts";
+export { PROVINCE_NAME, PROVINCES, SUGGESTED_COD_BLOCKED, type ProvinceCode } from "./provinces.ts";
 
 // Shipping quotes with platform margin (T-34, PR-5, Q-12). Provider cost comes
 // from the adapter (never the client), the margin rule is platform-wide and
@@ -95,6 +101,13 @@ export const pickupAreaInput = z.strictObject({
 });
 export const pickupAddressInput = z.strictObject({
   addressText: z.string().trim().min(10, "Alamat pickup terlalu pendek.").max(500),
+  // T-105: the person the courier asks for at pickup, required by the provider when the address is registered with the store's own account.
+  contactName: z.string().trim().max(120).optional(),
+  contactPhone: z.string().trim().max(20).optional(),
+});
+const pickupContact = z.strictObject({
+  contactName: z.string().trim().min(2, "Isi nama penanggung jawab pickup.").max(120),
+  contactPhone: z.string().trim().regex(/^\+?[0-9]{10,15}$/, "Nomor HP penanggung jawab 10–15 digit."),
 });
 
 export async function getPickupArea(scope: SellerScope) {
@@ -108,36 +121,75 @@ export async function getPickupArea(scope: SellerScope) {
   });
 }
 
-/** Server-side area search for the pickup form (owner only; no provider write). */
+/** Server-side area search for the pickup form (owner only; no provider write). A store on its own account searches with its own key (T-105). */
 export async function searchPickupAreas(scope: SellerScope, keyword: string, adapter: ShippingAdapter = defaultShippingAdapter()) {
   requireCap(scope, "shipping.manage");
   const k = keyword.trim();
   if (k.length < 3) throw new DomainError("keyword", "Ketik minimal 3 huruf nama kelurahan, kecamatan atau kota.");
+  const own = await inStore(scope, ({ exec }) => sellerAccount(exec, scope.storeId));
+  if (own?.status === "active") return searchSellerAreas(scope, k, own.environment, undefined, "pickup"); // the seller's own bucket, never the buyers' one
   return adapter.searchArea(k);
 }
 
-/** Store the chosen provider AREA id + label locally (keeps the address text). */
+/** Store the chosen provider AREA id + label locally (keeps the address text). Another area drops the registration with the store's own account (T-105). */
 export async function setPickupArea(scope: SellerScope, raw: unknown): Promise<void> {
   requireCap(scope, "shipping.manage");
   return inStore(scope, async (scope) => {
     const input = pickupAreaInput.parse(raw);
+    const [before] = await scope.exec.select({ areaId: storePickupArea.areaId }).from(storePickupArea).where(eq(storePickupArea.storeId, scope.storeId)).for("update");
     await scope.exec
       .insert(storePickupArea)
       .values({ storeId: scope.storeId, ...input, updatedBy: scope.userId })
       .onConflictDoUpdate({ target: storePickupArea.storeId, set: { ...input, updatedBy: scope.userId, updatedAt: new Date() } });
+    if (before?.areaId !== input.areaId) {
+      await scope.exec.update(storeShippingAccount).set({ pickupRegisteredAt: null, pickupAddressId: null }).where(and(eq(storeShippingAccount.storeId, scope.storeId), eq(storeShippingAccount.kind, "seller_owned")));
+    }
   });
 }
 
+/**
+ * Saves the pickup address text. On a store with its own Mengantar account the address is first registered with that account (ADR-0013
+ * decision 12: if the provider refuses, nothing changes locally); the registration makes shipping ready.
+ */
 export async function setPickupAddress(scope: SellerScope, raw: unknown): Promise<void> {
   requireCap(scope, "shipping.manage");
-  return inStore(scope, async (scope) => {
-    const { addressText } = pickupAddressInput.parse(raw);
-    const updated = await scope.exec
+  const input = pickupAddressInput.parse(raw);
+  const { addressText } = input;
+  const [own, [pickup]] = await inStore(scope, ({ exec }) => Promise.all([sellerAccount(exec, scope.storeId), exec.select({ areaId: storePickupArea.areaId }).from(storePickupArea).where(eq(storePickupArea.storeId, scope.storeId))]));
+  if (!pickup) throw new DomainError("no_pickup_area", "Pilih area pickup terlebih dahulu.");
+  let registered: { id: string; accountId: number; revision: number } | null = null;
+  if (own?.status === "active") {
+    const contact = pickupContact.parse({ contactName: input.contactName ?? "", contactPhone: input.contactPhone ?? "" });
+    if (own.lastResult !== "ready") throw new DomainError("check_failed", "Kunci akun kurir toko belum lolos pengecekan. Cek kunci di Akun penyedia, lalu simpan alamat lagi.");
+    const { openProviderKey } = await import("../payments/provider-accounts.ts"); // loaded on use, as in rules.ts
+    const client = await sellerMengantar(scope.exec, await openProviderKey(scope, "mengantar"), own.environment);
+    let id: string;
+    try {
+      id = await client.registerPickup({ areaId: pickup.areaId, addressText, storeName: scope.storeName, ...contact, existingId: own.pickupAddressId });
+    } catch (err) {
+      if (err instanceof DomainError) throw err;
+      const e = new DomainError("pickup_registration_failed", "Alamat pickup tidak bisa didaftarkan ke akun kurir toko Anda. Tidak ada yang diubah; periksa alamat dan nomor HP lalu coba lagi.");
+      e.cause = err;
+      throw e;
+    }
+    registered = { id, accountId: own.id, revision: own.revision };
+  }
+  await inStore(scope, async ({ exec }) => {
+    const updated = await exec
       .update(storePickupArea)
       .set({ addressText, updatedBy: scope.userId, updatedAt: new Date() })
-      .where(eq(storePickupArea.storeId, scope.storeId))
+      .where(and(eq(storePickupArea.storeId, scope.storeId), eq(storePickupArea.areaId, pickup.areaId)))
       .returning({ storeId: storePickupArea.storeId });
-    if (updated.length === 0) throw new DomainError("no_pickup_area", "Pilih area pickup terlebih dahulu.");
+    if (updated.length === 0) throw new DomainError("conflict", "Area pickup baru saja diubah. Muat ulang halaman lalu simpan lagi.");
+    if (!registered) return;
+    // The account must still be the one the address was registered with (a key replaced meanwhile is another account).
+    const done = await exec
+      .update(storeShippingAccount)
+      .set({ pickupAddressId: registered.id, pickupRegisteredAt: sql`now()` as unknown as Date })
+      .where(and(eq(storeShippingAccount.storeId, scope.storeId), eq(storeShippingAccount.id, registered.accountId), eq(storeShippingAccount.revision, registered.revision)))
+      .returning({ id: storeShippingAccount.id });
+    if (done.length === 0) throw new DomainError("conflict", "Akun kurir toko baru saja diubah. Muat ulang halaman lalu simpan alamat lagi.");
+    await exec.insert(auditLog).values({ storeId: scope.storeId, actorUserId: scope.userId, actorCapability: "shipping.manage", action: "shipping.pickup.register", subjectKind: "provider_account", subjectId: "mengantar", accessLevel: "write", outcome: "allowed", reason: `area=${pickup.areaId}` });
   });
 }
 
@@ -164,7 +216,8 @@ export async function shippingOptions(
   destinationAreaId: string,
   cart: CartForShipping,
   adapter: ShippingAdapter = defaultShippingAdapter(),
-): Promise<{ originAreaId: string; destinationAreaId: string; weightKg: number; shippingAccountId: number; shippingAccountKind: ShippingAccountKind; options: ShippingOption<PricedFee>[] }> {
+  clientIp?: string,
+): Promise<{ originAreaId: string; destinationAreaId: string; weightKg: number; shippingAccountId: number; shippingAccountKind: ShippingAccountKind; environment: ProviderEnvironment | null; options: ShippingOption<PricedFee>[] }> {
   const destination = areaId.parse(destinationAreaId);
   // Store context for the pickup row only; the provider call below must not run inside a transaction.
   const [origin] = await inStore(scope, (scope) =>
@@ -173,6 +226,15 @@ export async function shippingOptions(
   if (!origin) throw new DomainError("no_pickup_area", "Toko belum mengatur area pickup.");
   const account = await selectShippingAccount(scope);
   const weightKg = parcelWeightKg(cart.lines);
+  if (account.kind === "seller_owned") {
+    // T-105: the store's own account. The buyer pays the provider's public rate; no margin, no platform discount (ADR-0013 decision 15).
+    const own = await sellerShippingOptions(scope, { environment: account.environment! }, { originAreaId: origin.areaId, destinationAreaId: destination, weightKg }, clientIp);
+    const options = own.map((o): ShippingOption<PricedFee> => {
+      const fee = { providerCost: o.fee, margin: 0, buyerFee: o.fee, platformDiscount: 0 };
+      return { courier: o.courier, label: o.label, etd: o.etd, prepaid: fee, cod: o.cod ? fee : null };
+    });
+    return { originAreaId: origin.areaId, destinationAreaId: destination, weightKg, shippingAccountId: account.id, shippingAccountKind: account.kind, environment: account.environment, options };
+  }
   const [rule, discount, quotes] = await Promise.all([
     getMarginRule(scope.exec),
     effectiveShippingDiscount(scope.exec),
@@ -181,7 +243,7 @@ export async function shippingOptions(
   const codPolicy = await codAllowedCouriers(scope.exec);
   // COD only where the data-driven allow-list says `cod_allowed AND return_free` (ADR-0006 decision 4); no courier name is hard-coded here.
   const options = quoteWithMargin(quotes, rule).map((o): ShippingOption<PricedFee> => ({ ...o, prepaid: applyShippingDiscount(o.prepaid, discount), cod: o.cod && codPolicy.has(o.courier) ? applyShippingDiscount(o.cod, discount) : null }));
-  return { originAreaId: origin.areaId, destinationAreaId: destination, weightKg, shippingAccountId: account.id, shippingAccountKind: account.kind, options };
+  return { originAreaId: origin.areaId, destinationAreaId: destination, weightKg, shippingAccountId: account.id, shippingAccountKind: account.kind, environment: null, options };
 }
 
 /**

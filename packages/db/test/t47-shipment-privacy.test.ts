@@ -63,7 +63,7 @@ const shipmentOf = async (orderId: number) => (await platform.select().from(ship
 const setError = (orderId: number, message: string) => admin.execute(sql`update shipment set last_error = ${message} where order_id = ${orderId}`);
 
 // The columns of `shipment` that are structural (ids, codes, amounts, state), never provider free text. Anything else of type text or jsonb must be in the inventory.
-const STRUCTURAL_SHIPMENT_COLUMNS: Record<string, true> = { requested_by: true, status: true, courier_code: true, origin_area_id: true, destination_area_id: true, provider_order_id: true, provider_batch_id: true, tracking_number: true };
+const STRUCTURAL_SHIPMENT_COLUMNS: Record<string, true> = { requested_by: true, status: true, pickup_type: true, courier_code: true, origin_area_id: true, destination_area_id: true, provider_order_id: true, provider_batch_id: true, tracking_number: true };
 function missingFreeTextShipmentColumns(inventory: readonly { table: string; column: string }[]) {
   const listed = new Set(inventory.filter((e) => e.table === "shipment").map((e) => e.column));
   return Object.values(getTableColumns(shipment))

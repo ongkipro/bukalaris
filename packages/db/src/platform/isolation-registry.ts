@@ -86,9 +86,13 @@ export const ISOLATION_REGISTRY: Record<string, TableEntry> = {
   shipment: tenant("SELECT,INSERT,UPDATE", "SELECT,UPDATE"), // app: requests and counters; results come from the worker
   // T-104: the app role inserts (five columns of an empty row) and updates only its own `seller_owned` row (provider_account_guard) and never
   // reads a sealed column; the envelope comes only from provider_key_envelope(). Columns in catalog order (attname), each with its exact privileges.
-  store_shipping_account: { class: "tenant", key: "store_id", app: "", appColumns: columnGrants({ SELECT: ["id"], INSERT: ["external_user_id"], "SELECT,INSERT": ["kind", "store_id"], "SELECT,INSERT,UPDATE": ["environment", "status"], UPDATE: ["key_id", "sealed_at", "sealed_key", "step_up_ref", "updated_at"], "SELECT,UPDATE": ["key_fingerprint", "key_hint", "last_checked_at", "last_result", "pickup_registered_at", "revision"] }), platform: "SELECT,UPDATE" },
+  store_shipping_account: { class: "tenant", key: "store_id", app: "", appColumns: columnGrants({ SELECT: ["id"], INSERT: ["external_user_id"], "SELECT,INSERT": ["kind", "store_id"], "SELECT,INSERT,UPDATE": ["environment", "status"], UPDATE: ["key_id", "sealed_at", "sealed_key", "step_up_ref", "updated_at"], "SELECT,UPDATE": ["key_fingerprint", "key_hint", "last_checked_at", "last_result", "pickup_address_id", "pickup_registered_at", "revision"] }), platform: "SELECT,UPDATE" },
   // T-104: the store's own AutoLaris account, same rules; the platform pool reads only (the T-106 worker), the owner-side demo reset deletes.
   store_payment_account: { class: "tenant", key: "store_id", app: "", appColumns: columnGrants({ SELECT: ["id"], "SELECT,INSERT": ["store_id"], "SELECT,INSERT,UPDATE": ["environment", "status"], UPDATE: ["key_id", "payment_only_confirmed_by", "sealed_at", "sealed_key", "step_up_ref", "updated_at"], "SELECT,UPDATE": ["destination_area_id", "key_fingerprint", "key_hint", "last_checked_at", "last_result", "origin_area_id", "payment_only_confirmed_at", "revision", "sender_address", "shipper_email"] }), platform: "SELECT" },
+  // T-105 (ADR-0013 section 4): the seller's courier filters and COD settings, read again at order submit. The worker only switches a courier's COD
+  // off after a provider refusal (UPDATE on the rules); the Owner console reads both for support.
+  store_courier_rule: tenant("SELECT,INSERT,UPDATE", "SELECT,UPDATE"),
+  store_shipping_setting: tenant("SELECT,INSERT,UPDATE", "SELECT"),
   landing_page: tenant("SELECT,INSERT,UPDATE", ""),
   landing_page_revision: tenant("SELECT,INSERT", ""), // immutable snapshots
   // T-49 AutoLaris payment contract (migration 0012). The app role creates the attempt at checkout and the callback evidence; the worker owns every later write.
@@ -226,6 +230,10 @@ export const ISOLATION_REGISTRY: Record<string, TableEntry> = {
   cashback_rule: { class: "platform", app: "", platform: "SELECT,INSERT,UPDATE" },
   shipping_partner_budget: { class: "platform", app: "", platform: "SELECT,INSERT,UPDATE" },
   shipping_dispatch_lease: { class: "platform", app: "", platform: "SELECT,INSERT,UPDATE" },
+  // T-105: the province of a provider area, written by the app role from an area-search answer only (no tenant key: an area is the same for every store).
+  shipping_area: { class: "platform", app: "SELECT,INSERT,UPDATE", platform: "SELECT" },
+  // T-105 (ADR-0013 decision 34, C-P4): the per-provider production switch and its recorded sandbox pass; written by the Owner console, read at every call.
+  provider_live_setting: { class: "platform", app: "SELECT", platform: "SELECT,INSERT,UPDATE" },
 
   // T-52: the discovery projection (public seller and product fields, deliberately cross-store), the programme limits and the phase-1 fraud counters.
   affiliate_catalog: { class: "platform", app: "SELECT", platform: "SELECT,INSERT,UPDATE,DELETE" }, // filled by the JOB-20 handler (the revision pair only grows: guard); DELETE only for the full rebuild (pure replace, JOB-22)
