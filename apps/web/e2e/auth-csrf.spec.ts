@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import postgres from "postgres";
-import { chooseDestination, DEV_PASSWORD, enrolTotpViaApi, login, seedFixtureStore, testPhone, totp } from "./helpers";
+import { activateNoJs, chooseDestination, DEV_PASSWORD, enrolTotpViaApi, login, seedFixtureStore, testPhone, totp } from "./helpers";
 
 // CSRF/session values stay in memory; never capture request bodies/headers in a trace.
 test.use({ trace: "off" });
@@ -27,7 +27,7 @@ test("T82 original seller action rejects missing/forged/duplicate tokens; native
       await title.fill(rejected);
       const [response] = await Promise.all([
         native.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname === path),
-        form.getByRole("button", { name: "Simpan produk", exact: true }).click(),
+        activateNoJs(form.getByRole("button", { name: "Simpan produk", exact: true })),
       ]);
       await response.finished();
       await native.waitForLoadState("domcontentloaded");
@@ -39,12 +39,12 @@ test("T82 original seller action rejects missing/forged/duplicate tokens; native
     }
     const changed = `T82 native ${Date.now()}`;
     await title.fill(changed);
-    await native.getByRole("button", { name: "Simpan produk", exact: true }).click();
+    await activateNoJs(native.getByRole("button", { name: "Simpan produk", exact: true }));
     await expect(native).toHaveURL(/\/seller\/products\/1\?saved=1$/);
     await native.reload();
     await expect(title).toHaveValue(changed);
     await title.fill(original);
-    await native.getByRole("button", { name: "Simpan produk", exact: true }).click();
+    await activateNoJs(native.getByRole("button", { name: "Simpan produk", exact: true }));
     await expect(native).toHaveURL(/\/seller\/products\/1\?saved=1$/);
     expect(await native.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
   } finally { await context.close(); }
@@ -87,12 +87,12 @@ test("T82 duplicate live-session and cart cookies refuse original mutations with
     await native.goto(path);
     await expect(title, "identical form with unambiguous session persists").toHaveValue("T82 duplicate-cookie control");
     await title.fill(originalTitle);
-    await native.getByRole("button", { name: "Simpan produk", exact: true }).click();
+    await activateNoJs(native.getByRole("button", { name: "Simpan produk", exact: true }));
     await expect(native).toHaveURL(/saved=1$/);
 
     // The same native-form boundary for cart cookies: no token tampering, only cookie ambiguity.
     await native.goto("/s/toko-a/products/kaos-katun-basic");
-    await native.getByRole("button", { name: "Tambah ke keranjang" }).click();
+    await activateNoJs(native.getByRole("button", { name: "Tambah ke keranjang" }));
     const quantity = native.getByRole("spinbutton", { name: /Jumlah/ });
     await expect(quantity).toHaveValue("1");
     const cartForm = native.locator("form").filter({ has: quantity });
@@ -126,17 +126,17 @@ test("T82 anonymous cart native forms reject forged tokens and accept the curren
     const native = await context.newPage();
     await native.goto("/s/toko-a/products/kaos-katun-basic");
     await expect(native.locator('main form input[name="_csrf"]')).toHaveCount(1);
-    await native.getByRole("button", { name: "Tambah ke keranjang" }).click();
+    await activateNoJs(native.getByRole("button", { name: "Tambah ke keranjang" }));
     await expect(native.getByRole("heading", { name: "Keranjang", exact: true })).toBeVisible();
     const quantity = native.getByRole("spinbutton", { name: /Jumlah/ });
     await expect(quantity).toHaveValue("1");
     await native.locator('main form input[name="_csrf"]').evaluate((field: HTMLInputElement) => { field.value = "forged"; });
     await quantity.fill("9");
-    await native.getByRole("button", { name: "Ubah", exact: true }).click();
+    await activateNoJs(native.getByRole("button", { name: "Ubah", exact: true }));
     await expect(native.getByRole("alert")).toContainText("Muat ulang");
     await expect(quantity).toHaveValue("1");
     await quantity.fill("2");
-    await native.getByRole("button", { name: "Ubah", exact: true }).click();
+    await activateNoJs(native.getByRole("button", { name: "Ubah", exact: true }));
     await expect(quantity).toHaveValue("2");
     expect(await native.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1);
   } finally { await context.close(); }
@@ -319,11 +319,11 @@ test("T82 cross-store, closed and invalid cart cookies never let a rendered toke
     else {
       // Follow the store's own first product link: seeded toko-b products have no slug (canonical path uses the catalog id).
       await p.goto(`/s/${slug}`);
-      await p.locator(`main a[href*="/s/${slug}/products/"]`).first().click();
+      await activateNoJs(p.locator(`main a[href*="/s/${slug}/products/"]`).first());
       await expect(p).toHaveURL(new RegExp(`/s/${slug}/products/`));
     }
     await p.getByLabel("Jumlah").fill("7");
-    await p.getByRole("button", { name: "Tambah ke keranjang" }).click();
+    await activateNoJs(p.getByRole("button", { name: "Tambah ke keranjang" }));
     await expect(p.getByRole("heading", { name: "Keranjang", exact: true })).toBeVisible();
     const cookies = (await ctx.cookies()).filter((c) => /bl_cart_/.test(c.name));
     await ctx.close();
