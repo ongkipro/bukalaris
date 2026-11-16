@@ -1,4 +1,4 @@
-import { expect, type Page, type TestInfo } from "@playwright/test";
+import { expect, type Locator, type Page, type TestInfo } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createHmac, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -10,11 +10,20 @@ mkdirSync(dir, { recursive: true });
 
 export const DEV_PASSWORD = "bukalaris-dev-123";
 
+/**
+ * Activate a submit button or link in a `javaScriptEnabled: false` context (T-123): focus plus Enter, which submits the
+ * form with that button as submitter (or follows the link), exactly as a keyboard user would. Never use `click()` there:
+ * when the target is "not stable" twice, Playwright 1.63 waits 20 ms with a `setTimeout` in the page before retrying, and
+ * with JavaScript disabled Chromium never runs that callback (requestAnimationFrame still runs), so the click hangs until
+ * the test timeout. `press` has no stability wait.
+ */
+export const activateNoJs = (target: Locator) => target.press("Enter");
+
 /** Hosted checkout step 1 (T-34): search the destination area through the fake adapter and pick it (no JS needed). */
-export async function chooseDestination(page: Page, keyword = "menteng", pick: RegExp = /^Pilih Menteng/) {
+export async function chooseDestination(page: Page, keyword = "menteng", pick: RegExp = /^Pilih Menteng/, activate = (target: Locator) => target.click()) {
   await page.getByLabel(/Cari kelurahan/).fill(keyword);
-  await page.getByRole("button", { name: "Cari area" }).click();
-  await page.getByRole("link", { name: pick }).click();
+  await activate(page.getByRole("button", { name: "Cari area" }));
+  await activate(page.getByRole("link", { name: pick }));
   await expect(page.getByTestId("destination-area")).toBeVisible();
 }
 
