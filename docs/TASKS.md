@@ -14,9 +14,8 @@ A reading aid. Each task block below owns its own status and text; when the two 
 |---|---|---|---|
 | 1 | T-101 | Align the specification pack with D-27 to D-33 | Partial; the rest is done by each building task |
 | 2 | T-114 | Tidy repository and documentation structure | Partial; structure done 2026-11-15, final search for superseded text left |
-| 7 | T-105, T-106 | Mengantar and AutoLaris on the seller's key | In progress (2026-11-16, worktrees) |
-| 8 | T-115 | Mengantar lock, dedicated account, parcel sync | Planned |
-| 9 | T-107 | Money boundary for seller-owned stores | Planned |
+| 8 | T-115 | Mengantar lock, dedicated account, parcel sync | Built locally, in independent review (2026-11-16) |
+| 9 | T-107 | Money boundary for seller-owned stores | In progress (2026-11-16, worktree) |
 | 10 | T-113 | Bank transfer to the seller's account, buyer proof upload | Planned |
 | 11 | T-116 | Seller terms, notices and privacy statements | Planned; adviser review before production |
 | 12 | T-111, T-112 | Digital products: kind and checkout rules, access links and grants | Planned |
@@ -1606,7 +1605,7 @@ Source: [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md), 
   - Deviations: one-line changes outside the Allowed Paths in `ledger/stepup.ts` (proof action), `index.ts` (exports), seller `layout.tsx` (nav), `demo/seed-demo.ts` (demo delete loop), test configs (payment ring), narrow exemptions in `privacy.test.ts` (two columns) and `t48-copy-guard.test.ts` (brand names only under `seller/payments`), and set comparison of column grants in `test/isolation-catalog.ts`. Open: order account snapshot and test-order marker (C-P10) left for T-105/T-106; readiness not yet consumed (T-93, T-105, T-106); dedicated-account check T-115; doc 17 screen contract and DEPLOY-COOLIFY env rows not edited (outside the Allowed Paths).
 
 ### T-105 — Mengantar on the seller's key: quotes, filters and booking
-- Status: Built locally 2026-11-16 (branch `task/t105-mengantar-seller-key` on T-104, not committed); independent review done (no blocker; 2 major, 8 minor, 2 nits fixed); confirmation review done (all confirmed, 6 follow-ups fixed); track report `docs/tracks/t105-mengantar-seller-key.md`
+- Status: Done (2026-11-16; merged to `main` as `ecfa2c3` through pull request #9, CI green; independent review (no blocker; 2 major, 8 minor, 2 nits fixed) and confirmation review (6 follow-ups fixed) done; track report `docs/tracks/t105-mengantar-seller-key.md`). Local only: fake adapter or stubbed fetch; the opt-in sandbox run needs owner approval
 - Primary requirement: PR-5
 - Constraints: ADR-0013 sections 4, 5 and 7; T-34, T-39, T-61 behaviour kept where the ADR does not change it; official Mengantar documentation is the contract (skill `mengantar-api`), the reference system is not; sandbox origin UNVERIFIED until read from the official documentation (D-31: read from the official documentation in this task); the per-provider production switch of ADR-0013 decision 34 for Mengantar is built here (C-P4): an audited Owner console setting, off by default, switchable only after the recorded sandbox pass
 - Dependencies: T-104
@@ -1624,7 +1623,7 @@ Source: [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md), 
   - Deviations: `payments/provider-accounts.ts` (lazy live-check map, `exec` on the check input; merge note for T-106), `schema.ts` (order kind enum, `test_order`), `checkout.ts` sets `testOrder`, `ops/schema-ops.ts` + `docs/07` + `docs/05` (shared four-eyes row `providers.production_on`), Owner console `admin/shipping/**`, doc 16 rows (proposed limits), `DECISIONS.md` D-34, test edits in `t104`, `t47`, `t48-accounts`.
 
 ### T-106 — AutoLaris on the seller's key: instruction, status check, callback evidence
-- Status: Done locally 2026-11-16; independent review (no blocker; 3 major, 9 minor, 4 nit) fixed and confirmed; confirmation-review items (2 minor, 3 nit) fixed (branch `task/t106-autolaris-seller-key` from `task/t104-provider-accounts`, not committed; track report `docs/tracks/t106-autolaris-seller-key.md`)
+- Status: Done (2026-11-16; merged to `main` as `9602bfa` and `f6a1fb3` through pull request #10, CI green after one re-run of an unrelated T-123 failure; independent review (no blocker; 3 major, 9 minor, 4 nit) and confirmation review (2 minor, 3 nit) fixed; migration renumbered `0020` on top of T-105; track report `docs/tracks/t106-autolaris-seller-key.md`). Local only: fake AutoLaris accounts; the opt-in sandbox run needs owner approval
 - Primary requirement: PR-5
 - Constraints: ADR-0013 sections 3, 4, 5 and 6; D-21 (callback is evidence, verify by pull); T-49 contract kept where the ADR does not change it; official AutoLaris documentation is the contract (skill `autolaris-h2h`); paid status words, fee rates and expiry time zone are UNVERIFIED until confirmed with the provider; AutoLaris has no IP allow-list (owner statement, D-33), recorded in the provider-fact table and proven by the first sandbox call; rate limits RL-AUTOLARIS-CB, RL-PROVIDER-CHECK and RL-PAY-RECHECK from doc 16 (D-33)
 - Dependencies: T-104
@@ -1811,7 +1810,7 @@ Source: [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md), 
 
 
 ### T-123 — Diagnose the intermittent no-JS add-to-cart timeout in `auth-csrf.spec.ts:123`
-- Status: Partial (2026-11-16): five of six occurrences explained and fixed (`t68.spec.ts` submit race and `notify.test.ts` tamper case through pull request #4; the no-JS click hang (1), (4), (6) in branch `task/t123-nojs-submit`, not yet merged); the `content.spec.ts` settings save (3) remains unexplained
+- Status: Partial (2026-11-16): five of six occurrences explained and fixed: `t68.spec.ts` submit race and `notify.test.ts` tamper case (pull request #4), the no-JS click hang (1), (4), (6) (pull request #12, merged as `97665d2`, CI green); the `content.spec.ts` settings save (3) remains unexplained
 - Primary requirement: PR-14
 - Risk Level: R2
 - Allowed Paths: `apps/web/e2e/auth-csrf.spec.ts`, `apps/web/e2e/helpers.ts`; application files only for an evidenced root cause
@@ -1844,7 +1843,7 @@ Source: [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md), 
   - Test: `apps/web/e2e/host-mode-t124-secrets.spec.ts` starts a production server with the variable set (own port, `E2E_PORT + 5`): no surface (`owner`, `app`, `affiliate`, `buyer`) signs in or issues a session cookie. Mutation (guard removed, rebuilt): the test fails with status 200 instead of >= 500. With the guard: the spec and the host-mode project pass (17/17); lint and typecheck pass.
   - Deviation: the test is an E2E spec rather than a unit test, because `auth.ts` is a server-only module of the web app and only `packages/db` has unit tests.
 ### T-125 — Keep the E2E browser away from the real pixel provider hosts
-- Status: Done locally (2026-11-16, branch `task/t125-e2e-third-party`)
+- Status: Done (2026-11-16; merged to `main` as `cacb98d` and `cbe2379` through pull request #11, CI green)
 - Primary requirement: PR-14
 - Risk Level: R1
 - Allowed Paths: `apps/web/playwright.config.ts`, `apps/web/e2e/**`, `docs/TASKS.md`
