@@ -10,7 +10,7 @@ const src = fileURLToPath(new URL("../src/", import.meta.url));
 const migrations = fileURLToPath(new URL("../drizzle/", import.meta.url));
 const ALLOWED: Record<string, Record<string, string>> = {
   "tax/compute.ts": { "10_000": "bps scale: unit conversion", "63": "bigint column bound, 2^63-1", "4": "year digits of an ISO date", "10": "ISO date length", "256": "sha256 name" },
-  "tax/seal.ts": { "12": "GCM iv bytes", "32": "AES-256 key bytes", "256": "algorithm name", "3": "envelope part count (iv.ciphertext.tag)", "9_": "key id character class" },
+  "tax/seal.ts": { "12": "GCM iv bytes", "16": "GCM tag bytes (authTagLength, T-126)", "32": "AES-256 key bytes", "256": "algorithm name", "3": "envelope part count (iv.ciphertext.tag)", "9_": "key id character class" },
   "tax/identity.ts": { "15": "syntactic digit count of an identifier (UNVERIFIED rule, BILL-9 W1)", "16": "same", "4": "last-four mask" },
   "tax/payout.ts": { "4": "year digits of an ISO date" },
   "tax/settings.ts": { "500": "audit_log reason length cap" },
