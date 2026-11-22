@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHmac } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { and, eq, like } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -239,6 +240,9 @@ describe("order e-mail notifications (T-36, PR-21)", () => {
     vi.stubEnv("ORDER_LINK_SECRET", "");
     expect(() => requireOrderLinkSecret()).toThrow("ORDER_LINK_SECRET is not set");
     expect(() => signOrderLink(1)).toThrow("ORDER_LINK_SECRET is not set");
+    const exp = Math.floor(Date.now() / 1000) + 3600;
+    const underAuthSecret = createHmac("sha256", "test-only-auth-secret-0123456789abcdef").update(`order-link:1.${exp}`).digest("base64url");
+    expect(() => verifyOrderLink(`1.${exp}.${underAuthSecret}`)).toThrow("ORDER_LINK_SECRET is not set");
   });
 
   it("SEC-22: the worker exits non-zero before claiming any job when ORDER_LINK_SECRET is missing, and names it", () => {
