@@ -83,7 +83,7 @@ function sellerOwnedStoreWithPaidOrders(slug: string, email: string, apiKey: str
 }
 const orderLink = (orderId: number) => {
   const exp = Math.floor((Date.now() + 3_600_000) / 1000);
-  const secret = process.env.ORDER_LINK_SECRET ?? process.env.BETTER_AUTH_SECRET!;
+  const secret = process.env.ORDER_LINK_SECRET!;
   return `/o/${orderId}.${exp}.${createHmac("sha256", secret).update(`order-link:${orderId}.${exp}`).digest("base64url")}`;
 };
 const status = (page: Page) => page.getByRole("main").getByRole("status");
