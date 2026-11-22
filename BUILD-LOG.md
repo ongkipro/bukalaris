@@ -873,3 +873,11 @@ dummy content.
 - AES-GCM decryption in `storefront/signals.ts` and `tax/seal.ts` pins the 16-byte tag (Node 24 accepted a 4-byte prefix of the real tag); `ORDER_LINK_SECRET` no longer falls back to `BETTER_AUTH_SECRET`, the worker refuses to start without it and a production web server answers 500. Details, tests and mutations: `docs/TASKS.md` T-126.
 - Commands on this device (no Docker, no Postgres server): `pnpm map:check`, `pnpm lint`, `pnpm typecheck`, `pnpm build`, a Node script over the real modules (plus the mutations), worker and `server.js` runs without the variable. The database tests and E2E run on the pull request CI.
 - Repository setting (owner approved 2026-11-23): `main` is protected: pull request required (no required review), required checks `verify` and `image` from GitHub Actions, not strict, admins included, no force push or deletion.
+
+## Merges of 2026-11-23 (T-115, T-126)
+
+- #14 T-115 Mengantar account lock, dedicated-account check and parcel sync: `main` merged into the branch (only the `docs/TASKS.md` index conflicted), squash-merged as `d653eec`. CI run 45052286100: system map ok (107 route files, 130 rows), DB 80 files / 1531 tests, E2E 292 passed / 6 skipped, `verify:docker` healthy (84/84 policies). This full run after the review fixes is the verification the WIP commit `f6e337e` lacked.
+- #16 T-126 secret hardening, squash-merged as `b3169e4`. CI run 45055233196: DB 79 files / 1511 tests, E2E 291 passed / 4 skipped, image ok (based on `ccd9036`; T-115 touches none of its files, and the T-107 branch now runs both together).
+- T-107 (draft #15): `main` merged twice (after T-115, after T-126), migration renumbered `0022` (generated part identical to the old `0021` draft, hand-written section unchanged), conflicts listed in its track report. Waiting for CI and for the review record of its WIP fixes.
+- T-126 independent review (agy, read-only; Codex 401, Claude weekly limit): APPROVE; the low finding on the untested `verifyOrderLink` path is fixed here (`notify.test.ts`).
+- Note: `ccd9036` (Records, 2026-11-16) reached `main` without a CI run on its push (GitHub 502 day, PR #13 closed); the T-115 run above covers it.
