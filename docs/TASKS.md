@@ -15,7 +15,7 @@ A reading aid. Each task block below owns its own status and text; when the two 
 | 1 | T-101 | Align the specification pack with D-27 to D-33 | Partial; the rest is done by each building task |
 | 2 | T-114 | Tidy repository and documentation structure | Partial; structure done 2026-11-15, final search for superseded text left |
 | 8 | T-115 | Mengantar lock, dedicated account, parcel sync | Merged 2026-11-23 (PR #14); one Done-when item open (UNVERIFIED categories) |
-| 9 | T-107 | Money boundary for seller-owned stores | Integrated onto `main` 2026-11-23 (draft PR #15, migration `0022`); review fixes WIP, their review record missing |
+| 9 | T-107 | Money boundary for seller-owned stores | Integrated onto `main` 2026-11-23 (PR #15, migration `0022`); review handled, waiting for green CI |
 | 10 | T-113 | Bank transfer to the seller's account, buyer proof upload | Planned |
 | 11 | T-116 | Seller terms, notices and privacy statements | Planned; adviser review before production |
 | 12 | T-111, T-112 | Digital products: kind and checkout rules, access links and grants | Planned |
@@ -1642,7 +1642,7 @@ Source: [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md), 
   - Open: Owner console screen for locks, fee rates and the production switch; fee bearer in `order_financials` and the order-level test marker (T-107); key replaced within one environment not detected for in-flight attempts (ceiling); no live transport and no sandbox run (owner approval, `secrets-env`); anomaly e-mail to owners.
 
 ### T-107 — Money boundary for stores on seller-owned accounts
-- Status: Built locally 2026-11-16; review fixes committed as WIP (`b3fd70d`, not verified, the review findings themselves are not in the repository); integrated onto `main` with T-115 on 2026-11-23 (migration renumbered `0022`); draft pull request #15; track report `docs/tracks/t107-money-boundary.md`
+- Status: Built 2026-11-16; independent review (3 major, 7 minor, nits; `docs/reviews/2026-11-16-t107-independent-review.md`) handled, M3 on 2026-11-23 after the integration onto `main` (migration `0022`); pull request #15; evidence and the finding table in `docs/tracks/t107-money-boundary.md`
 - Primary requirement: PR-23
 - Constraints: ADR-0013 sections 5 and 8; ADR-0006 ledger invariants unchanged for platform-held money; BILL-4, BILL-5; no deletion of the T-37 or T-48 code (D-31)
 - Dependencies: T-105, T-106

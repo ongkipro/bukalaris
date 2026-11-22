@@ -206,6 +206,21 @@ describe("T-107 no ledger for a seller_owned store", () => {
     expect(await admin.select().from(refund).where(eq(refund.storeId, s.storeId))).toEqual([]);
   });
 
+  it("review M3: the courier writer follows the frozen money mode, not the shipping account: an own-Mengantar COD order frozen platform_held books its sale", async () => {
+    const s = await ownStore("legacycod", { autolaris: false });
+    const orderId = await submit(s, { paymentMethod: "cod" });
+    expect((await orderOf(orderId)).shippingAccountKind).toBe("seller_owned");
+    // The case the backfill leaves behind: an older own-account COD order it could not prove seller-held (for example one with a margin) stays platform_held.
+    await withoutGuard("order_financials", "order_financials_guard", () => withoutGuard("order_financials", "order_financials_money_guard", () =>
+      admin.execute(sql`update order_financials set money_mode = 'platform_held', payment_fee_bearer = null, cod_fee_bearer = null, expected_cod_fee_idr = 0, buyer_fee_idr = 0, fee_rate_version = null where order_id = ${orderId}`)));
+    await transitionOrder(s.owner, orderId, "confirm");
+    await transitionOrder(s.owner, orderId, "process");
+    await transitionOrder(s.owner, orderId, "ship", { trackingNumber: `T107-${orderId}` });
+    await deliver(s.storeId, orderId);
+    expect((await ledgerOf(orderId)).map((e) => e.kind)).toContain("sale");
+    expect((await verifyLedger(platform)).violations.filter((v) => v.storeId === s.storeId)).toEqual([]);
+  });
+
   it("the database refuses every platform money row for a seller-owned order or store, for every role, by rule (a platform-held store is accepted)", async () => {
     const s = await ownStore("dbrule");
     const cod = await deliveredCod(s);
