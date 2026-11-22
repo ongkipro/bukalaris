@@ -111,7 +111,7 @@ Requirement `Status:` words in the PRD: **Proposed** = not accepted by the owner
 
 Phase words: the PRD's "Phase 1" is the seller-commerce foundation. For the Owner console (PR-30, UX-22, IAM-15), **P1** is the startup core built first, **P1.5** is the optional Update Log, and **P2** is the Compliance center, which stays dormant until **Compliance activation** (ADR-0011 section 3). Tax has its own switch: startup mode (statements only) runs until **Tax activation** (ADR-0012 section 5). Compliance activation and Tax activation are independent; "later" means not scheduled.
 
-Current counts (2026-11-16): TASKS.md holds 122 numbered tasks, T-1 to T-122, plus one unnumbered demo-data block; the open-task index at its top groups the open ones by work order. Earlier count (2026-10-27): 75 tasks, T-1 to T-75: 26 Done, 11 Partial, 37 Planned (Proposed or Deferred) and 1 Superseded (T-8). The validation records further down keep the counts they were written with.
+Current counts (2026-11-23): TASKS.md holds 126 numbered tasks, T-1 to T-126, plus one unnumbered demo-data block; the open-task index at its top groups the open ones by work order. Earlier count (2026-10-27): 75 tasks, T-1 to T-75: 26 Done, 11 Partial, 37 Planned (Proposed or Deferred) and 1 Superseded (T-8). The validation records further down keep the counts they were written with.
 
 ## Headless integration contract
 
