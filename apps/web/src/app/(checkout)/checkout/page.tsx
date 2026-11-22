@@ -10,7 +10,7 @@ import { SignalEvent } from "@/components/pixels/runtime";
 import { rupiah } from "@/lib/format";
 import { signalsFor } from "@/lib/signals";
 import { checkoutCart, clientIp } from "@/lib/storefront";
-import { checkoutPaymentChannels, checkoutShippingOptions, checkoutSummary, codFeeLabel, db, DomainError, feeLabel, type CodFeeTerms, formatShippingQuote, searchDestinationAreas, type Area, type FeeSchedule, type PaymentChannel, type ShippingOption } from "@bukalaris/db";
+import { buyerCodFee, checkoutPaymentChannels, checkoutShippingOptions, checkoutSummary, codFeeLabel, db, DomainError, feeLabel, type CodFeeTerms, formatShippingQuote, searchDestinationAreas, type Area, type FeeSchedule, type PaymentChannel, type ShippingOption } from "@bukalaris/db";
 import { randomUUID } from "node:crypto";
 import { submitCheckout } from "./actions";
 import { CaptureProgress } from "./capture-progress";
@@ -192,6 +192,12 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
                     <span className="text-right text-sm tabular-nums">
                       <span className="block">Transfer {rupiah(o.prepaid.buyerFee)}</span>
                       <span className="block text-xs text-muted-foreground">{o.cod ? `COD ${rupiah(o.cod.buyerFee)}` : "Tidak melayani COD"}</span>
+                      {o.cod && buyerCodFee(codFee, summary.subtotal, summary.subtotal + o.cod.buyerFee) > 0 && (
+                        // T-107 review minor 1: the exact COD fee and the total the courier collects, before the order exists (without a voucher; the preview below adds it).
+                        <span className="block text-xs text-muted-foreground" data-testid={`cod-fee-${o.courier}`}>
+                          + biaya COD {rupiah(buyerCodFee(codFee, summary.subtotal, summary.subtotal + o.cod.buyerFee))} · total COD {rupiah(summary.subtotal + o.cod.buyerFee + buyerCodFee(codFee, summary.subtotal, summary.subtotal + o.cod.buyerFee))}
+                        </span>
+                      )}
                     </span>
                   </label>
                 ))}

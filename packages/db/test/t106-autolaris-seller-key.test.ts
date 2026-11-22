@@ -21,10 +21,12 @@ import { orderPaymentView } from "../src/payments/view.ts";
 import { bindSession, type SellerScope } from "../src/platform/scoped.ts";
 import { withStore } from "../src/platform/tenant.ts";
 import { auditLog, job, ledgerEntry, mailOutbox, membership, order, systemLog } from "../src/schema.ts";
-import { checkoutPaymentChannels, placeOrder } from "../src/seller/commerce/checkout.ts";
+import { checkoutPaymentChannels, placeOrder, searchDestinationAreas } from "../src/seller/commerce/checkout.ts";
+import { formatShippingQuote, saveCourierRules } from "../src/shipping/rules.ts";
+import { setPickupAddress, shippingOptions } from "../src/shipping/shipping.ts";
 import { keyFingerprint } from "../src/shipping/credentials.ts";
 import { setCartLine } from "../src/storefront/storefront.ts";
-import { admin, buyer, db, makeOperator, makeStore, makeUser, platform, seller } from "./helpers.ts";
+import { admin, buyer, db, DESTINATION, makeOperator, makeStore, makeUser, platform, seller } from "./helpers.ts";
 import { sessionOf } from "./t37-fixtures.ts";
 import { decideApproval } from "../src/ops/capabilities-approvals.ts";
 import { recordPaymentInquiry, sellerSettlementEnabled } from "../src/payments/attempts.ts";
@@ -71,6 +73,11 @@ const ownerOf = async (s: S): Promise<SellerScope> => bindSession(s.owner, await
 async function sellerStore(slug: string, apiKey: string, environment: "sandbox" | "production" = "sandbox") {
   const s = await makeStore(slug);
   const me = await ownerOf(s);
+  // T-107 (review M1; ADR-0013 decision 40): a store on its own accounts ships only on its own Mengantar account (sandbox fake, JNE with COD).
+  await saveProviderKey(me, { provider: "mengantar", environment: "sandbox", apiKey: `CANARY-T106-MENGANTAR-${slug}-0123456789abcdef`, proofId: await issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "mengantar" }) });
+  await setPickupAddress(me, { addressText: "Jl. Braga No. 10, Bandung", contactName: "Budi Pemilik", contactPhone: "081234567890" });
+  await saveCourierRules(me, { couriers: [{ courierCode: "JNE", enabled: true, codEnabled: true }] });
+  await searchDestinationAreas("menteng", undefined, s.sf);
   await saveProviderKey(me, { provider: "autolaris", environment, apiKey, proofId: await issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "autolaris" }) });
   await setPaymentAccountDetails(me, { originAreaId: "3517100", destinationAreaId: "3518010", shipperEmail: `${slug}@example.invalid`, senderAddress: "Jl. Braga No. 1, Bandung 40111", paymentOnlyConfirmed: true });
   const [acc] = await admin.select({ id: storePaymentAccount.id }).from(storePaymentAccount).where(eq(storePaymentAccount.storeId, s.storeId));
@@ -89,8 +96,10 @@ async function switchProductionOn(op: OperatorScope) {
 }
 
 async function place(s: S, over: Record<string, unknown> = {}) {
+  // The fee list the buyer was shown (a store on its own Mengantar account requires it at submit, T-105).
+  const shippingQuote = formatShippingQuote((await shippingOptions(s.sf, DESTINATION.destinationAreaId, { lines: [{ quantity: 1, weightGrams: 1000 }], subtotal: 100_000 })).options);
   const cartId = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 1 }, "add");
-  return { ...(await placeOrder(db, cartId, buyer({ paymentMethod: "manual_transfer", paymentChannel: "VABCA", ...over }), providers())), cartId };
+  return { ...(await placeOrder(db, cartId, buyer({ paymentMethod: "manual_transfer", paymentChannel: "VABCA", shippingQuote, ...over }), providers())), cartId };
 }
 async function drain() {
   for (let i = 0; i < 6; i++) if ((await runOnce(platform, { workerId: "t106", providers: providers() })).length === 0) break;

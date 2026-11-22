@@ -22,7 +22,7 @@ export function CollectedByMethod({ c, title, testId }: { c: Collected; title: s
               <dd className="text-right">{rupiah(m.amountIdr)}</dd>
             </div>
           ))}
-          <dt className="font-semibold">Total diterima di akun Anda</dt>
+          <dt className="font-semibold">Total dibayar pembeli</dt>
           <dd className="text-right font-semibold" data-testid={`${testId}-total`}>{rupiah(c.totalIdr)}</dd>
           {c.refunds > 0 && (
             <>

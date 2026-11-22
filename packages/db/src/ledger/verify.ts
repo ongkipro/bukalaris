@@ -14,7 +14,7 @@ import type { Db, Executor } from "../client.ts";
 //   7. entries whose order_id references no order; entries without order_id outside payout, payout_reversal and adjustment
 //   8. the allocation identity of every order_financials row and its lines; shipment_cost against its debit entry; refund composition; applied batches
 //   9. T-107 money boundary: no ledger entry, refund, reconciliation item, shipment cost or late-payment obligation for an order paid to the seller's own
-//      accounts (`money_mode = 'seller_owned'`), no payout, destination or order-less entry for a store on its own accounts, no platform figure in a
+//      accounts (`money_mode = 'seller_owned'`), no payout, destination or order-less entry of a store created after it moved to its own accounts, no platform figure in a
 //      seller-owned snapshot, and a seller's recorded refunds never above the buyer's bill. Rule 1 applies to platform-held orders only.
 // The balance SQL is exported so a test can prove it contains no join.
 
@@ -127,7 +127,9 @@ export async function verifyLedger(db: Db): Promise<LedgerVerification> {
     for (const r of await rows(tx, sql`select b.id from reconciliation_batch b where b.status = 'applied' and exists (select 1 from reconciliation_batch_item i where i.batch_id = b.id and i.voided_at is null and (i.reconciled_at is null or i.evidence_amount_idr <> i.cod_amount_idr))`)) add("applied_batch_unreconciled_item", null, `batch ${r.id}`);
 
     // ── T-107 money boundary: seller-owned money never enters the platform's books ──
-    const SELLER_STORE = sql`(exists (select 1 from store_shipping_account a where a.store_id = x.store_id and a.kind = 'seller_owned') or exists (select 1 from store_payment_account p where p.store_id = x.store_id))`;
+    // Store-level rows count only from the store's conversion on (its first own account row): the cut-over guard admits a conversion only with no
+    // platform money in flight, so earlier payouts, destinations and adjustments of a converted store are legitimate history (review M2).
+    const SELLER_STORE = sql`x.created_at >= (select least((select min(a.created_at) from store_shipping_account a where a.store_id = x.store_id and a.kind = 'seller_owned'), (select p.created_at from store_payment_account p where p.store_id = x.store_id)))`;
     for (const t of ["ledger_entry", "refund", "reconciliation_batch_item", "shipment_cost", "late_payment_obligation"] as const)
       for (const r of await rows(tx, sql`select x.order_id, x.store_id from ${sql.identifier(t)} x join order_financials f on f.store_id = x.store_id and f.order_id = x.order_id where f.money_mode = 'seller_owned'`))
         add("seller_owned_in_platform_books", r.store_id, `${t} row for order ${r.order_id}, which is paid to the seller's own accounts`);

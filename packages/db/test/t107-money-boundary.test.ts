@@ -18,7 +18,7 @@ import { paymentAttempt } from "../src/payments/schema-payments.ts";
 import { confirmPaymentByHand, FakeAutoLarisAccounts, setPaymentPreferences, setSellerPaymentTransport } from "../src/payments/seller.ts";
 import { bindSession, type SellerScope } from "../src/platform/scoped.ts";
 import { withStore } from "../src/platform/tenant.ts";
-import { ledgerEntry, membership, order, orderFinancials, orderSellerRefund, payout, payoutDestination, refund, shipment } from "../src/schema.ts";
+import { ledgerEntry, membership, order, orderFinancials, orderSellerRefund, payout, payoutDestination, reconciliationBatch, refund, shipment } from "../src/schema.ts";
 import { checkoutPaymentChannels, placeOrder, searchDestinationAreas } from "../src/seller/commerce/checkout.ts";
 import { sellerCollected, sellerDashboard } from "../src/seller/commerce/dashboard.ts";
 import { buyerOrderMoneyForLink, claimDelivery, getOrder, recordSellerRefund, transitionOrder } from "../src/seller/commerce/orders.ts";
@@ -28,7 +28,7 @@ import { setPickupAddress, shippingOptions } from "../src/shipping/shipping.ts";
 import { setCartLine } from "../src/storefront/storefront.ts";
 import { deliver } from "./deliver.ts";
 import { admin, buyer, db, DESTINATION, makeOperator, makeStore, makeUser, platform, seller } from "./helpers.ts";
-import { fund, sessionOf, withoutGuard } from "./t37-fixtures.ts";
+import { activateDestination, fund, sessionOf, withoutGuard } from "./t37-fixtures.ts";
 
 // T-107 (ADR-0013 sections 5 and 8, BILL-4, BILL-5, D-27, D-31, C-P1, C-P7, C-P9): the money boundary for stores on seller-owned accounts. Every
 // provider runs on fakes (one fake AutoLaris account per key, the deterministic seller Mengantar fake); the keys are canaries. Each invariant has a
@@ -39,8 +39,8 @@ const MENTENG = DESTINATION.destinationAreaId;
 const RULES = [{ courierCode: "JNE", enabled: true, codEnabled: true }];
 const code = (p: Promise<unknown>) => p.then(() => "ok", (e: { code?: string; cause?: { code?: string } }) => e.code ?? e.cause?.code ?? String(e));
 const pgCode = (p: Promise<unknown>) => p.then(() => "allowed", (e: { cause?: { code?: string }; code?: string }) => e.cause?.code ?? e.code);
-/** The money-boundary guard's own refusal (its message), told apart from any other check that could refuse the same row. */
-const boundary = (p: Promise<unknown>) => p.then(() => "allowed", (e: { cause?: { code?: string; message?: string }; message?: string }) => (/money_boundary:/.test(e.cause?.message ?? e.message ?? "") ? "money_boundary" : (e.cause?.code ?? "error")));
+/** The money-boundary guard's own refusal (its dedicated SQLSTATE `BKMB1`), told apart from any other check that could refuse the same row. */
+const boundary = (p: Promise<unknown>) => p.then(() => "allowed", (e: { cause?: { code?: string }; code?: string }) => ((e.cause?.code ?? e.code) === "BKMB1" ? "money_boundary" : (e.cause?.code ?? e.code ?? "error")));
 
 let accounts: FakeAutoLarisAccounts;
 let platformFake: FakeAutoLaris;
@@ -157,6 +157,39 @@ describe("T-107 order_financials of a seller_owned order", () => {
       expect(await pgCode(admin.execute(sql`update order_financials set money_mode = 'platform_held' where order_id = ${orderId}`))).toBe("23514");
     });
   });
+
+  it("the database writes the snapshot only with the store's mode and bearers at submit: a different mode or bearer is refused on INSERT", async () => {
+    const s = await ownStore("insertguard", { payBearer: "seller", codBearer: "buyer" });
+    const orderId = await submit(s, { paymentMethod: "cod" });
+    const original = await finOf(orderId);
+    // Re-write the snapshot inside a rolled-back transaction (the local reset switch lifts the delete guard for this statement only).
+    const rewrite = (values: typeof original) => admin.transaction(async (tx) => {
+      await tx.execute(sql`select set_config('bukalaris.ledger_reset', 'demo', true)`);
+      await tx.execute(sql`delete from order_line_financials where order_id = ${orderId}`);
+      await tx.execute(sql`delete from order_financials where order_id = ${orderId}`);
+      await tx.execute(sql`select set_config('bukalaris.ledger_reset', '', true)`);
+      await tx.insert(orderFinancials).values(values);
+      throw new Error("rollback");
+    });
+    expect(await boundary(rewrite({ ...original, moneyMode: "platform_held", paymentFeeBearer: null, codFeeBearer: null, feeRateVersion: null, expectedCodFeeIdr: 0, buyerFeeIdr: 0 }))).toBe("money_boundary");
+    expect(await boundary(rewrite({ ...original, codFeeBearer: "seller", buyerFeeIdr: 0 }))).toBe("money_boundary");
+    expect(await boundary(rewrite({ ...original, paymentFeeBearer: "buyer" }))).toBe("money_boundary");
+    expect(await code(rewrite(original))).toBe("Error: rollback"); // the true values pass the guard (control)
+  });
+
+  it("a store on its own AutoLaris account without its own Mengantar account offers no shipping and refuses a submit: never a method that cannot complete", async () => {
+    const s = await ownStore("nomengantar", { mengantar: false, payBearer: "buyer" });
+    expect(await storeMoneyMode(admin, s.storeId)).toBe("seller_owned");
+    expect(await code(shippingOptions(s.sf, MENTENG, { lines: [{ quantity: 1, weightGrams: 1000 }], subtotal: 100_000 }))).toBe("shipping_not_ready");
+    for (const over of [{ paymentMethod: "cod" }, { paymentMethod: "manual_transfer", paymentChannel: "QRIS" }]) {
+      const cartId = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 1 }, "add");
+      expect(await code(placeOrder(db, cartId, buyer(over), providers())), over.paymentMethod).toBe("shipping_not_ready");
+    }
+    expect(await admin.select().from(order).where(eq(order.storeId, s.storeId))).toEqual([]);
+    // A platform-held store keeps quoting on the platform account (T-34).
+    const legacy = await makeStore("nomengantar-legacy");
+    expect((await shippingOptions(legacy.sf, MENTENG, { lines: [{ quantity: 1, weightGrams: 1000 }], subtotal: 100_000 })).options.length).toBeGreaterThan(0);
+  });
 });
 
 describe("T-107 no ledger for a seller_owned store", () => {
@@ -176,8 +209,12 @@ describe("T-107 no ledger for a seller_owned store", () => {
     const cod = await deliveredCod(s);
     const prepaid = await paidPrepaid(s);
     const a = await attemptOf(prepaid);
+    const [batch] = await admin.insert(reconciliationBatch).values({ shippingAccountId: 1, source: "owner_batch", evidenceRef: "INV-T107-DB", preparedByUserId: s.ownerId }).returning({ id: reconciliationBatch.id });
     const rows = {
       sale: sql`insert into ledger_entry (store_id, order_id, kind, status, amount_idr) values (${s.storeId}, ${cod}, 'sale', 'pending', 1000)`,
+      payout: sql`insert into payout (store_id, requested_by_user_id, request_key, step_up_ref, amount_idr, destination_id, bank_code, bank_account_number, bank_account_holder, holder_name_check) values (${s.storeId}, ${s.ownerId}, 'T107-PAYOUT', ${randomUUID()}, 100000, 1, 'BCA', '1234567890', 'x', 'match')`,
+      reconciliation: sql`insert into reconciliation_batch_item (batch_id, order_id, store_id, cod_amount_idr, evidence_line_ref, evidence_amount_idr, evidence_date) values (${batch!.id}, ${cod}, ${s.storeId}, 1000, 'L1', 1000, '2026-11-16')`,
+      shipmentCost: sql`insert into shipment_cost (order_id, store_id, booked_shipping_idr, shipping_charged_idr, seller_shipping_debit_idr, platform_shipping_margin_idr) values (${cod}, ${s.storeId}, 1000, 1000, 0, 0)`,
       adjustment: sql`insert into ledger_entry (store_id, kind, status, amount_idr, business_ref, approval_request_id, released_at, release_basis) values (${s.storeId}, 'adjustment', 'available', 1000, 'T107-ADJ', 1, now(), 'direct')`,
       destination: sql`insert into payout_destination (store_id, bank_code, account_number, account_holder_name, holder_name_check, status, hold_until, created_by_user_id, step_up_ref) values (${s.storeId}, 'BCA', '1234567890', 'x', 'match', 'held', now(), ${s.ownerId}, ${randomUUID()})`,
       refund: sql`insert into refund (store_id, order_id, payment_attempt_id, goods_refund_idr, shipping_refund_idr, fee_refund_idr, amount_idr, reason) values (${s.storeId}, ${prepaid}, ${a.id}, ${a.totalIdr}, 0, 0, ${a.totalIdr}, 'order_cancelled')`,
@@ -185,10 +222,16 @@ describe("T-107 no ledger for a seller_owned store", () => {
       obligation: sql`insert into late_payment_obligation (attempt_id, store_id, order_id, amount_idr) values (${a.id}, ${s.storeId}, ${prepaid}, ${a.totalIdr})`,
     };
     for (const [name, q] of Object.entries(rows)) expect(await boundary(admin.execute(q)), name).toBe("money_boundary");
-    // The same sale on a platform-held store's delivered order is accepted by this guard (the ADR-0006 rules still apply to it).
+    expect(await storeMoneyMode(admin, s.storeId)).toBe("seller_owned");
+    // A platform-held store: the same rows pass this guard, and its real money paths insert (ADR-0006 unchanged): a released sale through the
+    // payment and release services, a payout destination through the step-up service, then a raw sale of the same shape is not refused by rule.
     const legacy = await makeStore("dbrule-legacy");
     expect(await storeMoneyMode(admin, legacy.storeId)).toBe("platform_held");
-    expect(await storeMoneyMode(admin, s.storeId)).toBe("seller_owned");
+    const funded = await fund(legacy);
+    await activateDestination(legacy);
+    expect((await admin.select().from(ledgerEntry).where(eq(ledgerEntry.storeId, legacy.storeId))).length).toBeGreaterThan(0);
+    expect(await admin.select().from(payoutDestination).where(eq(payoutDestination.storeId, legacy.storeId))).toHaveLength(1);
+    expect(await boundary(admin.execute(sql`insert into ledger_entry (store_id, order_id, kind, status, amount_idr) values (${legacy.storeId}, ${funded.orderId}, 'sale', 'pending', 1000)`))).not.toBe("money_boundary");
   });
 
   it("payout request refused: payout, payout destination, release, reconciliation, manual completion and ledger adjustment refuse a seller-owned store by rule, not by missing data", async () => {
@@ -216,12 +259,48 @@ describe("T-107 no ledger for a seller_owned store", () => {
     const s = await ownStore("noplatform", { autolaris: false, codBearer: "buyer" });
     const methods = await checkoutPaymentChannels(db, s.storeId, platformFake);
     expect(methods.channels).toEqual([]);
-    expect(methods.codFee).toEqual({ bearer: "buyer", rateBps: 300, fixedIdr: 0 });
+    expect(methods.codFee).toEqual({ bearer: "buyer", base: "payable", rateBps: 300, fixedIdr: 0 });
     expect(await code(submit(s, { paymentMethod: "manual_transfer", paymentChannel: "VABCA" }))).toBe("payment_channel");
     expect(platformFake.createCalls).toHaveLength(0);
     // A platform-held store keeps the T-49 platform account and no COD fee terms.
     const legacy = await makeStore("noplatform-legacy");
     expect((await checkoutPaymentChannels(db, legacy.storeId, platformFake)).codFee).toBeNull();
+  });
+});
+
+describe("T-107 clean cut-over to the store's own accounts (review M2)", () => {
+  it("a store with platform money in flight cannot connect its own account (service and database), the seller sees why; with none left it can", async () => {
+    const legacy = await makeStore("cutover");
+    const me = bindSession(legacy.owner, await sessionOf(legacy.ownerId));
+    const connect = async () => saveProviderKey(me, { provider: "autolaris", environment: "sandbox", apiKey: KEY.autolaris, proofId: await issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "autolaris" }) });
+    // An order that is not completed, cancelled or returned.
+    const cartId = await setCartLine(legacy.sf, undefined, { variantId: legacy.variantId, quantity: 1 }, "add");
+    const { orderId } = await placeOrder(db, cartId, buyer({ paymentMethod: "cod" }), providers());
+    const refused = await connect().then(() => null, (e: { code?: string; message?: string }) => e);
+    expect(refused?.code).toBe("platform_money_open");
+    expect(refused?.message).toContain("pesanan yang belum selesai");
+    expect(await pgCode(admin.execute(sql`insert into store_payment_account (store_id, environment, status) values (${legacy.storeId}, 'sandbox', 'needs_key')`))).toBe("BKMB2");
+    expect(await pgCode(admin.execute(sql`insert into store_shipping_account (store_id, kind, status, external_user_id, environment) values (${legacy.storeId}, 'seller_owned', 'needs_key', 'x', 'sandbox')`))).toBe("BKMB2");
+    expect(await storeMoneyMode(admin, legacy.storeId)).toBe("platform_held");
+    // A ledger balance is money in flight too.
+    const funded = await makeStore("cutover-funded");
+    await fund(funded);
+    expect(await pgCode(admin.execute(sql`insert into store_payment_account (store_id, environment, status) values (${funded.storeId}, 'sandbox', 'needs_key')`))).toBe("BKMB2");
+    // Once the order is closed (rejected: restocked, nothing collected) the store moves to its own accounts.
+    await transitionOrder(legacy.owner, orderId, "reject", { reason: "pembeli membatalkan" });
+    await connect();
+    expect(await storeMoneyMode(admin, legacy.storeId)).toBe("seller_owned");
+  });
+
+  it("verify:ledger keeps a converted store's earlier platform history clean and flags only rows created after the conversion", async () => {
+    const legacy = await makeStore("history");
+    await activateDestination(legacy); // platform history: a payout destination before the conversion
+    const me = bindSession(legacy.owner, await sessionOf(legacy.ownerId));
+    await saveProviderKey(me, { provider: "autolaris", environment: "sandbox", apiKey: KEY.autolaris, proofId: await issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "autolaris" }) });
+    expect((await verifyLedger(platform)).violations).toEqual([]);
+    // A destination forced past the guard after the conversion is flagged.
+    await withoutGuard("payout_destination", "a_money_boundary_guard", () => admin.execute(sql`insert into payout_destination (store_id, bank_code, account_number, account_holder_name, holder_name_check, status, hold_until, created_by_user_id, step_up_ref) values (${legacy.storeId}, 'BCA', '9876543210', 'x', 'match', 'superseded', now(), ${legacy.ownerId}, ${randomUUID()})`));
+    expect((await verifyLedger(platform)).violations.map((v) => v.code)).toContain("seller_owned_in_platform_books");
   });
 });
 
@@ -272,7 +351,7 @@ describe("T-107 Seller Admin: collected amounts, refunds recorded by the seller"
     expect(raced.sort()).toEqual(["ok", "refused"]);
     const money = (await getOrder(s.me, orderId))!.money!;
     expect(money.refundedIdr).toBe(billIdr - 1_000);
-    expect(await pgCode(withStore(db, s.storeId, (tx) => tx.insert(orderSellerRefund).values({ storeId: s.storeId, orderId, amountIdr: 1_001, refundedOn: today, method: "cash", reason: "lewat batas tagihan", recordedByUserId: s.ownerId })))).toBe("23514");
+    expect(await boundary(withStore(db, s.storeId, (tx) => tx.insert(orderSellerRefund).values({ storeId: s.storeId, orderId, amountIdr: 1_001, refundedOn: today, method: "cash", reason: "lewat batas tagihan", recordedByUserId: s.ownerId })))).toBe("money_boundary");
     expect(await pgCode(admin.execute(sql`update order_seller_refund set amount_idr = 1 where order_id = ${orderId}`))).toBe("42501");
     expect(await pgCode(admin.execute(sql`delete from order_seller_refund where order_id = ${orderId}`))).toBe("42501");
     // Store B cannot read or write store A's records (FORCE RLS).

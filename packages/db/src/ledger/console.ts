@@ -9,7 +9,7 @@ import { CONSOLE_QUEUE_LIMIT, STATEMENT_PAGE } from "./settings.ts";
 import { ledgerBalance, lockStore, type LedgerRow } from "./ledger.ts";
 import { CLAIM_NOTE } from "../seller/commerce/orders.ts";
 import { staleBatchReason } from "./reconciliation.ts";
-import { assertPlatformHeldStore } from "./boundary.ts";
+import { assertPlatformHeldStore, isBoundaryRefusal, SELLER_OWNED_MESSAGE } from "./boundary.ts";
 
 // Owner console services of the money screens (SA-08 payouts and refunds, SA-26 money position, SA-53 COD reconciliation). Every function takes the OperatorScope and
 // checks its capability first; personal data (bank values) is never selected here except as the last four digits (see `payouts.ts`).
@@ -109,6 +109,7 @@ export async function applyLedgerAdjustment(op: OperatorScope, raw: unknown): Pr
     });
   } catch (err) {
     if (pgCode(err) === "23505") throw new DomainError("duplicate_business_ref", "Referensi bisnis ini sudah dipakai untuk penyesuaian lain.");
+    if (isBoundaryRefusal(err)) throw new DomainError("seller_owned_store", SELLER_OWNED_MESSAGE); // T-107 review minor 4: never read as a negative balance
     if (pgCode(err) === "23514") throw new DomainError("would_go_negative", "Penyesuaian ini akan membuat Saldo Tersedia negatif.");
     throw err;
   }

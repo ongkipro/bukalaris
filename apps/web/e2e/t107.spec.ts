@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { createHmac, randomBytes } from "node:crypto";
 import { resolve } from "node:path";
-import { evidence, login, seedFixtureStore } from "./helpers";
+import { chooseDestination, evidence, login, seedFixtureStore, testPhone } from "./helpers";
 
 // T-107 (ADR-0013 section 8, C-P9): the money boundary on the seller's screens. A disposable store per project on its OWN (sandbox, fake) AutoLaris
 // account with two paid QRIS orders made through the real services: the order page shows the money record and records a refund made by the seller,
@@ -30,7 +30,7 @@ function node<T>(body: string): T {
  * statement) so the collected figures count them.
  */
 function sellerOwnedStoreWithPaidOrders(slug: string, email: string, apiKey: string) {
-  return node<{ storeId: number; orderIds: number[]; bills: number[] }>(`
+  return node<{ storeId: number; orderIds: number[]; bills: number[]; productSlug: string }>(`
     const { randomUUID } = await import("node:crypto");
     const { sellerContext } = await import("./src/platform/scoped.ts");
     const { storefrontScope } = await import("./src/platform/scoped.ts");
@@ -41,6 +41,8 @@ function sellerOwnedStoreWithPaidOrders(slug: string, email: string, apiKey: str
     const { confirmPaymentByHand } = await import("./src/payments/seller.ts");
     const { fakeProviders } = await import("./src/payments/providers.ts");
     const { sealCredential, keyFingerprint, keyHint } = await import("./src/shipping/credentials.ts");
+    const { setPickupAddress, shippingOptions } = await import("./src/shipping/shipping.ts");
+    const { saveCourierRules, formatShippingQuote } = await import("./src/shipping/rules.ts");
     const [u] = await admin.$client.unsafe("select id from \\"user\\" where email = '${email}'");
     const [s] = await admin.$client.unsafe("select id from store where slug = '${slug}'");
     const ctx = await sellerContext(app, u.id, Number(s.id));
@@ -50,12 +52,21 @@ function sellerOwnedStoreWithPaidOrders(slug: string, email: string, apiKey: str
     const sealed = sealCredential("payment_credentials", ${JSON.stringify(apiKey)}, Number(s.id), Number(acc.id), "autolaris");
     await admin.$client.unsafe("update store_payment_account set sealed_key = $1, key_id = $2, sealed_at = now(), key_fingerprint = $3, key_hint = $4, status = 'active', last_result = 'ready', last_checked_at = now(), origin_area_id = '3517100', destination_area_id = '3518010', shipper_email = 'toko@example.invalid', sender_address = 'Jl. Braga No. 1, Bandung 40111', payment_only_confirmed_at = now(), payment_only_confirmed_by = $5 where id = $6",
       [sealed.sealedKey, sealed.keyId, keyFingerprint("payment_credentials", ${JSON.stringify(apiKey)}), keyHint(${JSON.stringify(apiKey)}), u.id, acc.id]);
+    // T-107 (review M1; ADR-0013 decision 40): a store on its own accounts ships only on its OWN Mengantar account (fake, sandbox, JNE with COD).
+    const mkey = "E2E-OWN-MENGANTAR-" + Date.now() + "-0123456789abcdef"; // unrelated to the AutoLaris canary
+    const [sacc] = await admin.$client.unsafe("insert into store_shipping_account (store_id, kind, status, external_user_id, environment) values ($1, 'seller_owned', 'needs_key', $2, 'sandbox') returning id", [s.id, "store:" + s.id]);
+    const ssealed = sealCredential("shipping_credentials", mkey, Number(s.id), Number(sacc.id), "seller_owned");
+    await admin.$client.unsafe("update store_shipping_account set sealed_key = $1, key_id = $2, sealed_at = now(), key_fingerprint = $3, key_hint = $4, status = 'active', last_result = 'ready', last_checked_at = now() where id = $5",
+      [ssealed.sealedKey, ssealed.keyId, keyFingerprint("shipping_credentials", mkey), keyHint(mkey), sacc.id]);
+    await setPickupAddress(ctx.scope, { addressText: "Jl. Braga No. 10, Bandung", contactName: "Budi Pemilik", contactPhone: "081234567890" });
+    await saveCourierRules(ctx.scope, { couriers: [{ courierCode: "JNE", enabled: true, codEnabled: true }] });
     const [v] = await admin.$client.unsafe("select id from variant where product_id = $1", [productId]);
     const sf = await storefrontScope(app, '${slug}');
     const orderIds = [];
     for (const n of [1, 2]) {
       const cartId = await setCartLine(sf, undefined, { variantId: Number(v.id), quantity: n }, "add");
-      const { orderId } = await placeOrder(app, cartId, { idempotencyKey: randomUUID(), buyerName: "Budi Santoso", buyerPhone: "08129" + String(Date.now() % 1000000).padStart(6, "0") + n, shippingAddress: "Jl. Merdeka No. 1, Bandung 40111",
+      const quote = await shippingOptions(sf, "b1b1b1b1b1b1b1b1b1b1b1b1", { lines: [{ quantity: n, weightGrams: 1000 }], subtotal: 100000 * n });
+      const { orderId } = await placeOrder(app, cartId, { shippingQuote: formatShippingQuote(quote.options), idempotencyKey: randomUUID(), buyerName: "Budi Santoso", buyerPhone: "08129" + String(Date.now() % 1000000).padStart(6, "0") + n, shippingAddress: "Jl. Merdeka No. 1, Bandung 40111",
         destinationAreaId: "b1b1b1b1b1b1b1b1b1b1b1b1", destinationAreaLabel: "Menteng, Menteng, Jakarta Pusat, DKI Jakarta 10310", courier: "JNE", paymentMethod: "manual_transfer", paymentChannel: "QRIS" }, fakeProviders);
       const [a] = await admin.$client.unsafe("select id from payment_attempt where order_id = $1", [orderId]);
       await confirmPaymentByHand(ctx.scope, { attemptId: a.id, reason: "uang masuk di mutasi AutoLaris", evidence: "MUT-" + orderId });
@@ -66,7 +77,8 @@ function sellerOwnedStoreWithPaidOrders(slug: string, email: string, apiKey: str
     await admin.$client.unsafe("alter table \\"order\\" enable trigger order_test_marker_guard");
     const bills = [];
     for (const id of orderIds) bills.push(Number((await admin.$client.unsafe("select payable_idr + buyer_fee_idr as b from order_financials where order_id = $1", [id]))[0].b));
-    return { storeId: Number(s.id), orderIds, bills };
+    const [prod] = await admin.$client.unsafe("select coalesce(slug, catalog_id::text) as slug from product where id = $1", [productId]);
+    return { storeId: Number(s.id), orderIds, bills, productSlug: prod.slug };
   `);
 }
 const orderLink = (orderId: number) => {
@@ -81,7 +93,7 @@ test("seller-owned store: the order records the money and a refund made by the s
   test.setTimeout(180_000);
   const tag = `${info.project.name === "mobile-320" ? "m" : "d"}${randomBytes(3).toString("hex")}`;
   const store = seedFixtureStore("t107");
-  const { orderIds, bills } = sellerOwnedStoreWithPaidOrders(store.slug, store.email, `CANARY-T107-${tag}-e2e-autolaris-key-0123456789`);
+  const { orderIds, bills, productSlug } = sellerOwnedStoreWithPaidOrders(store.slug, store.email, `CANARY-T107-${tag}-e2e-autolaris-key-0123456789`);
   const [testOrder, realOrder] = orderIds as [number, number];
   const realBill = bills[1]!;
 
@@ -97,7 +109,8 @@ test("seller-owned store: the order records the money and a refund made by the s
   await page.goto(`/seller/orders/${realOrder}`);
   await expect(page.getByTestId("test-order")).toHaveCount(0);
   // No platform booking for an order paid to the store's own accounts (no own Mengantar account here): the seller ships with an own waybill.
-  await expect(page.getByTestId("platform-booking-closed")).toBeVisible();
+  // The store ships on its own Mengantar account only (review M1): the booking runs there, never on a platform account.
+  await expect(page.getByRole("button", { name: "Booking sekarang" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Kirim dengan Bukalaris Kirim" })).toHaveCount(0);
   const form = page.getByRole("form", { name: "Catat refund" });
   await form.getByLabel("Jumlah refund (Rp)").fill("25000");
@@ -132,9 +145,32 @@ test("seller-owned store: the order records the money and a refund made by the s
   await expect(page.getByTestId("collected-period-total")).toHaveText(rp(realBill));
   await evidence(page, info, "t107-dashboard");
 
-  // Buyer: the signed order-status link shows the refund the seller recorded, without the seller's note or reference.
+  // Buyer: a COD order with the fee the buyer bears (default bearer): the exact fee and the total are shown before ordering, and the same total on
+  // the confirmation and the signed order-status page (review minor 1).
   const buyerCtx = await browser.newContext({ baseURL: info.project.use.baseURL!, viewport: page.viewportSize()! });
   const bp = await buyerCtx.newPage();
+  await bp.goto(`/s/${store.slug}/products/${productSlug}`);
+  await bp.getByLabel("Jumlah").fill("1");
+  await bp.getByRole("button", { name: "Tambah ke keranjang" }).click();
+  await bp.getByRole("link", { name: "Checkout" }).click();
+  await chooseDestination(bp);
+  const codLine = bp.getByTestId("cod-fee-JNE");
+  await expect(codLine).toContainText("biaya COD");
+  const shownTotal = Number((/total COD Rp\s?([\d.]+)/.exec((await codLine.textContent()) ?? "")?.[1] ?? "0").replace(/\./g, ""));
+  expect(shownTotal).toBeGreaterThan(0);
+  await evidence(bp, info, "t107-checkout-cod-fee");
+  await bp.getByLabel("Nama").fill("Budi Santoso");
+  await bp.getByLabel("Nomor HP").fill(testPhone());
+  await bp.getByLabel("Alamat lengkap").fill("Jl. Merdeka No. 1, Bandung 40111");
+  await bp.locator('input[name="paymentMethod"][value="cod"]').check();
+  await bp.getByRole("button", { name: "Buat pesanan" }).click();
+  await expect(bp.getByRole("heading", { name: "Pesanan diterima" })).toBeVisible();
+  await expect(bp.getByTestId("cod-bill")).toHaveText(rp(shownTotal));
+  const codOrder = Number((await bp.getByTestId("order-id").textContent())!.replace("#", ""));
+  await bp.goto(orderLink(codOrder));
+  await expect(bp.getByTestId("cod-bill")).toHaveText(rp(shownTotal));
+
+  // Buyer: the signed order-status link shows the refund the seller recorded, without the seller's note or reference.
   await bp.goto(orderLink(realOrder));
   await expect(bp.getByTestId("seller-refunds")).toContainText("Transfer bank");
   await expect(bp.getByTestId("seller-refunds")).toContainText(/Rp\s?25\.000/);

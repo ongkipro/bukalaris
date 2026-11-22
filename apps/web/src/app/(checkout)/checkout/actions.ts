@@ -12,7 +12,7 @@ import { redirect } from "next/navigation";
 
 const FIELDS = ["idempotencyKey", "buyerName", "buyerPhone", "buyerEmail", "shippingAddress", "destinationAreaId", "destinationAreaLabel", "courier", "paymentMethod", "paymentChannel", "voucherCode", "affiliateCode", "shippingQuote"] as const;
 
-export type VoucherPreview = { error: string } | { goodsDiscount: number; shippingDiscount: number; shipping: number; total: number; subtotal: number };
+export type VoucherPreview = { error: string } | { goodsDiscount: number; shippingDiscount: number; shipping: number; codFee: number; total: number; subtotal: number };
 /** Read-only: same rules and quote as submit, no stock or quota reservation, and the cart is never changed. */
 export async function previewVoucher(f: FormData): Promise<VoucherPreview> {
   const ctx = await checkoutCart(f.get("store"));
@@ -20,7 +20,8 @@ export async function previewVoucher(f: FormData): Promise<VoucherPreview> {
   const { cartId } = ctx;
   try {
     const r = await checkoutPromotionPreview(db(), cartId, Object.fromEntries(["buyerPhone", "voucherCode", "destinationAreaId", "courier", "paymentMethod"].map((k) => [k, String(f.get(k) ?? "")])), { clientIp: await clientIp() });
-    return { goodsDiscount: r.goodsDiscount, shippingDiscount: r.shippingDiscount, shipping: r.shippingCharged, total: r.payable, subtotal: r.subtotal };
+    // T-107 review minor 1: a COD fee the buyer bears is in the total shown, as on the confirmation and the order-status page.
+    return { goodsDiscount: r.goodsDiscount, shippingDiscount: r.shippingDiscount, shipping: r.shippingCharged, codFee: r.codFeeIdr, total: r.payable + r.codFeeIdr, subtotal: r.subtotal };
   } catch (err) {
     return { error: userError(err) };
   }

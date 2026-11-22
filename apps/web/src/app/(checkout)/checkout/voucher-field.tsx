@@ -34,6 +34,7 @@ export function VoucherField() {
             <div className="flex justify-between gap-4"><dt>Diskon barang</dt><dd data-testid="goods-discount" className="tabular-nums">−{rupiah(result.goodsDiscount)}</dd></div>
             <div className="flex justify-between gap-4"><dt>Diskon ongkir</dt><dd data-testid="shipping-discount" className="tabular-nums">−{rupiah(result.shippingDiscount)}</dd></div>
             <div className="flex justify-between gap-4"><dt>Ongkir dibayar</dt><dd className="tabular-nums">{rupiah(result.shipping)}</dd></div>
+            {result.codFee > 0 && <div className="flex justify-between gap-4"><dt>Biaya COD</dt><dd data-testid="promo-cod-fee" className="tabular-nums">{rupiah(result.codFee)}</dd></div>}
             <div className="flex justify-between gap-4 border-t pt-1 font-medium"><dt>Total</dt><dd data-testid="promo-total" className="tabular-nums">{rupiah(result.total)}</dd></div>
           </dl>
         ))}

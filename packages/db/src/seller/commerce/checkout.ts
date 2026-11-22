@@ -11,7 +11,7 @@ import { assertChannelStillOffered, currentFeeSchedule, paymentPlan, pickStorePa
 import { COD_FEE_CODE, paymentFee, type FeeSchedule } from "../../payments/contract.ts";
 import { storePaymentAccount } from "../../payments/schema-payments.ts";
 import { storeShippingSetting } from "../../shipping/schema-shipping.ts";
-import { storeMoneyMode, type MoneyMode } from "../../ledger/boundary.ts";
+import { isBoundaryRefusal, storeMoneyMode, type MoneyMode } from "../../ledger/boundary.ts";
 import type { SellerOwnedMoney } from "../../ledger/ledger.ts";
 import { orderPaymentView } from "../../payments/view.ts";
 import { buyerFingerprint } from "../../buyer/fingerprint.ts";
@@ -28,7 +28,7 @@ import { cart, cartLine, checkoutSession, order, orderLine, product, rateLimit, 
 import { resolveCartStore } from "../../platform/resolvers.ts";
 import { hit, type LimitRule } from "../../platform/rate-limit.ts";
 import { DomainError, storefrontScope, type StorefrontScope } from "../../platform/scoped.ts";
-import { defaultProviders, defaultShippingAdapter, shippingOptions, type CartForShipping } from "../../shipping/shipping.ts";
+import { defaultProviders, defaultShippingAdapter, SHIPPING_NOT_READY_MESSAGE, shippingOptions, type CartForShipping } from "../../shipping/shipping.ts";
 import { chosenShippingFee, searchSellerAreas, sellerAccount, SHIPPING_QUOTE_RE } from "../../shipping/rules.ts";
 import { withStore } from "../../platform/tenant.ts";
 
@@ -170,16 +170,26 @@ export async function checkoutPaymentChannels(exec: Executor, storeId: number, a
 }
 
 /** T-107: the COD fee as the buyer sees it before ordering: who bears it and the rate (the amount follows from the order total). */
-export type CodFeeTerms = { bearer: "buyer" | "seller"; rateBps: number; fixedIdr: number };
+export type CodFeeTerms = { bearer: "buyer" | "seller"; base: "goods_omset" | "payable" | "flat"; rateBps: number; fixedIdr: number };
 const codFeeTerms = (schedule: FeeSchedule, bearer: "buyer" | "seller"): CodFeeTerms | null => {
   const r = Object.hasOwn(schedule.rates, COD_FEE_CODE) ? schedule.rates[COD_FEE_CODE]! : null;
-  return r ? { bearer, rateBps: r.rateBps, fixedIdr: r.fixedIdr } : null;
+  return r ? { bearer, base: r.base, rateBps: r.rateBps, fixedIdr: r.fixedIdr } : null;
 };
+/**
+ * The exact COD fee the buyer pays on a COD order (goods after discount `goodsOmset`, order total `payable`); 0 when the seller bears it. The same
+ * schedule row and formula `sellerOwnedMoney` freezes at submit.
+ */
+export function buyerCodFee(t: CodFeeTerms | null, goodsOmset: number, payable: number): number {
+  if (!t || t.bearer !== "buyer") return 0;
+  return paymentFee({ version: 0, rates: { [COD_FEE_CODE]: { base: t.base, rateBps: t.rateBps, fixedIdr: t.fixedIdr } } }, COD_FEE_CODE, goodsOmset, payable);
+}
 /** One line for the checkout and the confirmation: "Biaya COD 3% dari total belanja dan ongkir" or "Tanpa biaya COD tambahan". */
 export function codFeeLabel(t: CodFeeTerms): string {
   if (t.bearer === "seller") return "Tanpa biaya COD tambahan";
   const pct = (t.rateBps / 100).toLocaleString("id-ID", { maximumFractionDigits: 2 });
-  return `Biaya COD ${pct}% dari total belanja dan ongkir${t.fixedIdr > 0 ? ` + Rp${t.fixedIdr.toLocaleString("id-ID")}` : ""}, dibayar ke kurir`;
+  const fixed = t.fixedIdr > 0 ? `Rp${t.fixedIdr.toLocaleString("id-ID")}` : "";
+  const part = t.base === "flat" ? fixed : `${pct}% dari ${t.base === "goods_omset" ? "nilai belanja" : "total belanja dan ongkir"}${fixed ? ` + ${fixed}` : ""}`;
+  return `Biaya COD ${part}, dibayar ke kurir (jumlah pastinya tertera di pilihan kurir)`;
 }
 
 /** The store's two fee settings (decision 18) inside the caller's store context; `buyer` when the store never saved one. */
@@ -344,9 +354,6 @@ export async function placeOrder(
   // T-106: the payment channel goes through the store's one payment-method function (store's own AutoLaris key, switch, exclusions, locks).
   const picked = input.paymentMethod === "manual_transfer" ? await pickStorePaymentChannel(exec, storeId, providers.payment, input.paymentChannel) : null;
   const channel = picked?.channel ?? null;
-  // T-107 (ADR-0013 section 8): a store on its own accounts never takes a payment into the platform account (the database refuses that attempt too).
-  const mode: MoneyMode = await withStore(exec, storeId, (tx) => storeMoneyMode(tx, storeId));
-  if (mode === "seller_owned" && picked && !picked.methods.account) throw new DomainError("payment_channel", "Metode pembayaran tidak tersedia. Pilih metode lain.");
 
   let orderId: number;
   try {
@@ -355,6 +362,11 @@ export async function placeOrder(
       const [st] = await tx.select({ status: store.status }).from(store).where(eq(store.id, storeId)).for("share");
       if (st?.status !== "active") throw new DomainError("store_unavailable", "Toko sedang tidak menerima pesanan.");
       if (picked) await assertChannelStillOffered(tx, storeId, picked.channel.code, picked.methods.account?.id ?? null);
+      // T-107 (ADR-0013 section 8; review minor 7): the money mode is read inside the order transaction, where the snapshot freezes it. A store on its
+      // own accounts never takes a payment into the platform account nor ships on a platform account (the database refuses both rows too).
+      const mode: MoneyMode = await storeMoneyMode(tx, storeId);
+      if (mode === "seller_owned" && picked && !picked.methods.account) throw new DomainError("payment_channel", "Metode pembayaran tidak tersedia. Pilih metode lain.");
+      if (mode === "seller_owned" && quote.shippingAccountKind !== "seller_owned") throw new DomainError("shipping_not_ready", SHIPPING_NOT_READY_MESSAGE);
 
       const lines = await cartLines(tx, storeId, cartId);
       if (lines.length !== preview.length) throw new DomainError("cart_changed", "Keranjang berubah. Silakan ulangi.");
@@ -471,6 +483,8 @@ export async function placeOrder(
     const raced = err instanceof Replay || (err instanceof DomainError && err.code === "cart_changed");
     // Wave 4 review: a concurrent duplicate of the SAME request (one idempotency key, a double click) waits on the first one's voucher or flash counter
     // and then finds it spent. That loser must get the existing order back, not a refusal; a real second buyer has no order of this cart/key and still gets the refusal.
+    // T-107 review minor 7: a store that switched to its own accounts while this order was being placed: the boundary guard refused the row.
+    if (isBoundaryRefusal(err)) throw new DomainError("store_changed", "Pengaturan pembayaran toko baru saja berubah. Muat ulang halaman checkout dan pilih lagi.");
     const counterLoser = err instanceof DomainError && (err.code === "voucher_unavailable" || err.code === "flash_stock");
     if (!raced && !counterLoser) throw err;
     // Lost a race on (store_id, idempotency_key) or cart_id, or the cart was emptied
@@ -567,5 +581,11 @@ export async function checkoutPromotionPreview(exec: Executor, cartId: string | 
   const scope = (await storefrontScope(exec, summary.store.slug))!;
   const quote = await checkoutShippingOptions(scope, input.destinationAreaId, { lines: summary.lines, subtotal: summary.subtotal }, undefined, ctx);
   const fee = chosenShippingFee(quote.options, input.courier, input.paymentMethod);
-  return withStore(exec, summary.storeId, async (tx) => (await checkoutPromotions(tx, summary.storeId, summary.lines, fee, input.voucherCode, input.buyerPhone, false)).finance);
+  return withStore(exec, summary.storeId, async (tx) => {
+    const finance = (await checkoutPromotions(tx, summary.storeId, summary.lines, fee, input.voucherCode, input.buyerPhone, false)).finance;
+    // T-107 review minor 1: the COD fee the buyer bears is part of what the preview shows; the same formula freezes it at submit.
+    if (input.paymentMethod !== "cod" || (await storeMoneyMode(tx, summary.storeId)) !== "seller_owned") return { ...finance, codFeeIdr: 0 };
+    const terms = codFeeTerms(await currentFeeSchedule(tx), (await feeBearers(tx, summary.storeId)).cod);
+    return { ...finance, codFeeIdr: buyerCodFee(terms, finance.subtotal - finance.goodsDiscount, finance.payable) };
+  });
 }

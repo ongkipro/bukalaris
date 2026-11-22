@@ -37,6 +37,9 @@ export const PERIOD_DAYS: Record<Period, number> = { today: 1, "7d": 7, "30d": 3
 const WIB_MS = 7 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** The Asia/Jakarta calendar day (`YYYY-MM-DD`) of an instant. */
+const wibDate = (d: Date) => new Date(d.getTime() + WIB_MS).toISOString().slice(0, 10);
+
 /** Start of the current Asia/Jakarta calendar day, as an instant. */
 export function startOfJakartaDay(now: Date): Date {
   const shifted = new Date(now.getTime() + WIB_MS);
@@ -177,7 +180,8 @@ export async function collectedIn(exec: SellerScope["exec"], storeId: number, ra
     .select({ n: n(sql`count(*)`), amountIdr: n(sql`sum(${orderSellerRefund.amountIdr})`) })
     .from(orderSellerRefund)
     .innerJoin(order, and(eq(order.storeId, orderSellerRefund.storeId), eq(order.id, orderSellerRefund.orderId)))
-    .where(and(eq(orderSellerRefund.storeId, storeId), REAL, gte(orderSellerRefund.createdAt, range.from), lt(orderSellerRefund.createdAt, range.to)));
+    // Review nit: a refund belongs to the WIB day the seller paid it (`refunded_on`), not the day it was typed in.
+    .where(and(eq(orderSellerRefund.storeId, storeId), REAL, gte(orderSellerRefund.refundedOn, wibDate(range.from)), lt(orderSellerRefund.refundedOn, wibDate(range.to))));
   const order_: CollectedMethod[] = ["cod", "qris", "va", "other"];
   const byMethod = order_.map((method) => {
     const r = rows.find((x) => x.method === method);

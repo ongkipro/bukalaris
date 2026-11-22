@@ -27,6 +27,30 @@ export async function orderMoneyMode(exec: Executor, storeId: number, orderId: n
   return f?.mode ?? "platform_held";
 }
 
+/** SQLSTATEs of the database guards (migration 0021): a boundary refusal and a refused cut-over. */
+export const BOUNDARY_SQLSTATE = "BKMB1";
+export const CUTOVER_SQLSTATE = "BKMB2";
+const sqlstate = (err: unknown): string | undefined => (err as { cause?: { code?: string }; code?: string })?.cause?.code ?? (err as { code?: string })?.code;
+const sqlMessage = (err: unknown): string => (err as { cause?: { message?: string }; message?: string })?.cause?.message ?? (err as { message?: string })?.message ?? "";
+export const isBoundaryRefusal = (err: unknown): boolean => sqlstate(err) === BOUNDARY_SQLSTATE;
+
+/** The seller's reason a store cannot move to its own accounts yet (review M2: a clean cut-over, nothing of the platform's money left in flight). */
+const CUTOVER_REASON: Record<string, string> = {
+  balance: "masih ada Saldo Bukalaris (tersedia atau dalam proses). Tarik atau selesaikan saldo itu lebih dulu",
+  payout: "masih ada penarikan dana yang sedang diproses. Tunggu sampai selesai",
+  refund: "masih ada refund pembeli yang dibayar Bukalaris dan belum selesai",
+  order: "masih ada pesanan yang belum selesai, dibatalkan atau dikembalikan. Selesaikan pesanan itu lebih dulu",
+};
+/**
+ * Maps the database's cut-over refusal (`money_cutover_guard`) to the seller's message; any other error is returned as it is. Used by the one
+ * writer of the first seller-owned account row (`saveProviderKey`, T-104's save path).
+ */
+export function cutoverError(err: unknown): unknown {
+  if (sqlstate(err) !== CUTOVER_SQLSTATE) return err;
+  const reason = /: (\w+)$/.exec(sqlMessage(err))?.[1] ?? "";
+  return new DomainError("platform_money_open", `Akun sendiri belum bisa dihubungkan: ${CUTOVER_REASON[reason] ?? "masih ada uang toko yang dipegang Bukalaris"}. Setelah itu toko dibayar langsung ke akun Anda.`);
+}
+
 export const SELLER_OWNED_MESSAGE = "Toko ini dibayar langsung ke akun pembayaran dan akun kurir milik toko sendiri. Bukalaris tidak memegang uangnya, jadi tidak ada saldo, penarikan dana, rekonsiliasi atau refund dari Bukalaris.";
 
 /** Refuse a platform money action (payout, destination, release, reconciliation, platform refund) for a store on its own accounts. */

@@ -36,7 +36,8 @@ ALTER TABLE "order_financials" ADD CONSTRAINT "order_financials_money_mode_chk" 
 -- a seller-owned account of either provider (a `store_shipping_account` of kind `seller_owned` or a `store_payment_account`). Its orders freeze that
 -- mode in `order_financials.money_mode`. Money of a `seller_owned` store or order never enters the platform's books: no ledger entry, payout,
 -- payout destination, reconciliation item, shipment cost reservation, platform refund, late-payment obligation or platform-account payment attempt.
--- The ADR-0006 invariants stay untouched for `platform_held` money.
+-- The ADR-0006 invariants stay untouched for `platform_held` money. Every boundary refusal raises the dedicated SQLSTATE `BKMB1` (message prefix
+-- `money_boundary:`), so a caller never confuses it with another check; the cut-over refusal of section 1a raises `BKMB2`.
 
 -- 1. The rule. Owner-only (definer, no EXECUTE for a login role): the guards call it; the services ask the same question with their own query.
 CREATE FUNCTION public.store_money_mode(p_store_id bigint) RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
@@ -46,6 +47,38 @@ CREATE FUNCTION public.store_money_mode(p_store_id bigint) RETURNS text LANGUAGE
 $$;--> statement-breakpoint
 REVOKE ALL ON FUNCTION public.store_money_mode(bigint) FROM PUBLIC;--> statement-breakpoint
 
+-- 1a. Clean cut-over (review M2): a store becomes `seller_owned` only with no platform money in flight, so no platform money row of it can ever be
+--     needed afterwards (no balance to pay out or adjust, no payout to reject, no refund to settle, no order still able to book a sale). The first
+--     seller-owned account row of a store is refused while the store has a non-zero pending or available ledger balance, a payout requested or
+--     processing, a refund pending, processing or failed (still owed), or an order that is not completed, cancelled or returned. The reason is the
+--     message suffix; the services show it to the seller.
+CREATE FUNCTION public.money_cutover_guard() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+DECLARE
+  v_reason text;
+BEGIN
+  IF TG_TABLE_NAME = 'store_shipping_account' THEN
+    IF NEW.kind <> 'seller_owned' THEN RETURN NEW; END IF;
+  END IF;
+  IF public.store_money_mode(NEW.store_id) = 'seller_owned' THEN RETURN NEW; END IF;
+  IF EXISTS (SELECT 1 FROM public.ledger_entry e WHERE e.store_id = NEW.store_id GROUP BY e.status HAVING sum(e.amount_idr) <> 0) THEN
+    v_reason := 'balance';
+  ELSIF EXISTS (SELECT 1 FROM public.payout p WHERE p.store_id = NEW.store_id AND p.status IN ('requested', 'processing')) THEN
+    v_reason := 'payout';
+  ELSIF EXISTS (SELECT 1 FROM public.refund r WHERE r.store_id = NEW.store_id AND (r.status IN ('pending', 'processing')
+           OR (r.status = 'failed' AND NOT EXISTS (SELECT 1 FROM public.refund n WHERE n.store_id = r.store_id AND n.order_id = r.order_id AND n.status <> 'failed')))) THEN
+    v_reason := 'refund';
+  ELSIF EXISTS (SELECT 1 FROM public."order" o WHERE o.store_id = NEW.store_id AND o.status NOT IN ('completed', 'cancelled', 'returned')) THEN
+    v_reason := 'order';
+  END IF;
+  IF v_reason IS NOT NULL THEN
+    RAISE EXCEPTION 'money_cutover: store % still has platform money in flight: %', NEW.store_id, v_reason USING ERRCODE = 'BKMB2';
+  END IF;
+  RETURN NEW;
+END $$;--> statement-breakpoint
+REVOKE ALL ON FUNCTION public.money_cutover_guard() FROM PUBLIC;--> statement-breakpoint
+CREATE TRIGGER a_money_cutover_guard BEFORE INSERT ON public.store_shipping_account FOR EACH ROW EXECUTE FUNCTION public.money_cutover_guard();--> statement-breakpoint
+CREATE TRIGGER a_money_cutover_guard BEFORE INSERT ON public.store_payment_account FOR EACH ROW EXECUTE FUNCTION public.money_cutover_guard();--> statement-breakpoint
+
 -- 2. The boundary guard: refused by rule, not by missing data. Store-level for rows without an order (payout, destination, adjustment) and for a
 --    platform-account payment attempt of an order; order-level (the frozen mode) for every order-linked row, so a platform-held order keeps the
 --    ADR-0006 behaviour and a seller-owned order never gets platform money rows.
@@ -53,26 +86,26 @@ CREATE FUNCTION public.money_boundary_guard() RETURNS trigger LANGUAGE plpgsql S
 BEGIN
   IF TG_TABLE_NAME IN ('payout', 'payout_destination') THEN
     IF public.store_money_mode(NEW.store_id) = 'seller_owned' THEN
-      RAISE EXCEPTION 'money_boundary: % refused, store % is on seller-owned accounts', TG_TABLE_NAME, NEW.store_id USING ERRCODE = 'check_violation';
+      RAISE EXCEPTION 'money_boundary: % refused, store % is on seller-owned accounts', TG_TABLE_NAME, NEW.store_id USING ERRCODE = 'BKMB1';
     END IF;
     RETURN NEW;
   END IF;
   IF TG_TABLE_NAME = 'payment_attempt' THEN
     IF NEW.payment_account_id IS NULL AND NEW.owner_kind = 'order' AND public.store_money_mode(NEW.store_id) = 'seller_owned' THEN
-      RAISE EXCEPTION 'money_boundary: an order of store % is never paid to the platform account', NEW.store_id USING ERRCODE = 'check_violation';
+      RAISE EXCEPTION 'money_boundary: an order of store % is never paid to the platform account', NEW.store_id USING ERRCODE = 'BKMB1';
     END IF;
     RETURN NEW;
   END IF;
   IF TG_TABLE_NAME = 'ledger_entry' THEN
     IF NEW.order_id IS NULL THEN
       IF public.store_money_mode(NEW.store_id) = 'seller_owned' THEN
-        RAISE EXCEPTION 'money_boundary: ledger_entry refused, store % is on seller-owned accounts', NEW.store_id USING ERRCODE = 'check_violation';
+        RAISE EXCEPTION 'money_boundary: ledger_entry refused, store % is on seller-owned accounts', NEW.store_id USING ERRCODE = 'BKMB1';
       END IF;
       RETURN NEW;
     END IF;
   END IF;
   IF EXISTS (SELECT 1 FROM public.order_financials f WHERE f.store_id = NEW.store_id AND f.order_id = NEW.order_id AND f.money_mode = 'seller_owned') THEN
-    RAISE EXCEPTION 'money_boundary: % refused, order % is paid to the seller''s own accounts', TG_TABLE_NAME, NEW.order_id USING ERRCODE = 'check_violation';
+    RAISE EXCEPTION 'money_boundary: % refused, order % is paid to the seller''s own accounts', TG_TABLE_NAME, NEW.order_id USING ERRCODE = 'BKMB1';
   END IF;
   RETURN NEW;
 END $$;--> statement-breakpoint
@@ -96,22 +129,22 @@ DECLARE
   v_pay text := 'buyer';
 BEGIN
   IF NEW.money_mode IS DISTINCT FROM public.store_money_mode(NEW.store_id) THEN
-    RAISE EXCEPTION 'money_boundary: the frozen money mode is the store''s mode at submit' USING ERRCODE = 'check_violation';
+    RAISE EXCEPTION 'money_boundary: the frozen money mode is the store''s mode at submit' USING ERRCODE = 'BKMB1';
   END IF;
   IF NEW.money_mode = 'seller_owned' THEN
     SELECT * INTO o FROM public."order" WHERE store_id = NEW.store_id AND id = NEW.order_id;
     IF NOT FOUND OR o.shipping_margin <> 0 THEN
-      RAISE EXCEPTION 'money_boundary: a seller-owned order carries no platform shipping margin' USING ERRCODE = 'check_violation';
+      RAISE EXCEPTION 'money_boundary: a seller-owned order carries no platform shipping margin' USING ERRCODE = 'BKMB1';
     END IF;
     IF (o.payment_method = 'cod' AND NEW.expected_gateway_fee_idr <> 0) OR (o.payment_method <> 'cod' AND NEW.expected_cod_fee_idr <> 0) THEN
-      RAISE EXCEPTION 'money_boundary: an order carries only the fee of its own payment method' USING ERRCODE = 'check_violation';
+      RAISE EXCEPTION 'money_boundary: an order carries only the fee of its own payment method' USING ERRCODE = 'BKMB1';
     END IF;
     SELECT s.cod_fee_bearer INTO v_cod FROM public.store_shipping_setting s WHERE s.store_id = NEW.store_id;
     IF NOT FOUND THEN v_cod := 'buyer'; END IF;
     SELECT p.fee_bearer INTO v_pay FROM public.store_payment_account p WHERE p.store_id = NEW.store_id;
     IF NOT FOUND THEN v_pay := 'buyer'; END IF;
     IF (NEW.cod_fee_bearer = v_cod) IS NOT TRUE OR (NEW.payment_fee_bearer = v_pay) IS NOT TRUE THEN
-      RAISE EXCEPTION 'money_boundary: the frozen fee bearers are the store''s settings at submit' USING ERRCODE = 'check_violation';
+      RAISE EXCEPTION 'money_boundary: the frozen fee bearers are the store''s settings at submit' USING ERRCODE = 'BKMB1';
     END IF;
   END IF;
   RETURN NEW;
@@ -137,16 +170,16 @@ DECLARE
 BEGIN
   SELECT f.payable_idr + f.buyer_fee_idr INTO v_bill FROM public.order_financials f WHERE f.store_id = NEW.store_id AND f.order_id = NEW.order_id AND f.money_mode = 'seller_owned';
   IF NOT FOUND THEN
-    RAISE EXCEPTION 'money_boundary: a seller refund is recorded only on an order paid to the store''s own accounts' USING ERRCODE = 'check_violation';
+    RAISE EXCEPTION 'money_boundary: a seller refund is recorded only on an order paid to the store''s own accounts' USING ERRCODE = 'BKMB1';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public."order" o WHERE o.store_id = NEW.store_id AND o.id = NEW.order_id AND o.paid_at IS NOT NULL) THEN
-    RAISE EXCEPTION 'money_boundary: a refund is recorded only on a paid order' USING ERRCODE = 'check_violation';
+    RAISE EXCEPTION 'money_boundary: a refund is recorded only on a paid order' USING ERRCODE = 'BKMB1';
   END IF;
   PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('order_seller_refund:' || NEW.store_id || ':' || NEW.order_id, 0));
   SELECT sum(r.amount_idr) INTO v_done FROM public.order_seller_refund r WHERE r.store_id = NEW.store_id AND r.order_id = NEW.order_id;
   IF v_done IS NULL THEN v_done := 0; END IF;
   IF v_done + NEW.amount_idr > v_bill THEN
-    RAISE EXCEPTION 'money_boundary: recorded refunds never exceed the buyer''s bill' USING ERRCODE = 'check_violation';
+    RAISE EXCEPTION 'money_boundary: recorded refunds never exceed the buyer''s bill' USING ERRCODE = 'BKMB1';
   END IF;
   RETURN NEW;
 END $$;--> statement-breakpoint
@@ -177,7 +210,8 @@ SELECT DISTINCT r.version, 'COD', 'payable', 300, 0, 'migration:T-107', 'COD fee
   FROM public.payment_fee_rate r
  WHERE NOT EXISTS (SELECT 1 FROM public.payment_fee_rate c WHERE c.version = r.version AND c.channel_code = 'COD');--> statement-breakpoint
 
--- 7. Backfill: a snapshot frozen before this migration whose money provably went to the seller's own account (a paid or pending attempt on the store's
+-- 7. Backfill (review nit: a backfilled COD order was charged no COD fee, so `expected_cod_fee_idr` and `buyer_fee_idr` stay 0; its `fee_rate_version`
+--    names the schedule in force when the order was frozen, version 1, the only version before this migration): a snapshot frozen before this migration whose money provably went to the seller's own account (a paid or pending attempt on the store's
 --    own AutoLaris account, or COD on the store's own Mengantar account) and that never reached the platform books (no ledger, refund, reconciliation
 --    or shipment-cost row, no affiliate or cashback figure) becomes `seller_owned`, with the store's bearers and the fee its attempt froze. Everything
 --    else keeps `platform_held`, which is how the code of the time treated it. The snapshot is immutable, so its guard is off for this one statement.
