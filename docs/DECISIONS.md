@@ -543,3 +543,20 @@ Recorded by T-106 (independent review finding). D-27 and ADR-0013 (D-31: `seller
 
 Why acceptable now: local build on fake adapters, no live AutoLaris transport exists, and the platform path is the T-49 behaviour the tests already prove. Contradicts D-27 until T-107 (money boundary) or T-93 (readiness at store opening) removes the platform path for buyer orders. Subscription invoices (T-50) keep the platform account by design (ADR-0013 decision 3).
 Revisit when: T-93 or T-107 starts, or before any live payment.
+
+## D-35 — Mengantar account sync: bounded reads, one webhook address per store (2026-11-16, T-115, deliberate ceilings)
+
+Context: ADR-0013 section 11 asks for a dedicated account (decision 41), webhooks as triggers with the tracking read as the single writer (decision 43) and Mengantar's money figures mirrored read-only (decision 45). Every read runs on the store's own key and costs the seller's provider budget.
+
+Decision:
+
+1. The dedicated-account check reads ONE page of the account's order list (the newest 100, archive included) when a new key or environment is connected and again when the seller confirms the account. Any order Bukalaris did not create for this store refuses the account.
+2. The account scan reads at most three pages of 100 (newest first, stopping where the last scan already looked), every store at most every six hours plus a seller's own request at most every ten minutes; an order younger than ten minutes waits for the next scan. Foreign parcels are recorded, never imported.
+3. The scheduled tracking read takes 100 non-final parcels per minute (a parcel at most every 30 minutes), the stalest parcel of each store first.
+4. The Mengantar webhook address of a store is the platform route with an opaque per-store id in the query (`/api/shipping/mengantar/webhook?h=<id>`): the host dispatch (DOM-5) passes that exact path only.
+
+Accepted cost: an account rotated to a new key with more than 100 of its own parcels has its older orders checked by the scan, not at connection; a busy account may need several scans before an old foreign parcel is found; parcel state lags by up to about 30 minutes when no webhook arrives; whether Mengantar's settings keep a query string in the webhook URL is UNVERIFIED (read in the opt-in sandbox run).
+
+Upgrade path: page through the whole order list with the cursor in a worker job when the owner wants a full audit; switch the address to a path segment (one prefix rule in `platform/host.ts`) if Mengantar drops query strings; tune the numbers from pilot load (doc 16 RL-ACCOUNT-SCAN, RL-PARCEL-SWEEP).
+
+Revisit when: the opt-in sandbox run shows how a delivery and the order list behave, or the pilot shows provider rate limits.

@@ -80,6 +80,13 @@ test("a store on its own courier account: pickup registered, couriers and COD fi
   await pickup.getByLabel("Nama penanggung jawab pickup").fill("Budi Pemilik");
   await pickup.getByLabel("Nomor HP penanggung jawab").fill("081234567890");
   await saveAndReload(page, pickup, "Simpan dan daftarkan alamat", "/seller/shipping");
+  // T-115 (ADR-0013 decision 41): shipping is ready only once the owner confirmed the account as new and dedicated to this store.
+  await expect(page.getByTestId("shipping-ready")).toHaveText("Belum siap");
+  await page.goto("/seller/shipping/account");
+  const dedicated = page.getByRole("form", { name: "Konfirmasi akun khusus" });
+  await dedicated.getByRole("checkbox").check();
+  await saveAndReload(page, dedicated, "Konfirmasi akun khusus", "/seller/shipping/account");
+  await page.goto("/seller/shipping");
   await expect(page.getByTestId("shipping-ready")).toHaveText("Siap kirim");
 
   // 3. Couriers: JNE with COD, SiCepat without; every other courier stays closed. COD blocked to DKI Jakarta.

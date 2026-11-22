@@ -24,7 +24,7 @@ const INTERNAL_IDS = [/\bOPEN-[A-Z]?\d+\b/, /\bQ-\d+\b/, /\bD-\d{2}\b/, /\bADR-\
 const WEB_SKIP = [/\/\(operator\)\//, /\/api\//, /\/route\.ts$/, /\.test\.tsx?$/, /\/node_modules\//, /\/\.next\//];
 /** Brand rule only (internal ids are still refused): ADR-0013 section 8 — Seller Admin names Mengantar and AutoLaris on the screens where the seller connects
  *  their OWN accounts (T-104). The wider seller copy boundary moves with T-107. */
-const WEB_BRAND_NAMED = [/\/\(seller\)\/seller\/payments\//];
+const WEB_BRAND_NAMED = [/\/\(seller\)\/seller\/payments\//, /\/\(seller\)\/seller\/shipping\/account\//]; // T-115: the store's own Mengantar account (sync, webhook, balance), same rule
 /** Message-scan exemptions from the BRAND rule only: transport/adapter code whose messages are scrubbed by `whiteLabel` at display (internal ids are still refused). */
 const BRAND_EXEMPT_MESSAGE_FILES = [/^packages\/db\/src\/shipping\/mengantar\//, /^packages\/db\/src\/payments\//];
 

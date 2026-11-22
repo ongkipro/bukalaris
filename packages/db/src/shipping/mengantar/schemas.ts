@@ -85,8 +85,25 @@ export const trackingInfoSchema = z.looseObject({
   status: z.string().optional(),
   statusCategory: z.string().optional(),
   isPaid: z.boolean().optional(),
+  /** T-115: when the provider last changed the status (documented in the `GET /order` example); orders two reads. */
+  lastStatusChange: z.string().optional(),
   history: z.array(z.looseObject({ date: z.string().optional(), desc: z.string().optional() })).optional(),
 });
 export type TrackingInfo = z.infer<typeof trackingInfoSchema>;
 /** `GET /order` data: UNVERIFIED whether a list, a paginated object or one order; normalised by the adapter. */
 export const orderLookupSchema = z.unknown();
+
+/** T-115: one page of `GET /order` (list form: no `history`), newest first, with the opaque `nextCursor` ("" on the last page). */
+export const orderListSchema = z.looseObject({
+  data: z.array(z.looseObject({ ORDER_ID: z.string().optional(), cnote_no: z.string().nullish(), status: z.string().optional(), statusCategory: z.string().optional(), createdAt: z.string().optional() })).optional(),
+  nextCursor: z.string().nullish(),
+});
+export type OrderListPage = z.infer<typeof orderListSchema>;
+
+/** T-115 (ADR-0013 decision 45): one page of `GET /invoices` with the account balance beside it (documented example). */
+export const invoiceListSchema = z.looseObject({
+  data: z.array(z.looseObject({ inv_number: z.string().optional(), type: z.string().optional(), status: z.string().optional(), amount: z.number().optional(), total: z.number().optional(), createdAt: z.string().optional() })).optional(),
+  balance: z.number().nullish(),
+  nextCursor: z.string().nullish(),
+});
+export type InvoiceListPage = z.infer<typeof invoiceListSchema>;

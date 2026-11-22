@@ -113,6 +113,7 @@ export const MODULE_MAP: Record<string, { pageId: string; label: string }> = {
   "api.storefront": { pageId: "HTTP-05", label: "Storefront API v1" },
   "api.signals": { pageId: "HTTP-04", label: "Sinyal iklan (browser)" },
   "api.payments": { pageId: "HTTP-17", label: "Callback pembayaran" },
+  "api.shipping": { pageId: "HTTP-26", label: "Webhook status paket" }, // T-115
   "api.referral": { pageId: "HTTP-27", label: "Tautan afiliasi (penangkap klik)" },
   feeds: { pageId: "HTTP-15", label: "Feed katalog" },
   "api.health": { pageId: "HTTP-02", label: "Health/readiness" },
@@ -168,6 +169,7 @@ const ROUTE_PREFIXES: [string, string][] = [
   ["/api/storefront", "api.storefront"],
   ["/api/signals", "api.signals"],
   ["/api/payments", "api.payments"],
+  ["/api/shipping", "api.shipping"],
   ["/r", "api.referral"],
   ["/feeds", "feeds"],
   ["/api/health", "api.health"],

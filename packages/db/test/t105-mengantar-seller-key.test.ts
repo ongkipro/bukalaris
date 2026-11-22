@@ -18,6 +18,7 @@ import { areaProvince, chosenShippingFee, formatShippingQuote, rememberAreas, sa
 import { storeShippingAccount } from "../src/shipping/schema-accounts.ts";
 import { providerLiveSetting, storeCourierRule, storeShippingSetting } from "../src/shipping/schema-shipping.ts";
 import { fakeSellerMengantar, SellerMengantar, sellerTransport, setSellerMengantarFetch } from "../src/shipping/seller.ts";
+import { confirmDedicatedAccount } from "../src/shipping/sync.ts";
 import { searchPickupAreas, setPickupAddress, setPickupArea, shippingOptions } from "../src/shipping/shipping.ts";
 import { setCartLine } from "../src/storefront/storefront.ts";
 import { admin, buyer, db, DEFAULT_OPERATOR_CAPABILITIES, DESTINATION, makeOperator, makeStore, PICKUP_AREA, platform } from "./helpers.ts";
@@ -44,6 +45,7 @@ async function ownStore(slug: string, opts: { environment?: "sandbox" | "product
   const s = await makeStore(slug);
   const me = bindSession(s.owner, await sessionOf(s.ownerId));
   await saveProviderKey(me, { provider: "mengantar", environment: opts.environment ?? "sandbox", apiKey: opts.key ?? KEY, proofId: await issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "mengantar" }) });
+  await confirmDedicatedAccount(me, { confirmed: true }); // T-115: shipping is ready only on a confirmed dedicated account
   await setPickupAddress(me, { addressText: "Jl. Braga No. 10, Bandung", contactName: "Budi Pemilik", contactPhone: "081234567890" });
   await saveCourierRules(me, { couriers: opts.rules ?? RULES });
   return { ...s, me };
@@ -100,6 +102,7 @@ function stubProvider(prices: Record<string, number>) {
     if (url.includes("/order/estimate")) return json(Object.fromEntries(Object.entries(prices).map(([k, price]) => [k, { price, discount: 1_000, codFee: 0, estimatedPrice: price, estimatedSpecialPrice: price - 1_000, unsupported: false, unsupported_cod: false }])));
     if (url.endsWith("/address") && init?.method === "POST") return json({ _id: "pickupaddr0001" });
     if (url.endsWith("/address")) return json([]); // the account's pickup-address list (the key check before any pickup area)
+    if (new URL(url).pathname.endsWith("/order") && (init?.method ?? "GET") === "GET" && url.includes("size=")) return new Response(JSON.stringify({ success: true, data: [], nextCursor: "" }), { status: 200 }); // T-115: an empty (dedicated) account
     if (url.endsWith("/order") && init?.method === "POST") return new Response(JSON.stringify({ success: true, batch_id: "B-STUB-1", data: [{ ORDER_ID: "ORD-STUB-1", cnote_no: "RESI-STUB-1", isPaid: true, statusCategory: "PENDING PICKUP" }] }), { status: 200 });
     return new Response(JSON.stringify({ success: false, message: "not found" }), { status: 404 });
   }) as typeof fetch;
@@ -559,7 +562,8 @@ describe("T-105 review fixes: onboarding order, province per environment, provid
     const me = bindSession(s.owner, await sessionOf(s.ownerId));
     await saveProviderKey(me, { provider: "mengantar", environment: "sandbox", apiKey: KEY, proofId: await issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "mengantar" }) });
     const keyed = `https://sandbox.example.test/api/public/${encodeURIComponent(KEY)}`;
-    expect(calls.map((c) => [c.method, c.url])).toEqual([["GET", `${keyed}/address`]]);
+    // T-115: then the dedicated-account check reads one page of the account's order list on the same key (archive included).
+    expect(calls.map((c) => [c.method, c.url.split("?")[0]])).toEqual([["GET", `${keyed}/address`], ["GET", `${keyed}/order`]]);
     const areas = await searchPickupAreas(me, "menteng");
     expect(areas[0]).toMatchObject({ id: MENTENG, province: "DKI JAKARTA" });
     expect(calls.at(-1)!.url).toBe(`${keyed}/address/search?keyword=menteng`);

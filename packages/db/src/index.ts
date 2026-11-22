@@ -39,6 +39,8 @@ export * from "./shipping/shipping.ts";
 export * from "./ops/jobs/notify.ts";
 export * from "./storefront/signals.ts";
 export * from "./shipping/fulfillment.ts";
+export { confirmDedicatedAccount, receiveMengantarWebhook, removeWebhookSecret, requestAccountScan, resolveForeignParcel, setWebhookSecret, shipmentStatusHistory, shippingSync, SHIPPING_PROVIDER, WEBHOOK_BODY_MAX_BYTES, type ForeignParcelView, type ShippingSyncView, type WebhookOutcome } from "./shipping/sync.ts"; // T-115
+export { displayableCategory, PARCEL_STATE_LABEL, parcelStateOf, type ParcelState } from "./shipping/parcel-state.ts";
 export * from "./storefront/feeds.ts";
 export * from "./seller/commerce/dashboard.ts";
 export * from "./storefront/landing.ts";

@@ -14,6 +14,7 @@ export const checkLabel: Record<string, string> = {
 export const gapLabel: Record<ReadinessGap, string> = {
   key: "Kunci API belum dihubungkan.",
   check: "Pengecekan terakhir gagal. Tekan Cek sekarang setelah masalahnya beres.",
+  dedicated: "Akun Mengantar belum dikonfirmasi sebagai akun baru khusus toko ini (Pengiriman → Akun kurir toko).",
   pickup_area: "Area pickup belum diatur di menu Pengiriman.",
   pickup_registered: "Alamat pickup belum terdaftar di akun Mengantar ini.",
   order_fields: "Data akun AutoLaris (ID area asal, ID area tujuan, e-mail pengirim) belum lengkap.",

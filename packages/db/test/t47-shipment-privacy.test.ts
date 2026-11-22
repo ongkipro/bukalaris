@@ -14,6 +14,7 @@ import { transitionOrder } from "../src/seller/commerce/orders.ts";
 import { BUYER_DATA_INVENTORY, exportBuyerData, REDACTED, redactOrders, redactStaleOrders } from "../src/seller/commerce/privacy.ts";
 import { bookShipment, refreshTracking, setBookingAdapter, type BookingAdapter, type TrackingEvent, type TrackingResult } from "../src/shipping/fulfillment.ts";
 import { order, orderRedaction, shipment } from "../src/schema.ts";
+import { shipmentStatusEvent, shippingForeignParcel, shippingWebhookEvent, storeShippingSync } from "../src/shipping/schema-fulfillment.ts";
 import { withStore } from "../src/platform/tenant.ts";
 import { purchasePayload } from "../src/storefront/signals.ts";
 import { setCartLine } from "../src/storefront/storefront.ts";
@@ -63,7 +64,7 @@ const shipmentOf = async (orderId: number) => (await platform.select().from(ship
 const setError = (orderId: number, message: string) => admin.execute(sql`update shipment set last_error = ${message} where order_id = ${orderId}`);
 
 // The columns of `shipment` that are structural (ids, codes, amounts, state), never provider free text. Anything else of type text or jsonb must be in the inventory.
-const STRUCTURAL_SHIPMENT_COLUMNS: Record<string, true> = { requested_by: true, status: true, pickup_type: true, courier_code: true, origin_area_id: true, destination_area_id: true, provider_order_id: true, provider_batch_id: true, tracking_number: true };
+const STRUCTURAL_SHIPMENT_COLUMNS: Record<string, true> = { requested_by: true, status: true, pickup_type: true, courier_code: true, origin_area_id: true, destination_area_id: true, provider_order_id: true, provider_batch_id: true, tracking_number: true, provider_figures: true }; // T-115: provider_figures holds only allow-listed numeric fields (figuresOf)
 function missingFreeTextShipmentColumns(inventory: readonly { table: string; column: string }[]) {
   const listed = new Set(inventory.filter((e) => e.table === "shipment").map((e) => e.column));
   return Object.values(getTableColumns(shipment))
@@ -85,6 +86,26 @@ describe("inventory (PRIV-1): shipment free text", () => {
       expect(missingFreeTextShipmentColumns(BUYER_DATA_INVENTORY.filter((e) => !(e.table === "shipment" && e.column === column)))).toEqual([column]);
     }
     expect(missingFreeTextShipmentColumns([])).toEqual(["provider_status", "tracking_history", "last_error"]);
+  });
+  // T-115 review major 2: the same guard over every shipping table of T-115. A text or JSON column is either a structural value (ids, codes, states, our
+  // own messages, a seller's note) or listed in the inventory. The provider-status columns are structural ONLY because they store a status code or the
+  // redaction marker, never free text (`storableCategory`, test/t115-mengantar-lock.test.ts "a provider status that is not a status code …").
+  it("every text column of the T-115 shipping tables is structural (status codes only) or in BUYER_DATA_INVENTORY, and the check fails for a new one", () => {
+    const STRUCTURAL: Record<string, readonly string[]> = {
+      shipment_status_event: ["provider_order_id", "category", "parcel_state", "source"],
+      shipping_webhook_event: ["signature", "provider_order_id", "tracking_number", "courier", "status_category", "outcome"],
+      shipping_foreign_parcel: ["provider_order_id", "tracking_number", "provider_status", "resolved_by", "resolution_note"], // resolution_note: the seller's own note on a parcel outside Bukalaris
+      store_shipping_sync: ["hook_id", "dedicated_confirmed_by", "dedicated_fingerprint", "dedicated_environment", "sealed_webhook_secret", "webhook_key_id", "webhook_fingerprint", "webhook_environment", "step_up_ref", "invoices", "scan_error"],
+    };
+    const tables = { shipment_status_event: shipmentStatusEvent, shipping_webhook_event: shippingWebhookEvent, shipping_foreign_parcel: shippingForeignParcel, store_shipping_sync: storeShippingSync };
+    const missing = (structural: Record<string, readonly string[]>) =>
+      Object.entries(tables).flatMap(([name, table]) =>
+        Object.values(getTableColumns(table))
+          .filter((c) => (c.dataType === "string" || c.dataType === "json") && !structural[name]!.includes(c.name) && !BUYER_DATA_INVENTORY.some((e) => e.table === name && e.column === c.name))
+          .map((c) => `${name}.${c.name}`),
+      );
+    expect(missing(STRUCTURAL)).toEqual([]);
+    expect(missing({ ...STRUCTURAL, shipment_status_event: ["provider_order_id", "parcel_state", "source"] })).toEqual(["shipment_status_event.category"]);
   });
   it("the inventory documents each shipment column in 13-COMPLIANCE-PRIVACY.md", () => {
     const doc = readFileSync(fileURLToPath(new URL("../../../docs/13-COMPLIANCE-PRIVACY.md", import.meta.url)), "utf8");

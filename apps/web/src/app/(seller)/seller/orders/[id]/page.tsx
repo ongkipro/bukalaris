@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { sellerScope } from "@/lib/context";
 import { rupiah, tanggal } from "@/lib/format";
 import { orderActionLabel, orderStatusLabel, orderStatusTone, paymentLabel, type Tone } from "@/lib/status";
-import { BOOKABLE, can, codBookingAllowed, getOrder, getShipment, providerStatusLabel, RETRYABLE, SHIPMENT_STATUS_LABEL, shipmentTimeline, TERMINAL, whiteLabel, type OrderStatus, type ShipmentStatus } from "@bukalaris/db";
+import { BOOKABLE, can, codBookingAllowed, displayableCategory, getOrder, getShipment, PARCEL_STATE_LABEL, parcelStateOf, providerStatusLabel, RETRYABLE, SHIPMENT_STATUS_LABEL, shipmentStatusHistory, shipmentTimeline, TERMINAL, whiteLabel, type OrderStatus, type ShipmentStatus } from "@bukalaris/db";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { orderAction } from "../actions";
@@ -42,6 +42,16 @@ const pickupChoices = [
   { value: "drop_off", label: "Antar sendiri ke agen kurir" },
 ] as const;
 
+/** T-115: the documented per-parcel fields of the store's own courier account, named as the account names them (their meaning is the account's). */
+const FIGURE_LABEL: Record<string, string> = {
+  estimatedPrice: "Ongkir (estimatedPrice)",
+  estimatedSpecialPrice: "Ongkir dengan diskon akun (estimatedSpecialPrice)",
+  discount: "Diskon akun (discount)",
+  COD_FEE: "Biaya COD (COD_FEE)",
+  COD_AMOUNT: "Nilai COD (COD_AMOUNT)",
+  GOODS_AMOUNT: "Nilai barang (GOODS_AMOUNT)",
+};
+
 export default async function OrderPage({ params, searchParams }: PageProps<"/seller/orders/[id]">) {
   const { id } = await params;
   const { error, saved } = await searchParams;
@@ -56,6 +66,9 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
   const ownAccount = o.shippingAccountKind === "seller_owned";
   const codLocked = !ownAccount && o.paymentMethod === "cod" && !codBookingAllowed();
   const carrier = ownAccount ? "akun kurir toko" : "Bukalaris Kirim";
+  // T-115: the parcel's status categories as read from the store's own account (decision 42) and the account's own figures (decision 45).
+  const statusHistory = ownAccount && shipmentRow ? await shipmentStatusHistory(scope, o.id) : [];
+  const rebookable = !!shipmentRow && ((RETRYABLE as readonly string[]).includes(shipmentRow.status) || (ownAccount && shipmentRow.status === "cancelled"));
   const simple = o.actions.filter((a) => a === "confirm" || a === "pay" || a === "process");
   const confirming = o.status === "awaiting_confirmation" || o.status === "on_hold";
 
@@ -207,7 +220,33 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
                 <dd className="font-mono break-all">{shipmentRow.providerOrderId ?? "—"}</dd>
                 <dt className="text-muted-foreground">Diperbarui</dt>
                 <dd>{shipmentRow.lastTrackedAt ? tanggal(shipmentRow.lastTrackedAt) : "—"}</dd>
+                {ownAccount && shipmentRow.providerStatus && (
+                  <>
+                    <dt className="text-muted-foreground">Status paket</dt>
+                    <dd data-testid="parcel-state">
+                      {(() => {
+                        const state = parcelStateOf(shipmentRow.providerStatus);
+                        const raw = displayableCategory(shipmentRow.providerStatus);
+                        return state ? PARCEL_STATE_LABEL[state] : `Kode dari akun kurir: ${raw ?? "tidak terbaca"} (belum dikenal Bukalaris, ditampilkan apa adanya)`;
+                      })()}
+                    </dd>
+                  </>
+                )}
               </dl>
+              {ownAccount && shipmentRow.providerFiguresAt && Object.keys(shipmentRow.providerFigures).length > 0 && (
+                <div className="grid gap-1.5" data-testid="parcel-figures">
+                  <p className="text-sm font-medium">Angka dari akun kurir toko (hanya dibaca)</p>
+                  <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 rounded-lg border p-3 text-sm">
+                    {(Object.entries(shipmentRow.providerFigures) as [string, number][]).map(([field, value]) => (
+                      <div key={field} className="contents">
+                        <dt className="min-w-0 break-words text-muted-foreground">{FIGURE_LABEL[field] ?? field}</dt>
+                        <dd className="text-right tabular-nums">{rupiah(value)}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  <p className="text-xs text-muted-foreground">Dibaca {tanggal(shipmentRow.providerFiguresAt)}. Angka ini milik akun kurir Anda; Bukalaris tidak mencatat atau mencocokkannya.</p>
+                </div>
+              )}
               {shipmentRow.lastError && (
                 <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive" data-testid="shipment-error">
                   {whiteLabel(shipmentRow.lastError)}
@@ -236,9 +275,9 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
                   </form>
                 </div>
               )}
-              {fulfil && ((RETRYABLE as readonly string[]).includes(shipmentRow.status) || (shipmentRow.providerOrderId && !(TERMINAL as readonly string[]).includes(shipmentRow.status))) && (
+              {fulfil && (rebookable || (shipmentRow.providerOrderId && !(TERMINAL as readonly string[]).includes(shipmentRow.status))) && (
                 <div className="flex flex-wrap items-end gap-2">
-                  {(RETRYABLE as readonly string[]).includes(shipmentRow.status) && bookable && (
+                  {rebookable && bookable && (
                     <form action={bookShipmentAction.bind(null, o.id)} className="grid gap-2">
                       <CsrfField />
                       {ownAccount && <PickupChoice current={shipmentRow.pickupType} />}
@@ -252,6 +291,18 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
                     </form>
                   )}
                 </div>
+              )}
+              {statusHistory.length > 0 && (
+                <ol className="divide-y rounded-lg border text-sm" aria-label="Riwayat status di akun kurir" data-testid="parcel-status-history">
+                  {statusHistory.map((h, i) => (
+                    <li key={i} className="grid gap-0.5 p-3 sm:grid-cols-[12rem_minmax(0,1fr)] sm:gap-4">
+                      <time dateTime={(h.providerChangedAt ?? h.observedAt).toISOString()} className="text-muted-foreground">{tanggal(h.providerChangedAt ?? h.observedAt)}</time>
+                      <span className="break-words">
+                        {h.parcelState ? PARCEL_STATE_LABEL[h.parcelState as keyof typeof PARCEL_STATE_LABEL] : "Belum dikenal Bukalaris"} <span className="font-mono text-xs text-muted-foreground">{displayableCategory(h.category) ?? ""}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ol>
               )}
               <ol className="divide-y rounded-lg border text-sm" aria-label="Riwayat pengiriman" data-testid="shipment-timeline">
                 {shipmentTimeline(shipmentRow).map((t, i) => (
