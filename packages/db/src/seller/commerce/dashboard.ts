@@ -1,5 +1,7 @@
 import { and, eq, gte, lt, sql } from "drizzle-orm";
-import { order, orderLine, signalDestination, signalEvent, variant } from "../../schema.ts";
+import { order, orderFinancials, orderLine, orderSellerRefund, signalDestination, signalEvent, variant } from "../../schema.ts";
+import { paymentAttempt } from "../../payments/schema-payments.ts";
+import { storeMoneyMode } from "../../ledger/boundary.ts";
 import { requireCap, type SellerScope } from "../../platform/scoped.ts";
 import { SIGNAL_EVENTS, type SignalEventName } from "../../storefront/signals.ts";
 import { inStore } from "../../platform/tenant.ts";
@@ -18,6 +20,14 @@ import { inStore } from "../../platform/tenant.ts";
 //                        (a confirmed order that is cancelled later is in both rates)
 //   awaiting           = all COD orders in awaiting_confirmation/on_hold, any period:
 //                        a work-queue count, so an old unanswered order never hides
+//   test orders        = (T-107, ADR-0013 decision 11) created under a sandbox account: never in any
+//                        sales figure above or below; they stay in the work queue only
+//   collected (T-107)  = a store on its own accounts: orders PAID in the period (`paid_at`: a verified
+//                        or hand-confirmed prepaid payment, or a delivered COD parcel), grouped by method
+//                        (COD, QRIS, virtual account, other), each at the buyer's bill (order total plus
+//                        the fee the buyer bore). Paid straight into the seller's AutoLaris and Mengantar
+//                        accounts: a record, not a balance. Refunds the seller recorded in the period are
+//                        shown beside it, never netted silently.
 
 export const PERIODS = ["today", "7d", "30d"] as const;
 export type Period = (typeof PERIODS)[number];
@@ -26,6 +36,9 @@ export const PERIOD_DAYS: Record<Period, number> = { today: 1, "7d": 7, "30d": 3
 /** WIB is UTC+7 without daylight saving, so a fixed offset is exact. */
 const WIB_MS = 7 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The Asia/Jakarta calendar day (`YYYY-MM-DD`) of an instant. */
+const wibDate = (d: Date) => new Date(d.getTime() + WIB_MS).toISOString().slice(0, 10);
 
 /** Start of the current Asia/Jakarta calendar day, as an instant. */
 export function startOfJakartaDay(now: Date): Date {
@@ -54,6 +67,9 @@ export type DashboardKpi = {
 };
 export type FunnelStep = { event: SignalEventName; count: number };
 export type TopProduct = { productId: number; title: string; units: number; revenue: number };
+export type CollectedMethod = "cod" | "qris" | "va" | "other";
+export const COLLECTED_METHOD_LABEL: Record<CollectedMethod, string> = { cod: "COD (lewat Mengantar)", qris: "QRIS (lewat AutoLaris)", va: "Virtual account (lewat AutoLaris)", other: "Lainnya (lewat AutoLaris)" };
+export type Collected = { byMethod: { method: CollectedMethod; orders: number; amountIdr: number }[]; orders: number; totalIdr: number; refundedIdr: number; refunds: number };
 export type Dashboard = {
   period: Period;
   range: { from: Date; to: Date };
@@ -63,10 +79,13 @@ export type Dashboard = {
   funnel: { enabled: boolean; steps: FunnelStep[] };
   /** Top 5 by goods revenue; ties by units. */
   topProducts: TopProduct[];
+  /** T-107: money paid straight to the store's own accounts in the period; null for a store whose money the platform holds. */
+  collected: Collected | null;
 };
 
 const n = (expr: ReturnType<typeof sql>) => sql<number>`coalesce(${expr}, 0)`.mapWith(Number);
 const CANCELLED = sql`${order.status} = 'cancelled'`;
+const REAL = sql`not ${order.testOrder}`;
 
 export async function sellerDashboard(scope: SellerScope, period: Period, now = new Date()): Promise<Dashboard> {
   requireCap(scope, "orders.read");
@@ -89,7 +108,7 @@ export async function sellerDashboard(scope: SellerScope, period: Period, now = 
           codCancelled: n(sql`count(*) filter (where ${order.paymentMethod} = 'cod' and ${CANCELLED})`),
         })
         .from(order)
-        .where(and(mine, inPeriod(order.createdAt))),
+        .where(and(mine, inPeriod(order.createdAt), REAL)),
       scope.exec
         .select({ awaiting: n(sql`count(*)`) })
         .from(order)
@@ -115,7 +134,7 @@ export async function sellerDashboard(scope: SellerScope, period: Period, now = 
         .from(orderLine)
         .innerJoin(order, and(eq(order.storeId, orderLine.storeId), eq(order.id, orderLine.orderId)))
         .innerJoin(variant, and(eq(variant.storeId, orderLine.storeId), eq(variant.id, orderLine.variantId)))
-        .where(and(eq(orderLine.storeId, scope.storeId), mine, inPeriod(order.createdAt), sql`not ${CANCELLED}`))
+        .where(and(eq(orderLine.storeId, scope.storeId), mine, inPeriod(order.createdAt), sql`not ${CANCELLED}`, REAL))
         .groupBy(variant.productId)
         .orderBy(sql`sum(${orderLine.lineTotal}) desc, sum(${orderLine.quantity}) desc, ${variant.productId}`)
         .limit(5),
@@ -137,6 +156,46 @@ export async function sellerDashboard(scope: SellerScope, period: Period, now = 
       awaiting: queue!.awaiting,
       funnel: { enabled: dests.length > 0, steps: SIGNAL_EVENTS.map((event) => ({ event, count: byEvent.get(event) ?? 0 })) },
       topProducts: top,
+      collected: (await storeMoneyMode(scope.exec, scope.storeId)) === "seller_owned" ? await collectedIn(scope.exec, scope.storeId, range) : null,
     };
+  });
+}
+
+/**
+ * T-107: collected amounts by method for `[from, to)`; caller carries the store context (`inStore`). Seller-owned orders only, test orders never. The
+ * method of a prepaid order is the channel of its paid (else latest) attempt; a hand-confirmed order without an attempt is "other".
+ */
+export async function collectedIn(exec: SellerScope["exec"], storeId: number, range: { from: Date; to: Date }): Promise<Collected> {
+  const rows = (await exec.execute(sql`
+    select x.method, count(*)::int as orders, coalesce(sum(x.bill), 0)::bigint as amount from (
+      select case when o.payment_method = 'cod' then 'cod'
+                  else coalesce((select case when a.channel_code = 'QRIS' then 'qris' when a.channel_code like 'VA%' then 'va' else 'other' end
+                                   from ${paymentAttempt} a where a.store_id = o.store_id and a.order_id = o.id order by (a.status = 'paid') desc, a.attempt_no desc limit 1), 'other') end as method,
+             f.payable_idr + f.buyer_fee_idr as bill
+        from ${order} o join ${orderFinancials} f on f.store_id = o.store_id and f.order_id = o.id
+       where o.store_id = ${storeId} and f.money_mode = 'seller_owned' and not o.test_order
+         and o.paid_at >= ${range.from.toISOString()}::timestamptz and o.paid_at < ${range.to.toISOString()}::timestamptz
+    ) x group by x.method`)) as unknown as { method: CollectedMethod; orders: number; amount: string }[];
+  const [refunds] = await exec
+    .select({ n: n(sql`count(*)`), amountIdr: n(sql`sum(${orderSellerRefund.amountIdr})`) })
+    .from(orderSellerRefund)
+    .innerJoin(order, and(eq(order.storeId, orderSellerRefund.storeId), eq(order.id, orderSellerRefund.orderId)))
+    // Review nit: a refund belongs to the WIB day the seller paid it (`refunded_on`), not the day it was typed in.
+    .where(and(eq(orderSellerRefund.storeId, storeId), REAL, gte(orderSellerRefund.refundedOn, wibDate(range.from)), lt(orderSellerRefund.refundedOn, wibDate(range.to))));
+  const order_: CollectedMethod[] = ["cod", "qris", "va", "other"];
+  const byMethod = order_.map((method) => {
+    const r = rows.find((x) => x.method === method);
+    return { method, orders: Number(r?.orders ?? 0), amountIdr: Number(r?.amount ?? 0) };
+  }).filter((r) => r.orders > 0);
+  return { byMethod, orders: byMethod.reduce((a, r) => a + r.orders, 0), totalIdr: byMethod.reduce((a, r) => a + r.amountIdr, 0), refundedIdr: refunds!.amountIdr, refunds: refunds!.n };
+}
+
+/** T-107: the finance screen of a store on its own accounts (SC-25 replaced): collected by method over the last 30 days and all time. */
+export async function sellerCollected(scope: SellerScope, now = new Date()): Promise<{ last30: Collected; allTime: Collected } | null> {
+  requireCap(scope, "finance.read");
+  return inStore(scope, async (scope) => {
+    if ((await storeMoneyMode(scope.exec, scope.storeId)) !== "seller_owned") return null;
+    const last30 = periodRange("30d", now);
+    return { last30: await collectedIn(scope.exec, scope.storeId, last30), allTime: await collectedIn(scope.exec, scope.storeId, { from: new Date(0), to: last30.to }) };
   });
 }

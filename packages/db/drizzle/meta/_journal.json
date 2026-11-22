@@ -155,6 +155,13 @@
       "when": 1794825800553,
       "tag": "0021_t115_mengantar_lock",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1795372631744,
+      "tag": "0022_t107_money_boundary",
+      "breakpoints": true
     }
   ]
 }

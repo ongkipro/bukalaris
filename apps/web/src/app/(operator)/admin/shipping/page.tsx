@@ -51,6 +51,9 @@ export default async function AdminShippingPage({ searchParams }: PageProps<"/ad
     <section className="grid max-w-5xl gap-8">
       <PageHeader title="Margin ongkir dan akun pengiriman" description="Biaya kirim pembeli = biaya kurir + margin, dibulatkan ke atas. Semua perubahan harga memerlukan persetujuan orang kedua dan hanya berlaku untuk pesanan baru." />
       <Notice error={error} saved={saved} savedText={typeof saved === "string" ? SAVED[saved] : undefined} />
+      <p role="note" className="rounded-lg border border-dashed px-3 py-2.5 text-sm text-muted-foreground" data-testid="platform-held-only">
+        Margin, diskon dan cashback ongkir di halaman ini hanya berlaku untuk pengiriman lewat akun Bukalaris. Toko dengan akun Mengantar sendiri membayar tarif umum kurir tanpa margin, dan ongkosnya diselesaikan antara penjual dan Mengantar.
+      </p>
 
       <section aria-labelledby="gerbang" className="grid gap-2 rounded-lg border p-4" data-testid="provider-gate">
         <h2 id="gerbang" className="text-lg font-semibold">Gerbang akses penyedia</h2>

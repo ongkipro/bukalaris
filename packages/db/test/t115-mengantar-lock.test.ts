@@ -4,7 +4,9 @@ import { fileURLToPath } from "node:url";
 import { and, eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { issueSellerStepUp } from "../src/ledger/stepup.ts";
-import { FakeProviderCheck, saveProviderKey, setProviderCheckTransport, shippingReadiness } from "../src/payments/provider-accounts.ts";
+import { FakeProviderCheck, saveProviderKey, setPaymentAccountDetails, setProviderCheckTransport, shippingReadiness } from "../src/payments/provider-accounts.ts";
+import { paymentAttempt, storePaymentAccount } from "../src/payments/schema-payments.ts";
+import { confirmPaymentByHand } from "../src/payments/seller.ts";
 import { bindSession, type SellerScope } from "../src/platform/scoped.ts";
 import { withStore } from "../src/platform/tenant.ts";
 import { runOnce } from "../src/ops/jobs/jobs.ts";
@@ -70,12 +72,26 @@ const orderOf = async (orderId: number) => (await platform.select().from(order).
 const trackJobs = async (orderId: number) => (await platform.select().from(job).where(and(eq(job.kind, SHIPMENT_TRACK), sql`${job.payload}->>'orderId' = ${String(orderId)}`)));
 const pendingTrackJobs = async () => platform.select().from(job).where(and(eq(job.kind, SHIPMENT_TRACK), eq(job.status, "pending")));
 
+/**
+ * T-107 (ADR-0013 section 8, Ceiling T-106-1 closed for it): a store on its own Mengantar account takes QRIS/VA only on its OWN AutoLaris account,
+ * so a prepaid order here first connects one (fake, sandbox) and is confirmed by the owner by hand (decision 24) instead of the bare "pay".
+ */
+async function ownAutoLaris(s: Own) {
+  if ((await admin.select({ id: storePaymentAccount.id }).from(storePaymentAccount).where(eq(storePaymentAccount.storeId, s.storeId))).length > 0) return;
+  await saveProviderKey(s.me, { provider: "autolaris", environment: "sandbox", apiKey: `CANARY-T115-AUTOLARIS-${s.storeId}-0123456789abcdef`, proofId: await issueSellerStepUp(s.me, { action: "integrations.provider_key", subjectId: "autolaris" }) });
+  await setPaymentAccountDetails(s.me, { originAreaId: "3517100", destinationAreaId: "3518010", shipperEmail: `store-${s.storeId}@example.invalid`, senderAddress: "Jl. Braga No. 1, Bandung 40111", paymentOnlyConfirmed: true });
+}
 async function paidOrder(s: Own, paymentMethod: "manual_transfer" | "cod" = "manual_transfer") {
+  if (paymentMethod !== "cod") await ownAutoLaris(s);
   const cart = await setCartLine(s.sf, undefined, { variantId: s.variantId, quantity: 1 }, "add");
   const quote = await shippingOptions(s.sf, DESTINATION.destinationAreaId, { lines: [{ quantity: 1, weightGrams: 1000 }], subtotal: 100_000 });
   const { orderId } = await placeOrder(db, cart, buyer({ paymentMethod, shippingQuote: formatShippingQuote(quote.options), courier: "JNE" }));
   await run("setup");
-  await transitionOrder(s.owner, orderId, paymentMethod === "cod" ? "confirm" : "pay");
+  if (paymentMethod === "cod") await transitionOrder(s.owner, orderId, "confirm");
+  else {
+    const [a] = await admin.select({ id: paymentAttempt.id }).from(paymentAttempt).where(eq(paymentAttempt.orderId, orderId));
+    await confirmPaymentByHand(s.me, { attemptId: a!.id, reason: "uang masuk di mutasi", evidence: `MUT-${orderId}` });
+  }
   return orderId;
 }
 

@@ -63,6 +63,8 @@ export async function reserveShippingCost(db: Db, input: { storeId: number; orde
     const [o] = await tx.select({ status: order.status, method: order.paymentMethod }).from(order).where(and(eq(order.storeId, storeId), eq(order.id, orderId))).for("update");
     const [fin] = await tx.select().from(orderFinancials).where(and(eq(orderFinancials.storeId, storeId), eq(orderFinancials.orderId, orderId)));
     if (!o || !fin || !["placed", "processing"].includes(o.status)) return { outcome: "refused", reason: "not_bookable" } as const;
+    // T-107: an order paid to the seller's own accounts is never booked on a platform shipping account (no debit, no margin); the database refuses the row too.
+    if (fin.moneyMode === "seller_owned") return { outcome: "refused", reason: "not_bookable" } as const;
     await lockStore(tx, storeId);
     const [existing] = await tx.select().from(shipmentCost).where(and(eq(shipmentCost.storeId, storeId), eq(shipmentCost.orderId, orderId)));
     if (existing) {

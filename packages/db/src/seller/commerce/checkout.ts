@@ -7,13 +7,19 @@ import { MengantarError } from "../../shipping/mengantar/client.ts";
 import { enqueueOrderNotifications } from "../../ops/jobs/notify.ts";
 import { type PaymentAdapter, type Providers, type ShippingAdapter } from "../../payments/providers.ts";
 import { createOrderPaymentAttempt } from "../../payments/attempts.ts";
-import { assertChannelStillOffered, paymentPlan, pickStorePaymentChannel, storePaymentMethods, type StorePaymentMethods } from "../../payments/seller.ts";
+import { assertChannelStillOffered, currentFeeSchedule, paymentPlan, pickStorePaymentChannel, storePaymentMethods, type StorePaymentMethods } from "../../payments/seller.ts";
+import { COD_FEE_CODE, paymentFee, type FeeSchedule } from "../../payments/contract.ts";
+import { storePaymentAccount } from "../../payments/schema-payments.ts";
+import { storeShippingSetting } from "../../shipping/schema-shipping.ts";
+import { isBoundaryRefusal, storeMoneyMode, type MoneyMode } from "../../ledger/boundary.ts";
+import type { SellerOwnedMoney } from "../../ledger/ledger.ts";
 import { orderPaymentView } from "../../payments/view.ts";
 import { buyerFingerprint } from "../../buyer/fingerprint.ts";
 import { enqueueBuyerResolve } from "../../buyer/jobs.ts"; // registers the buyer.resolve handler and policy (T-57)
 import { phoneLookupKey } from "../../buyer/normalize.ts";
 import { checkoutPromotions, recordPromotionRedemptions, VOUCHER_REDEEM_LIMITS } from "../../promotions/checkout.ts";
 import { writeOrderFinancials } from "../../ledger/ledger.ts";
+import { orderFinancials } from "../../ledger/schema-ledger.ts";
 import { CLICK_ID_RE } from "../../affiliate/code.ts";
 import { planAffiliateCommission, recordAffiliateAttribution, usableTypedCode } from "../../affiliate/referral.ts";
 import { CLICK_COOKIE_MAX_IDS } from "../../affiliate/settings.ts";
@@ -22,7 +28,7 @@ import { cart, cartLine, checkoutSession, order, orderLine, product, rateLimit, 
 import { resolveCartStore } from "../../platform/resolvers.ts";
 import { hit, type LimitRule } from "../../platform/rate-limit.ts";
 import { DomainError, storefrontScope, type StorefrontScope } from "../../platform/scoped.ts";
-import { defaultProviders, defaultShippingAdapter, shippingOptions, type CartForShipping } from "../../shipping/shipping.ts";
+import { defaultProviders, defaultShippingAdapter, SHIPPING_NOT_READY_MESSAGE, shippingOptions, type CartForShipping } from "../../shipping/shipping.ts";
 import { chosenShippingFee, searchSellerAreas, sellerAccount, SHIPPING_QUOTE_RE } from "../../shipping/rules.ts";
 import { withStore } from "../../platform/tenant.ts";
 
@@ -153,9 +159,46 @@ async function providerGuard<T>(fn: () => Promise<T>): Promise<T> {
  * Channels the buyer of this store may pay with (T-106, ADR-0013 section 4): the provider's own `list_payment` answer (absence = disabled,
  * never probed through `create_payment`) on the store's own key when it has its AutoLaris account, narrowed to channels the fee schedule
  * prices, minus platform locks and seller exclusions; COD is a separate payment method. `placeOrder` checks the same function again.
+ * T-107: a store on its own accounts never pays into the platform account (ADR-0013 section 8; closes Ceiling T-106-1 for it), and the page
+ * learns what the COD fee costs the buyer (`codFee`, decisions 17 to 19).
  */
-export function checkoutPaymentChannels(exec: Executor, storeId: number, adapter: PaymentAdapter = defaultProviders().payment): Promise<StorePaymentMethods> {
-  return storePaymentMethods(exec, storeId, adapter);
+export async function checkoutPaymentChannels(exec: Executor, storeId: number, adapter: PaymentAdapter = defaultProviders().payment): Promise<StorePaymentMethods & { codFee: CodFeeTerms | null }> {
+  const [methods, mode] = await Promise.all([storePaymentMethods(exec, storeId, adapter), withStore(exec, storeId, (tx) => storeMoneyMode(tx, storeId))]);
+  if (mode !== "seller_owned") return { ...methods, codFee: null };
+  const bearers = await withStore(exec, storeId, (tx) => feeBearers(tx, storeId));
+  return { ...(methods.account ? methods : { ...methods, channels: [] }), codFee: codFeeTerms(methods.schedule, bearers.cod) };
+}
+
+/** T-107: the COD fee as the buyer sees it before ordering: who bears it and the rate (the amount follows from the order total). */
+export type CodFeeTerms = { bearer: "buyer" | "seller"; base: "goods_omset" | "payable" | "flat"; rateBps: number; fixedIdr: number };
+const codFeeTerms = (schedule: FeeSchedule, bearer: "buyer" | "seller"): CodFeeTerms | null => {
+  const r = Object.hasOwn(schedule.rates, COD_FEE_CODE) ? schedule.rates[COD_FEE_CODE]! : null;
+  return r ? { bearer, base: r.base, rateBps: r.rateBps, fixedIdr: r.fixedIdr } : null;
+};
+/**
+ * The exact COD fee the buyer pays on a COD order (goods after discount `goodsOmset`, order total `payable`); 0 when the seller bears it. The same
+ * schedule row and formula `sellerOwnedMoney` freezes at submit.
+ */
+export function buyerCodFee(t: CodFeeTerms | null, goodsOmset: number, payable: number): number {
+  if (!t || t.bearer !== "buyer") return 0;
+  return paymentFee({ version: 0, rates: { [COD_FEE_CODE]: { base: t.base, rateBps: t.rateBps, fixedIdr: t.fixedIdr } } }, COD_FEE_CODE, goodsOmset, payable);
+}
+/** One line for the checkout and the confirmation: "Biaya COD 3% dari total belanja dan ongkir" or "Tanpa biaya COD tambahan". */
+export function codFeeLabel(t: CodFeeTerms): string {
+  if (t.bearer === "seller") return "Tanpa biaya COD tambahan";
+  const pct = (t.rateBps / 100).toLocaleString("id-ID", { maximumFractionDigits: 2 });
+  const fixed = t.fixedIdr > 0 ? `Rp${t.fixedIdr.toLocaleString("id-ID")}` : "";
+  const part = t.base === "flat" ? fixed : `${pct}% dari ${t.base === "goods_omset" ? "nilai belanja" : "total belanja dan ongkir"}${fixed ? ` + ${fixed}` : ""}`;
+  return `Biaya COD ${part}, dibayar ke kurir (jumlah pastinya tertera di pilihan kurir)`;
+}
+
+/** The store's two fee settings (decision 18) inside the caller's store context; `buyer` when the store never saved one. */
+async function feeBearers(tx: Executor, storeId: number): Promise<{ payment: "buyer" | "seller"; cod: "buyer" | "seller" }> {
+  const [[p], [c]] = await Promise.all([
+    tx.select({ b: storePaymentAccount.feeBearer }).from(storePaymentAccount).where(eq(storePaymentAccount.storeId, storeId)),
+    tx.select({ b: storeShippingSetting.codFeeBearer }).from(storeShippingSetting).where(eq(storeShippingSetting.storeId, storeId)),
+  ]);
+  return { payment: p?.b ?? "buyer", cod: c?.b ?? "buyer" };
 }
 
 /**
@@ -319,6 +362,11 @@ export async function placeOrder(
       const [st] = await tx.select({ status: store.status }).from(store).where(eq(store.id, storeId)).for("share");
       if (st?.status !== "active") throw new DomainError("store_unavailable", "Toko sedang tidak menerima pesanan.");
       if (picked) await assertChannelStillOffered(tx, storeId, picked.channel.code, picked.methods.account?.id ?? null);
+      // T-107 (ADR-0013 section 8; review minor 7): the money mode is read inside the order transaction, where the snapshot freezes it. A store on its
+      // own accounts never takes a payment into the platform account nor ships on a platform account (the database refuses both rows too).
+      const mode: MoneyMode = await storeMoneyMode(tx, storeId);
+      if (mode === "seller_owned" && picked && !picked.methods.account) throw new DomainError("payment_channel", "Metode pembayaran tidak tersedia. Pilih metode lain.");
+      if (mode === "seller_owned" && quote.shippingAccountKind !== "seller_owned") throw new DomainError("shipping_not_ready", SHIPPING_NOT_READY_MESSAGE);
 
       const lines = await cartLines(tx, storeId, cartId);
       if (lines.length !== preview.length) throw new DomainError("cart_changed", "Keranjang berubah. Silakan ulangi.");
@@ -389,9 +437,14 @@ export async function placeOrder(
       // T-52 / BILL-8: attribute the order (typed code, else the latest eligible click of this store) and deduct the single-floor commission from the seller's sale. The
       // buyer's payable and every allocation line are untouched; a bad or ineligible selector earns nothing and never fails the order.
       const referral = { code: typedCode, clickIds };
-      const plan = await planAffiliateCommission(tx, { storeId, orderId: o.id, productIds: lines.map((l) => l.productId), finance, referral });
+      // T-107: a seller-owned order carries no platform affiliate deduction (the store programme with membership is T-108); the seller nets the full sale.
+      const plan = mode === "seller_owned" ? null : await planAffiliateCommission(tx, { storeId, orderId: o.id, productIds: lines.map((l) => l.productId), finance, referral });
+      // T-107 (decision 18): the store's two bearers read inside the order transaction; the prepaid plan and the frozen snapshot use the same ones.
+      const bearers = mode === "seller_owned" ? await feeBearers(tx, storeId) : null;
+      const methods = picked && bearers && picked.methods.account ? { ...picked.methods, account: { ...picked.methods.account, feeBearer: bearers.payment } } : picked?.methods;
       // T-106: the fee decision (bearer, rate version, amounts) is frozen with the order.
-      const pay = picked ? paymentPlan(picked.methods, picked.channel.code, subtotal - finance.goodsDiscount, finance.payable) : null;
+      const pay = picked && methods ? paymentPlan(methods, picked.channel.code, subtotal - finance.goodsDiscount, finance.payable) : null;
+      const money = bearers ? await sellerOwnedMoney(tx, bearers, pay, input.paymentMethod, subtotal - finance.goodsDiscount, finance.payable) : undefined;
       await writeOrderFinancials(tx, {
         storeId,
         orderId: o.id,
@@ -400,6 +453,7 @@ export async function placeOrder(
         variantIds: lines.map((l) => l.variantId),
         expectedGatewayFeeIdr: pay?.expectedFeeIdr ?? 0,
         affiliate: plan ? { affiliateId: plan.affiliateId, ratesBps: plan.ratesBps } : undefined,
+        money,
       });
       if (plan) await recordAffiliateAttribution(tx, { storeId, orderId: o.id, referral });
       await recordPromotionRedemptions(tx, storeId, o.id, promotion);
@@ -429,6 +483,8 @@ export async function placeOrder(
     const raced = err instanceof Replay || (err instanceof DomainError && err.code === "cart_changed");
     // Wave 4 review: a concurrent duplicate of the SAME request (one idempotency key, a double click) waits on the first one's voucher or flash counter
     // and then finds it spent. That loser must get the existing order back, not a refusal; a real second buyer has no order of this cart/key and still gets the refusal.
+    // T-107 review minor 7: a store that switched to its own accounts while this order was being placed: the boundary guard refused the row.
+    if (isBoundaryRefusal(err)) throw new DomainError("store_changed", "Pengaturan pembayaran toko baru saja berubah. Muat ulang halaman checkout dan pilih lagi.");
     const counterLoser = err instanceof DomainError && (err.code === "voucher_unavailable" || err.code === "flash_stock");
     if (!raced && !counterLoser) throw err;
     // Lost a race on (store_id, idempotency_key) or cart_id, or the cart was emptied
@@ -440,6 +496,29 @@ export async function placeOrder(
   }
 
   return { orderId, replayed: false };
+}
+
+/**
+ * T-107 (ADR-0013 decisions 17 to 19): what a seller-owned snapshot freezes. Prepaid: the gateway fee of the plan (bearer `buyer` = added to the
+ * bill on the attempt). COD: the provider COD fee from the schedule in force, on the order total before the fee; with bearer `buyer` the courier
+ * collects the order total plus that fee, with `seller` the order total. Bukalaris adds no margin and books no VAT of its own (C-P7).
+ */
+async function sellerOwnedMoney(tx: Executor, bearers: { payment: "buyer" | "seller"; cod: "buyer" | "seller" }, pay: { expectedFeeIdr: number; feeRateVersion: number } | null, method: "cod" | "manual_transfer", goodsOmset: number, payable: number): Promise<SellerOwnedMoney> {
+  if (method === "manual_transfer") {
+    const fee = pay?.expectedFeeIdr ?? 0;
+    return { mode: "seller_owned", paymentFeeBearer: bearers.payment, codFeeBearer: bearers.cod, expectedCodFeeIdr: 0, buyerFeeIdr: bearers.payment === "buyer" ? fee : 0, feeRateVersion: pay?.feeRateVersion ?? (await currentFeeSchedule(tx)).version };
+  }
+  const schedule = await currentFeeSchedule(tx);
+  const codFee = paymentFee(schedule, COD_FEE_CODE, goodsOmset, payable);
+  return { mode: "seller_owned", paymentFeeBearer: bearers.payment, codFeeBearer: bearers.cod, expectedCodFeeIdr: codFee, buyerFeeIdr: bearers.cod === "buyer" ? codFee : 0, feeRateVersion: schedule.version };
+}
+
+/** T-107: the buyer's bill of an order (order total plus the fee whose bearer is the buyer) and the COD fee part of it, for the buyer's pages. */
+export async function orderBill(tx: Executor, storeId: number, orderId: number): Promise<{ mode: MoneyMode; codFeeIdr: number; billIdr: number } | null> {
+  const [f] = await tx.select({ mode: orderFinancials.moneyMode, payable: orderFinancials.payableIdr, buyerFee: orderFinancials.buyerFeeIdr, expectedCod: orderFinancials.expectedCodFeeIdr, codBearer: orderFinancials.codFeeBearer })
+    .from(orderFinancials).where(and(eq(orderFinancials.storeId, storeId), eq(orderFinancials.orderId, orderId)));
+  if (!f) return null;
+  return { mode: f.mode, codFeeIdr: f.codBearer === "buyer" ? f.expectedCod : 0, billIdr: f.payable + f.buyerFee };
 }
 
 /** Order outcome for the buyer who owns the checked-out cart (an order id alone grants nothing). */
@@ -475,7 +554,7 @@ export async function getBuyerOrder(exec: Executor, orderId: number, cartId: str
       .from(orderLine)
       .where(and(eq(orderLine.storeId, o.storeId), eq(orderLine.orderId, o.id)))
       .orderBy(asc(orderLine.variantId));
-    return { ...o, lines, payment: await orderPaymentView(tx, o.storeId, o.id) };
+    return { ...o, lines, payment: await orderPaymentView(tx, o.storeId, o.id), bill: await orderBill(tx, o.storeId, o.id) };
   });
 }
 
@@ -502,5 +581,11 @@ export async function checkoutPromotionPreview(exec: Executor, cartId: string | 
   const scope = (await storefrontScope(exec, summary.store.slug))!;
   const quote = await checkoutShippingOptions(scope, input.destinationAreaId, { lines: summary.lines, subtotal: summary.subtotal }, undefined, ctx);
   const fee = chosenShippingFee(quote.options, input.courier, input.paymentMethod);
-  return withStore(exec, summary.storeId, async (tx) => (await checkoutPromotions(tx, summary.storeId, summary.lines, fee, input.voucherCode, input.buyerPhone, false)).finance);
+  return withStore(exec, summary.storeId, async (tx) => {
+    const finance = (await checkoutPromotions(tx, summary.storeId, summary.lines, fee, input.voucherCode, input.buyerPhone, false)).finance;
+    // T-107 review minor 1: the COD fee the buyer bears is part of what the preview shows; the same formula freezes it at submit.
+    if (input.paymentMethod !== "cod" || (await storeMoneyMode(tx, summary.storeId)) !== "seller_owned") return { ...finance, codFeeIdr: 0 };
+    const terms = codFeeTerms(await currentFeeSchedule(tx), (await feeBearers(tx, summary.storeId)).cod);
+    return { ...finance, codFeeIdr: buyerCodFee(terms, finance.subtotal - finance.goodsDiscount, finance.payable) };
+  });
 }

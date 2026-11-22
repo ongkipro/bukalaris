@@ -8,7 +8,7 @@ import { verifyOrderLink } from "../ops/jobs/notify.ts";
 import { applyProviderTransition, applyTransition, PROVIDER_ACTOR } from "../seller/commerce/orders.ts";
 import { requoteOrder, reserveShippingCost, reverseShippingReservation } from "../ledger/booking.ts";
 import { codAllowedCouriers } from "./shipping.ts";
-import { auditLog, membership, order, ORDER_STATUS_LABEL, orderLine, orderRedaction, shipment, SHIPMENT_STATUS_LABEL, user, type OrderStatus, type ShipmentStatus, type TrackingEvent } from "../schema.ts";
+import { auditLog, membership, order, orderFinancials, ORDER_STATUS_LABEL, orderLine, orderRedaction, shipment, SHIPMENT_STATUS_LABEL, user, type OrderStatus, type ShipmentStatus, type TrackingEvent } from "../schema.ts";
 import { shipmentStatusEvent, shippingForeignParcel, type ProviderFigures } from "./schema-fulfillment.ts";
 import { PICKUP_TYPES } from "./schema-fulfillment.ts";
 import { categoryKey, categoryLabel, forwardRank, PARCEL_STATE_MAP, parcelStateOf, shipmentStatusOf, storableCategory } from "./parcel-state.ts";
@@ -169,7 +169,9 @@ export async function bookShipment(scope: SellerScope, orderId: number, raw: unk
           originAreaId: o.originAreaId,
           destinationAreaId: o.destinationAreaId,
           weightKg: o.weightKg,
-          codAmount: o.paymentMethod === "cod" ? o.total : 0,
+          // T-107 (ADR-0013 decisions 17 and 18): on the store's own account the courier collects the buyer's bill: the order total plus the COD fee when
+          // the buyer bears it (frozen in the order snapshot); on a platform account the ADR-0006 amount (`payable`) is unchanged.
+          codAmount: o.paymentMethod === "cod" ? o.total + (own ? await buyerCodFee(tx, scope.storeId, orderId) : 0) : 0,
           pickupType,
         })
         .returning({ id: shipment.id });
@@ -334,11 +336,20 @@ export async function getShipmentForLink(exec: Executor, token: string, now = Da
   return s ?? null;
 }
 
+/** T-107: the COD fee the buyer pays on top of the order total (bearer `buyer` of a seller-owned snapshot), else 0. */
+async function buyerCodFee(tx: Executor, storeId: number, orderId: number): Promise<number> {
+  const [f] = await tx.select({ fee: orderFinancials.expectedCodFeeIdr, bearer: orderFinancials.codFeeBearer }).from(orderFinancials).where(and(eq(orderFinancials.storeId, storeId), eq(orderFinancials.orderId, orderId)));
+  return f?.bearer === "buyer" ? f.fee : 0;
+}
+
 export type TimelineItem = { at: Date | string; text: string };
-/** Local milestones (requested, booked, delivered) followed by the provider's own history lines (WIB strings as given). */
-export function shipmentTimeline(s: { createdAt: Date; bookedAt: Date | null; deliveredAt: Date | null; trackingHistory: TrackingEvent[]; status: ShipmentStatus }): TimelineItem[] {
+/**
+ * Local milestones (requested, booked, delivered) followed by the provider's own history lines (WIB strings as given). `carrier` names who issued
+ * the waybill: the seller's own account is named Mengantar on seller screens (ADR-0013 section 8, T-107); the platform-managed one stays white-label.
+ */
+export function shipmentTimeline(s: { createdAt: Date; bookedAt: Date | null; deliveredAt: Date | null; trackingHistory: TrackingEvent[]; status: ShipmentStatus }, carrier = "Bukalaris Kirim"): TimelineItem[] {
   const items: TimelineItem[] = [{ at: s.createdAt, text: "Booking diminta" }];
-  if (s.bookedAt) items.push({ at: s.bookedAt, text: "Resi terbit dari Bukalaris Kirim" });
+  if (s.bookedAt) items.push({ at: s.bookedAt, text: `Resi terbit dari ${carrier}` });
   for (const h of s.trackingHistory) items.push({ at: h.at, text: mapProviderStatus(h.desc)?.label ?? scrubProviderText(h.desc) });
   if (s.deliveredAt) items.push({ at: s.deliveredAt, text: SHIPMENT_STATUS_LABEL.delivered });
   return items;

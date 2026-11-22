@@ -137,12 +137,22 @@ test("a store's own Mengantar account: a used account is refused, the dedicated 
     const ctx = await sellerContext(app, ${JSON.stringify(ids.userId)});
     if (!ctx.ok) throw new Error(ctx.reason);
     await saveCourierRules(ctx.scope, { couriers: [{ courierCode: "JNE", enabled: true, codEnabled: false }] });
+    // T-107 (Ceiling T-106-1 closed for it): QRIS/VA of a store on its own Mengantar account run on its OWN AutoLaris account (sandbox fake, ready).
+    const { sealCredential, keyFingerprint, keyHint } = await import("./src/shipping/credentials.ts");
+    const pkey = "E2E-T115-OWN-AUTOLARIS-" + Date.now() + "-0123456789";
+    const [acc] = await admin.$client.unsafe("insert into store_payment_account (store_id, environment, status) values ($1, 'sandbox', 'needs_key') returning id", [${ids.storeId}]);
+    const sealed = sealCredential("payment_credentials", pkey, ${ids.storeId}, Number(acc.id), "autolaris");
+    await admin.$client.unsafe("update store_payment_account set sealed_key = $1, key_id = $2, sealed_at = now(), key_fingerprint = $3, key_hint = $4, status = 'active', last_result = 'ready', last_checked_at = now(), origin_area_id = '3517100', destination_area_id = '3518010', shipper_email = 'toko-t115@example.invalid', sender_address = 'Jl. Braga No. 1, Bandung 40111', payment_only_confirmed_at = now(), payment_only_confirmed_by = $5 where id = $6",
+      [sealed.sealedKey, sealed.keyId, keyFingerprint("payment_credentials", pkey), keyHint(pkey), ${JSON.stringify(ids.userId)}, acc.id]);
     const sf = await storefrontScope(app, ${JSON.stringify(store.slug)});
     const [v] = await admin.$client.unsafe("select id from variant where store_id = ${ids.storeId} limit 1");
     const cart = await setCartLine(sf, undefined, { variantId: Number(v.id), quantity: 1 }, "add");
     const quote = await shippingOptions(sf, "b1b1b1b1b1b1b1b1b1b1b1b1", { lines: [{ quantity: 1, weightGrams: 1000 }], subtotal: 100000 });
     const { orderId } = await placeOrder(app, cart, { idempotencyKey: crypto.randomUUID(), buyerName: "Budi Santoso", buyerPhone: "081234567890", shippingAddress: "Jl. Merdeka No. 1, Jakarta", destinationAreaId: "b1b1b1b1b1b1b1b1b1b1b1b1", destinationAreaLabel: "Menteng, Menteng, Jakarta Pusat, DKI Jakarta 10310", courier: "JNE", paymentMethod: "manual_transfer", paymentChannel: "VABCA", shippingQuote: formatShippingQuote(quote.options) });
-    await transitionOrder(ctx.scope, orderId, "pay");
+    // T-107: a prepaid order of a store on its own accounts is confirmed by the owner by hand on the attempt (no bare "pay").
+    const { confirmPaymentByHand } = await import("./src/payments/seller.ts");
+    const [a] = await admin.$client.unsafe("select id from payment_attempt where order_id = $1", [orderId]);
+    await confirmPaymentByHand(ctx.scope, { attemptId: a.id, reason: "uang masuk di mutasi AutoLaris", evidence: "MUT-" + orderId });
     return orderId;
   `);
   const orderPath = `/seller/orders/${orderId}`;
@@ -184,6 +194,11 @@ test("a store's own Mengantar account: a used account is refused, the dedicated 
   await expect(page.getByTestId("sync-state")).toHaveText("Sinkron");
 
   // 7. Mengantar's balance and invoices: read by the account scan on the store's key, shown read-only with the read time.
+  // The scheduled scan reads a never-scanned store at its next sweep, which can land before this step: start from "not read" with a fresh scan time
+  // (the sweep then waits ACCOUNT_SCAN_EVERY_MS) and no queued scan, so only the seller's request below reads the account.
+  q(`await admin.$client.unsafe("delete from job where kind = 'shipping.account_scan' and store_id = ${ids.storeId} and status = 'pending'");
+    await admin.$client.unsafe("update store_shipping_sync set account_read_at = null, balance_idr = null, invoices = '[]'::jsonb, last_scan_at = now() where store_id = ${ids.storeId}");`);
+  await page.goto(PAGE);
   await expect(page.getByTestId("mengantar-not-read")).toBeVisible();
   await page.getByRole("button", { name: "Periksa akun sekarang" }).click();
   await expect(status(page)).toContainText("Pemeriksaan akun Mengantar diminta");

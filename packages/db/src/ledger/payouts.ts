@@ -11,6 +11,7 @@ import { assertPayoutsNotFrozen, frozenOr, payoutFreeze, payoutHoldHours } from 
 import { ledgerBalance, lockStore } from "./ledger.ts";
 import { CONSOLE_QUEUE_LIMIT, MIN_PAYOUT_IDR, STATEMENT_PAGE } from "./settings.ts";
 import { consumeSellerStepUp } from "./stepup.ts";
+import { assertPlatformHeldStore } from "./boundary.ts";
 import type { TransferKind } from "./transfer.ts";
 
 // Seller payouts (ADR-0006 decision 5, BILL-5, UX-14, D-19). The store OWNER (capability `finance.payout`) requests a payout above `MIN_PAYOUT_IDR` to an
@@ -38,6 +39,7 @@ export async function setPayoutDestination(scope: SellerScope, input: { proofId:
   requireCap(scope, "finance.payout");
   const bank = bankInput.parse({ bankCode: input.bankCode, accountNumber: input.accountNumber, accountHolderName: input.accountHolderName });
   const out = await withStore(scope.exec, scope.storeId, async (tx) => {
+    await assertPlatformHeldStore(tx, scope.storeId); // T-107: the seller is paid by their own providers; no payout destination exists
     await lockStore(tx, scope.storeId);
     await consumeSellerStepUp(tx, scope, input.proofId, { action: "payout.destination", subjectId: String(scope.storeId) });
     const holdHours = await payoutHoldHours(tx);
@@ -100,6 +102,7 @@ export async function requestPayout(scope: SellerScope, raw: unknown): Promise<P
   if (input.amountIdr < MIN_PAYOUT_IDR) throw new DomainError("below_minimum", `Penarikan minimal Rp${MIN_PAYOUT_IDR.toLocaleString("id-ID")}.`);
   try {
     return await withStore(scope.exec, scope.storeId, async (tx) => {
+      await assertPlatformHeldStore(tx, scope.storeId); // T-107 (ADR-0013 section 8): no balance and no payout for a store on its own accounts, by rule
       await lockStore(tx, scope.storeId);
       const [first] = await tx.select({ id: payout.id }).from(payout).where(and(eq(payout.storeId, scope.storeId), eq(payout.requestKey, input.requestKey)));
       if (first) return { payoutId: first.id, replayed: true };

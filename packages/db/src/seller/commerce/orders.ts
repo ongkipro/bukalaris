@@ -1,8 +1,10 @@
 import { and, asc, desc, eq, isNotNull, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Executor } from "../../client.ts";
-import { enqueueOrderNotifications } from "../../ops/jobs/notify.ts";
-import { auditLog, order, orderLine, ORDER_STATUS_LABEL, ORDER_STATUSES, orderStatusHistory, product, stockAdjustment, user, variant, type OrderStatus } from "../../schema.ts";
+import { enqueueOrderNotifications, verifyOrderLink } from "../../ops/jobs/notify.ts";
+import { resolveOrderStore } from "../../platform/resolvers.ts";
+import { withStore } from "../../platform/tenant.ts";
+import { auditLog, order, orderFinancials, orderLine, orderSellerRefund, ORDER_STATUS_LABEL, ORDER_STATUSES, orderStatusHistory, product, SELLER_REFUND_METHODS, stockAdjustment, user, variant, type OrderStatus } from "../../schema.ts";
 import { bookCodSale, settleTerminalOrder } from "../../ledger/ledger.ts";
 import { phoneMatches } from "../../buyer/normalize-sql.ts";
 import { orderPaymentView } from "../../payments/view.ts";
@@ -10,7 +12,7 @@ import { paymentAttempt } from "../../payments/schema-payments.ts";
 import { DomainError, requireCap, type SellerScope } from "../../platform/scoped.ts";
 import { enqueuePurchase } from "../../storefront/signals.ts";
 import { inStore } from "../../platform/tenant.ts";
-export { ORDER_STATUS_LABEL, ORDER_STATUSES, type OrderStatus } from "../../schema.ts";
+export { ORDER_STATUS_LABEL, ORDER_STATUSES, SELLER_REFUND_METHODS, type OrderStatus } from "../../schema.ts";
 
 // Seller orders (SC-12/SC-13) and inventory (SC-04). Q-10 is still open; the
 // defaults taken here are recorded in docs/tracks/orders.md and checkout2.md.
@@ -110,7 +112,103 @@ export async function getOrder(scope: SellerScope, orderId: number) {
     const payment = await orderPaymentView(scope.exec, scope.storeId, orderId);
     // T-106: an order on the store's own AutoLaris account is confirmed on the payments screen (reason and evidence), never by the bare "pay" action.
     const actions = allowedActions(o.status).filter((a) => a !== "pay" || !payment?.sellerAccount);
-    return { ...safe, lines, history, payment, actions, risk };
+    return { ...safe, lines, history, payment, actions, risk, money: await orderMoney(scope.exec, scope.storeId, orderId) };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// T-107 money record of an order (ADR-0013 sections 5 and 8, decisions 18 and 26, C-P9). For an order paid to the seller's own accounts Bukalaris
+// keeps a written record only: the bill, who bore which fee, and the refunds the seller made outside Bukalaris and recorded here.
+// ---------------------------------------------------------------------------
+
+export const SELLER_REFUND_METHOD_LABEL: Record<(typeof SELLER_REFUND_METHODS)[number], string> = {
+  bank_transfer: "Transfer bank",
+  autolaris: "Lewat AutoLaris",
+  cash: "Tunai",
+  other: "Lainnya",
+};
+export type OrderMoney = {
+  mode: "platform_held" | "seller_owned";
+  /** What the buyer is billed: order total plus the fee the buyer bears (gateway on the attempt, or the COD fee the courier collects). */
+  billIdr: number;
+  buyerFeeIdr: number;
+  paymentFeeBearer: "buyer" | "seller" | null;
+  codFeeBearer: "buyer" | "seller" | null;
+  expectedGatewayFeeIdr: number;
+  expectedCodFeeIdr: number;
+  refunds: { id: number; amountIdr: number; refundedOn: string; method: (typeof SELLER_REFUND_METHODS)[number]; reference: string | null; reason: string; recordedBy: string | null; createdAt: Date }[];
+  refundedIdr: number;
+};
+
+/** The order's frozen money record and its recorded seller refunds. Caller carries the store context. */
+export async function orderMoney(tx: Executor, storeId: number, orderId: number): Promise<OrderMoney | null> {
+  const [f] = await tx.select().from(orderFinancials).where(and(eq(orderFinancials.storeId, storeId), eq(orderFinancials.orderId, orderId)));
+  if (!f) return null;
+  const refunds = await tx
+    .select({ id: orderSellerRefund.id, amountIdr: orderSellerRefund.amountIdr, refundedOn: orderSellerRefund.refundedOn, method: orderSellerRefund.method, reference: orderSellerRefund.reference, reason: orderSellerRefund.reason, recordedBy: user.name, createdAt: orderSellerRefund.createdAt })
+    .from(orderSellerRefund)
+    .leftJoin(user, eq(user.id, orderSellerRefund.recordedByUserId))
+    .where(and(eq(orderSellerRefund.storeId, storeId), eq(orderSellerRefund.orderId, orderId)))
+    .orderBy(asc(orderSellerRefund.id));
+  return {
+    mode: f.moneyMode, billIdr: f.payableIdr + f.buyerFeeIdr, buyerFeeIdr: f.buyerFeeIdr, paymentFeeBearer: f.paymentFeeBearer, codFeeBearer: f.codFeeBearer,
+    expectedGatewayFeeIdr: f.expectedGatewayFeeIdr, expectedCodFeeIdr: f.expectedCodFeeIdr, refunds, refundedIdr: refunds.reduce((sum, r) => sum + r.amountIdr, 0),
+  };
+}
+
+/**
+ * C-P9 (T-107): what the signed order-status page shows of an order paid to the seller's own accounts: the COD fee the courier collects on top of the
+ * total (bearer `buyer`), the amount the courier collects, and the refunds the seller recorded (amount, day, method; never the seller's note or
+ * reference). Null for an invalid link or a platform-held order.
+ */
+export async function buyerOrderMoneyForLink(exec: Executor, token: string, now = Date.now()) {
+  const orderId = verifyOrderLink(token, now);
+  const storeId = orderId === null ? null : await resolveOrderStore(exec, orderId);
+  if (orderId === null || storeId === null) return null;
+  return withStore(exec, storeId, async (tx) => {
+    const m = await orderMoney(tx, storeId, orderId);
+    if (m?.mode !== "seller_owned") return null;
+    return { codFeeIdr: m.codFeeBearer === "buyer" ? m.expectedCodFeeIdr : 0, billIdr: m.billIdr, refunds: m.refunds.map((r) => ({ id: r.id, amountIdr: r.amountIdr, refundedOn: r.refundedOn, method: r.method })), refundedIdr: m.refundedIdr };
+  });
+}
+
+const WIB_MS = 7 * 60 * 60 * 1000;
+const wibDay = (d: Date) => new Date(d.getTime() + WIB_MS).toISOString().slice(0, 10);
+/** Today as a WIB calendar day (`YYYY-MM-DD`): the latest refund date the form accepts. */
+export const wibToday = (): string => wibDay(new Date());
+const refundInput = z.strictObject({
+  amountIdr: z.coerce.number({ error: "Isi jumlah refund." }).int("Jumlah refund dalam rupiah bulat.").positive("Jumlah refund harus lebih dari 0.").max(1_000_000_000_000),
+  refundedOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Isi tanggal refund."),
+  method: z.enum(SELLER_REFUND_METHODS, { error: "Pilih cara refund." }),
+  reference: z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), z.string().trim().max(120, "Referensi maksimal 120 karakter.").optional()),
+  reason: z.string().trim().min(5, "Alasan minimal 5 karakter.").max(500),
+});
+
+/**
+ * Decision 26: the seller refunded the buyer outside Bukalaris and records it on the order. A record only (Bukalaris calls no refund endpoint and
+ * moves no money). Owner only (the store's finance capability, C-P5). Refused for a platform-held order (its refunds follow BILL-5), an order that was
+ * never paid, a date in the future or before the order, and a total above the buyer's bill; the database enforces the same (`order_seller_refund_guard`).
+ */
+export async function recordSellerRefund(scope: SellerScope, orderId: number, raw: unknown, now = new Date()): Promise<number> {
+  requireCap(scope, "finance.confirm_payment");
+  const input = refundInput.parse(raw);
+  return inStore(scope, async ({ exec: tx }) => {
+    const [o] = await tx.select({ id: order.id, paidAt: order.paidAt, createdAt: order.createdAt, status: order.status }).from(order).where(and(eq(order.storeId, scope.storeId), eq(order.id, orderId))).for("update");
+    if (!o) throw new DomainError("not_found", "Pesanan tidak ditemukan.");
+    const money = await orderMoney(tx, scope.storeId, orderId);
+    if (money?.mode !== "seller_owned") throw new DomainError("platform_held_order", "Pesanan ini dibayar lewat Bukalaris; refundnya diproses Bukalaris, bukan dicatat di sini.");
+    if (!o.paidAt) throw new DomainError("not_paid", "Refund hanya bisa dicatat untuk pesanan yang sudah dibayar pembeli.");
+    if (input.refundedOn > wibDay(now) || input.refundedOn < wibDay(o.createdAt)) throw new DomainError("refund_date", "Tanggal refund tidak boleh sebelum pesanan dibuat atau setelah hari ini.");
+    const left = money.billIdr - money.refundedIdr;
+    if (input.amountIdr > left) throw new DomainError("refund_exceeds_bill", `Total refund melebihi tagihan pembeli. Sisa yang bisa dicatat: Rp ${idr.format(Math.max(left, 0))}.`);
+    const [row] = await tx
+      .insert(orderSellerRefund)
+      .values({ storeId: scope.storeId, orderId, amountIdr: input.amountIdr, refundedOn: input.refundedOn, method: input.method, reference: input.reference ?? null, reason: input.reason, recordedByUserId: scope.userId })
+      .returning({ id: orderSellerRefund.id });
+    const note = `Refund Rp ${idr.format(input.amountIdr)} dicatat penjual (${SELLER_REFUND_METHOD_LABEL[input.method].toLowerCase()}, ${input.refundedOn}): ${input.reason}`.slice(0, 500);
+    await tx.insert(orderStatusHistory).values({ storeId: scope.storeId, orderId, fromStatus: o.status, toStatus: o.status, actorUserId: scope.userId, note });
+    await tx.insert(auditLog).values({ storeId: scope.storeId, actorUserId: scope.userId, actorCapability: "finance.confirm_payment", action: "order.seller_refund.record", subjectKind: "order", subjectId: String(orderId), outcome: "allowed", reason: `amount:${input.amountIdr}` });
+    return row!.id;
   });
 }
 
@@ -262,18 +360,6 @@ async function restockOrder(tx: Executor, storeId: number, orderId: number, labe
  * seller may book again.
  */
 export type ProviderTransition = "completed" | "returned" | "cancelled" | "released";
-/**
- * T-115 review major 4 (ADR-0013 section 8, C-P1): money that reached the seller's OWN accounts is never booked or refunded by the platform. On a
- * store's own courier account the COD cash is collected for the seller (no platform COD sale), and a prepaid order paid on the store's own
- * AutoLaris account (T-106 attempt with `payment_account_id`) is refunded by the seller, not by a platform refund. Platform-held money keeps the
- * ADR-0006 path. Deliberately minimal and named: T-107 builds the full money boundary.
- */
-async function sellerHeldMoney(tx: Executor, storeId: number, orderId: number, o: { accountKind: string; paymentMethod: string }): Promise<boolean> {
-  if (o.accountKind !== "seller_owned") return false;
-  if (o.paymentMethod === "cod") return true;
-  const [own] = await tx.select({ id: paymentAttempt.id }).from(paymentAttempt).where(and(eq(paymentAttempt.storeId, storeId), eq(paymentAttempt.orderId, orderId), isNotNull(paymentAttempt.paymentAccountId))).limit(1);
-  return !!own;
-}
 export type ProviderTransitionOutcome = { outcome: "applied" | "noop" | "rejected"; status: OrderStatus; reason?: string };
 export const PROVIDER_ACTOR = "system:provider-status";
 
@@ -329,11 +415,12 @@ export async function applyProviderTransition(
     .update(order)
     .set({ status: target, updatedAt: now, ...(target === "completed" && o.paymentMethod === "cod" ? { paidAt: now } : {}) })
     .where(and(eq(order.storeId, storeId), eq(order.id, orderId)));
-  const sellerHeld = await sellerHeldMoney(tx, storeId, orderId, o);
-  if (target === "completed" && o.paymentMethod === "cod" && !sellerHeld) await bookCodSale(tx, storeId, orderId);
+  // T-115 review major 4 and T-107 review M3 (ADR-0013 section 8): one rule decides what reaches the platform books, the order's frozen
+  // `money_mode`; `bookSale` and `settleTerminalOrder` skip a `seller_owned` order (`ledger/boundary.ts`).
+  if (target === "completed" && o.paymentMethod === "cod") await bookCodSale(tx, storeId, orderId);
   if (target === "returned" || target === "cancelled") {
     await restockOrder(tx, storeId, orderId, target === "returned" ? "Pesanan dikembalikan (RTS)" : "Pembatalan oleh kurir", ctx.note ?? null, actor);
-    if (!sellerHeld) await settleTerminalOrder(tx, storeId, orderId, target === "returned" ? "order_returned" : "order_cancelled");
+    await settleTerminalOrder(tx, storeId, orderId, target === "returned" ? "order_returned" : "order_cancelled");
   }
   const label = ctx.source === "manual_approved" ? "disetujui dua orang (manual)" : "status kurir";
   await tx.insert(orderStatusHistory).values({ storeId, orderId, fromStatus: o.status, toStatus: target, actorUserId: actor, note: `${ctx.note ?? ORDER_STATUS_LABEL[target]} (${label})`.slice(0, 500) });

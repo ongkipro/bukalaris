@@ -120,6 +120,7 @@ export const ISOLATION_REGISTRY: Record<string, TableEntry> = {
   // T-37 seller ledger, payouts and refunds (migration 0013). Credits, releases and settlement are the platform pool's; the app login can only DEBIT its own
   // balance (ledger_entry_insert_guard), request payouts, keep its destination, submit a refund destination and consume its own step-up proof.
   order_financials: tenant("SELECT,INSERT", "SELECT,INSERT"), // immutable (financial_snapshot_guard); platform INSERT: local seeds call placeOrder on the platform pool
+  order_seller_refund: tenant("SELECT,INSERT", "SELECT"), // T-107: the seller records a refund made outside Bukalaris; append-only (payment_evidence_guard), sum bound by order_seller_refund_guard
   order_line_financials: tenant("SELECT,INSERT", "SELECT,INSERT"),
   shipment_cost: tenant("SELECT", "SELECT,INSERT"), // append-once, booked by the worker before any provider write
   ledger_entry: tenant("SELECT,INSERT", "SELECT,INSERT,UPDATE"), // append-only; the one UPDATE is a guarded pending -> available release
@@ -341,6 +342,12 @@ export const DEFINER_FUNCTIONS: Record<string, DefinerFunction> = {
   "payment_attempt_insert_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
   "payment_event_insert_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
   "payment_manual_confirmation_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] }, // T-106: the confirmation names an attempt of that order on the store's own account
+  // T-107 (ADR-0013 section 8): the money-boundary rule and its guards, owner-only (the services ask the same question with their own store-scoped query).
+  "store_money_mode(bigint)": { owner: "bukalaris_owner", kind: "guard", execute: [] },
+  "money_boundary_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
+  "money_cutover_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] }, // review M2: the first own account only with no platform money in flight
+  "order_financials_money_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
+  "order_seller_refund_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
   // T-50: the signed callback reference of a subscription attempt resolves to its store (app pool); the effective vat_output policies (public tax configuration) are
   // readable by the seller Pay path. The triggers below pin what an invoice or attempt may start as and write the creation events; the bootstrap row-creates a trial
   // subscription for every new store; the demo reset is owner-connection only.

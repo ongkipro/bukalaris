@@ -119,6 +119,11 @@ export const STARTING_FEE_RATES: Readonly<Record<string, FeeRate>> = Object.free
   VAMANDIRI: { base: "flat", rateBps: 0, fixedIdr: 3000 }, VAPERMATA: { base: "flat", rateBps: 0, fixedIdr: 3000 },
   OVO: { base: "payable", rateBps: 300, fixedIdr: 0 },
 });
+/**
+ * T-107 (ADR-0013 decisions 17 to 19): the provider COD fee is a row of the same versioned schedule under this reserved code (base `payable` = the
+ * order total before the fee). It is never a payment channel: the channel list, the seller's exclusions and the Owner console locks leave it out.
+ */
+export const COD_FEE_CODE = "COD";
 const rateOf = (schedule: FeeSchedule, channel: string): FeeRate | undefined => (Object.hasOwn(schedule.rates, channel) ? schedule.rates[channel] : undefined);
 export function paymentFee(schedule: FeeSchedule, channel: string, goodsOmset: number, payable: number): number {
   const fee = rateOf(schedule, channel);

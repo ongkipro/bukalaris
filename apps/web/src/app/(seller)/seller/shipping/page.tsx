@@ -235,7 +235,7 @@ export default async function SellerShippingPage({ searchParams }: PageProps<"/s
                   <option value="buyer">Pembeli</option>
                   <option value="seller">Toko</option>
                 </NativeSelect>
-                <p id="bearer-help" className="text-xs text-muted-foreground" data-testid="bearer-not-applied">Disimpan, belum diterapkan: checkout belum menambahkan biaya COD ke tagihan pembeli.</p>
+                <p id="bearer-help" className="text-xs text-muted-foreground" data-testid="bearer-help">Pembeli: biaya COD ditambahkan ke tagihan dan ditagih kurir. Toko: tagihan sama dengan total pesanan dan biaya COD Anda tanggung sendiri di akun Mengantar.</p>
               </div>
               <fieldset className="grid gap-2">
                 <legend className="mb-1 text-sm font-medium">Provinsi tanpa COD</legend>

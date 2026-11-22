@@ -8,6 +8,7 @@ import { PERIODS, sellerDashboard, type Period, type SignalEventName } from "@bu
 import Link from "next/link";
 import { Bar } from "./_dashboard/bar";
 import { angka, Kpi, rate } from "./_dashboard/kpi";
+import { CollectedByMethod, COLLECTED_NOTE } from "./_dashboard/collected";
 import { PERIOD_LABEL, PeriodSwitcher } from "./_dashboard/period-switcher";
 
 export const metadata = { title: "Ringkasan — Bukalaris" };
@@ -59,6 +60,14 @@ export default async function SellerHome({ searchParams }: PageProps<"/seller">)
         />
       </dl>
 
+      {d.collected && (
+        <section aria-labelledby="collected-heading" className="grid max-w-2xl gap-2" data-testid="dashboard-collected">
+          <h2 id="collected-heading" className="text-base font-semibold">Uang diterima di akun Anda</h2>
+          <p className="text-sm text-muted-foreground">{COLLECTED_NOTE}</p>
+          <CollectedByMethod c={d.collected} title={`${PERIOD_LABEL[period]}, menurut metode`} testId="collected-period" />
+        </section>
+      )}
+
       {kpi.total === 0 ? (
         <EmptyState
           title={`Belum ada pesanan ${PERIOD_LABEL[period] === "Hari ini" ? "hari ini" : `dalam ${PERIOD_LABEL[period]} terakhir`}`}
@@ -84,7 +93,7 @@ export default async function SellerHome({ searchParams }: PageProps<"/seller">)
           <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <Kpi testId="kpi-orders" label="Pesanan" value={angka(kpi.orders)} hint={kpi.cancelled > 0 ? `${angka(kpi.cancelled)} dibatalkan/ditolak tidak dihitung.` : "Tidak ada yang dibatalkan."} />
             <Kpi testId="kpi-goods" label="Pendapatan barang" value={rupiah(kpi.goodsRevenue)} hint="Subtotal barang dari pesanan yang dihitung, tanpa ongkir." />
-            <Kpi testId="kpi-shipping" label="Ongkir dibayar pembeli" value={rupiah(kpi.shippingCollected)} hint="Diteruskan ke kurir dan platform — bukan pendapatan toko." />
+            <Kpi testId="kpi-shipping" label="Ongkir dibayar pembeli" value={rupiah(kpi.shippingCollected)} hint={d.collected ? "Dibayar ke kurir dari akun Mengantar Anda — bukan pendapatan toko." : "Diteruskan ke kurir dan platform — bukan pendapatan toko."} />
             <Kpi testId="kpi-aov" label="Rata-rata nilai pesanan" value={rupiah(kpi.averageOrderValue)} hint="Pendapatan barang dibagi jumlah pesanan." />
             <Kpi
               testId="kpi-cod-confirmed"

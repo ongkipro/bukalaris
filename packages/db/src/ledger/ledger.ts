@@ -3,6 +3,8 @@ import type { Executor } from "../client.ts";
 import { ledgerEntry, order, orderFinancials, orderLineFinancials, refund, type LedgerKind } from "../schema.ts";
 import { paymentAttempt } from "../payments/schema-payments.ts";
 import { type OrderFinance } from "./finance.ts";
+import { orderMoneyMode } from "./boundary.ts";
+import type { MoneyMode } from "./schema-ledger.ts";
 
 // The seller ledger core (ADR-0006 decisions 3 and 4, BILL-5, DATA-7). Single-entry, append-only: balances are ALWAYS `SUM(amount_idr)` over
 // `ledger_entry`, never a stored counter and never a join with `order` (a payout entry has a NULL order_id, so an inner join silently drops it).
@@ -39,8 +41,11 @@ export async function writeOrderFinancials(tx: Executor, input: {
   expectedGatewayFeeIdr: number;
   /** T-52: the attributed affiliate and the rate frozen on each line (index = line order, 0 for a line that is not opted in); omitted when no commission was earned. */
   affiliate?: { affiliateId: number; ratesBps: readonly number[] } | undefined;
+  /** T-107: the money mode and, for `seller_owned`, both fee bearers and the fee amounts (decision 18). Omitted = `platform_held`. */
+  money?: SellerOwnedMoney | undefined;
 }): Promise<void> {
   const f = input.finance;
+  const m = input.money;
   await tx.insert(orderFinancials).values({
     orderId: input.orderId,
     storeId: input.storeId,
@@ -59,6 +64,7 @@ export async function writeOrderFinancials(tx: Executor, input: {
     payableIdr: f.payable,
     saleAmountIdr: f.saleAmount,
     expectedGatewayFeeIdr: input.expectedGatewayFeeIdr,
+    ...(m ? { moneyMode: m.mode, paymentFeeBearer: m.paymentFeeBearer, codFeeBearer: m.codFeeBearer, expectedCodFeeIdr: m.expectedCodFeeIdr, buyerFeeIdr: m.buyerFeeIdr, feeRateVersion: m.feeRateVersion } : {}),
   });
   await tx.insert(orderLineFinancials).values(
     f.lines.map((l, i) => ({
@@ -78,6 +84,9 @@ export async function writeOrderFinancials(tx: Executor, input: {
   );
 }
 
+/** T-107: what a `seller_owned` snapshot freezes beside the BILL-4 allocation. */
+export type SellerOwnedMoney = { mode: Extract<MoneyMode, "seller_owned">; paymentFeeBearer: "buyer" | "seller"; codFeeBearer: "buyer" | "seller"; expectedCodFeeIdr: number; buyerFeeIdr: number; feeRateVersion: number };
+
 type Booked = { booked: boolean };
 
 /**
@@ -86,6 +95,8 @@ type Booked = { booked: boolean };
  * or an approved manual completion moves it to `completed` (`bookCodSale`). The database refuses a sale for a cancelled or returned order.
  */
 async function bookSale(tx: Executor, storeId: number, orderId: number): Promise<Booked> {
+  // T-107 (ADR-0013 section 8): an order paid to the seller's own accounts never becomes a ledger sale; the database refuses it too.
+  if ((await orderMoneyMode(tx, storeId, orderId)) === "seller_owned") return { booked: false };
   const [fin] = await tx.select({ sale: orderFinancials.saleAmountIdr, cashback: orderFinancials.sellerCashbackIdr }).from(orderFinancials).where(and(eq(orderFinancials.storeId, storeId), eq(orderFinancials.orderId, orderId)));
   if (!fin) return { booked: false };
   await lockStore(tx, storeId);
@@ -123,6 +134,8 @@ export async function bookCodSale(tx: Executor, storeId: number, orderId: number
  * the caller's transaction (the order row is already locked by the status writer). COD never earned a credit, so there is nothing to reverse.
  */
 export async function settleTerminalOrder(tx: Executor, storeId: number, orderId: number, reason: "order_cancelled" | "order_returned"): Promise<{ reversed: boolean; refundOpened: boolean }> {
+  // T-107: nothing of a seller-owned order is in the platform's books; the seller refunds outside Bukalaris and records it on the order (decision 26).
+  if ((await orderMoneyMode(tx, storeId, orderId)) === "seller_owned") return { reversed: false, refundOpened: false };
   await lockStore(tx, storeId);
   // The seller login holds no UPDATE privilege, so no `FOR UPDATE` here: the per-store lock (taken above, also by the release job) serialises the two writers, and the
   // definer insert guard locks the sale row itself before it accepts the reversal.
@@ -142,6 +155,7 @@ export async function settleTerminalOrder(tx: Executor, storeId: number, orderId
 
 /** The full buyer refund of a verified gateway payment on a terminal order: goods + shipping + the admin fee the buyer paid (D-20, BILL-5). */
 export async function openRefundForPaidOrder(tx: Executor, storeId: number, orderId: number, reason: "order_cancelled" | "order_returned" | "late_payment"): Promise<boolean> {
+  if ((await orderMoneyMode(tx, storeId, orderId)) === "seller_owned") return false; // T-107: no platform refund (decision 26)
   const [a] = await tx.select({ id: paymentAttempt.id, status: paymentAttempt.status, total: paymentAttempt.totalIdr, fee: paymentAttempt.adminFeeIdr }).from(paymentAttempt).where(and(eq(paymentAttempt.storeId, storeId), eq(paymentAttempt.orderId, orderId)));
   if (!a || a.status !== "paid") return false;
   const [f] = await tx.select().from(orderFinancials).where(and(eq(orderFinancials.storeId, storeId), eq(orderFinancials.orderId, orderId)));

@@ -13,6 +13,9 @@ import type { Db, Executor } from "../client.ts";
 //   6. no COD sale or cashback is released without an applied reconciliation item; a prepaid one only for a completed order
 //   7. entries whose order_id references no order; entries without order_id outside payout, payout_reversal and adjustment
 //   8. the allocation identity of every order_financials row and its lines; shipment_cost against its debit entry; refund composition; applied batches
+//   9. T-107 money boundary: no ledger entry, refund, reconciliation item, shipment cost or late-payment obligation for an order paid to the seller's own
+//      accounts (`money_mode = 'seller_owned'`), no payout, destination or order-less entry of a store created after it moved to its own accounts, no platform figure in a
+//      seller-owned snapshot, and a seller's recorded refunds never above the buyer's bill. Rule 1 applies to platform-held orders only.
 // The balance SQL is exported so a test can prove it contains no join.
 
 export const BALANCE_SQL = sql`
@@ -24,7 +27,7 @@ export const BALANCE_SQL = sql`
 
 export type LedgerViolation = { code: string; storeId: number | null; detail: string };
 export type StoreSummary = { storeId: number; availableIdr: number; pendingIdr: number; totalIdr: number; byKind: Record<string, { pending: number; available: number; count: number }> };
-export type LedgerVerification = { stores: StoreSummary[]; violations: LedgerViolation[]; entries: number; orders: number; orderLessEntries: number };
+export type LedgerVerification = { stores: StoreSummary[]; violations: LedgerViolation[]; entries: number; orders: number; orderLessEntries: number; sellerOwnedOrders: number; sellerOwnedStores: number };
 
 type Row = Record<string, string | null>;
 const rows = async (exec: Executor, q: SQL) => (await exec.execute(q)) as unknown as Row[];
@@ -74,7 +77,7 @@ export async function verifyLedger(db: Db): Promise<LedgerVerification> {
     for (const r of await rows(tx, sql`select order_id, store_id, count(*)::int as c from ledger_entry where kind = 'sale' group by order_id, store_id having count(*) > 1`)) add("duplicate_sale", r.store_id, `order ${r.order_id} has ${r.c} sales`);
     for (const r of await rows(tx, sql`
       select o.id, o.store_id from "order" o join order_financials f on f.store_id = o.store_id and f.order_id = o.id
-       where f.sale_amount_idr > 0 and not exists (select 1 from ledger_entry e where e.store_id = o.store_id and e.order_id = o.id and e.kind = 'sale')
+       where f.money_mode = 'platform_held' and f.sale_amount_idr > 0 and not exists (select 1 from ledger_entry e where e.store_id = o.store_id and e.order_id = o.id and e.kind = 'sale')
          and ((o.payment_method = 'cod' and o.status = 'completed')
            or (o.payment_method <> 'cod' and o.status in ('placed', 'processing', 'shipped', 'completed')
                and exists (select 1 from payment_attempt a where a.store_id = o.store_id and a.order_id = o.id and a.status = 'paid')))`)) add("missing_sale", r.store_id, `order ${r.id} met its booking condition but has no sale`);
@@ -123,7 +126,26 @@ export async function verifyLedger(db: Db): Promise<LedgerVerification> {
     for (const r of await rows(tx, sql`select r.id, r.store_id from refund r join payment_attempt a on a.store_id = r.store_id and a.id = r.payment_attempt_id where r.amount_idr <> a.total_idr`)) add("refund_not_full_payment", r.store_id, `refund ${r.id} is not the full payment`);
     for (const r of await rows(tx, sql`select b.id from reconciliation_batch b where b.status = 'applied' and exists (select 1 from reconciliation_batch_item i where i.batch_id = b.id and i.voided_at is null and (i.reconciled_at is null or i.evidence_amount_idr <> i.cod_amount_idr))`)) add("applied_batch_unreconciled_item", null, `batch ${r.id}`);
 
-    const [counts] = await rows(tx, sql`select (select count(*) from ledger_entry)::int as e, (select count(*) from "order")::int as o`);
-    return { stores: [...stores.values()], violations, entries: n(counts?.e), orders: n(counts?.o), orderLessEntries: n(orderLess?.c) };
+    // ── T-107 money boundary: seller-owned money never enters the platform's books ──
+    // Store-level rows count only from the store's conversion on (its first own account row): the cut-over guard admits a conversion only with no
+    // platform money in flight, so earlier payouts, destinations and adjustments of a converted store are legitimate history (review M2).
+    const SELLER_STORE = sql`x.created_at >= (select least((select min(a.created_at) from store_shipping_account a where a.store_id = x.store_id and a.kind = 'seller_owned'), (select p.created_at from store_payment_account p where p.store_id = x.store_id)))`;
+    for (const t of ["ledger_entry", "refund", "reconciliation_batch_item", "shipment_cost", "late_payment_obligation"] as const)
+      for (const r of await rows(tx, sql`select x.order_id, x.store_id from ${sql.identifier(t)} x join order_financials f on f.store_id = x.store_id and f.order_id = x.order_id where f.money_mode = 'seller_owned'`))
+        add("seller_owned_in_platform_books", r.store_id, `${t} row for order ${r.order_id}, which is paid to the seller's own accounts`);
+    for (const t of ["payout", "payout_destination"] as const)
+      for (const r of await rows(tx, sql`select x.id, x.store_id from ${sql.identifier(t)} x where ${SELLER_STORE}`)) add("seller_owned_in_platform_books", r.store_id, `${t} ${r.id} of a store on its own accounts`);
+    for (const r of await rows(tx, sql`select x.id, x.store_id from ledger_entry x where x.order_id is null and ${SELLER_STORE}`)) add("seller_owned_in_platform_books", r.store_id, `order-less entry ${r.id} of a store on its own accounts`);
+    for (const r of await rows(tx, sql`
+      select f.order_id, f.store_id from order_financials f join "order" o on o.store_id = f.store_id and o.id = f.order_id
+       where f.money_mode = 'seller_owned' and (o.shipping_margin <> 0 or f.platform_shipping_discount_idr <> 0 or f.platform_cashback_idr <> 0 or f.seller_cashback_idr <> 0 or f.shipping_cashback_gross_idr <> 0
+          or f.affiliate_commission_idr <> 0 or f.cod_fee_idr <> 0 or f.cod_fee_vat_idr <> 0 or f.payment_fee_bearer is null or f.cod_fee_bearer is null)`)) add("seller_owned_snapshot_has_platform_money", r.store_id, `order ${r.order_id}`);
+    for (const r of await rows(tx, sql`
+      select r.order_id, r.store_id from order_seller_refund r join order_financials f on f.store_id = r.store_id and f.order_id = r.order_id
+       group by r.order_id, r.store_id, f.payable_idr, f.buyer_fee_idr, f.money_mode having sum(r.amount_idr) > f.payable_idr + f.buyer_fee_idr or f.money_mode <> 'seller_owned'`)) add("seller_refund_exceeds_bill", r.store_id, `order ${r.order_id}`);
+
+    const [counts] = await rows(tx, sql`select (select count(*) from ledger_entry)::int as e, (select count(*) from "order")::int as o, (select count(*) from order_financials where money_mode = 'seller_owned')::int as so,
+      (select count(distinct x.store_id) from (select store_id from store_shipping_account where kind = 'seller_owned' union select store_id from store_payment_account) x)::int as ss`);
+    return { stores: [...stores.values()], violations, entries: n(counts?.e), orders: n(counts?.o), orderLessEntries: n(orderLess?.c), sellerOwnedOrders: n(counts?.so), sellerOwnedStores: n(counts?.ss) };
   }, { isolationLevel: "repeatable read", accessMode: "read only" });
 }

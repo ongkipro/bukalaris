@@ -72,6 +72,7 @@ GRANT SELECT ON "order_line" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT ON "order_line_financials" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE ON "order_notification" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT ON "order_redaction" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT ON "order_seller_refund" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, DELETE ON "order_signal_context" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT ON "order_status_history" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "page" TO bukalaris_platform;--> statement-breakpoint

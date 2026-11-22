@@ -13,6 +13,7 @@ import type { ProviderEnvironment, ShippingAccountKind } from "./schema-accounts
 import { storeShippingAccount } from "./schema-accounts.ts";
 import { searchSellerAreas, sellerAccount, sellerShippingOptions } from "./rules.ts";
 import { sellerMengantar } from "./seller.ts";
+import { storeMoneyMode } from "../ledger/boundary.ts";
 
 export { MengantarClient, MengantarError, MengantarWriteDisabledError, redactUrl } from "./mengantar/client.ts";
 export { COURIER_LABELS, mengantarAdapter, mengantarFromEnv, toProviderQuote } from "./mengantar/adapter.ts";
@@ -202,6 +203,9 @@ export type CartForShipping = { lines: { quantity: number; weightGrams: number }
  * The quote, the order snapshot (`order.weight_kg`) and the booking all read this one number. Rounding up and the
  * provider minimum are UNVERIFIED against Mengantar until an observed estimate or booking confirms them.
  */
+/** T-107: shown when a store on its own accounts has no own shipping account yet (same words as an own account that is not active). */
+export const SHIPPING_NOT_READY_MESSAGE = "Toko ini belum siap mengirim pesanan. Hubungi penjual.";
+
 export function parcelWeightKg(lines: readonly { quantity: number; weightGrams: number }[]): number {
   const grams = lines.reduce((sum, l) => sum + l.quantity * l.weightGrams, 0);
   return Math.max(1, Math.ceil(grams / 1000));
@@ -235,6 +239,10 @@ export async function shippingOptions(
     });
     return { originAreaId: origin.areaId, destinationAreaId: destination, weightKg, shippingAccountId: account.id, shippingAccountKind: account.kind, environment: account.environment, options };
   }
+  // T-107 (review M1; ADR-0013 decisions 13, 14, 40, section 8): a store on its own accounts ships only on its own Mengantar account. Without one it
+  // offers no shipping at all (a platform account would book with a platform debit and margin, which the boundary refuses), so no buyer is shown a
+  // method that cannot complete; the submit re-runs this function and is refused the same way.
+  if ((await inStore(scope, (scope) => storeMoneyMode(scope.exec, scope.storeId))) === "seller_owned") throw new DomainError("shipping_not_ready", SHIPPING_NOT_READY_MESSAGE);
   const [rule, discount, quotes] = await Promise.all([
     getMarginRule(scope.exec),
     effectiveShippingDiscount(scope.exec),

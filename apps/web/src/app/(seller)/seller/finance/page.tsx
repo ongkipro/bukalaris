@@ -11,7 +11,8 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { BANKS, ledgerStatusLabel, ledgerStatusTone, payoutStatusLabel, payoutStatusTone, refundReasonLabel, refundStatusLabel, refundStatusTone, releaseBasisLabel } from "@/lib/finance";
 import { sellerScope } from "@/lib/context";
 import { rupiah, tanggal } from "@/lib/format";
-import { can, ledgerStatement, SELLER_KIND_LABEL, sellerFinance } from "@bukalaris/db";
+import { can, ledgerStatement, SELLER_KIND_LABEL, sellerCollected, sellerFinance } from "@bukalaris/db";
+import { CollectedByMethod, COLLECTED_NOTE } from "../_dashboard/collected";
 import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { requestPayoutAction, setDestinationAction } from "./actions";
@@ -32,6 +33,26 @@ export default async function FinancePage({ searchParams }: PageProps<"/seller/f
       <section className="grid max-w-3xl gap-6">
         <PageHeader title="Keuangan" />
         <p role="note" data-testid="finance-denied" className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">Hanya pemilik toko yang dapat melihat saldo, mutasi dan penarikan dana. Staf toko tidak melihat data keuangan.</p>
+      </section>
+    );
+  // T-107 (ADR-0013 section 8): a store on its own accounts has no balance, payout or ledger screen; it sees what its own accounts received.
+  const own = await sellerCollected(scope);
+  if (own)
+    return (
+      <section className="grid max-w-3xl gap-6" data-testid="finance-own-accounts">
+        <PageHeader title="Keuangan" description="Toko ini dibayar langsung ke akun AutoLaris dan akun Mengantar milik Anda. Bukalaris mencatat transaksi sebagai arsip Anda, tanpa memegang atau meneruskan uang." />
+        <p role="note" className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground" data-testid="finance-no-balance">
+          Tidak ada Saldo Bukalaris, penarikan dana atau rekonsiliasi untuk toko ini: uangnya sudah di akun Anda. Refund ke pembeli Anda bayar sendiri, lalu dicatat di halaman pesanan.
+        </p>
+        <p className="text-sm text-muted-foreground">{COLLECTED_NOTE}</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <CollectedByMethod c={own.last30} title="30 hari terakhir" testId="collected-30d" />
+          <CollectedByMethod c={own.allTime} title="Sejak awal" testId="collected-all" />
+        </div>
+        <p className="text-sm">
+          Rincian per pesanan ada di <Link href="/seller/orders" className="font-medium underline underline-offset-4">Pesanan</Link>; transaksi AutoLaris di{" "}
+          <Link href="/seller/payments/transactions" className="font-medium underline underline-offset-4">Transaksi pembayaran</Link>.
+        </p>
       </section>
     );
   const cursor = typeof rawCursor === "string" && /^[0-9]{1,15}$/.test(rawCursor) ? Number(rawCursor) : undefined;

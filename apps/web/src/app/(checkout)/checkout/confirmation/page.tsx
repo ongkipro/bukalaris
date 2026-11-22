@@ -120,6 +120,12 @@ export default async function ConfirmationPage({ searchParams }: PageProps<"/che
         {o.shippingDiscount > 0 && <><dt>Diskon ongkir</dt><dd className="text-right" data-testid="order-shipping-discount">−{rupiah(o.shippingDiscount)}</dd></>}
         <dt>Ongkir{o.shippingDiscount > 0 && <span className="font-normal text-muted-foreground"> (setelah diskon)</span>}</dt><dd className="text-right" data-testid="order-shipping">{rupiah(o.shippingFee)}</dd>
         <dt className="font-semibold">Total</dt><dd className="text-right font-semibold" data-testid="order-total">{rupiah(o.total)}</dd>
+        {o.paymentMethod === "cod" && o.bill && o.bill.codFeeIdr > 0 && (
+          <>
+            <dt>Biaya COD</dt><dd className="text-right" data-testid="cod-fee">{rupiah(o.bill.codFeeIdr)}</dd>
+            <dt className="font-semibold">Dibayar ke kurir</dt><dd className="text-right font-semibold" data-testid="cod-bill">{rupiah(o.bill.billIdr)}</dd>
+          </>
+        )}
         {o.payment && (
           <>
             <dt>Biaya layanan pembayaran</dt><dd className="text-right" data-testid="payment-fee">{rupiah(o.payment.adminFeeIdr)}</dd>

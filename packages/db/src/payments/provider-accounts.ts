@@ -2,6 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Executor, Tx } from "../client.ts";
 import { consumeSellerStepUp } from "../ledger/stepup.ts";
+import { cutoverError } from "../ledger/boundary.ts";
 import { dbMailer } from "../platform/accounts.ts";
 import { surfaceOriginsAreLoopback } from "../platform/mail-transport.ts";
 import { DomainError, requireCap, type SellerScope, type StorefrontScope } from "../platform/scoped.ts";
@@ -314,6 +315,7 @@ export async function saveProviderKey(scope: SellerScope, raw: unknown): Promise
   if (provider === "mengantar" && !(connected && current!.keyFingerprint === fingerprint && current!.environment === environment)) {
     await (await import("../shipping/sync.ts")).assertDedicatedAccount(scope, environment, value);
   }
+  // T-107 (review M2): the first own account of a store is refused while platform money of it is in flight (`money_cutover_guard`); the seller sees why.
   return withStore(scope.exec, scope.storeId, async (tx) => {
     await consumeSellerStepUp(tx, scope, input.proofId, { action: PROVIDER_KEY_ACTION, subjectId: provider });
     const row = await lockedAccount(tx, scope.storeId, provider, environment);
@@ -328,6 +330,8 @@ export async function saveProviderKey(scope: SellerScope, raw: unknown): Promise
       : await tx.update(PAY).set(set).where(and(eq(PAY.storeId, scope.storeId), eq(PAY.id, row.id))).returning(PAY_COLUMNS);
     await auditAndNotify(tx, scope, provider, change, environment, fingerprint);
     return view(provider, saved);
+  }).catch((err: unknown) => {
+    throw cutoverError(err);
   });
 }
 

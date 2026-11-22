@@ -7,6 +7,8 @@ const db = platformDb();
 try {
   const r = await verifyLedger(db);
   console.log(`verify:ledger: ${r.stores.length} store(s), ${r.entries} entries, ${r.orders} orders, ${r.orderLessEntries} order-less entries (payout, payout_reversal, adjustment)`);
+  // T-107: the platform books hold platform-held money only; these are the orders and stores outside them (checked by invariant 9).
+  console.log(`verify:ledger: money boundary: ${r.sellerOwnedStores} store(s) on their own accounts, ${r.sellerOwnedOrders} seller-owned order(s) outside the platform books`);
   for (const s of r.stores) {
     const kinds = Object.entries(s.byKind).map(([k, v]) => `${k}=${v.count}`).join(" ");
     console.log(`  store ${s.storeId}: available ${s.availableIdr}, pending ${s.pendingIdr} (${kinds})`);

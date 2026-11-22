@@ -4,15 +4,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/components/ui/native-select";
 import { BANKS, refundReasonLabel, refundStatusLabel } from "@/lib/finance";
-import { rupiah } from "@/lib/format";
+import { rupiah, tanggalIso } from "@/lib/format";
 import { CopyButton } from "@/components/copy-button";
-import { BUYER_STATUS_LABEL, buyerOrderPayment, db, getOrderForLink, getRefundForLink, getShipmentForLink, providerStatusLabel, resolveBuyerOrder, SHIPMENT_STATUS_LABEL, shipmentTimeline } from "@bukalaris/db";
+import { BUYER_STATUS_LABEL, buyerOrderMoneyForLink, buyerOrderPayment, db, getOrderForLink, getRefundForLink, getShipmentForLink, providerStatusLabel, resolveBuyerOrder, SHIPMENT_STATUS_LABEL, shipmentTimeline } from "@bukalaris/db";
 import { servesStore } from "@/lib/storefront";
 import { notFound } from "next/navigation";
 import { PaymentActions, paymentSavedText } from "../../../(checkout)/checkout/payment-actions";
 import { recheckPaymentByLinkAction, retryPaymentByLinkAction, submitRefundDestinationAction } from "./actions";
 
 export const dynamic = "force-dynamic";
+
+/** T-107: how the seller refunded, in the buyer's words (buyer screens never name the seller's provider accounts). */
+const REFUND_METHOD_BUYER = { bank_transfer: "Transfer bank", autolaris: "Ke metode pembayaran Anda", cash: "Tunai", other: "Cara lain" } as const;
 
 const dt = new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Jakarta" });
 const formatTimelineAt = (at: Date | string) => {
@@ -38,6 +41,8 @@ export default async function OrderStatusPage({ params, searchParams }: PageProp
   if (!o || !(await servesStore(o.storeSlug))) notFound();
   // A refund exists only for a verified gateway payment on a cancelled or returned order (or a late payment): the buyer tells us where to send it.
   const refund = await getRefundForLink(db(), token);
+  // T-107 (C-P9): an order paid to the store's own accounts: the COD fee the buyer bears and the refunds the seller recorded on the order.
+  const own = await buyerOrderMoneyForLink(db(), token);
   // Courier tracking (T-39): only when the seller booked through Mengantar; resi alone shows above.
   const s = o.trackingNumber ? await getShipmentForLink(db(), token) : null;
   const tracking = s && s.trackingNumber ? s : null;
@@ -70,7 +75,27 @@ export default async function OrderStatusPage({ params, searchParams }: PageProp
         {o.shippingDiscount > 0 && <><dt>Diskon ongkir</dt><dd className="text-right" data-testid="order-shipping-discount">−{rupiah(o.shippingDiscount)}</dd></>}
         <dt>Ongkir{o.shippingDiscount > 0 && <span className="font-normal text-muted-foreground"> (setelah diskon)</span>}</dt><dd className="text-right" data-testid="order-shipping">{rupiah(o.shippingFee)}</dd>
         <dt className="font-semibold">Total</dt><dd className="text-right font-semibold" data-testid="order-total">{rupiah(o.total)}</dd>
+        {own && o.paymentMethod === "cod" && own.codFeeIdr > 0 && (
+          <>
+            <dt>Biaya COD</dt><dd className="text-right" data-testid="cod-fee">{rupiah(own.codFeeIdr)}</dd>
+            <dt className="font-semibold">Dibayar ke kurir</dt><dd className="text-right font-semibold" data-testid="cod-bill">{rupiah(own.billIdr)}</dd>
+          </>
+        )}
       </dl>
+      {own && own.refunds.length > 0 && (
+        <section aria-labelledby="seller-refund-heading" className="grid gap-2 border-t pt-3 text-sm" data-testid="seller-refunds">
+          <h2 id="seller-refund-heading" className="font-semibold">Refund dari penjual</h2>
+          <p className="text-muted-foreground">Dibayar langsung oleh {o.storeName} dan dicatat pada pesanan ini. Hubungi penjual bila belum Anda terima.</p>
+          <ul className="divide-y rounded-lg border">
+            {own.refunds.map((r) => (
+              <li key={r.id} className="flex flex-wrap justify-between gap-x-4 p-3">
+                <span>{tanggalIso(r.refundedOn)} · {REFUND_METHOD_BUYER[r.method]}</span>
+                <span className="tabular-nums">{rupiah(r.amountIdr)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <dl className="grid gap-1 border-t pt-2 text-sm">
         <div className="flex flex-wrap justify-between gap-x-4"><dt className="text-muted-foreground">Pembayaran</dt><dd>{o.paymentMethod === "cod" ? "Bayar di tempat (COD)" : "Transfer bank"}</dd></div>
         <div className="flex flex-wrap justify-between gap-x-4"><dt className="text-muted-foreground">Kurir</dt><dd data-testid="courier">{o.courier}</dd></div>

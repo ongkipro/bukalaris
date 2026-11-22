@@ -82,6 +82,7 @@ export * from "./ledger/refunds.ts";
 export * from "./ledger/console.ts";
 export * from "./ledger/control.ts";
 export * from "./ledger/verify.ts";
+export * from "./ledger/boundary.ts";
 export * from "./billing/period.ts";
 export * from "./billing/settings.ts";
 export * from "./billing/access.ts";

@@ -34,6 +34,8 @@ function sellerReadyStore(slug: string, email: string, apiKey: string) {
     const { createProduct } = await import("./src/seller/commerce/catalog.ts");
     const { setPickupArea } = await import("./src/shipping/shipping.ts");
     const { sealCredential, keyFingerprint, keyHint } = await import("./src/shipping/credentials.ts");
+    const { setPickupAddress } = await import("./src/shipping/shipping.ts");
+    const { saveCourierRules } = await import("./src/shipping/rules.ts");
     const [u] = await admin.$client.unsafe("select id from \\"user\\" where email = '${email}'");
     const [s] = await admin.$client.unsafe("select id from store where slug = '${slug}'");
     const ctx = await sellerContext(app, u.id, Number(s.id));
@@ -43,6 +45,17 @@ function sellerReadyStore(slug: string, email: string, apiKey: string) {
     const sealed = sealCredential("payment_credentials", ${JSON.stringify(apiKey)}, Number(s.id), Number(acc.id), "autolaris");
     await admin.$client.unsafe("update store_payment_account set sealed_key = $1, key_id = $2, sealed_at = now(), key_fingerprint = $3, key_hint = $4, status = 'active', last_result = 'ready', last_checked_at = now(), origin_area_id = '3517100', destination_area_id = '3518010', shipper_email = 'toko@example.invalid', sender_address = 'Jl. Braga No. 1, Bandung 40111', payment_only_confirmed_at = now(), payment_only_confirmed_by = $5 where id = $6",
       [sealed.sealedKey, sealed.keyId, keyFingerprint("payment_credentials", ${JSON.stringify(apiKey)}), keyHint(${JSON.stringify(apiKey)}), u.id, acc.id]);
+    // T-107 (review M1; ADR-0013 decision 40): a store on its own accounts ships only on its OWN Mengantar account (fake, sandbox, JNE with COD).
+    const mkey = "E2E-OWN-MENGANTAR-" + Date.now() + "-0123456789abcdef"; // unrelated to the AutoLaris canary
+    const [sacc] = await admin.$client.unsafe("insert into store_shipping_account (store_id, kind, status, external_user_id, environment) values ($1, 'seller_owned', 'needs_key', $2, 'sandbox') returning id", [s.id, "store:" + s.id]);
+    const ssealed = sealCredential("shipping_credentials", mkey, Number(s.id), Number(sacc.id), "seller_owned");
+    await admin.$client.unsafe("update store_shipping_account set sealed_key = $1, key_id = $2, sealed_at = now(), key_fingerprint = $3, key_hint = $4, status = 'active', last_result = 'ready', last_checked_at = now() where id = $5",
+      [ssealed.sealedKey, ssealed.keyId, keyFingerprint("shipping_credentials", mkey), keyHint(mkey), sacc.id]);
+    // T-115 (ADR-0013 decision 41): shipping is ready only once the owner confirmed the account as new and dedicated (the fake answers the order-list read).
+    const { confirmDedicatedAccount } = await import("./src/shipping/sync.ts");
+    await confirmDedicatedAccount(ctx.scope, { confirmed: true });
+    await setPickupAddress(ctx.scope, { addressText: "Jl. Braga No. 10, Bandung", contactName: "Budi Pemilik", contactPhone: "081234567890" });
+    await saveCourierRules(ctx.scope, { couriers: [{ courierCode: "JNE", enabled: true, codEnabled: true }] });
     const [p] = await admin.$client.unsafe("select slug from product where id = $1", [productId]);
     return { storeId: Number(s.id), productSlug: p.slug ?? String(productId) };
   `);

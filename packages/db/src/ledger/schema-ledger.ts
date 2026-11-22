@@ -22,6 +22,10 @@ export type PayoutStatus = (typeof PAYOUT_STATUSES)[number];
 export const REFUND_STATUSES = ["pending", "processing", "completed", "failed"] as const;
 export type RefundStatus = (typeof REFUND_STATUSES)[number];
 export const BATCH_STATUSES = ["draft", "pending_approval", "applied", "void"] as const;
+/** T-107 (ADR-0013 section 8): `platform_held` = the ADR-0006 model (ledger, payouts); `seller_owned` = paid to the seller's own provider accounts. */
+export const MONEY_MODES = ["platform_held", "seller_owned"] as const;
+export type MoneyMode = (typeof MONEY_MODES)[number];
+export const FEE_BEARERS = ["buyer", "seller"] as const;
 
 /** Immutable checkout snapshot (BILL-4). Written once with the order; no UPDATE or DELETE exists for any login role and a trigger refuses both. */
 export const orderFinancials = pgTable(
@@ -53,9 +57,35 @@ export const orderFinancials = pgTable(
     payableIdr: idr("payable_idr").notNull(),
     saleAmountIdr: idr("sale_amount_idr").notNull(),
     expectedGatewayFeeIdr: idr("expected_gateway_fee_idr").notNull().default(0),
+    /**
+     * T-107 (ADR-0013 section 8): who holds the buyer's money, frozen with the order from the store's mode at submit (`store_money_mode`).
+     * `seller_owned`: paid to the seller's own AutoLaris and Mengantar accounts; no ledger, payout, reconciliation or platform refund ever refers to it.
+     */
+    moneyMode: text("money_mode", { enum: MONEY_MODES }).notNull().default("platform_held"),
+    /** T-107 (decision 18): the store's two fee bearers at submit; both set for `seller_owned`, both null for `platform_held`. */
+    paymentFeeBearer: text("payment_fee_bearer", { enum: FEE_BEARERS }),
+    codFeeBearer: text("cod_fee_bearer", { enum: FEE_BEARERS }),
+    /** T-107 (decision 19): the provider COD fee from the versioned rate, 0 for a prepaid order. Never inside `payable` (the store's bill is not Bukalaris's fee). */
+    expectedCodFeeIdr: idr("expected_cod_fee_idr").notNull().default(0),
+    /** T-107 (decision 18): what the buyer's bill adds to `payable` (the fee whose bearer is `buyer`, else 0). Bill = `payable_idr + buyer_fee_idr`. */
+    buyerFeeIdr: idr("buyer_fee_idr").notNull().default(0),
+    /** T-107: the `payment_fee_rate` version the fee amounts came from (`seller_owned` only). */
+    feeRateVersion: integer("fee_rate_version"),
     createdAt: at(),
   },
   (t) => [
+    // T-107: a seller_owned snapshot carries both bearers and none of the platform's money (margin discount, cashback, affiliate deduction, COD fee
+    // or its VAT inside payable); exactly one fee applies per order, and the buyer's share is the fee of the bearer `buyer`.
+    check(
+      "order_financials_money_mode_chk",
+      sql`${t.expectedCodFeeIdr} >= 0 and ${t.buyerFeeIdr} >= 0 and (${t.paymentFeeBearer} is null or ${t.paymentFeeBearer} in ('buyer', 'seller')) and (${t.codFeeBearer} is null or ${t.codFeeBearer} in ('buyer', 'seller')) and (
+        (${t.moneyMode} = 'platform_held' and ${t.paymentFeeBearer} is null and ${t.codFeeBearer} is null and ${t.expectedCodFeeIdr} = 0 and ${t.buyerFeeIdr} = 0 and ${t.feeRateVersion} is null)
+        or (${t.moneyMode} = 'seller_owned' and ${t.paymentFeeBearer} is not null and ${t.codFeeBearer} is not null and ${t.feeRateVersion} is not null
+          and ${t.platformShippingDiscountIdr} = 0 and ${t.shippingCashbackGrossIdr} = 0 and ${t.platformCashbackIdr} = 0 and ${t.sellerCashbackIdr} = 0
+          and ${t.affiliateId} is null and ${t.affiliateCommissionIdr} = 0 and ${t.codFeeIdr} = 0 and ${t.codFeeVatIdr} = 0
+          and (${t.expectedCodFeeIdr} = 0 or ${t.expectedGatewayFeeIdr} = 0)
+          and ${t.buyerFeeIdr} = (case when ${t.codFeeBearer} = 'buyer' then ${t.expectedCodFeeIdr} else 0 end) + (case when ${t.paymentFeeBearer} = 'buyer' then ${t.expectedGatewayFeeIdr} else 0 end)))`,
+    ),
     unique("order_financials_store_order_uq").on(t.storeId, t.orderId),
     foreignKey({ name: "order_financials_order_fk", columns: [t.storeId, t.orderId], foreignColumns: [order.storeId, order.id] }),
     foreignKey({ name: "order_financials_affiliate_fk", columns: [t.affiliateId], foreignColumns: [affiliate.id] }),

@@ -12,6 +12,7 @@ import { withStore } from "../platform/tenant.ts";
 import { PROVIDER_RECONCILIATION_ENABLED, RECONCILIATION_BATCH_MAX_ITEMS } from "./settings.ts";
 import { consoleMutation } from "../ops/console.ts";
 import { assertPayoutsNotFrozen, mapFrozen } from "./control.ts";
+import { SELLER_OWNED_MESSAGE } from "./boundary.ts";
 
 // COD reconciliation (ADR-0006 decision 4, BILL-5, D-14, SA-53). A COD sale is booked pending when the courier reports DELIVERED and becomes `available`
 // only when its cash is reconciled. Until the provider's `isReconciliated` / `typeReconciliation` signal is observed and accepted (OPEN-F8,
@@ -45,7 +46,7 @@ export async function prepareReconciliationBatch(op: OperatorScope, raw: unknown
   if (new Set(input.lines.map((l) => l.orderId)).size !== input.lines.length) throw new DomainError("duplicate_order", "Satu pesanan hanya boleh muncul sekali dalam batch.");
   return op.exec.transaction(async (tx) => {
     const orders = await tx
-      .select({ id: order.id, storeId: order.storeId, shippingAccountId: order.shippingAccountId, method: order.paymentMethod, status: order.status, payable: orderFinancials.payableIdr })
+      .select({ id: order.id, storeId: order.storeId, shippingAccountId: order.shippingAccountId, method: order.paymentMethod, status: order.status, payable: orderFinancials.payableIdr, mode: orderFinancials.moneyMode })
       .from(order)
       .innerJoin(orderFinancials, and(eq(orderFinancials.storeId, order.storeId), eq(orderFinancials.orderId, order.id)))
       .where(inArray(order.id, input.lines.map((l) => l.orderId)));
@@ -53,6 +54,8 @@ export async function prepareReconciliationBatch(op: OperatorScope, raw: unknown
     for (const l of input.lines) {
       const o = byId.get(l.orderId);
       if (!o) throw new DomainError("not_found", `Pesanan ${l.orderId} tidak ditemukan.`);
+      // T-107: a COD order on the seller's own courier account is collected by the seller; Bukalaris reconciles nothing for it (C-P1), by rule.
+      if (o.mode === "seller_owned") throw new DomainError("seller_owned_order", `Pesanan ${l.orderId}: ${SELLER_OWNED_MESSAGE}`);
       if (o.method !== "cod" || o.status !== "completed") throw new DomainError("not_reconcilable", `Pesanan ${l.orderId} bukan pesanan COD yang sudah terkirim.`);
     }
     const shippingAccountId = input.shippingAccountId ?? orders[0]!.shippingAccountId;
@@ -230,8 +233,9 @@ export const manualCompleteInput = z.strictObject({
 export async function requestManualCompletion(op: OperatorScope, raw: unknown): Promise<{ approvalId: number }> {
   const input = manualCompleteInput.parse(raw);
   await requirePlatformCap(op, "payouts.process");
-  const [o] = await op.exec.select({ status: order.status, storeId: order.storeId }).from(order).where(eq(order.id, input.orderId));
+  const [o] = await op.exec.select({ status: order.status, storeId: order.storeId, mode: orderFinancials.moneyMode }).from(order).leftJoin(orderFinancials, and(eq(orderFinancials.storeId, order.storeId), eq(orderFinancials.orderId, order.id))).where(eq(order.id, input.orderId));
   if (!o) throw new DomainError("not_found", "Pesanan tidak ditemukan.");
+  if (o.mode === "seller_owned") throw new DomainError("seller_owned_order", SELLER_OWNED_MESSAGE); // T-107: the delivery of such an order is the seller's tracking read, not a platform completion
   if (o.status !== "shipped") throw new DomainError("not_shipped", "Hanya pesanan berstatus Dikirim yang bisa diselesaikan manual.");
   const req = await requestApproval(op, { actionKey: MANUAL_COMPLETE_ACTION, targetKind: "order", targetId: String(input.orderId), payload: { orderId: input.orderId, storeId: o.storeId, evidenceRef: input.evidenceRef }, reason: input.reason });
   return { approvalId: req.id };
