@@ -24,6 +24,7 @@ import { auditLog, job, ledgerEntry, mailOutbox, membership, order, systemLog } 
 import { checkoutPaymentChannels, placeOrder, searchDestinationAreas } from "../src/seller/commerce/checkout.ts";
 import { formatShippingQuote, saveCourierRules } from "../src/shipping/rules.ts";
 import { setPickupAddress, shippingOptions } from "../src/shipping/shipping.ts";
+import { confirmDedicatedAccount } from "../src/shipping/sync.ts";
 import { keyFingerprint } from "../src/shipping/credentials.ts";
 import { setCartLine } from "../src/storefront/storefront.ts";
 import { admin, buyer, db, DESTINATION, makeOperator, makeStore, makeUser, platform, seller } from "./helpers.ts";
@@ -75,6 +76,7 @@ async function sellerStore(slug: string, apiKey: string, environment: "sandbox" 
   const me = await ownerOf(s);
   // T-107 (review M1; ADR-0013 decision 40): a store on its own accounts ships only on its own Mengantar account (sandbox fake, JNE with COD).
   await saveProviderKey(me, { provider: "mengantar", environment: "sandbox", apiKey: `CANARY-T106-MENGANTAR-${slug}-0123456789abcdef`, proofId: await issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "mengantar" }) });
+  await confirmDedicatedAccount(me, { confirmed: true }); // T-115: shipping is ready only on a confirmed dedicated account
   await setPickupAddress(me, { addressText: "Jl. Braga No. 10, Bandung", contactName: "Budi Pemilik", contactPhone: "081234567890" });
   await saveCourierRules(me, { couriers: [{ courierCode: "JNE", enabled: true, codEnabled: true }] });
   await searchDestinationAreas("menteng", undefined, s.sf);

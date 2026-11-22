@@ -25,6 +25,7 @@ import { buyerOrderMoneyForLink, claimDelivery, getOrder, recordSellerRefund, tr
 import { bookShipment, shipmentTimeline } from "../src/shipping/fulfillment.ts";
 import { formatShippingQuote, saveCourierRules, saveShippingSettings, sellerShippingRules } from "../src/shipping/rules.ts";
 import { setPickupAddress, shippingOptions } from "../src/shipping/shipping.ts";
+import { confirmDedicatedAccount } from "../src/shipping/sync.ts";
 import { setCartLine } from "../src/storefront/storefront.ts";
 import { deliver } from "./deliver.ts";
 import { admin, buyer, db, DESTINATION, makeOperator, makeStore, makeUser, platform, seller } from "./helpers.ts";
@@ -67,6 +68,7 @@ async function ownStore(slug: string, o: { mengantar?: boolean; autolaris?: bool
   const me = bindSession(s.owner, await sessionOf(s.ownerId));
   if (o.mengantar !== false) {
     await saveProviderKey(me, { provider: "mengantar", environment: "sandbox", apiKey: KEY.mengantar, proofId: await issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "mengantar" }) });
+    await confirmDedicatedAccount(me, { confirmed: true }); // T-115: shipping is ready only on a confirmed dedicated account
     await setPickupAddress(me, { addressText: "Jl. Braga No. 10, Bandung", contactName: "Budi Pemilik", contactPhone: "081234567890" });
     await saveCourierRules(me, { couriers: RULES });
     await searchDestinationAreas("menteng", undefined, s.sf); // the province of the buyer's area is on record (COD needs it, ADR-0013 section 4)
@@ -299,7 +301,8 @@ describe("T-107 clean cut-over to the store's own accounts (review M2)", () => {
     await saveProviderKey(me, { provider: "autolaris", environment: "sandbox", apiKey: KEY.autolaris, proofId: await issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "autolaris" }) });
     expect((await verifyLedger(platform)).violations).toEqual([]);
     // A destination forced past the guard after the conversion is flagged.
-    await withoutGuard("payout_destination", "a_money_boundary_guard", () => admin.execute(sql`insert into payout_destination (store_id, bank_code, account_number, account_holder_name, holder_name_check, status, hold_until, created_by_user_id, step_up_ref) values (${legacy.storeId}, 'BCA', '9876543210', 'x', 'match', 'superseded', now(), ${legacy.ownerId}, ${randomUUID()})`));
+    // Both guards stand in the way of a hand-made row: the boundary (the point of this check) and the D-19 hold and step-up rule.
+    await withoutGuard("payout_destination", "payout_destination_guard", () => withoutGuard("payout_destination", "a_money_boundary_guard", () => admin.execute(sql`insert into payout_destination (store_id, bank_code, account_number, account_holder_name, holder_name_check, status, hold_until, superseded_at, created_by_user_id, step_up_ref) values (${legacy.storeId}, 'BCA', '9876543210', 'x', 'match', 'superseded', now(), now(), ${legacy.ownerId}, ${randomUUID()})`)));
     expect((await verifyLedger(platform)).violations.map((v) => v.code)).toContain("seller_owned_in_platform_books");
   });
 });
