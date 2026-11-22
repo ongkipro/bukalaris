@@ -51,6 +51,9 @@ function sellerReadyStore(slug: string, email: string, apiKey: string) {
     const ssealed = sealCredential("shipping_credentials", mkey, Number(s.id), Number(sacc.id), "seller_owned");
     await admin.$client.unsafe("update store_shipping_account set sealed_key = $1, key_id = $2, sealed_at = now(), key_fingerprint = $3, key_hint = $4, status = 'active', last_result = 'ready', last_checked_at = now() where id = $5",
       [ssealed.sealedKey, ssealed.keyId, keyFingerprint("shipping_credentials", mkey), keyHint(mkey), sacc.id]);
+    // T-115 (ADR-0013 decision 41): shipping is ready only once the owner confirmed the account as new and dedicated (the fake answers the order-list read).
+    const { confirmDedicatedAccount } = await import("./src/shipping/sync.ts");
+    await confirmDedicatedAccount(ctx.scope, { confirmed: true });
     await setPickupAddress(ctx.scope, { addressText: "Jl. Braga No. 10, Bandung", contactName: "Budi Pemilik", contactPhone: "081234567890" });
     await saveCourierRules(ctx.scope, { couriers: [{ courierCode: "JNE", enabled: true, codEnabled: true }] });
     const [p] = await admin.$client.unsafe("select slug from product where id = $1", [productId]);
