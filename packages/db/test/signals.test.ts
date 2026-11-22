@@ -125,6 +125,9 @@ describe("token sealing (SEC-11)", () => {
     expect(() => openToken(sealed, 1, "tiktok")).toThrow(/tidak terbaca/);
     expect(() => openToken(sealed, 1, "meta", Buffer.alloc(32, 9))).toThrow(/tidak terbaca/);
     expect(() => openToken("garbage", 1, "meta")).toThrow(/tidak terbaca/);
+    // Node accepts a truncated GCM tag unless the length is pinned: the first 4 bytes of the real tag must not open the token.
+    const shortTag = Buffer.from(tag!, "base64").subarray(0, 4).toString("base64");
+    expect(() => openToken(`${v}.${iv}.${ct}.${shortTag}`, 1, "meta")).toThrow(/tidak terbaca/);
   });
   it("validates the key material", () => {
     expect(tokenKey(KEY)).toHaveLength(32);

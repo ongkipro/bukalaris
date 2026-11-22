@@ -84,8 +84,8 @@ docker run -d --name web-smoke --network bukalaris_default -p 127.0.0.1:3170:300
   -v bukalaris-media:/data/media \
   -e DATABASE_URL=postgres://bukalaris_app:bukalaris_app@db:5432/bukalaris \
   -e PLATFORM_DATABASE_URL=postgres://bukalaris_platform:bukalaris_platform@db:5432/bukalaris \
-  -e BETTER_AUTH_SECRET="$(openssl rand -base64 32)" -e BETTER_AUTH_URL=http://localhost:3170 \
-  -e STORE_ROOT_DOMAIN=localhost bukalaris-web
+  -e BETTER_AUTH_SECRET="$(openssl rand -base64 32)" -e ORDER_LINK_SECRET="$(openssl rand -base64 32)" \
+  -e BETTER_AUTH_URL=http://localhost:3170 -e STORE_ROOT_DOMAIN=localhost bukalaris-web
 curl -i http://localhost:3170/api/health          # 200 {"ok":true}
 docker inspect -f '{{.State.Health.Status}}' web-smoke   # healthy after ~30 s
 docker rm -f web-smoke
@@ -186,11 +186,12 @@ hashed separately and are not affected, but stored data does depend on it:
   out-of-band procedure of "Console bootstrap and recovery" below applies. An
   explicit `AUTH_SECRET_<SURFACE>` keeps that surface's secret unchanged when the
   base rotates.
-- **Fallbacks.** When `ORDER_LINK_SECRET` is unset, order-status links already mailed
-  stop verifying (`packages/db/src/ops/jobs/notify.ts`); when
+- **Fallbacks.** `ORDER_LINK_SECRET` has none since T-126: the worker and a
+  production web server refuse to run without it, and changing it invalidates every
+  order-status link already mailed (`packages/db/src/ops/jobs/notify.ts`). When
   `ACCOUNT_SEARCH_FINGERPRINT_KEY` is unset, new account-search fingerprints no longer
   match those in earlier audit rows (`packages/db/src/ops/accounts-governance.ts`).
-  Set both explicitly before the first production rotation.
+  Set it explicitly before the first production rotation.
 
 1. Generate: `openssl rand -base64 32`.
 2. Local: replace the value in `.env`, restart `pnpm dev` or the container.

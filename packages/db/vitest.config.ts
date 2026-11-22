@@ -18,6 +18,8 @@ export default defineConfig({
       KEYRING_PAYMENT_CREDENTIALS: "testpay:dGVzdC1vbmx5LXBheW1lbnQta2V5LXNlcGFyYXRlISE=",
       // T-45 signed checkout resume links: dev/test placeholder; the missing-ring path is tested with an explicit empty environment.
       KEYRING_CHECKOUT_RESUME: "tr1:dGVzdC1vbmx5LWNoZWNrb3V0LXJlc3VtZS1rZXktMDE=",
+      // Buyer order-status links (T-36): required, no fallback to BETTER_AUTH_SECRET (SEC-22); dev/test placeholder.
+      ORDER_LINK_SECRET: "test-only-order-link-secret-0123456789abcdef",
       // The Mengantar entry gate is CLOSED here like everywhere else (T-48 fix 5): a test that drives a stubbed client opens it for itself with vi.stubEnv.
     },
   },

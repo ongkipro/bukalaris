@@ -867,3 +867,9 @@ dummy content.
 - #12 T-123: Playwright 1.63 retries a "not stable" click with in-page `setTimeout`, which Chromium never runs with JavaScript disabled; the click then hangs until the test timeout (CI call log of occurrence 6, reproduced 4/4). JS-free submits now use focus + Enter (`activateNoJs`). Local: `auth-csrf.spec.ts` `--repeat-each 5` 110 passed, host-mode specs `--repeat-each 3` 84 passed.
 - Evidence: the six `host-mode-t103-two-root-*` screenshots of T-103 (store-host checkout, confirmation, order status at 320 and 1280 px) are added, taken by the T-125 run.
 - Open: T-115 built (`pnpm verify` exit 0, DB 1501, E2E 284 passed / 6 skipped), in independent review; T-107 in progress.
+
+## T-126 secret hardening (2026-11-23, local only)
+
+- AES-GCM decryption in `storefront/signals.ts` and `tax/seal.ts` pins the 16-byte tag (Node 24 accepted a 4-byte prefix of the real tag); `ORDER_LINK_SECRET` no longer falls back to `BETTER_AUTH_SECRET`, the worker refuses to start without it and a production web server answers 500. Details, tests and mutations: `docs/TASKS.md` T-126.
+- Commands on this device (no Docker, no Postgres server): `pnpm map:check`, `pnpm lint`, `pnpm typecheck`, `pnpm build`, a Node script over the real modules (plus the mutations), worker and `server.js` runs without the variable. The database tests and E2E run on the pull request CI.
+- Repository setting (owner approved 2026-11-23): `main` is protected: pull request required (no required review), required checks `verify` and `image` from GitHub Actions, not strict, admins included, no force push or deletion.

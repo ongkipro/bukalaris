@@ -54,14 +54,13 @@ export async function enqueueOrderNotifications(tx: Executor, storeId: number, o
 export const ORDER_LINK_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const TOKEN_RE = /^([0-9]{1,15})\.([0-9]{1,12})\.([A-Za-z0-9_-]{43})$/;
 
-function linkSecret(): string {
-  // lazy: falls back to the auth secret (domain-separated below) so a dev checkout works
-  // without a new variable; production sets ORDER_LINK_SECRET (docs/DEPLOY-COOLIFY.md).
-  const s = process.env.ORDER_LINK_SECRET ?? process.env.BETTER_AUTH_SECRET;
+/** No fallback to another purpose's secret (SEC-22); the worker calls this before claiming anything. */
+export function requireOrderLinkSecret(): string {
+  const s = process.env.ORDER_LINK_SECRET;
   if (!s) throw new Error("ORDER_LINK_SECRET is not set");
   return s;
 }
-const signature = (orderId: number, expiresAtSec: number) => createHmac("sha256", linkSecret()).update(`order-link:${orderId}.${expiresAtSec}`).digest("base64url");
+const signature = (orderId: number, expiresAtSec: number) => createHmac("sha256", requireOrderLinkSecret()).update(`order-link:${orderId}.${expiresAtSec}`).digest("base64url");
 
 /** Token for the buyer status page of `orderId`, valid for `ORDER_LINK_TTL_MS` from `now`. */
 export function signOrderLink(orderId: number, now = Date.now()): string {
