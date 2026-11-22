@@ -30,7 +30,7 @@ export function unsealTaxValue(envelope: string, keyId: string, binding: TaxIden
   const parts = envelope.split(".");
   if (parts.length !== 3) throw new Error("tax_envelope_invalid");
   const [iv, encrypted, tag] = parts.map((p) => Buffer.from(p, "base64"));
-  const decipher = createDecipheriv("aes-256-gcm", key.key, iv!); decipher.setAAD(aad(binding)); decipher.setAuthTag(tag!);
+  const decipher = createDecipheriv("aes-256-gcm", key.key, iv!, { authTagLength: 16 }); decipher.setAAD(aad(binding)); decipher.setAuthTag(tag!);
   return Buffer.concat([decipher.update(encrypted!), decipher.final()]).toString("utf8");
 }
 export function taxIdentityFingerprint(idKind: string, identifier: string) {

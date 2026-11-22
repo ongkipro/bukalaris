@@ -54,7 +54,7 @@ const sign = (reff: string) => `${reff}.${createHmac("sha256", process.env.AUTOL
 /** The buyer's signed order-status link (T-36 format), with the e2e secret the server reads too. */
 const orderLink = (orderId: number) => {
   const exp = Math.floor((Date.now() + 3_600_000) / 1000);
-  const secret = process.env.ORDER_LINK_SECRET ?? process.env.BETTER_AUTH_SECRET!;
+  const secret = process.env.ORDER_LINK_SECRET!;
   return `/o/${orderId}.${exp}.${createHmac("sha256", secret).update(`order-link:${orderId}.${exp}`).digest("base64url")}`;
 };
 const status = (page: Page) => page.getByRole("main").getByRole("status");

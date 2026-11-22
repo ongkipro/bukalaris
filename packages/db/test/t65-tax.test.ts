@@ -575,6 +575,8 @@ describe("T-65 voluntary identity service behind identity_capture_enabled", () =
     const flipped = Buffer.from(ct!, "base64"); flipped[0] = flipped[0]! ^ 1;
     expect(() => unsealTaxValue([iv, flipped.toString("base64"), tag].join("."), keyId, base)).toThrow();
     expect(() => unsealTaxValue(envelope, "unknown-key", base)).toThrow("tax_key_unavailable");
+    // A truncated GCM tag (first 4 bytes of the real one) is refused, not accepted by Node's default.
+    expect(() => unsealTaxValue([iv, ct, Buffer.from(tag!, "base64").subarray(0, 4).toString("base64")].join("."), keyId, base)).toThrow();
     expect(sealTaxValue("fixture-value", base).envelope).not.toBe(envelope); // fresh iv every time
   });
 
