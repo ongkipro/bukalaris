@@ -185,13 +185,15 @@ Current build (checked 2026-11-16): **not met in full.** No start-up check rejec
 a placeholder, short or reused value of `BETTER_AUTH_SECRET`, `ORDER_LINK_SECRET`
 or `INTEGRATION_TOKEN_KEY` (Better Auth 1.7.7 itself refuses a missing secret in
 production when an auth instance is first created and only warns about a short or
-low-entropy one), and the worker starts without `ORDER_LINK_SECRET` or
-`INTEGRATION_TOKEN_KEY` (T-84 note). `ORDER_LINK_SECRET` still falls back to
-`BETTER_AUTH_SECRET` (`packages/db/src/ops/jobs/notify.ts`), and so does
-`ACCOUNT_SEARCH_FINGERPRINT_KEY` (`packages/db/src/ops/accounts-governance.ts`).
+low-entropy one), and the worker starts without `INTEGRATION_TOKEN_KEY` (T-84
+note). `ACCOUNT_SEARCH_FINGERPRINT_KEY` still falls back to `BETTER_AUTH_SECRET`
+(`packages/db/src/ops/accounts-governance.ts`).
 What does fail closed: the worker does not start without a valid mail
 configuration (production needs `MAIL_PROVIDER` and `MAIL_FROM`;
-`packages/db/src/worker.ts`, T-73); a host-mode auth surface without its origin
+`packages/db/src/worker.ts`, T-73) or without `ORDER_LINK_SECRET`, which no longer
+falls back to `BETTER_AUTH_SECRET` (T-126); a production web server without
+`ORDER_LINK_SECRET` answers every request, `/api/health` included, with 500
+(`apps/web/src/instrumentation.ts`, T-126); a host-mode auth surface without its origin
 refuses to create its auth instance on first use (`apps/web/src/lib/auth.ts`); the
 payment callback, checkout fingerprints and resume links refuse when their key is
 missing or malformed (the "fail closed" notes in `.env.example`), and the

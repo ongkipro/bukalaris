@@ -76,7 +76,7 @@ export function openToken(sealed: string, storeId: number, provider: string, key
   const [v, iv, ct, tag] = sealed.split(".");
   if (v !== "v1" || !iv || !ct || !tag) throw new DomainError("token_unreadable", "Token tersimpan tidak terbaca.");
   try {
-    const d = createDecipheriv("aes-256-gcm", key, Buffer.from(iv, "base64"));
+    const d = createDecipheriv("aes-256-gcm", key, Buffer.from(iv, "base64"), { authTagLength: 16 });
     d.setAAD(aad(storeId, provider));
     d.setAuthTag(Buffer.from(tag, "base64"));
     return Buffer.concat([d.update(Buffer.from(ct, "base64")), d.final()]).toString("utf8");

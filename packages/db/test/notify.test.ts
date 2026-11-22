@@ -1,10 +1,12 @@
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { and, eq, like } from "drizzle-orm";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { dbMailer, type Mailer } from "../src/platform/accounts.ts";
 import { createProduct } from "../src/seller/commerce/catalog.ts";
 import { placeOrder } from "../src/seller/commerce/checkout.ts";
 import { claimBatch, enqueue, getHandler, runOnce } from "../src/ops/jobs/jobs.ts";
-import { enqueueOrderNotifications, getOrderForLink, ORDER_LINK_TTL_MS, ORDER_NOTIFY, renderMail, setNotifyMailer, signOrderLink, verifyOrderLink } from "../src/ops/jobs/notify.ts";
+import { enqueueOrderNotifications, getOrderForLink, ORDER_LINK_TTL_MS, ORDER_NOTIFY, renderMail, requireOrderLinkSecret, setNotifyMailer, signOrderLink, verifyOrderLink } from "../src/ops/jobs/notify.ts";
 import { transitionOrder } from "../src/seller/commerce/orders.ts";
 import { fakeProviders } from "../src/payments/providers.ts";
 import { job, mailOutbox, membership, orderNotification, user } from "../src/schema.ts";
@@ -230,6 +232,25 @@ describe("order e-mail notifications (T-36, PR-21)", () => {
       for (const k of keys) if (saved[k] === undefined) delete process.env[k];
       else process.env[k] = saved[k];
     }
+  });
+
+  it("SEC-22: without ORDER_LINK_SECRET no link is signed or verified, even with BETTER_AUTH_SECRET set (no fallback)", () => {
+    vi.stubEnv("BETTER_AUTH_SECRET", "test-only-auth-secret-0123456789abcdef");
+    vi.stubEnv("ORDER_LINK_SECRET", "");
+    expect(() => requireOrderLinkSecret()).toThrow("ORDER_LINK_SECRET is not set");
+    expect(() => signOrderLink(1)).toThrow("ORDER_LINK_SECRET is not set");
+  });
+
+  it("SEC-22: the worker exits non-zero before claiming any job when ORDER_LINK_SECRET is missing, and names it", () => {
+    const worker = fileURLToPath(new URL("../src/worker.ts", import.meta.url));
+    const r = spawnSync(process.execPath, [worker, "--once"], {
+      encoding: "utf8",
+      timeout: 30_000,
+      env: { PATH: process.env.PATH, NODE_ENV: "production", MAIL_MODE: "local", BETTER_AUTH_URL: "http://localhost:3000", BETTER_AUTH_SECRET: "test-only-auth-secret-0123456789abcdef", PLATFORM_DATABASE_URL: process.env.PLATFORM_DATABASE_URL },
+    });
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toMatch(/ORDER_LINK_SECRET is not set/);
+    expect(r.stdout).not.toContain('"event":"started"');
   });
 
   it("signed status link: verifies, expires, rejects tampering and never opens another order", async () => {

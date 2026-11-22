@@ -12,7 +12,7 @@ import "./ops/jobs/retention.ts"; // registers the retention sweeps and their da
 import { reconcileUnknownJobs } from "./ops/jobs/manage.ts";
 import "./ops/console-approvals.ts"; // registers the approval.expire sweeper (JOB-12, T-62)
 import { schedulerTick } from "./ops/jobs/scheduler.ts";
-import "./ops/jobs/notify.ts"; // registers the order e-mail handler (T-36)
+import { requireOrderLinkSecret } from "./ops/jobs/notify.ts"; // registers the order e-mail handler (T-36)
 import "./ops/jobs/mail.ts"; // T-73 delivery and credential-body expiry sweep
 import { configuredMailTransport, requireMailConfiguration } from "./platform/mail-transport.ts";
 import "./storefront/signals.ts"; // registers the signal.* handlers (T-38)
@@ -35,6 +35,7 @@ const log = (event: string, fields: Record<string, unknown> = {}) =>
 
 // Fail before claiming anything: production cannot silently use the local mail sink.
 configuredMailTransport(requireMailConfiguration());
+requireOrderLinkSecret();
 const db = platformDb(); // worker role: bukalaris_platform (BYPASSRLS), PLATFORM_DATABASE_URL only
 let stopping = false;
 let wake: () => void = () => {};

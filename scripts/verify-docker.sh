@@ -65,7 +65,7 @@ publish=(); [ -n "${VERIFY_PORT:-}" ] && publish=(-p "127.0.0.1:$VERIFY_PORT:300
 docker run -d --name "$ctr" --network "$DB_NETWORK" "${publish[@]}" \
   -v "$vol:/data/media" \
   -e DATABASE_URL="$app_url" -e PLATFORM_DATABASE_URL="$platform_url" -e BETTER_AUTH_URL="http://localhost:${VERIFY_PORT:-3000}" -e MAIL_MODE=local \
-  -e BETTER_AUTH_SECRET="verify-only-$id-not-a-real-secret-0123456789" -e STORE_ROOT_DOMAIN=localhost \
+  -e BETTER_AUTH_SECRET="verify-only-$id-not-a-real-secret-0123456789" -e ORDER_LINK_SECRET="verify-only-$id-order-link-0123456789" -e STORE_ROOT_DOMAIN=localhost \
   --health-interval=2s --health-retries=5 --health-start-period=5s \
   "bukalaris-web:$tag" >/dev/null
 
@@ -110,7 +110,7 @@ wt0=$(now_ms)
 # NODE_ENV comes from the image (ENV in the migrate stage), exactly as a deployment would get it.
 docker run -d --name "$wkr" --network "$DB_NETWORK" \
   -e MAIL_MODE=local -e PLATFORM_DATABASE_URL="$worker_url" -e BETTER_AUTH_URL=http://localhost:3000 \
-  -e WORKER_POLL_MS=500 -e SCHEDULER_TICK_MS=1000 \
+  -e WORKER_POLL_MS=500 -e SCHEDULER_TICK_MS=1000 -e ORDER_LINK_SECRET="verify-only-$id-order-link-0123456789" \
   "bukalaris-migrate:$tag" node src/worker.ts >/dev/null
 worker_user="$(docker exec "$wkr" id -un 2>/dev/null || echo none)"
 effect=no; heartbeat=no

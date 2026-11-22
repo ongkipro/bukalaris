@@ -165,10 +165,10 @@ const sqlClient = () => {
   if (!/_e2e\b/.test(databaseUrl)) throw new Error("E2E_DATABASE_URL must point at a *_e2e database");
   return postgres(databaseUrl, { max: 1, onnotice: () => {} });
 };
-/** The signed `/o/<orderId>.<expiry>.<hmac>` token of T-36, signed here with the server's own secret (ORDER_LINK_SECRET, else BETTER_AUTH_SECRET). */
+/** The signed `/o/<orderId>.<expiry>.<hmac>` token of T-36, signed here with the server's own ORDER_LINK_SECRET. */
 const orderToken = (orderId: number) => {
   const exp = Math.floor(Date.now() / 1000) + 3600;
-  const secret = process.env.ORDER_LINK_SECRET ?? process.env.BETTER_AUTH_SECRET ?? "";
+  const secret = process.env.ORDER_LINK_SECRET ?? "";
   return `${orderId}.${exp}.${createHmac("sha256", secret).update(`order-link:${orderId}.${exp}`).digest("base64url")}`;
 };
 const cartCookieOf = async (ctx: BrowserContext) => (await ctx.cookies()).find((c) => /^(?:__Host-)?bl_cart_\d+$/.test(c.name));
