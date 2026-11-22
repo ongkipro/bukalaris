@@ -8,6 +8,18 @@ import { chooseDestination, evidence, login } from "./helpers";
 // stubs and anything else is aborted, so nothing reaches Meta, TikTok or Google. The
 // worker runs in simulation mode (no SIGNALS_LIVE), so the server rows end as `simulated`.
 
+// T-125: this file switches toko-a's pixels on in the shared E2E database; switch them off again so no later spec loads a
+// provider script (the browser cannot resolve the provider hosts, see playwright.config.ts, and the failed loads would
+// surface as console errors in specs that assert none).
+test.afterAll(async () => {
+  const sql = postgres(process.env.E2E_DATABASE_URL!, { max: 1, onnotice: () => {} });
+  try {
+    await sql`update signal_destination set enabled = false where store_id = (select id from store where slug = 'toko-a')`;
+  } finally {
+    await sql.end();
+  }
+});
+
 const META_PIXEL = "123456789012345";
 const TIKTOK_PIXEL = "C0FAKEPIXEL0001";
 /** Recorded pixel call: `[docId, method, ...args]`; docId identifies the document that made it. */

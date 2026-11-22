@@ -54,7 +54,7 @@ export type SellerRefundMethod = (typeof SELLER_REFUND_METHODS)[number];
 /**
  * T-107 (ADR-0013 decision 26, C-P9): a refund the SELLER made outside Bukalaris, recorded on an order of a store on its own accounts. A record
  * only: Bukalaris moves no money and calls no refund endpoint. Append-only; the database refuses a record for a platform-held order, for an order
- * that was never paid and above the buyer's bill (`order_seller_refund_guard`, migration 0021).
+ * that was never paid and above the buyer's bill (`order_seller_refund_guard`, migration 0022).
  */
 export const orderSellerRefund = pgTable(
   "order_seller_refund",

@@ -40,7 +40,7 @@ import "../src/billing/jobs.ts";
 // T-106 (ADR-0013 sections 3 to 6, decision 34, D-21, D-33): AutoLaris on the seller's own key, against FAKE AutoLaris accounts (one per key).
 // No network, no real key: the keys are canaries, so a leak into any row, job, observation or log line fails the literal scan.
 
-/** T-107 (migration 0021): the provider COD fee row of the versioned schedule, UNVERIFIED starting value. */
+/** T-107 (migration 0022): the provider COD fee row of the versioned schedule, UNVERIFIED starting value. */
 const COD_RATE = { COD: { base: "payable", rateBps: 300, fixedIdr: 0 } } as const;
 const KEY = { a: "CANARY-T106-STORE-A-KEY-1f2e3d4c5b6a7980", b: "CANARY-T106-STORE-B-KEY-9a8b7c6d5e4f3021" } as const;
 const code = (p: Promise<unknown>) => p.then(() => "ok", (e: { code?: string; cause?: { code?: string } }) => e.code ?? e.cause?.code ?? String(e));

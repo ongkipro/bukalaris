@@ -1,7 +1,7 @@
 import { expect, request, test, type APIRequestContext } from "@playwright/test";
 const request_ = request;
 import { setTimeout as sleep } from "node:timers/promises";
-import { chooseDestination, DEV_PASSWORD, login, testPhone } from "./helpers";
+import { activateNoJs, chooseDestination, DEV_PASSWORD, login, testPhone } from "./helpers";
 import postgres from "postgres";
 
 // These probes deliberately carry session/CSRF material; do not persist request traces.
@@ -453,14 +453,14 @@ test("T82/T-103 store-host checkout binds the cart form to the exact configured 
   try {
     const p = await store.newPage();
     await p.goto("/products/kaos-katun-basic");
-    await p.getByRole("button", { name: "Tambah ke keranjang" }).click();
+    await activateNoJs(p.getByRole("button", { name: "Tambah ke keranjang" }));
     await expect(p.getByRole("heading", { name: "Keranjang", exact: true })).toBeVisible();
     const cart = (await store.cookies()).find((c) => /^(?:__Host-)?bl_cart_\d+$/.test(c.name));
     expect(Boolean(cart), "owned store-host cart exists").toBe(true);
     await p.goto("/checkout?store=toko-a");
     await expect(p.getByRole("heading", { name: /Checkout · / })).toBeVisible();
     expect(new URL(p.url()).origin).toBe(originOf("toko-a"));
-    await chooseDestination(p);
+    await chooseDestination(p, "menteng", /^Pilih Menteng/, activateNoJs);
     await p.getByLabel("Nama", { exact: true }).fill("Budi Host Checkout");
     await p.getByLabel("Nomor HP").fill(testPhone());
     await p.getByLabel("Alamat lengkap").fill("Jl. Merdeka No. 4, Menteng, Jakarta");
@@ -497,7 +497,7 @@ test("T82/T-103 store-host checkout binds the cart form to the exact configured 
     // The hosted checkout host no longer reads a cart that was copied onto it rather than handed off (PR-16).
     const fresh = await store.newPage();
     await fresh.goto("/products/kaos-katun-basic");
-    await fresh.getByRole("button", { name: "Tambah ke keranjang" }).click();
+    await activateNoJs(fresh.getByRole("button", { name: "Tambah ke keranjang" }));
     const copied = (await store.cookies()).find((c) => /^(?:__Host-)?bl_cart_\d+$/.test(c.name));
     await checkout.addCookies([{ ...copied!, domain: "checkout.localhost" }]);
     const c = await checkout.newPage();

@@ -3,7 +3,7 @@ import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 import postgres from "postgres";
-import { chooseDestination, evidence, login, testPhone } from "./helpers";
+import { activateNoJs, chooseDestination, evidence, login, testPhone } from "./helpers";
 
 // T-102 (ADR-0014 §1-3, DOM-5): two root domains on one production build. Platform surfaces live on PLATFORM_ROOT_DOMAIN,
 // native storefronts on STORE_ROOT_DOMAIN. Locally both are siblings under `localhost` (Chrome resolves *.localhost to
@@ -493,11 +493,11 @@ test("T-103 review 3: another store's cart id in this store's cart cookie is nev
     await sql`insert into cart_line (cart_id, store_id, variant_id, quantity) select ${foreignCart!.id}, ${sb!.id}, v.id, 1 from variant v where v.store_id = ${sb!.id} order by v.id limit 1`;
     const p = await ctx.newPage();
     await p.goto("/products/kaos-katun-basic");
-    await p.getByRole("button", { name: "Tambah ke keranjang" }).click();
+    await activateNoJs(p.getByRole("button", { name: "Tambah ke keranjang" }));
     await expect(p.getByRole("heading", { name: "Keranjang", exact: true })).toBeVisible();
     const own = (await cartCookieOf(ctx))!;
     await p.goto("/checkout?store=toko-a");
-    await chooseDestination(p);
+    await chooseDestination(p, "menteng", /^Pilih Menteng/, activateNoJs);
     await p.getByLabel("Nama", { exact: true }).fill("Budi Lintas Toko");
     await p.getByLabel("Nomor HP").fill(testPhone());
     await p.getByLabel("Alamat lengkap").fill("Jl. Merdeka No. 3, Menteng, Jakarta");

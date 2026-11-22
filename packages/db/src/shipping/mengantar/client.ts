@@ -4,6 +4,8 @@ import {
   areaListSchema,
   createOrderResponseSchema,
   envelopeSchema,
+  invoiceListSchema,
+  orderListSchema,
   orderLookupSchema,
   pickupAddressListSchema,
   rateMapSchema,
@@ -166,6 +168,19 @@ export class MengantarClient {
     return this.#get(this.#keyed("/order", query), orderLookupSchema);
   }
 
+  /**
+   * T-115: one page of the account's orders, newest first (`GET /order`, `size` at most 100, `cursor` from the previous page). A `dateRange`
+   * reaching back past six months also reads the archive (documented). The whole body is returned: `nextCursor` sits beside `data`.
+   */
+  listOrders(p: { size: number; cursor?: string; dateRange?: { startDate: string; endDate: string } }) {
+    return this.#getRaw(this.#keyed("/order", { size: Math.min(100, Math.max(1, Math.trunc(p.size))), cursor: p.cursor, dateRange: p.dateRange && JSON.stringify(p.dateRange) }), orderListSchema);
+  }
+
+  /** T-115 (ADR-0013 decision 45): the account balance and its newest invoices (`GET /invoices`); read-only. */
+  listInvoices(size: number) {
+    return this.#getRaw(this.#keyed("/invoices", { size: Math.min(100, Math.max(1, Math.trunc(size))) }), invoiceListSchema);
+  }
+
   // ── Writes (disabled unless MENGANTAR_WRITE_ENABLED=1) ───────────────────
 
   /** Returns the whole response body (`batch_id` and `errors` live beside `data`), parsed loosely. */
@@ -220,6 +235,14 @@ export class MengantarClient {
     if (!parsed.success) {
       throw new MengantarError("invalid_shape", `Mengantar response shape mismatch: ${this.#redact(parsed.error.issues[0]?.path.join(".") || "(root)")}`, 200, this.#sanitize(data));
     }
+    return parsed.data;
+  }
+
+  /** A read whose answer carries fields beside `data` (cursor, balance): the whole body is validated. */
+  async #getRaw<T>(url: string, schema: z.ZodType<T>): Promise<T> {
+    const body = await this.#request("GET", url, { attempts: READ_ATTEMPTS, raw: true });
+    const parsed = schema.safeParse(body);
+    if (!parsed.success) throw new MengantarError("invalid_shape", `Mengantar response shape mismatch: ${this.#redact(parsed.error.issues[0]?.path.join(".") || "(root)")}`, 200, this.#sanitize(body));
     return parsed.data;
   }
 

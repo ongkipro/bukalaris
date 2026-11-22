@@ -41,6 +41,12 @@ test("sandbox: connect a seller test key, register a Jakarta pickup, quote, orde
   await pickup.getByLabel("Nama penanggung jawab pickup").fill("Uji Sandbox");
   await pickup.getByLabel("Nomor HP penanggung jawab").fill("081234567890");
   await pickup.getByRole("button", { name: "Simpan dan daftarkan alamat" }).click();
+  // T-115 (decision 41): the account is confirmed as new and dedicated (its order list is read on the key) before shipping is ready.
+  await page.goto("/seller/shipping/account");
+  const dedicated = page.getByRole("form", { name: "Konfirmasi akun khusus" });
+  await dedicated.getByRole("checkbox").check();
+  await dedicated.getByRole("button", { name: "Konfirmasi akun khusus" }).click();
+  await page.goto("/seller/shipping");
   await expect(page.getByTestId("shipping-ready")).toHaveText("Siap kirim");
   const couriers = page.getByRole("form", { name: "Kurir dan COD" });
   await couriers.getByLabel("Aktifkan JNE Express").check();

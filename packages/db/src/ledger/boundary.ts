@@ -5,7 +5,7 @@ import { storePaymentAccount } from "../payments/schema-payments.ts";
 import { storeShippingAccount } from "../shipping/schema-accounts.ts";
 import { orderFinancials, type MoneyMode } from "./schema-ledger.ts";
 
-// T-107 — the money boundary (ADR-0013 section 8, BILL-5, D-27, D-31). One rule, stated here and in the database (`store_money_mode`, migration 0021):
+// T-107 — the money boundary (ADR-0013 section 8, BILL-5, D-27, D-31). One rule, stated here and in the database (`store_money_mode`, migration 0022):
 // a store is `seller_owned` when it holds a seller-owned account of either provider. Its buyers pay the seller's own AutoLaris and Mengantar accounts,
 // so Bukalaris writes no ledger entry, payout, payout destination, reconciliation item, shipment-cost reservation, platform refund or late-payment
 // obligation for it, and never routes its orders to the platform's AutoLaris account. Each order freezes the mode in `order_financials.money_mode`.
@@ -27,7 +27,7 @@ export async function orderMoneyMode(exec: Executor, storeId: number, orderId: n
   return f?.mode ?? "platform_held";
 }
 
-/** SQLSTATEs of the database guards (migration 0021): a boundary refusal and a refused cut-over. */
+/** SQLSTATEs of the database guards (migration 0022): a boundary refusal and a refused cut-over. */
 export const BOUNDARY_SQLSTATE = "BKMB1";
 export const CUTOVER_SQLSTATE = "BKMB2";
 const sqlstate = (err: unknown): string | undefined => (err as { cause?: { code?: string }; code?: string })?.cause?.code ?? (err as { code?: string })?.code;

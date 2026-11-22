@@ -1,3 +1,5 @@
+import { confirmDedicatedAccount } from "../src/shipping/sync.ts";
+import { setSellerMengantarFetch } from "../src/shipping/seller.ts";
 import { randomBytes } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -27,6 +29,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   setProviderCheckTransport(null);
+  setSellerMengantarFetch(null);
   vi.restoreAllMocks();
 });
 
@@ -274,8 +277,13 @@ describe("T-104 seller provider accounts: sealed keys, environment, connection c
     expect(columns).toEqual([]);
     vi.stubEnv("MENGANTAR_SANDBOX_ORIGIN", "https://sandbox.mengantar.example.invalid");
     vi.stubEnv("MENGANTAR_PRODUCTION_ORIGIN", "https://api.mengantar.example.invalid");
+    // T-115: a configured origin also runs the dedicated-account read of the order list on the key: answered by a stub, nothing leaves the process.
+    setSellerMengantarFetch((async () => new Response(JSON.stringify({ success: true, data: [], nextCursor: "" }), { status: 200 })) as typeof fetch);
     await connect(me, "mengantar");
+    // T-115: moving to production is another account, whose order list is read on the production key: that needs the Owner console switch (T-105).
+    await admin.execute(sql`insert into provider_live_setting (provider, sandbox_passed_at, sandbox_pass_note, sandbox_pass_by, production_enabled, updated_by) values ('mengantar', now(), 'test', 'test', true, 'test')`);
     await saveProviderKey(me, { provider: "mengantar", environment: "production", apiKey: "", proofId: await proof(me, "mengantar") });
+    await admin.execute(sql`truncate provider_live_setting`);
     expect(check.calls.map((c) => [c.environment, c.origin])).toEqual([["sandbox", "https://sandbox.mengantar.example.invalid"], ["production", "https://api.mengantar.example.invalid"]]);
     // Without the test seam, a configured origin and no live transport refuse the check (the fake never answers for a configured provider).
     setProviderCheckTransport(null);
@@ -308,13 +316,15 @@ describe("T-104 seller provider accounts: sealed keys, environment, connection c
     await checkProviderNow(me, "autolaris");
     expect(await paymentReadiness(me)).toEqual({ ready: false, missing: ["check"] });
     // Shipping: a connected, checked key still waits for the pickup registration of that account (written by T-105).
+    // T-115 (decision 41): and the seller's confirmation that this account is new and dedicated to the store.
     await connect(me, "mengantar");
-    expect(await shippingReadiness(me)).toEqual({ ready: false, missing: ["pickup_registered"] });
+    expect(await shippingReadiness(me)).toEqual({ ready: false, missing: ["dedicated", "pickup_registered"] });
+    await confirmDedicatedAccount(me, { confirmed: true });
     await admin.execute(sql`update store_shipping_account set pickup_registered_at = now(), pickup_address_id = 'pickup1' where store_id = ${s.storeId} and kind = 'seller_owned'`);
     expect(await storeReadiness(me)).toMatchObject({ shipping: { ready: true, missing: [] }, canOpen: true, physicalProducts: true });
-    // Another account (a different key) needs its own registration.
+    // Another account (a different key) needs its own registration and its own confirmation.
     await connect(me, "mengantar", "a-different-mengantar-account-key-0000");
-    expect(await shippingReadiness(me)).toEqual({ ready: false, missing: ["pickup_registered"] });
+    expect(await shippingReadiness(me)).toEqual({ ready: false, missing: ["dedicated", "pickup_registered"] });
     expect((await auditOf(s.storeId)).map((r) => r.action)).toContain("provider.details.update");
     const t = await makeStore("toko-b", { pickupArea: false });
     expect(await shippingReadiness(await ownerOf(t))).toEqual({ ready: false, missing: ["key", "pickup_area", "pickup_registered"] });

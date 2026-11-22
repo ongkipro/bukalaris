@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db, Executor } from "../client.ts";
 import { enqueue, MAX_ATTEMPTS, registerHandler, sanitizeError } from "../ops/jobs/jobs.ts";
@@ -9,7 +9,9 @@ import { applyProviderTransition, applyTransition, PROVIDER_ACTOR } from "../sel
 import { requoteOrder, reserveShippingCost, reverseShippingReservation } from "../ledger/booking.ts";
 import { codAllowedCouriers } from "./shipping.ts";
 import { auditLog, membership, order, orderFinancials, ORDER_STATUS_LABEL, orderLine, orderRedaction, shipment, SHIPMENT_STATUS_LABEL, user, type OrderStatus, type ShipmentStatus, type TrackingEvent } from "../schema.ts";
+import { shipmentStatusEvent, shippingForeignParcel, type ProviderFigures } from "./schema-fulfillment.ts";
 import { PICKUP_TYPES } from "./schema-fulfillment.ts";
+import { categoryKey, categoryLabel, forwardRank, PARCEL_STATE_MAP, parcelStateOf, shipmentStatusOf, storableCategory } from "./parcel-state.ts";
 import { storeCourierRule } from "./schema-shipping.ts";
 import { openSellerKeyAsWorker, sellerMengantar } from "./seller.ts";
 import { sellerAccount } from "./rules.ts";
@@ -18,6 +20,7 @@ import { PROVIDER_CODE_RE_SOURCE, REDACTED } from "../seller/commerce/privacy.ts
 import { DomainError, requireCap, type SellerScope } from "../platform/scoped.ts";
 import { resolveOrderStore } from "../platform/resolvers.ts";
 import { inStore, withStore } from "../platform/tenant.ts";
+import { hit } from "../platform/rate-limit.ts";
 import { orderShippingAccount, type ShippingAccountView } from "./accounts.ts";
 import { withShippingDispatch } from "./dispatch.ts";
 import { PARTNER_DISPATCH_LOCKED_MESSAGE, scrubProviderText, UNKNOWN_PROVIDER_STATUS_LABEL } from "./copy.ts";
@@ -43,6 +46,8 @@ export const SHIPMENT_BOOK = "shipment.book";
 export const SHIPMENT_TRACK = "shipment.track";
 /** Automatic polls per shipment: 15 min doubling to a 6 h ceiling ≈ two weeks of tracking. */
 export const MAX_TRACK_POLLS = 60;
+/** RL-TRACK-REFRESH (doc 16, D-33): a seller's "read now" on its own account, per parcel and per store. */
+export const TRACK_REFRESH_LIMITS = { parcel: { limit: 1, windowSec: 300 }, store: { limit: 60, windowSec: 600 } } as const;
 /** Seller-triggered refreshes per shipment (each is one provider read). */
 export const MAX_MANUAL_POLLS = 50;
 export const TRACK_HISTORY_MAX = 50;
@@ -64,22 +69,12 @@ export const COD_BOOKING_MESSAGE = "Booking COD lewat Bukalaris Kirim belum dibu
 /** Delay before automatic poll `poll` (0-based): 15 min, 30 min, 1 h, 2 h, 4 h, then 6 h. */
 export const trackDelayMs = (poll: number) => Math.min(15 * 60_000 * 2 ** Math.max(0, Math.min(poll, 5)), 6 * 3_600_000);
 
-// ── Provider status mapping (docs 01 §11.3 status categories; UNVERIFIED for `GET /order`) ──
+// ── Provider status mapping: the ONE table of ADR-0013 decision 42 (`parcel-state.ts`), with its default branch ──
 
-export const PROVIDER_STATUS: Record<string, { status: ShipmentStatus; label: string }> = {
-  "PENDING PICKUP": { status: "booked", label: "Menunggu pickup kurir" },
-  "ACTIVE/WAITING NEXT PROCESS": { status: "booked", label: "Diproses Bukalaris Kirim" },
-  "PICKED UP": { status: "in_transit", label: "Sudah diambil kurir" },
-  "ON DELIVERY": { status: "in_transit", label: "Dalam pengantaran" },
-  DELIVERED: { status: "delivered", label: "Terkirim ke pembeli" },
-  UNDELIVERED: { status: "problem", label: "Gagal diantar, kurir akan mencoba lagi" },
-  "PICKUP FAILED": { status: "problem", label: "Pickup gagal" },
-  RTS: { status: "returned", label: "Dikembalikan ke pengirim (RTS)" },
-  CANCELED: { status: "cancelled", label: "Dibatalkan di Bukalaris Kirim" },
-  CANCELLED: { status: "cancelled", label: "Dibatalkan di Bukalaris Kirim" },
-  ERROR: { status: "problem", label: "Bermasalah di Bukalaris Kirim" },
-};
-export const mapProviderStatus = (raw: string | null | undefined) => (raw ? (PROVIDER_STATUS[raw.trim().toUpperCase()] ?? null) : null);
+export const PROVIDER_STATUS: Record<string, { status: ShipmentStatus; label: string }> = Object.fromEntries(
+  Object.keys(PARCEL_STATE_MAP).map((k) => [k, { status: shipmentStatusOf(k)!, label: categoryLabel(k)! }]),
+);
+export const mapProviderStatus = (raw: string | null | undefined) => (raw?.trim() ? (PROVIDER_STATUS[categoryKey(raw)] ?? null) : null);
 /** Indonesian label for a raw provider status. A status this product does not know is NEVER echoed (it is provider text): a neutral label stands in, the raw value stays on the shipment row for the operator. */
 export const providerStatusLabel = (raw: string | null | undefined) => (raw?.trim() ? (mapProviderStatus(raw)?.label ?? UNKNOWN_PROVIDER_STATUS_LABEL) : null);
 
@@ -151,11 +146,13 @@ export async function bookShipment(scope: SellerScope, orderId: number, raw: unk
       return { shipmentId: existing.id, attempt: existing.bookingAttempts, created: false }; // duplicate click: the job already exists
     }
     if (existing?.status === "unknown") throw new DomainError("booking_unknown", UNKNOWN_BLOCK_MESSAGE);
-    if (existing && !RETRYABLE.includes(existing.status)) throw new DomainError("already_booked", `Pesanan ini sudah dibooking (${SHIPMENT_STATUS_LABEL[existing.status].toLowerCase()}).`);
+    const own = o.accountKind === "seller_owned";
+    // T-115 (ADR-0013 decision 44): a parcel cancelled in the store's own courier account released its booking; it may be booked again.
+    const released = own && existing?.status === "cancelled";
+    if (existing && !RETRYABLE.includes(existing.status) && !released) throw new DomainError("already_booked", `Pesanan ini sudah dibooking (${SHIPMENT_STATUS_LABEL[existing.status].toLowerCase()}).`);
     if (!BOOKABLE.includes(o.status)) throw new DomainError("not_bookable", `Pesanan berstatus "${ORDER_STATUS_LABEL[o.status]}" tidak bisa dibooking; booking hanya untuk pesanan Baru atau Diproses.`);
     // The Q-17 COD gate and the free-return COD list protect the platform-held money of ADR-0006; a store on its own account collects its own COD
     // (ADR-0013 section 8, decision 32): the COD order was already checked against the seller's filters at submit.
-    const own = o.accountKind === "seller_owned";
     if (!own && o.paymentMethod === "cod" && !codBookingAllowed()) throw new DomainError("cod_booking_disabled", COD_BOOKING_MESSAGE);
     if (!own && o.paymentMethod === "cod" && !(await codAllowedCouriers(tx)).has(o.courierCode.toLowerCase())) throw new DomainError("cod_courier_not_allowed", COD_COURIER_MESSAGE);
 
@@ -183,9 +180,11 @@ export async function bookShipment(scope: SellerScope, orderId: number, raw: unk
       attempt = existing.bookingAttempts + 1;
       // Back to `queued` so a second click returns this attempt; the worker pays an unpaid
       // provider order (providerOrderId set) instead of creating a new one.
+      // A released booking starts clean: its cancelled provider order stays in the status history (never mistaken for a foreign parcel), a new one is created.
+      const fresh = released ? { providerOrderId: null, providerBatchId: null, trackingNumber: null, providerStatus: null, providerStatusAt: null, paid: false, trackingHistory: [], bookedAt: null, deliveredAt: null, providerFigures: {}, providerFiguresAt: null } : {};
       await tx
         .update(shipment)
-        .set({ bookingAttempts: attempt, status: "queued", pickupType, lastError: null, updatedAt: new Date() })
+        .set({ bookingAttempts: attempt, status: "queued", pickupType, lastError: null, ...fresh, updatedAt: new Date() })
         .where(eq(shipment.id, existing.id));
       shipmentId = existing.id;
     }
@@ -203,6 +202,14 @@ export async function refreshTracking(scope: SellerScope, orderId: number): Prom
     if (!s.providerOrderId) throw new DomainError("not_booked", "Belum ada order Bukalaris Kirim yang bisa dilacak.");
     if (TERMINAL.includes(s.status)) throw new DomainError("tracking_done", "Pelacakan pengiriman ini sudah selesai.");
     if (s.manualPolls >= MAX_MANUAL_POLLS) throw new DomainError("poll_limit", "Batas pembaruan manual tercapai; status tetap diperbarui otomatis.");
+    // T-115 RL-TRACK-REFRESH (doc 16, D-33) for a parcel on the store's own account: one read now per parcel per 5 minutes, 60 per store per 10 minutes.
+    const [{ kind }] = await tx.select({ kind: order.shippingAccountKind }).from(order).where(and(eq(order.storeId, scope.storeId), eq(order.id, orderId)));
+    if (kind === "seller_owned") {
+      for (const [key, rule] of [[`track-refresh:parcel:${s.id}`, TRACK_REFRESH_LIMITS.parcel], [`track-refresh:store:${scope.storeId}`, TRACK_REFRESH_LIMITS.store]] as const) {
+        const r = await hit(tx, key, rule);
+        if (r.count > rule.limit) throw new DomainError("rate_limited", `Status paket baru saja diminta. Status terakhir tetap tampil dan diperbarui otomatis; coba lagi dalam ${r.retryAfterSec} detik.`);
+      }
+    }
     const n = s.manualPolls + 1;
     await tx.update(shipment).set({ manualPolls: n, updatedAt: new Date() }).where(eq(shipment.id, s.id));
     await enqueue(tx, { kind: SHIPMENT_TRACK, storeId: scope.storeId, key: `track:${orderId}:m:${n}`, payload: { orderId } });
@@ -239,6 +246,15 @@ export async function releaseUnknownBooking(scope: SellerScope, orderId: number,
   const { reason } = releaseInput.parse(raw);
   await inStore(scope, async ({ exec: tx }) => {
     const s = await unknownShipment(tx, scope, orderId);
+    // T-115 review minor 6: a parcel found in the courier account that Bukalaris did not create may be exactly the order this booking created.
+    // While one is open, releasing (and booking again) could leave two live provider orders: link it instead, or resolve it first.
+    // Only a parcel that appeared after this booking started (or of unknown age) can be its order.
+    const [foreign] = await tx
+      .select({ id: shippingForeignParcel.providerOrderId })
+      .from(shippingForeignParcel)
+      .where(and(eq(shippingForeignParcel.storeId, scope.storeId), isNull(shippingForeignParcel.resolvedAt), or(isNull(shippingForeignParcel.providerCreatedAt), gte(shippingForeignParcel.providerCreatedAt, s.createdAt))))
+      .limit(1);
+    if (foreign) throw new DomainError("foreign_parcel_open", `Akun kurir toko memuat paket yang tidak dibuat lewat Bukalaris (ID order ${foreign.id}). Bila itu order dari booking ini, tautkan ID order tersebut; bila bukan, tandai paket itu sudah ditangani di Akun kurir toko, lalu lepaskan booking ini.`);
     await setShipment(tx, s.id, { status: "failed", lastError: `${RELEASED_MESSAGE} Catatan: ${reason}` });
     await auditShipment(tx, scope, orderId, "shipment.unknown.release", `attempt=${s.bookingAttempts}; ${reason}`);
   });
@@ -403,6 +419,7 @@ export const OWN_UNCERTAIN_MESSAGE = "Hasil booking tidak pasti: penyedia tidak 
 export const PAY_UNCERTAIN_MESSAGE = "Pembayaran order kurir belum pasti terkirim. Periksa saldo dan status order di akun kurir; resi diambil otomatis bila sudah dibayar, atau klik Coba lagi bila order masih belum dibayar (tidak menerbitkan order kedua).";
 export const LINKED_MESSAGE = "Order dari akun kurir ditautkan; resi dan status diambil dari akun kurir toko sebelum pesanan dikirim.";
 export const UNKNOWN_BLOCK_MESSAGE = "Booking sebelumnya berhasil-tidaknya belum pasti. Periksa akun kurir, lalu lepaskan atau tautkan booking itu sebelum membooking lagi.";
+export const RELEASED_BY_PROVIDER_MESSAGE = "Paket ini dibatalkan di akun kurir toko, jadi booking-nya dilepas: pesanan kembali ke Diproses dan bisa dibooking lagi.";
 export const RELEASED_MESSAGE = "Booking dilepas penjual setelah memeriksa akun kurir: tidak ada order yang terbit. Booking boleh diulang.";
 export const COD_REFUSED_MESSAGE = "Penyedia menolak COD untuk akun Anda pada kurir ini. COD kurir ini sudah dimatikan di pengaturan pengiriman toko; hanya Anda yang bisa menyalakannya lagi. Kirim pesanan ini dengan resi manual atau hubungi pembeli.";
 export const NO_PICKUP_MESSAGE = "Alamat pickup toko belum terdaftar di akun kurir toko. Simpan alamat pickup di halaman Pengiriman, lalu coba lagi.";
@@ -454,11 +471,31 @@ async function shipOrder(tx: Executor, storeId: number, orderId: number, resi: s
   if (status === "processing") await applyTransition(tx, storeId, orderId, "ship", resi, actorUserId);
 }
 
+/** T-115 (ADR-0013 decision 42): one observed Mengantar status category of a parcel, as received (append-only), with its mapped state or none. */
+async function recordStatusEvent(tx: Executor, s: { id: number; storeId: number }, providerOrderId: string, category: string, source: "booking" | "read", providerChangedAt: Date | null): Promise<void> {
+  const raw = storableCategory(category); // review major 2: a status code as received, free text never (the redaction marker instead)
+  if (!raw) return;
+  await tx.insert(shipmentStatusEvent).values({ storeId: s.storeId, shipmentId: s.id, providerOrderId, category: raw, parcelState: parcelStateOf(raw), source, providerChangedAt });
+}
+const ownOrder = async (tx: Executor, storeId: number, orderId: number) =>
+  (await tx.select({ kind: order.shippingAccountKind }).from(order).where(and(eq(order.storeId, storeId), eq(order.id, orderId))))[0]?.kind === "seller_owned";
+/** T-115 (decision 45): Mengantar's documented per-parcel figures of a store on its own account, merged over what was read before. */
+const figuresPatch = (own: boolean, current: ProviderFigures, read: ProviderFigures | undefined, now: Date) =>
+  own && read && Object.keys(read).length > 0 ? { providerFigures: { ...current, ...read }, providerFiguresAt: now } : {};
+/** An ISO instant from the provider, or null. */
+const instant = (v: string | null | undefined) => {
+  const t = v ? Date.parse(v) : NaN;
+  return Number.isNaN(t) ? null : new Date(t);
+};
+
 /** Store a booking result: resi → `booked` + order shipped + first poll scheduled; no resi → `awaiting_balance`. */
 async function recordBooking(db: Db, s: ShipmentView, r: BookingResult): Promise<void> {
   await withStore(db, s.storeId, async (tx) => {
+    const own = await ownOrder(tx, s.storeId, s.orderId);
+    if (r.providerStatus) await recordStatusEvent(tx, s, r.providerOrderId, r.providerStatus, "booking", null);
+    const figures = figuresPatch(own, {}, r.figures, new Date());
     if (!r.trackingNumber) {
-      await setShipment(tx, s.id, { status: "awaiting_balance", providerOrderId: r.providerOrderId, providerBatchId: r.providerBatchId, providerStatus: r.providerStatus, paid: false, lastError: UNPAID_MESSAGE, lastTrackedAt: new Date() });
+      await setShipment(tx, s.id, { status: "awaiting_balance", providerOrderId: r.providerOrderId, providerBatchId: r.providerBatchId, providerStatus: r.providerStatus, paid: false, lastError: UNPAID_MESSAGE, lastTrackedAt: new Date(), ...figures });
       return;
     }
     const mapped = mapProviderStatus(r.providerStatus)?.status;
@@ -472,6 +509,7 @@ async function recordBooking(db: Db, s: ShipmentView, r: BookingResult): Promise
       bookedAt: s.bookedAt ?? new Date(),
       lastTrackedAt: new Date(),
       lastError: null,
+      ...figures,
     });
     await shipOrder(tx, s.storeId, s.orderId, r.trackingNumber, s.requestedBy);
     await enqueue(tx, { kind: SHIPMENT_TRACK, storeId: s.storeId, key: `track:${s.orderId}:0`, payload: { orderId: s.orderId, poll: 0 }, runAt: new Date(Date.now() + trackDelayMs(0)) });
@@ -599,44 +637,75 @@ registerHandler(SHIPMENT_BOOK, async ({ db }, j) => {
 
 const scrubProviderStatus = (status: string | null): string | null => (status === null || (status.length <= 40 && new RegExp(PROVIDER_CODE_RE_SOURCE).test(status)) ? status : REDACTED);
 
-/** Apply one tracking read: history, provider status, state mapping, late resi, delivery → order completed. */
-async function applyTracking(db: Db, s: ShipmentView, t: TrackingResult, nextPoll: number | undefined): Promise<void> {
-  await withStore(db, s.storeId, async (tx) => {
+/**
+ * Apply one tracking read: the SINGLE writer of parcel state (ADR-0013 decision 43; a webhook only enqueues this read). History, provider
+ * status, state mapping through the one table of decision 42 (an unknown category keeps the state), late resi, and the order effects of
+ * decision 44. T-115: the shipment row is re-read under lock, so two racing reads (a webhook-triggered one and the sweep) cannot move a parcel
+ * back: a terminal parcel never moves again, a parcel booked again in the meantime ignores the old answer, and an answer whose
+ * `lastStatusChange` is older than the state already applied changes nothing but the read time.
+ */
+async function applyTracking(db: Db, s0: ShipmentView, t: TrackingResult, nextPoll: number | undefined): Promise<void> {
+  await withStore(db, s0.storeId, async (tx) => {
     const now = new Date();
+    // T-47: an order redacted with an override may still be polled; its provider text stays stripped (timestamps and status codes are kept).
+    // Wave 5 review: take the order row first (the same row `redactOrders` locks FOR UPDATE), so a poll that started before a redaction cannot write its provider text back after it.
+    const [o] = await tx.select({ kind: order.shippingAccountKind }).from(order).where(and(eq(order.storeId, s0.storeId), eq(order.id, s0.orderId))).for("share");
+    const [s] = await tx.select().from(shipment).where(eq(shipment.id, s0.id)).for("update");
+    if (!o || !s) return;
+    const own = o.kind === "seller_owned";
+    const changedAt = instant(t.statusChangedAt);
+    const chain = async (status: ShipmentStatus) => {
+      if (nextPoll !== undefined && !TERMINAL.includes(status) && nextPoll < MAX_TRACK_POLLS) {
+        await enqueue(tx, { kind: SHIPMENT_TRACK, storeId: s.storeId, key: `track:${s.orderId}:${nextPoll}`, payload: { orderId: s.orderId, poll: nextPoll }, runAt: new Date(Date.now() + trackDelayMs(nextPoll)) });
+      }
+    };
+    if (TERMINAL.includes(s.status) || s.providerOrderId !== s0.providerOrderId) return;
+    // Stale answer: older than the applied `lastStatusChange`; without both times (UNVERIFIED on a single read, review minor 5) a lower forward rank
+    // between two non-final states is stale too.
+    const newRank = forwardRank(t.providerStatus), oldRank = forwardRank(s.providerStatus);
+    const stale = changedAt && s.providerStatusAt ? changedAt < s.providerStatusAt : newRank !== null && oldRank !== null && newRank < oldRank;
+    if (stale) {
+      await setShipment(tx, s.id, { lastTrackedAt: now });
+      await chain(s.status);
+      return;
+    }
     const gotResi = !s.trackingNumber && t.trackingNumber;
     const resi = s.trackingNumber ?? t.trackingNumber;
     const mapped = mapProviderStatus(t.providerStatus)?.status;
-    // Tracking states need a resi; an unpaid order stays `awaiting_balance` until one appears.
-    const status: ShipmentStatus = !resi ? s.status : (mapped ?? (TERMINAL.includes(s.status) ? s.status : gotResi ? "booked" : s.status));
+    // Tracking states need a resi; an unpaid order stays `awaiting_balance` until one appears. Review major 3 (ADR-0013 decision 44): on the store's
+    // own account a cancellation releases the booking even without a resi (an unpaid parcel the seller deleted in the courier account), so the
+    // released path of `bookShipment` applies instead of paying a deleted order forever.
+    const status: ShipmentStatus = !resi ? (own && mapped === "cancelled" ? "cancelled" : s.status) : (mapped ?? (gotResi ? "booked" : s.status));
     const delivered = status === "delivered";
-    // T-47: an order redacted with an override may still be polled; its provider text stays stripped (timestamps and status codes are kept).
-    // Wave 5 review: take the order row first (the same row `redactOrders` locks FOR UPDATE), so a poll that started before a redaction cannot write its provider text back after it.
-    await tx.select({ id: order.id }).from(order).where(and(eq(order.storeId, s.storeId), eq(order.id, s.orderId))).for("share");
     const [redacted] = await tx.select({ id: orderRedaction.orderId }).from(orderRedaction).where(and(eq(orderRedaction.storeId, s.storeId), eq(orderRedaction.orderId, s.orderId)));
     const history = (t.history.length ? t.history : s.trackingHistory).slice(-TRACK_HISTORY_MAX);
+    // A redacted order keeps only a status CODE (provider free text such as "Diterima oleh <nama>" is replaced); `PROVIDER_CODE_RE` is the rule redaction itself uses.
+    const providerStatus = redacted ? scrubProviderStatus(t.providerStatus ?? s.providerStatus) : (t.providerStatus ?? s.providerStatus);
+    if (t.providerStatus && providerStatus && providerStatus !== s.providerStatus) await recordStatusEvent(tx, s, s.providerOrderId!, providerStatus, "read", changedAt);
     await setShipment(tx, s.id, {
       status,
       trackingNumber: resi,
       paid: s.paid || resi !== null,
       bookedAt: s.bookedAt ?? (resi ? now : null),
-      // A redacted order keeps only a status CODE (provider free text such as "Diterima oleh <nama>" is replaced); `PROVIDER_CODE_RE` is the rule redaction itself uses.
-      providerStatus: redacted ? scrubProviderStatus(t.providerStatus ?? s.providerStatus) : (t.providerStatus ?? s.providerStatus),
+      providerStatus,
+      providerStatusAt: changedAt ?? s.providerStatusAt,
       trackingHistory: redacted ? history.map((h) => ({ ...h, desc: REDACTED })) : history,
       deliveredAt: s.deliveredAt ?? (delivered ? now : null),
       lastTrackedAt: now,
       lastError: null,
+      ...figuresPatch(own, s.providerFigures, t.figures, now),
     });
     if (resi && gotResi) await shipOrder(tx, s.storeId, s.orderId, resi, s.requestedBy);
-    // Courier-driven moves go through the one writer: DELIVERED -> completed (a COD sale is booked pending only here, ADR-0006 decision 4), RTS -> returned
-    // (in transit only), a courier cancellation -> cancelled. A move the writer refuses is recorded on the shipment (and the audit log), never dropped.
-    const target = status === "delivered" ? "completed" : status === "returned" ? "returned" : status === "cancelled" ? "cancelled" : null;
+    // Courier-driven moves go through the one writer: DELIVERED -> completed (a COD order becomes paid there, C-P1), RTS -> returned (in transit only),
+    // a courier cancellation -> cancelled, except on the store's OWN account where it releases the booking (ADR-0013 decision 44: the order goes back to
+    // `processing` and may be booked again). A move the writer refuses is recorded on the shipment (and the audit log), never dropped.
+    const target = status === "delivered" ? "completed" : status === "returned" ? "returned" : status === "cancelled" ? (own ? "released" : "cancelled") : null;
     if (target) {
       const r = await applyProviderTransition(tx, s.storeId, s.orderId, target, { source: "provider", note: providerStatusLabel(t.providerStatus) ?? undefined });
       if (r.outcome === "rejected") await setShipment(tx, s.id, { lastError: `Pembaruan status dari kurir ditolak penulis status pesanan; pesanan tetap "${ORDER_STATUS_LABEL[r.status]}". Hubungi Bukalaris bila status ini tidak sesuai.` });
+      else if (target === "released" && r.outcome === "applied") await setShipment(tx, s.id, { lastError: RELEASED_BY_PROVIDER_MESSAGE });
     }
-    if (nextPoll !== undefined && !TERMINAL.includes(status) && nextPoll < MAX_TRACK_POLLS) {
-      await enqueue(tx, { kind: SHIPMENT_TRACK, storeId: s.storeId, key: `track:${s.orderId}:${nextPoll}`, payload: { orderId: s.orderId, poll: nextPoll }, runAt: new Date(Date.now() + trackDelayMs(nextPoll)) });
-    }
+    await chain(status);
   });
 }
 

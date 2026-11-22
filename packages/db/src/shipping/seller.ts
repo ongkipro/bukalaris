@@ -10,6 +10,7 @@ import { MengantarClient, MengantarError, redactUrl } from "./mengantar/client.t
 import type { CourierRate } from "./mengantar/schemas.ts";
 import { provinceOfLabel } from "./provinces.ts";
 import { storeShippingAccount, type ProviderEnvironment } from "./schema-accounts.ts";
+import type { MirroredInvoice } from "./schema-fulfillment.ts";
 import { providerLiveSetting } from "./schema-shipping.ts";
 
 // T-105 (ADR-0013 sections 2, 7 and 9): the ONE client for calls made with a store's own Mengantar key: quotes, area search, pickup
@@ -69,8 +70,24 @@ export function scrubKey(err: unknown, key: string): unknown {
 export type SellerArea = Area & { province: string | null };
 export type PickupRegistration = { areaId: string; addressText: string; storeName: string; contactName: string; contactPhone: string; existingId: string | null };
 
-/** The fake account behind every seller key locally and in CI: deterministic, no network. `failRegistration` lets a test refuse once. */
-export const fakeSellerMengantar = { failRegistration: false, registrations: 0 };
+/** One order of an account as the order list shows it (T-115). */
+export type AccountOrder = { providerOrderId: string; trackingNumber: string | null; status: string | null; createdAt: string | null };
+/** One mirrored invoice and the balance beside it (T-115, ADR-0013 decision 45). */
+export type AccountMoney = { balanceIdr: number | null; invoices: MirroredInvoice[] };
+
+/**
+ * The fake account behind every seller key locally and in CI: deterministic, no network. `failRegistration` lets a test refuse once.
+ * T-115: `accounts` holds the orders a test puts into the account of a key; a key containing "USED" stands for an account that already
+ * holds an order from elsewhere (the connection check refuses it, also in the e2e build).
+ */
+export const fakeSellerMengantar = { failRegistration: false, registrations: 0, accounts: new Map<string, AccountOrder[]>(), balanceIdr: 250_000 };
+const FAKE_USED_ORDER: AccountOrder = { providerOrderId: "FAKEUSED0001", trackingNumber: "FAKEUSEDRESI1", status: "DELIVERED", createdAt: "2026-01-02T03:04:05.000Z" };
+const FAKE_INVOICES: MirroredInvoice[] = [
+  { invNumber: "FAKEINV0002", type: "typePayment", status: "statusCleared", amount: 50_000, total: 50_000, createdAt: "2026-11-02T03:00:00.000Z" },
+  { invNumber: "FAKEINV0001", type: "typeAddBalance", status: "statusCleared", amount: 300_000, total: 300_000, createdAt: "2026-11-01T03:00:00.000Z" },
+];
+const text = (v: unknown, max: number) => (typeof v === "string" && v.trim() && v.length <= max ? v.trim() : null);
+const PROVIDER_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 /**
  * Deterministic account estimate (`courier=all`, no COD amount) with one entry per gating case: a COD-capable service, one the route refuses
@@ -170,6 +187,45 @@ export class SellerMengantar {
       const id = typeof data?._id === "string" ? data._id : p.existingId;
       if (!id || !/^[A-Za-z0-9_-]{1,64}$/.test(id)) throw new MengantarError("invalid_shape", "pickup address answer has no usable id", 200);
       return id;
+    });
+  }
+
+  /**
+   * T-115 (decision 41): one page of the account's orders, newest first. `archive` sends a date range back to 2015, so orders older than the
+   * provider's six-month default window are listed too (documented: "To read older orders, send a dateRange that covers them").
+   */
+  accountOrders(p: { size: number; cursor?: string; archive?: boolean }): Promise<{ orders: AccountOrder[]; nextCursor: string | null; unreadable: number }> {
+    return this.#guard(async () => {
+      if (this.transport.mode === "fake") {
+        const orders = fakeSellerMengantar.accounts.get(this.#key) ?? (/USED/.test(this.#key) ? [FAKE_USED_ORDER] : []);
+        return { orders: orders.slice(0, p.size), nextCursor: null, unreadable: 0 };
+      }
+      const page = await this.#client().listOrders({ size: p.size, cursor: p.cursor, dateRange: p.archive ? { startDate: "2015-01-01T00:00:00.000Z", endDate: new Date().toISOString() } : undefined });
+      // Review minor 7: an order whose id cannot be read is never dropped silently: the caller counts it as not Bukalaris's (refuse / not exact).
+      let unreadable = 0;
+      const orders = (page.data ?? []).flatMap((o): AccountOrder[] => {
+        const id = text(o.ORDER_ID, 64);
+        if (!id || !PROVIDER_ID_RE.test(id)) {
+          unreadable++;
+          return [];
+        }
+        return [{ providerOrderId: id, trackingNumber: text(o.cnote_no, 64), status: text(o.statusCategory ?? o.status, 60), createdAt: text(o.createdAt, 40) }];
+      });
+      return { orders, nextCursor: page.nextCursor || null, unreadable };
+    });
+  }
+
+  /** T-115 (decision 45): the account balance and its newest invoices, documented fields only, read-only. */
+  accountMoney(size = 20): Promise<AccountMoney> {
+    return this.#guard(async () => {
+      if (this.transport.mode === "fake") return { balanceIdr: fakeSellerMengantar.balanceIdr, invoices: FAKE_INVOICES.slice(0, size) };
+      const page = await this.#client().listInvoices(size);
+      const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= 1e12 ? Math.round(v) : null);
+      const invoices = (page.data ?? []).slice(0, size).flatMap((i): MirroredInvoice[] => {
+        const invNumber = text(i.inv_number, 40);
+        return invNumber ? [{ invNumber, type: text(i.type, 40) ?? "", status: text(i.status, 40) ?? "", amount: num(i.amount), total: num(i.total), createdAt: text(i.createdAt, 40) }] : [];
+      });
+      return { balanceIdr: num(page.balance), invoices };
     });
   }
 

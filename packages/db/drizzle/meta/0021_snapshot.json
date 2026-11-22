@@ -1,5 +1,5 @@
 {
-  "id": "588afa78-dc68-4d08-95ef-7c4129babdf2",
+  "id": "b849e37a-65ea-4213-b132-f1dae7027b8d",
   "prevId": "b6318e9a-bbdf-462d-a450-77d45c5d0ec1",
   "version": "7",
   "dialect": "postgresql",
@@ -1762,134 +1762,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.order_seller_refund": {
-      "name": "order_seller_refund",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "bigint",
-          "primaryKey": true,
-          "notNull": true,
-          "identity": {
-            "type": "always",
-            "name": "order_seller_refund_id_seq",
-            "schema": "public",
-            "increment": "1",
-            "startWith": "1",
-            "minValue": "1",
-            "maxValue": "9223372036854775807",
-            "cache": "1",
-            "cycle": false
-          }
-        },
-        "store_id": {
-          "name": "store_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "order_id": {
-          "name": "order_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "amount_idr": {
-          "name": "amount_idr",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "refunded_on": {
-          "name": "refunded_on",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "method": {
-          "name": "method",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "reference": {
-          "name": "reference",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reason": {
-          "name": "reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "recorded_by_user_id": {
-          "name": "recorded_by_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "order_seller_refund_order_idx": {
-          "name": "order_seller_refund_order_idx",
-          "columns": [
-            {
-              "expression": "store_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "order_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "order_seller_refund_order_fk": {
-          "name": "order_seller_refund_order_fk",
-          "tableFrom": "order_seller_refund",
-          "tableTo": "order",
-          "columnsFrom": [
-            "store_id",
-            "order_id"
-          ],
-          "columnsTo": [
-            "store_id",
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "order_seller_refund_chk": {
-          "name": "order_seller_refund_chk",
-          "value": "\"order_seller_refund\".\"amount_idr\" > 0 and \"order_seller_refund\".\"method\" in ('bank_transfer', 'autolaris', 'cash', 'other') and length(\"order_seller_refund\".\"reason\") between 5 and 500 and (\"order_seller_refund\".\"reference\" is null or length(\"order_seller_refund\".\"reference\") between 1 and 120)"
-        }
-      },
       "isRLSEnabled": false
     },
     "public.order_status_history": {
@@ -6026,6 +5898,25 @@
           "primaryKey": false,
           "notNull": false
         },
+        "provider_status_at": {
+          "name": "provider_status_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provider_figures": {
+          "name": "provider_figures",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "provider_figures_at": {
+          "name": "provider_figures_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -6152,6 +6043,593 @@
         "shipment_history_chk": {
           "name": "shipment_history_chk",
           "value": "octet_length(\"shipment\".\"tracking_history\"::text) <= 16384"
+        },
+        "shipment_figures_chk": {
+          "name": "shipment_figures_chk",
+          "value": "jsonb_typeof(\"shipment\".\"provider_figures\") = 'object' and octet_length(\"shipment\".\"provider_figures\"::text) <= 1024 and (\"shipment\".\"provider_figures_at\" is not null or \"shipment\".\"provider_figures\" = '{}'::jsonb)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.shipment_status_event": {
+      "name": "shipment_status_event",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "shipment_status_event_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "store_id": {
+          "name": "store_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "shipment_id": {
+          "name": "shipment_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_order_id": {
+          "name": "provider_order_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "parcel_state": {
+          "name": "parcel_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_changed_at": {
+          "name": "provider_changed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "observed_at": {
+          "name": "observed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "shipment_status_event_shipment_idx": {
+          "name": "shipment_status_event_shipment_idx",
+          "columns": [
+            {
+              "expression": "store_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "shipment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "shipment_status_event_order_idx": {
+          "name": "shipment_status_event_order_idx",
+          "columns": [
+            {
+              "expression": "store_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "provider_order_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "shipment_status_event_store_id_store_id_fk": {
+          "name": "shipment_status_event_store_id_store_id_fk",
+          "tableFrom": "shipment_status_event",
+          "tableTo": "store",
+          "columnsFrom": [
+            "store_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "shipment_status_event_shipment_id_shipment_id_fk": {
+          "name": "shipment_status_event_shipment_id_shipment_id_fk",
+          "tableFrom": "shipment_status_event",
+          "tableTo": "shipment",
+          "columnsFrom": [
+            "shipment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "shipment_status_event_chk": {
+          "name": "shipment_status_event_chk",
+          "value": "length(\"shipment_status_event\".\"category\") between 1 and 60 and length(\"shipment_status_event\".\"provider_order_id\") between 1 and 64 and \"shipment_status_event\".\"source\" in ('booking', 'read')\n      and (\"shipment_status_event\".\"parcel_state\" is null or \"shipment_status_event\".\"parcel_state\" in ('created', 'waiting_pickup', 'pickup_failed', 'picked_up', 'in_transit', 'out_for_delivery', 'delivered', 'returning', 'returned', 'cancelled', 'error'))"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.shipping_foreign_parcel": {
+      "name": "shipping_foreign_parcel",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "shipping_foreign_parcel_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "store_id": {
+          "name": "store_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_order_id": {
+          "name": "provider_order_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tracking_number": {
+          "name": "tracking_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provider_status": {
+          "name": "provider_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provider_created_at": {
+          "name": "provider_created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "first_seen_at": {
+          "name": "first_seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "resolved_at": {
+          "name": "resolved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resolved_by": {
+          "name": "resolved_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resolution_note": {
+          "name": "resolution_note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "shipping_foreign_parcel_store_id_store_id_fk": {
+          "name": "shipping_foreign_parcel_store_id_store_id_fk",
+          "tableFrom": "shipping_foreign_parcel",
+          "tableTo": "store",
+          "columnsFrom": [
+            "store_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "shipping_foreign_parcel_uq": {
+          "name": "shipping_foreign_parcel_uq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "store_id",
+            "provider_order_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "shipping_foreign_parcel_chk": {
+          "name": "shipping_foreign_parcel_chk",
+          "value": "length(\"shipping_foreign_parcel\".\"provider_order_id\") between 1 and 64 and coalesce(length(\"shipping_foreign_parcel\".\"tracking_number\"), 0) <= 64 and coalesce(length(\"shipping_foreign_parcel\".\"provider_status\"), 0) <= 60\n      and (\"shipping_foreign_parcel\".\"resolved_at\" is null) = (\"shipping_foreign_parcel\".\"resolved_by\" is null) and (\"shipping_foreign_parcel\".\"resolved_at\" is null) = (\"shipping_foreign_parcel\".\"resolution_note\" is null) and coalesce(length(\"shipping_foreign_parcel\".\"resolution_note\"), 0) <= 300"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.shipping_webhook_event": {
+      "name": "shipping_webhook_event",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "shipping_webhook_event_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "store_id": {
+          "name": "store_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "signature": {
+          "name": "signature",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sent_at": {
+          "name": "sent_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "received_at": {
+          "name": "received_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "provider_order_id": {
+          "name": "provider_order_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tracking_number": {
+          "name": "tracking_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "courier": {
+          "name": "courier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status_category": {
+          "name": "status_category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "shipping_webhook_event_store_idx": {
+          "name": "shipping_webhook_event_store_idx",
+          "columns": [
+            {
+              "expression": "store_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "received_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "shipping_webhook_event_store_id_store_id_fk": {
+          "name": "shipping_webhook_event_store_id_store_id_fk",
+          "tableFrom": "shipping_webhook_event",
+          "tableTo": "store",
+          "columnsFrom": [
+            "store_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "shipping_webhook_event_signature_uq": {
+          "name": "shipping_webhook_event_signature_uq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "store_id",
+            "signature"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "shipping_webhook_event_chk": {
+          "name": "shipping_webhook_event_chk",
+          "value": "\"shipping_webhook_event\".\"signature\" ~ '^[a-f0-9]{64}$' and \"shipping_webhook_event\".\"outcome\" in ('read_enqueued', 'no_parcel', 'parcel_final')\n      and coalesce(length(\"shipping_webhook_event\".\"provider_order_id\"), 0) <= 64 and coalesce(length(\"shipping_webhook_event\".\"tracking_number\"), 0) <= 64 and coalesce(length(\"shipping_webhook_event\".\"courier\"), 0) <= 40 and coalesce(length(\"shipping_webhook_event\".\"status_category\"), 0) <= 60"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.store_shipping_sync": {
+      "name": "store_shipping_sync",
+      "schema": "",
+      "columns": {
+        "store_id": {
+          "name": "store_id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "hook_id": {
+          "name": "hook_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "dedicated_confirmed_at": {
+          "name": "dedicated_confirmed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dedicated_confirmed_by": {
+          "name": "dedicated_confirmed_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dedicated_fingerprint": {
+          "name": "dedicated_fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dedicated_environment": {
+          "name": "dedicated_environment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sealed_webhook_secret": {
+          "name": "sealed_webhook_secret",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "webhook_key_id": {
+          "name": "webhook_key_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "webhook_sealed_at": {
+          "name": "webhook_sealed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "webhook_fingerprint": {
+          "name": "webhook_fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "webhook_environment": {
+          "name": "webhook_environment",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "step_up_ref": {
+          "name": "step_up_ref",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_webhook_at": {
+          "name": "last_webhook_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "account_read_at": {
+          "name": "account_read_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "balance_idr": {
+          "name": "balance_idr",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "invoices": {
+          "name": "invoices",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "last_scan_at": {
+          "name": "last_scan_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "scan_error": {
+          "name": "scan_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "store_shipping_sync_store_id_store_id_fk": {
+          "name": "store_shipping_sync_store_id_store_id_fk",
+          "tableFrom": "store_shipping_sync",
+          "tableTo": "store",
+          "columnsFrom": [
+            "store_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "store_shipping_sync_hook_uq": {
+          "name": "store_shipping_sync_hook_uq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "hook_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "store_shipping_sync_hook_chk": {
+          "name": "store_shipping_sync_hook_chk",
+          "value": "\"store_shipping_sync\".\"hook_id\" ~ '^[a-f0-9]{32}$'"
+        },
+        "store_shipping_sync_dedicated_chk": {
+          "name": "store_shipping_sync_dedicated_chk",
+          "value": "(\"store_shipping_sync\".\"dedicated_confirmed_at\" is null) = (\"store_shipping_sync\".\"dedicated_confirmed_by\" is null) and (\"store_shipping_sync\".\"dedicated_confirmed_at\" is null) = (\"store_shipping_sync\".\"dedicated_fingerprint\" is null)\n      and (\"store_shipping_sync\".\"dedicated_confirmed_at\" is null) = (\"store_shipping_sync\".\"dedicated_environment\" is null) and (\"store_shipping_sync\".\"dedicated_environment\" is null or \"store_shipping_sync\".\"dedicated_environment\" in ('sandbox', 'production'))"
+        },
+        "store_shipping_sync_secret_chk": {
+          "name": "store_shipping_sync_secret_chk",
+          "value": "(\"store_shipping_sync\".\"sealed_webhook_secret\" is null) = (\"store_shipping_sync\".\"webhook_key_id\" is null) and (\"store_shipping_sync\".\"sealed_webhook_secret\" is null) = (\"store_shipping_sync\".\"webhook_sealed_at\" is null)\n      and (\"store_shipping_sync\".\"sealed_webhook_secret\" is null) = (\"store_shipping_sync\".\"webhook_fingerprint\" is null) and (\"store_shipping_sync\".\"sealed_webhook_secret\" is null) = (\"store_shipping_sync\".\"webhook_environment\" is null) and (\"store_shipping_sync\".\"webhook_environment\" is null or \"store_shipping_sync\".\"webhook_environment\" in ('sandbox', 'production'))"
+        },
+        "store_shipping_sync_mirror_chk": {
+          "name": "store_shipping_sync_mirror_chk",
+          "value": "jsonb_typeof(\"store_shipping_sync\".\"invoices\") = 'array' and octet_length(\"store_shipping_sync\".\"invoices\"::text) <= 16384 and (\"store_shipping_sync\".\"balance_idr\" is null or \"store_shipping_sync\".\"account_read_at\" is not null) and coalesce(length(\"store_shipping_sync\".\"scan_error\"), 0) <= 300"
         }
       },
       "isRLSEnabled": false
@@ -12494,45 +12972,6 @@
           "notNull": true,
           "default": 0
         },
-        "money_mode": {
-          "name": "money_mode",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'platform_held'"
-        },
-        "payment_fee_bearer": {
-          "name": "payment_fee_bearer",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "cod_fee_bearer": {
-          "name": "cod_fee_bearer",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "expected_cod_fee_idr": {
-          "name": "expected_cod_fee_idr",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "buyer_fee_idr": {
-          "name": "buyer_fee_idr",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "fee_rate_version": {
-          "name": "fee_rate_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -12602,10 +13041,6 @@
       },
       "policies": {},
       "checkConstraints": {
-        "order_financials_money_mode_chk": {
-          "name": "order_financials_money_mode_chk",
-          "value": "\"order_financials\".\"expected_cod_fee_idr\" >= 0 and \"order_financials\".\"buyer_fee_idr\" >= 0 and (\"order_financials\".\"payment_fee_bearer\" is null or \"order_financials\".\"payment_fee_bearer\" in ('buyer', 'seller')) and (\"order_financials\".\"cod_fee_bearer\" is null or \"order_financials\".\"cod_fee_bearer\" in ('buyer', 'seller')) and (\n        (\"order_financials\".\"money_mode\" = 'platform_held' and \"order_financials\".\"payment_fee_bearer\" is null and \"order_financials\".\"cod_fee_bearer\" is null and \"order_financials\".\"expected_cod_fee_idr\" = 0 and \"order_financials\".\"buyer_fee_idr\" = 0 and \"order_financials\".\"fee_rate_version\" is null)\n        or (\"order_financials\".\"money_mode\" = 'seller_owned' and \"order_financials\".\"payment_fee_bearer\" is not null and \"order_financials\".\"cod_fee_bearer\" is not null and \"order_financials\".\"fee_rate_version\" is not null\n          and \"order_financials\".\"platform_shipping_discount_idr\" = 0 and \"order_financials\".\"shipping_cashback_gross_idr\" = 0 and \"order_financials\".\"platform_cashback_idr\" = 0 and \"order_financials\".\"seller_cashback_idr\" = 0\n          and \"order_financials\".\"affiliate_id\" is null and \"order_financials\".\"affiliate_commission_idr\" = 0 and \"order_financials\".\"cod_fee_idr\" = 0 and \"order_financials\".\"cod_fee_vat_idr\" = 0\n          and (\"order_financials\".\"expected_cod_fee_idr\" = 0 or \"order_financials\".\"expected_gateway_fee_idr\" = 0)\n          and \"order_financials\".\"buyer_fee_idr\" = (case when \"order_financials\".\"cod_fee_bearer\" = 'buyer' then \"order_financials\".\"expected_cod_fee_idr\" else 0 end) + (case when \"order_financials\".\"payment_fee_bearer\" = 'buyer' then \"order_financials\".\"expected_gateway_fee_idr\" else 0 end)))"
-        },
         "order_financials_affiliate_chk": {
           "name": "order_financials_affiliate_chk",
           "value": "\"order_financials\".\"affiliate_commission_idr\" = 0 or \"order_financials\".\"affiliate_id\" is not null"

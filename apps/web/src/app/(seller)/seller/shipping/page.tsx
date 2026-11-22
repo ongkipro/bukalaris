@@ -19,6 +19,7 @@ export const metadata = { title: "Pengiriman — Bukalaris" };
 const gapText: Partial<Record<ReadinessGap, string>> = {
   key: "Kunci akun kurir belum terhubung (Akun penyedia).",
   check: "Pengecekan kunci terakhir gagal (Akun penyedia).",
+  dedicated: "Akun kurir belum dikonfirmasi sebagai akun baru yang khusus untuk toko ini (Akun kurir toko).",
   pickup_area: "Area pickup belum dipilih.",
   pickup_registered: "Alamat pickup belum terdaftar di akun kurir Anda: simpan alamat lengkap di bawah.",
 };
@@ -108,6 +109,12 @@ export default async function SellerShippingPage({ searchParams }: PageProps<"/s
       {manage && (
         <p className="text-sm text-muted-foreground" data-testid="own-account-link">
           Akun kurir milik toko Anda sendiri dihubungkan di <Link href="/seller/payments" className="font-medium text-foreground underline underline-offset-4">Akun penyedia</Link>.
+          {own && (
+            <>
+              {" "}Konfirmasi akun khusus, webhook, sinkronisasi paket, saldo dan tagihan ada di{" "}
+              <Link href="/seller/shipping/account" className="font-medium text-foreground underline underline-offset-4" data-testid="own-account-sync-link">Akun kurir toko</Link>.
+            </>
+          )}
         </p>
       )}
 
