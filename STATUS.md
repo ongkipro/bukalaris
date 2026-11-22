@@ -1,12 +1,12 @@
 # Bukalaris — status
 
-Updated: 2026-11-23. Current commit: `git log -1 origin/main` (no hash here: every Records commit would make it stale). Repository PUBLIC on GitHub, nothing deployed. `main` is protected since 2026-11-23: every change reaches it through a pull request with the required checks `verify` and `image` green (admins included, no force push); the owner asked for commit and push of all work (2026-11-16). Open pull request: #15 (T-107, draft) on `task/t107-money-boundary`.
+Updated: 2026-11-23. Current commit: `git log -1 origin/main` (no hash here: every Records commit would make it stale). Repository PUBLIC on GitHub, nothing deployed. `main` is protected since 2026-11-23: every change reaches it through a pull request with the required checks `verify` and `image` green (admins included, no force push); the owner asked for commit and push of all work (2026-11-16). No pull request open.
 
 This file owns the current state and the next task. Evidence: `BUILD-LOG.md`, `docs/TASKS.md` and the track reports in `docs/tracks/`. Earlier checkpoints: [`docs/archive/STATUS-history-2026-11-05.md`](docs/archive/STATUS-history-2026-11-05.md).
 
 ## Where the project stands
 
-- **Code:** `main` still carries the earlier platform-managed model (platform-held money, Partner Mengantar accounts, platform affiliate wallet) on fake adapters, and now the first parts of the new direction: two root domains (T-102), checkout, order status and refund on the store's own host (T-103), seller provider accounts with sealed keys (T-104), Mengantar and AutoLaris on the seller's own key (T-105, T-106), the Mengantar account lock and parcel sync (T-115), and the secret hardening of T-126. CI green on every merge (runs listed in `BUILD-LOG.md`). The rest is built task by task.
+- **Code:** `main` still carries the earlier platform-managed model (platform-held money, Partner Mengantar accounts, platform affiliate wallet) on fake adapters, and now the first parts of the new direction: two root domains (T-102), checkout, order status and refund on the store's own host (T-103), seller provider accounts with sealed keys (T-104), Mengantar and AutoLaris on the seller's own key (T-105, T-106), the Mengantar account lock and parcel sync (T-115), the secret hardening of T-126, and the money boundary for stores on their own accounts (T-107). CI green on every merge (runs listed in `BUILD-LOG.md`). The rest is built task by task.
 - **Documents:** carry the owner's direction change as accepted decisions (D-27 to D-33, ADR-0013 to ADR-0016), with the precision fixes of the 2026-11-14 review (T-122). Accepted decisions are not implementation evidence beyond the tasks named Done.
 - **Owner instruction (2026-11-16):** development resumed, in parallel streams: the task order below plus the precision fixes of the 2026-11-14 review (T-122, from the `pi` session's findings).
 
@@ -30,7 +30,7 @@ This file owns the current state and the next task. Evidence: `BUILD-LOG.md`, `d
 4. Done and merged 2026-11-16: **T-102** (PR #3), **T-122** (PR #2; owner-gated parts of F-15 left), **T-104** (PR #6), **T-124** (PR #5, `BETTER_AUTH_SECRETS` refused), **T-103** (PR #7). **T-123** Partial (PR #4): two of five intermittent failures fixed, two unexplained.
 5. Done and merged 2026-11-16 (second batch): **T-105** (PR #9), **T-106** (PR #10), **T-125** (PR #11, E2E never loads the real pixel scripts), **T-123** no-JS click hang (PR #12; the `content.spec.ts` save stays open).
 6. Merged 2026-11-23: **T-115** (PR #14; one Done-when item open: the `in_transit` / `returning` categories are UNVERIFIED), **T-126** (PR #16: AES-GCM tag length pinned, `ORDER_LINK_SECRET` without fallback).
-7. Now: **T-107** (draft PR #15): integrated onto `main` (migration renumbered `0022`); its review fixes are committed as WIP and the review findings they answer are not in the repository, so it needs that record (or a new independent review), the populated-copy proof on `0022` and green CI before merge. Then: T-113 → T-116 → T-111 → T-112 → T-117 → T-108 → T-109 → T-110. Deferred: T-118 to T-121.
+7. Merged 2026-11-23: **T-107** (PR #15: money boundary for stores on their own accounts, migration `0022`; review of 2026-11-16 handled, M3 fixed at integration). Now: **T-113** (bank transfer to the seller's own account; its dependencies T-104 and T-107 are on `main`). Then: T-116 → T-111 → T-112 → T-117 → T-108 → T-109 → T-110. Deferred: T-118 to T-121.
 
 ## Open items that need a person
 
