@@ -188,18 +188,18 @@ export default async function MengantarAccountPage({ searchParams }: PageProps<"
             </p>
             {sync.mirror.readAt ? (
               <>
-                <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[max-content_minmax(0,1fr)]">
+                <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 text-sm">
                   <dt className="text-muted-foreground">Saldo Mengantar</dt>
-                  <dd className="tabular-nums font-medium" data-testid="mengantar-balance">{rupiah(sync.mirror.balanceIdr)}</dd>
+                  <dd className="text-right font-medium tabular-nums" data-testid="mengantar-balance">{rupiah(sync.mirror.balanceIdr)}</dd>
                   <dt className="text-muted-foreground">Dibaca</dt>
-                  <dd data-testid="mengantar-read-at">{tanggal(sync.mirror.readAt)}</dd>
+                  <dd className="text-right" data-testid="mengantar-read-at">{tanggal(sync.mirror.readAt)}</dd>
                 </dl>
                 {sync.mirror.invoices.length > 0 ? (
                   <ul className="divide-y rounded-lg border text-sm" aria-label="Tagihan dan mutasi Mengantar" data-testid="mengantar-invoices">
                     {sync.mirror.invoices.map((i) => (
                       <li key={i.invNumber} className="grid gap-1 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                         <span className="min-w-0 break-words">
-                          <span className="font-mono text-xs break-all">{i.invNumber}</span> · {INVOICE_TYPE[i.type] ?? i.type}
+                          <span className="font-mono text-xs break-all">{i.invNumber}</span> · {INVOICE_TYPE[i.type] ?? "Transaksi lain"}
                           {i.createdAt && !Number.isNaN(Date.parse(i.createdAt)) ? ` · ${tanggal(new Date(i.createdAt))}` : ""}
                         </span>
                         <span className="tabular-nums sm:text-right">{rupiah(i.total ?? i.amount)}</span>

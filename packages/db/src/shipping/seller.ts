@@ -194,18 +194,24 @@ export class SellerMengantar {
    * T-115 (decision 41): one page of the account's orders, newest first. `archive` sends a date range back to 2015, so orders older than the
    * provider's six-month default window are listed too (documented: "To read older orders, send a dateRange that covers them").
    */
-  accountOrders(p: { size: number; cursor?: string; archive?: boolean }): Promise<{ orders: AccountOrder[]; nextCursor: string | null }> {
+  accountOrders(p: { size: number; cursor?: string; archive?: boolean }): Promise<{ orders: AccountOrder[]; nextCursor: string | null; unreadable: number }> {
     return this.#guard(async () => {
       if (this.transport.mode === "fake") {
         const orders = fakeSellerMengantar.accounts.get(this.#key) ?? (/USED/.test(this.#key) ? [FAKE_USED_ORDER] : []);
-        return { orders: orders.slice(0, p.size), nextCursor: null };
+        return { orders: orders.slice(0, p.size), nextCursor: null, unreadable: 0 };
       }
       const page = await this.#client().listOrders({ size: p.size, cursor: p.cursor, dateRange: p.archive ? { startDate: "2015-01-01T00:00:00.000Z", endDate: new Date().toISOString() } : undefined });
+      // Review minor 7: an order whose id cannot be read is never dropped silently: the caller counts it as not Bukalaris's (refuse / not exact).
+      let unreadable = 0;
       const orders = (page.data ?? []).flatMap((o): AccountOrder[] => {
         const id = text(o.ORDER_ID, 64);
-        return id && PROVIDER_ID_RE.test(id) ? [{ providerOrderId: id, trackingNumber: text(o.cnote_no, 64), status: text(o.statusCategory ?? o.status, 60), createdAt: text(o.createdAt, 40) }] : [];
+        if (!id || !PROVIDER_ID_RE.test(id)) {
+          unreadable++;
+          return [];
+        }
+        return [{ providerOrderId: id, trackingNumber: text(o.cnote_no, 64), status: text(o.statusCategory ?? o.status, 60), createdAt: text(o.createdAt, 40) }];
       });
-      return { orders, nextCursor: page.nextCursor || null };
+      return { orders, nextCursor: page.nextCursor || null, unreadable };
     });
   }
 

@@ -1,5 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db, Executor, Tx } from "../client.ts";
 import { enqueue, registerHandler } from "../ops/jobs/jobs.ts";
@@ -13,6 +13,7 @@ import { keyFingerprint, sealCredential, unsealCredential } from "./credentials.
 import { SHIPMENT_TRACK, TERMINAL } from "./fulfillment.ts";
 import { storeShippingAccount, type ProviderEnvironment } from "./schema-accounts.ts";
 import { shipmentStatusEvent, shippingForeignParcel, shippingWebhookEvent, storeShippingSync, type MirroredInvoice } from "./schema-fulfillment.ts";
+import { storableCategory } from "./parcel-state.ts";
 import { openSellerKeyAsWorker, sellerMengantar, type AccountOrder, type SellerMengantar } from "./seller.ts";
 
 // T-115 — Mengantar account lock, dedicated-account check and parcel sync (ADR-0013 section 11, decisions 40 to 45; decisions 30, 31).
@@ -120,9 +121,9 @@ async function knownProviderOrders(exec: Executor, storeId: number, ids: string[
  * parcels has its older orders checked by the account scan instead (docs/DECISIONS.md D-35).
  */
 export async function assertDedicatedAccount(scope: Pick<SellerScope, "exec" | "storeId">, environment: ProviderEnvironment, key: string): Promise<void> {
-  let orders: AccountOrder[];
+  let orders: AccountOrder[], unreadable: number;
   try {
-    orders = (await (await sellerMengantar(scope.exec, key, environment)).accountOrders({ size: SCAN_PAGE_SIZE, archive: true })).orders;
+    ({ orders, unreadable } = await (await sellerMengantar(scope.exec, key, environment)).accountOrders({ size: SCAN_PAGE_SIZE, archive: true }));
   } catch (err) {
     if (err instanceof DomainError) throw err;
     const e = new DomainError("account_check_failed", "Daftar pesanan akun kurir tidak bisa dibaca, jadi akun belum bisa dipastikan khusus untuk toko ini. Tidak ada yang disimpan; coba lagi sebentar lagi.");
@@ -130,7 +131,7 @@ export async function assertDedicatedAccount(scope: Pick<SellerScope, "exec" | "
     throw e;
   }
   const known = await inStore(scope, ({ exec }) => knownProviderOrders(exec, scope.storeId, orders.map((o) => o.providerOrderId)));
-  if (orders.some((o) => !known.has(o.providerOrderId))) {
+  if (unreadable > 0 || orders.some((o) => !known.has(o.providerOrderId))) {
     throw new DomainError("account_not_empty", "Akun kurir ini sudah berisi pesanan yang tidak dibuat Bukalaris untuk toko ini. Buat akun baru yang hanya dipakai toko ini, lalu hubungkan kuncinya. Tidak ada yang disimpan.");
   }
 }
@@ -270,7 +271,7 @@ export async function receiveMengantarWebhook(exec: Executor, input: WebhookInpu
     const outcome = !parcel ? "no_parcel" : TERMINAL.includes(parcel.status) ? "parcel_final" : "read_enqueued";
     const stored = await tx
       .insert(shippingWebhookEvent)
-      .values({ storeId, signature: input.signature!, sentAt: new Date(sentAt), providerOrderId, trackingNumber, courier: opt(body.courier), statusCategory: opt(body.status_category), outcome })
+      .values({ storeId, signature: input.signature!, sentAt: new Date(sentAt), providerOrderId, trackingNumber, courier: opt(body.courier), statusCategory: storableCategory(body.status_category), outcome })
       .onConflictDoNothing({ target: [shippingWebhookEvent.storeId, shippingWebhookEvent.signature] })
       .returning({ id: shippingWebhookEvent.id });
     if (stored.length === 0) return { status: 200, outcome: "duplicate" };
@@ -334,6 +335,8 @@ export async function requestAccountScan(scope: SellerScope, now = Date.now()): 
   });
 }
 
+/** The marker id of orders in the account whose id could not be read (review minor 7). */
+export const UNREADABLE_ORDER_ID = "TIDAK-TERBACA";
 const SCAN_UNAVAILABLE = "Akun kurir toko tidak bisa dibaca saat ini; pemeriksaan diulang otomatis.";
 
 /**
@@ -362,20 +365,22 @@ export async function scanAccount(db: Db, storeId: number, now = new Date()): Pr
   const [state] = await db.select({ lastScanAt: storeShippingSync.lastScanAt }).from(storeShippingSync).where(eq(storeShippingSync.storeId, storeId));
   const covered = state?.lastScanAt ? state.lastScanAt.getTime() - 86_400_000 : null;
   const seen: AccountOrder[] = [];
+  let unreadable = 0;
   let money;
   try {
     let cursor: string | undefined;
     for (let page = 0; page < SCAN_PAGES; page++) {
       const r = await client.accountOrders({ size: SCAN_PAGE_SIZE, cursor });
       seen.push(...r.orders);
+      unreadable += r.unreadable;
       const oldest = Math.min(...r.orders.map((o) => (o.createdAt ? Date.parse(o.createdAt) : Infinity)));
       if (!r.nextCursor || (covered !== null && oldest < covered)) break;
       cursor = r.nextCursor;
     }
     money = await client.accountMoney(MIRRORED_INVOICES);
   } catch (err) {
-    if (err instanceof DomainError) throw err;
-    await record({ lastScanAt: now, scanError: SCAN_UNAVAILABLE });
+    // A refusal (the production switch closed meanwhile) or a provider failure: recorded on the store's sync row, left to the next scan.
+    await record({ lastScanAt: now, scanError: err instanceof DomainError ? err.message.slice(0, 300) : SCAN_UNAVAILABLE });
     return null;
   }
   // A booking may be on its way back from the provider: an order younger than the grace period waits for the next scan.
@@ -383,11 +388,13 @@ export async function scanAccount(db: Db, storeId: number, now = new Date()): Pr
   return withStore(db, storeId, async (tx) => {
     await ensureSyncRow(tx, storeId);
     const known = await knownProviderOrders(tx, storeId, settled.map((o) => o.providerOrderId));
-    const foreign = settled.filter((o) => !known.has(o.providerOrderId));
+    const foreign: AccountOrder[] = settled.filter((o) => !known.has(o.providerOrderId));
+    // Review minor 7: orders whose id could not be read are foreign too (one marker row; the seller checks the account and resolves it).
+    if (unreadable > 0) foreign.push({ providerOrderId: UNREADABLE_ORDER_ID, trackingNumber: null, status: null, createdAt: null });
     if (foreign.length > 0) {
       await tx
         .insert(shippingForeignParcel)
-        .values(foreign.map((o) => ({ storeId, providerOrderId: o.providerOrderId, trackingNumber: o.trackingNumber, providerStatus: o.status, providerCreatedAt: o.createdAt && !Number.isNaN(Date.parse(o.createdAt)) ? new Date(o.createdAt) : null })))
+        .values(foreign.map((o) => ({ storeId, providerOrderId: o.providerOrderId, trackingNumber: o.trackingNumber, providerStatus: storableCategory(o.status), providerCreatedAt: o.createdAt && !Number.isNaN(Date.parse(o.createdAt)) ? new Date(o.createdAt) : null })))
         .onConflictDoNothing({ target: [shippingForeignParcel.storeId, shippingForeignParcel.providerOrderId] });
     }
     await tx
@@ -477,6 +484,15 @@ export async function resolveForeignParcel(scope: SellerScope, id: number, raw: 
   requireCap(scope, "shipping.manage");
   const { note } = resolveInput.parse(raw);
   await inStore(scope, async ({ exec }) => {
+    // Review minor 6: while a booking's outcome is unknown, a parcel that appeared after it started may be exactly its order. Marking it handled
+    // and then releasing the booking could leave two live provider orders: link its id on that order instead.
+    const [candidate] = await exec
+      .select({ orderId: shipment.orderId })
+      .from(shippingForeignParcel)
+      .innerJoin(shipment, and(eq(shipment.storeId, shippingForeignParcel.storeId), eq(shipment.status, "unknown")))
+      .where(and(eq(shippingForeignParcel.storeId, scope.storeId), eq(shippingForeignParcel.id, id), or(isNull(shippingForeignParcel.providerCreatedAt), gte(shippingForeignParcel.providerCreatedAt, shipment.createdAt))))
+      .limit(1);
+    if (candidate) throw new DomainError("booking_unknown_open", `Pesanan #${candidate.orderId} punya booking dengan hasil tidak pasti, dan paket ini muncul setelah booking itu dimulai. Bila ini order dari booking tersebut, tautkan ID order-nya di pesanan #${candidate.orderId}; paket ini tidak bisa ditandai selesai selama booking itu belum dilepas atau ditautkan.`);
     const rows = await exec
       .update(shippingForeignParcel)
       .set({ resolvedAt: new Date(), resolvedBy: scope.userId, resolutionNote: note })

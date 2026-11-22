@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Db, Executor } from "../client.ts";
 import { enqueue, MAX_ATTEMPTS, registerHandler, sanitizeError } from "../ops/jobs/jobs.ts";
@@ -9,9 +9,9 @@ import { applyProviderTransition, applyTransition, PROVIDER_ACTOR } from "../sel
 import { requoteOrder, reserveShippingCost, reverseShippingReservation } from "../ledger/booking.ts";
 import { codAllowedCouriers } from "./shipping.ts";
 import { auditLog, membership, order, ORDER_STATUS_LABEL, orderLine, orderRedaction, shipment, SHIPMENT_STATUS_LABEL, user, type OrderStatus, type ShipmentStatus, type TrackingEvent } from "../schema.ts";
-import { shipmentStatusEvent, type ProviderFigures } from "./schema-fulfillment.ts";
+import { shipmentStatusEvent, shippingForeignParcel, type ProviderFigures } from "./schema-fulfillment.ts";
 import { PICKUP_TYPES } from "./schema-fulfillment.ts";
-import { categoryKey, categoryLabel, PARCEL_STATE_MAP, parcelStateOf, shipmentStatusOf } from "./parcel-state.ts";
+import { categoryKey, categoryLabel, forwardRank, PARCEL_STATE_MAP, parcelStateOf, shipmentStatusOf, storableCategory } from "./parcel-state.ts";
 import { storeCourierRule } from "./schema-shipping.ts";
 import { openSellerKeyAsWorker, sellerMengantar } from "./seller.ts";
 import { sellerAccount } from "./rules.ts";
@@ -244,6 +244,15 @@ export async function releaseUnknownBooking(scope: SellerScope, orderId: number,
   const { reason } = releaseInput.parse(raw);
   await inStore(scope, async ({ exec: tx }) => {
     const s = await unknownShipment(tx, scope, orderId);
+    // T-115 review minor 6: a parcel found in the courier account that Bukalaris did not create may be exactly the order this booking created.
+    // While one is open, releasing (and booking again) could leave two live provider orders: link it instead, or resolve it first.
+    // Only a parcel that appeared after this booking started (or of unknown age) can be its order.
+    const [foreign] = await tx
+      .select({ id: shippingForeignParcel.providerOrderId })
+      .from(shippingForeignParcel)
+      .where(and(eq(shippingForeignParcel.storeId, scope.storeId), isNull(shippingForeignParcel.resolvedAt), or(isNull(shippingForeignParcel.providerCreatedAt), gte(shippingForeignParcel.providerCreatedAt, s.createdAt))))
+      .limit(1);
+    if (foreign) throw new DomainError("foreign_parcel_open", `Akun kurir toko memuat paket yang tidak dibuat lewat Bukalaris (ID order ${foreign.id}). Bila itu order dari booking ini, tautkan ID order tersebut; bila bukan, tandai paket itu sudah ditangani di Akun kurir toko, lalu lepaskan booking ini.`);
     await setShipment(tx, s.id, { status: "failed", lastError: `${RELEASED_MESSAGE} Catatan: ${reason}` });
     await auditShipment(tx, scope, orderId, "shipment.unknown.release", `attempt=${s.bookingAttempts}; ${reason}`);
   });
@@ -453,7 +462,7 @@ async function shipOrder(tx: Executor, storeId: number, orderId: number, resi: s
 
 /** T-115 (ADR-0013 decision 42): one observed Mengantar status category of a parcel, as received (append-only), with its mapped state or none. */
 async function recordStatusEvent(tx: Executor, s: { id: number; storeId: number }, providerOrderId: string, category: string, source: "booking" | "read", providerChangedAt: Date | null): Promise<void> {
-  const raw = category.trim().slice(0, 60);
+  const raw = storableCategory(category); // review major 2: a status code as received, free text never (the redaction marker instead)
   if (!raw) return;
   await tx.insert(shipmentStatusEvent).values({ storeId: s.storeId, shipmentId: s.id, providerOrderId, category: raw, parcelState: parcelStateOf(raw), source, providerChangedAt });
 }
@@ -640,7 +649,11 @@ async function applyTracking(db: Db, s0: ShipmentView, t: TrackingResult, nextPo
       }
     };
     if (TERMINAL.includes(s.status) || s.providerOrderId !== s0.providerOrderId) return;
-    if (changedAt && s.providerStatusAt && changedAt < s.providerStatusAt) {
+    // Stale answer: older than the applied `lastStatusChange`; without both times (UNVERIFIED on a single read, review minor 5) a lower forward rank
+    // between two non-final states is stale too.
+    const newRank = forwardRank(t.providerStatus), oldRank = forwardRank(s.providerStatus);
+    const stale = changedAt && s.providerStatusAt ? changedAt < s.providerStatusAt : newRank !== null && oldRank !== null && newRank < oldRank;
+    if (stale) {
       await setShipment(tx, s.id, { lastTrackedAt: now });
       await chain(s.status);
       return;
@@ -648,8 +661,10 @@ async function applyTracking(db: Db, s0: ShipmentView, t: TrackingResult, nextPo
     const gotResi = !s.trackingNumber && t.trackingNumber;
     const resi = s.trackingNumber ?? t.trackingNumber;
     const mapped = mapProviderStatus(t.providerStatus)?.status;
-    // Tracking states need a resi; an unpaid order stays `awaiting_balance` until one appears.
-    const status: ShipmentStatus = !resi ? s.status : (mapped ?? (gotResi ? "booked" : s.status));
+    // Tracking states need a resi; an unpaid order stays `awaiting_balance` until one appears. Review major 3 (ADR-0013 decision 44): on the store's
+    // own account a cancellation releases the booking even without a resi (an unpaid parcel the seller deleted in the courier account), so the
+    // released path of `bookShipment` applies instead of paying a deleted order forever.
+    const status: ShipmentStatus = !resi ? (own && mapped === "cancelled" ? "cancelled" : s.status) : (mapped ?? (gotResi ? "booked" : s.status));
     const delivered = status === "delivered";
     const [redacted] = await tx.select({ id: orderRedaction.orderId }).from(orderRedaction).where(and(eq(orderRedaction.storeId, s.storeId), eq(orderRedaction.orderId, s.orderId)));
     const history = (t.history.length ? t.history : s.trackingHistory).slice(-TRACK_HISTORY_MAX);

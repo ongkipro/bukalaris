@@ -11,7 +11,8 @@ import { runOnce } from "../src/ops/jobs/jobs.ts";
 import { auditLog, job, order, orderStatusHistory, shipment } from "../src/schema.ts";
 import { placeOrder, searchDestinationAreas } from "../src/seller/commerce/checkout.ts";
 import { transitionOrder } from "../src/seller/commerce/orders.ts";
-import { bookShipment, mapProviderStatus, refreshTracking, setBookingAdapter, SHIPMENT_TRACK, type BookingAdapter, type TrackingResult } from "../src/shipping/fulfillment.ts";
+import { bookShipment, linkUnknownBooking, mapProviderStatus, refreshTracking, releaseUnknownBooking, setBookingAdapter, SHIPMENT_TRACK, type BookingAdapter, type TrackingResult } from "../src/shipping/fulfillment.ts";
+import { MengantarError } from "../src/shipping/mengantar/client.ts";
 import { figuresOf } from "../src/shipping/mengantar/booking.ts";
 import { categoryLabel, displayableCategory, PARCEL_SHIPMENT_STATUS, PARCEL_STATE_MAP, PARCEL_STATES, parcelStateOf, type ParcelState } from "../src/shipping/parcel-state.ts";
 import { SHIPPING_ACCOUNT_KINDS, storeShippingAccount } from "../src/shipping/schema-accounts.ts";
@@ -29,6 +30,7 @@ import {
   SCAN_GRACE_MS,
   setWebhookSecret,
   SHIPPING_PROVIDER,
+  UNREADABLE_ORDER_ID,
   shippingSync,
   sweepParcels,
   verifyMengantarSignature,
@@ -79,12 +81,14 @@ async function paidOrder(s: Own, paymentMethod: "manual_transfer" | "cod" = "man
 
 /** A scripted provider: books with a resi, then answers each tracking read from the queue (the last answer repeats). */
 type Scripted = BookingAdapter & { reads: TrackingResult[]; tracked: number };
-function scripted(reads: Partial<TrackingResult>[] = []): Scripted {
+function scripted(reads: Partial<TrackingResult>[] = [], opts: { unpaid?: boolean } = {}): Scripted {
   const a: Scripted = {
     reads: reads.map((r) => ({ trackingNumber: null, providerStatus: null, paid: true, history: [], ...r })),
     tracked: 0,
     async createOrder(input) {
-      return { providerOrderId: `ORD${input.orderId}x${input.idempotencyKey?.split("-").at(-1) ?? 0}`, providerBatchId: `B${input.orderId}`, trackingNumber: `RESI${input.orderId}`, paid: true, providerStatus: "PENDING PICKUP", figures: { estimatedPrice: 12_000, estimatedSpecialPrice: 10_800, discount: 1_200 } };
+      const providerOrderId = `ORD${input.orderId}x${input.idempotencyKey?.split("-").at(-1) ?? 0}`;
+      if (opts.unpaid) return { providerOrderId, providerBatchId: `B${input.orderId}`, trackingNumber: null, paid: false, providerStatus: "active" }; // balance short (decision 31)
+      return { providerOrderId, providerBatchId: `B${input.orderId}`, trackingNumber: `RESI${input.orderId}`, paid: true, providerStatus: "PENDING PICKUP", figures: { estimatedPrice: 12_000, estimatedSpecialPrice: 10_800, discount: 1_200 } };
     },
     async payUnpaid() {},
     async track() {
@@ -442,16 +446,16 @@ describe("T-115 decision 42: the whole parcel life through one mapping table", (
 
   it("an unknown status category stays raw: stored as received, no state change, never a guessed state, and shown as received to the seller", async () => {
     const s = await ownStore("t115-unknown", { secret: null });
-    const a = scripted([{ providerStatus: "WAREHOUSE HOLD-7" }]);
+    const a = scripted([{ providerStatus: "WAREHOUSE HOLD" }]);
     const orderId = await booked(s, a);
     await refreshTracking(s.me, orderId);
     await run("unknown");
-    expect(await shipmentOf(orderId)).toMatchObject({ status: "booked", providerStatus: "WAREHOUSE HOLD-7" });
+    expect(await shipmentOf(orderId)).toMatchObject({ status: "booked", providerStatus: "WAREHOUSE HOLD" });
     expect(await orderOf(orderId)).toMatchObject({ status: "shipped" });
-    expect(await platform.select({ category: shipmentStatusEvent.category, parcelState: shipmentStatusEvent.parcelState }).from(shipmentStatusEvent).where(eq(shipmentStatusEvent.source, "read"))).toEqual([{ category: "WAREHOUSE HOLD-7", parcelState: null }]);
-    expect(parcelStateOf("WAREHOUSE HOLD-7")).toBeNull();
-    expect(mapProviderStatus("WAREHOUSE HOLD-7")).toBeNull();
-    expect(displayableCategory("WAREHOUSE HOLD-7")).toBe("WAREHOUSE HOLD-7");
+    expect(await platform.select({ category: shipmentStatusEvent.category, parcelState: shipmentStatusEvent.parcelState }).from(shipmentStatusEvent).where(eq(shipmentStatusEvent.source, "read"))).toEqual([{ category: "WAREHOUSE HOLD", parcelState: null }]);
+    expect(parcelStateOf("WAREHOUSE HOLD")).toBeNull();
+    expect(mapProviderStatus("WAREHOUSE HOLD")).toBeNull();
+    expect(displayableCategory("WAREHOUSE HOLD")).toBe("WAREHOUSE HOLD");
     expect(displayableCategory("<script>alert(1)</script>")).toBeNull(); // not a status code: never echoed
   });
 });
@@ -524,5 +528,132 @@ describe("T-115 decisions 43 and 45: the sealed Webhook Secret and Mengantar's m
     await refreshTracking(s.me, orderId);
     await run("figures");
     expect((await shipmentOf(orderId)).providerFigures).toEqual({ estimatedPrice: 12_000, estimatedSpecialPrice: 10_800, discount: 1_200, COD_AMOUNT: 112_000 });
+  });
+});
+
+describe("T-115 review fixes (2026-11-16)", () => {
+  it("a provider status that is not a status code (it may name the receiver) is never stored or shown as received: status history, webhook evidence and foreign parcels keep the redaction marker", async () => {
+    const s = await ownStore("t115-priv");
+    const free = "Diterima oleh Budi Santoso";
+    const orderId = await booked(s, scripted([{ providerStatus: free }]));
+    await refreshTracking(s.me, orderId);
+    await run("priv");
+    expect(await platform.select({ category: shipmentStatusEvent.category, parcelState: shipmentStatusEvent.parcelState }).from(shipmentStatusEvent).where(eq(shipmentStatusEvent.source, "read"))).toEqual([{ category: "[dihapus]", parcelState: null }]);
+    expect(await deliver(s, parcelBody(orderId, free))).toMatchObject({ status: 200 });
+    expect(await platform.select({ c: shippingWebhookEvent.statusCategory }).from(shippingWebhookEvent)).toEqual([{ c: "[dihapus]" }]);
+    fakeSellerMengantar.accounts.set(KEY, [{ providerOrderId: "FOREIGNPRIV1", trackingNumber: null, status: free, createdAt: "2026-01-01T00:00:00.000Z" }]);
+    await scanAccount(platform, s.storeId);
+    expect((await shippingSync(s.me)).foreign.map((f) => f.providerStatus)).toEqual(["[dihapus]"]);
+    for (const shown of [free, "diterima", "[dihapus]", "PICKED UP 7"]) expect(displayableCategory(shown), shown).toBeNull();
+    expect(displayableCategory("active")).toBe("active"); // a documented category, as received
+    expect((await admin.execute(sql`select count(*)::int n from shipment_status_event e where e.category like ${"%Budi%"}`))[0]).toEqual({ n: 0 });
+  });
+
+  it("an unpaid booking cancelled in the store's own account is released without a resi: the shipment is cancelled, the order keeps its status, the sweep stops reading it and booking again creates a new provider order", async () => {
+    const s = await ownStore("t115-unpaid", { secret: null });
+    const a = scripted([{ providerStatus: "CANCELLED", trackingNumber: null, paid: false }], { unpaid: true });
+    const orderId = await booked(s, a);
+    expect(await shipmentOf(orderId)).toMatchObject({ status: "awaiting_balance", trackingNumber: null });
+    const first = (await shipmentOf(orderId)).providerOrderId!;
+    const before = (await orderOf(orderId)).status;
+    await refreshTracking(s.me, orderId);
+    await run("cancel-unpaid");
+    expect(await shipmentOf(orderId)).toMatchObject({ status: "cancelled", providerStatus: "CANCELLED" });
+    expect((await orderOf(orderId)).status).toBe(before);
+    await platform.update(shipment).set({ lastTrackedAt: new Date(Date.now() - 2 * PARCEL_SWEEP_STALE_MS) }).where(eq(shipment.orderId, orderId));
+    expect(await sweepParcels(platform)).toBe(0);
+    setBookingAdapter(scripted());
+    await bookShipment(s.me, orderId, { pickupType: "drop_off" });
+    await run("rebook-unpaid");
+    const again = await shipmentOf(orderId);
+    expect(again).toMatchObject({ status: "booked", bookingAttempts: 1 });
+    expect(again.providerOrderId).not.toBe(first);
+  });
+
+  it("money that reached the seller's own accounts is never booked or refunded by the platform: no ledger entry for an own-account COD delivery or return, no platform refund for an own-account prepaid return", async () => {
+    const s = await ownStore("t115-money-boundary", { secret: null });
+    await searchDestinationAreas("menteng", undefined, s.sf);
+    const ledgerOf = async (orderId: number) => (await admin.execute(sql`select count(*)::int n from ledger_entry where order_id = ${orderId}`))[0]!.n;
+    const refundsOf = async (orderId: number) => (await admin.execute(sql`select count(*)::int n from refund where order_id = ${orderId}`))[0]!.n;
+    const read = (orderId: number) => refreshTracking(s.me, orderId).then(() => run(`r${orderId}`));
+    // COD delivered on the store's own courier account: the cash is the seller's, no platform COD sale.
+    const delivered = await booked(s, scripted([{ providerStatus: "DELIVERED" }]), "cod");
+    await read(delivered);
+    expect(await orderOf(delivered)).toMatchObject({ status: "completed" });
+    expect(await ledgerOf(delivered)).toBe(0);
+    // COD returned: nothing to reverse or refund on the platform.
+    const cod = await booked(s, scripted([{ providerStatus: "RTS" }]), "cod");
+    await read(cod);
+    expect(await orderOf(cod)).toMatchObject({ status: "returned" });
+    expect([await ledgerOf(cod), await refundsOf(cod)]).toEqual([0, 0]);
+    // Prepaid on the store's own AutoLaris account (T-106 attempt with an account), then returned: the seller refunds, not the platform.
+    const prepaid = await booked(s, scripted([{ providerStatus: "RTS" }]));
+    await saveProviderKey(s.me, { provider: "autolaris", environment: "sandbox", apiKey: "autolaris-own-key-0123456789abcdef", proofId: await issueSellerStepUp(s.me, { action: "integrations.provider_key", subjectId: "autolaris" }) });
+    const [attempt] = (await admin.execute(sql`select id from payment_attempt where order_id = ${prepaid}`)) as unknown as { id: string }[];
+    expect(attempt).toBeDefined();
+    await admin.transaction(async (tx) => {
+      await tx.execute(sql`set local session_replication_role = replica`); // fixture only: an attempt the store's own account settled (T-106 owns that path)
+      await tx.execute(sql`update payment_attempt set payment_account_id = (select id from store_payment_account where store_id = ${s.storeId}), environment = 'sandbox', status = 'paid', paid_at = now() where id = ${attempt!.id}`);
+    });
+    await read(prepaid);
+    expect(await orderOf(prepaid)).toMatchObject({ status: "returned" });
+    expect(await refundsOf(prepaid)).toBe(0);
+  });
+
+  it("without the provider's change time, a read never moves a parcel back in the forward order of the non-final states", async () => {
+    const s = await ownStore("t115-rank", { secret: null });
+    const a = scripted([{ providerStatus: "ON DELIVERY" }, { providerStatus: "PICKED UP" }, { providerStatus: "UNDELIVERED" }]);
+    const orderId = await booked(s, a);
+    const read = async () => {
+      await platform.update(shipment).set({ lastTrackedAt: new Date(Date.now() - 2 * PARCEL_SWEEP_STALE_MS) }).where(eq(shipment.orderId, orderId));
+      await sweepParcels(platform, new Date(Date.now() + a.tracked * PARCEL_SWEEP_STALE_MS));
+      await run(`rank${a.tracked}`);
+    };
+    await read();
+    expect(await shipmentOf(orderId)).toMatchObject({ providerStatus: "ON DELIVERY", status: "in_transit" });
+    await read(); // an older answer (no lastStatusChange): ignored
+    expect(await shipmentOf(orderId)).toMatchObject({ providerStatus: "ON DELIVERY", status: "in_transit" });
+    await read(); // a failed delivery attempt after the last mile started is not "backwards"
+    expect(await shipmentOf(orderId)).toMatchObject({ providerStatus: "UNDELIVERED", status: "problem" });
+  });
+
+  it("while a booking's outcome is unknown, a parcel that appeared after it started can be neither marked handled nor used to release the booking: the seller links it", async () => {
+    const s = await ownStore("t115-unknown-foreign", { secret: null });
+    setBookingAdapter({ ...scripted(), async createOrder() { throw new MengantarError("timeout", "Mengantar timed out after 8000 ms"); } });
+    const orderId = await paidOrder(s);
+    await bookShipment(s.me, orderId, { pickupType: "drop_off" });
+    await run("unknown");
+    expect(await shipmentOf(orderId)).toMatchObject({ status: "unknown" });
+    const later = new Date(Date.now() + 60_000).toISOString();
+    fakeSellerMengantar.accounts.set(KEY, [
+      { providerOrderId: "MAYBEMINE001", trackingNumber: "R1", status: "PENDING PICKUP", createdAt: later },
+      { providerOrderId: "OLDFOREIGN01", trackingNumber: "R0", status: "DELIVERED", createdAt: "2026-01-01T00:00:00.000Z" },
+    ]);
+    await scanAccount(platform, s.storeId, new Date(Date.now() + SCAN_GRACE_MS + 120_000));
+    const byId = Object.fromEntries((await shippingSync(s.me)).foreign.map((f) => [f.providerOrderId, f.id]));
+    expect(await code(resolveForeignParcel(s.me, byId.MAYBEMINE001!, { note: "bukan paket saya" }))).toBe("booking_unknown_open");
+    expect(await code(releaseUnknownBooking(s.me, orderId, { reason: "akun kurir sudah dicek" }))).toBe("foreign_parcel_open");
+    await resolveForeignParcel(s.me, byId.OLDFOREIGN01!, { note: "paket lama sebelum toko ini" }); // older than the booking: not a candidate
+    setBookingAdapter(scripted([{ providerStatus: "PENDING PICKUP", trackingNumber: "R1" }]));
+    await linkUnknownBooking(s.me, orderId, { providerOrderId: "MAYBEMINE001" });
+    expect((await shippingSync(s.me)).foreign).toEqual([]); // linked: Bukalaris's own now, the sync is exact again
+  });
+
+  it("an order in the account whose id cannot be read refuses the account at connection and is listed as foreign by the scan", async () => {
+    vi.stubEnv("MENGANTAR_SANDBOX_ORIGIN", "https://sandbox.example.test");
+    let data: unknown[] = [{ cnote_no: "X1", status: "active" }];
+    setSellerMengantarFetch((async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/invoices")) return new Response(JSON.stringify({ success: true, data: [], balance: 0, nextCursor: "" }), { status: 200 });
+      return new Response(JSON.stringify({ success: true, data, nextCursor: "" }), { status: 200 });
+    }) as typeof fetch);
+    const t = await makeStore("t115-unreadable");
+    const me = bindSession(t.owner, await sessionOf(t.ownerId));
+    expect(await code(saveProviderKey(me, { provider: "mengantar", environment: "sandbox", apiKey: KEY, proofId: await issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "mengantar" }) }))).toBe("account_not_empty");
+    data = [];
+    await saveProviderKey(me, { provider: "mengantar", environment: "sandbox", apiKey: KEY, proofId: await issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "mengantar" }) });
+    data = [{ ORDER_ID: "has space and !", createdAt: "2026-01-01T00:00:00.000Z" }];
+    await scanAccount(platform, t.storeId);
+    expect((await shippingSync(me)).foreign.map((f) => f.providerOrderId)).toEqual([UNREADABLE_ORDER_ID]);
   });
 });

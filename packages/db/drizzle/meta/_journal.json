@@ -148,6 +148,13 @@
       "when": 1794808615764,
       "tag": "0020_t106_autolaris_seller_key",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794825800553,
+      "tag": "0021_t115_mengantar_lock",
+      "breakpoints": true
     }
   ]
 }

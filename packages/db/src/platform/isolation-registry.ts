@@ -418,8 +418,9 @@ export const DEFINER_FUNCTIONS: Record<string, DefinerFunction> = {
   "reset_demo_shipping(bigint[])": { owner: "bukalaris_owner", kind: "retention", execute: [] }, // T-48: local demo reset only; owner connection only (T-104: also the demo stores' own payment accounts)
   // T-104: the application role's only read of a sealed provider envelope, refused for every store but app_store_id().
   "provider_key_envelope(bigint,text)": { owner: "bukalaris_owner", kind: "guard", execute: ["bukalaris_app", "bukalaris_platform"] }, // T-106: the worker opens a store's key through it too (inside withStore)
-  // T-115: the webhook address id -> its store (the route continues on the app pool in that store's context).
-  "resolve_mengantar_webhook_store(text)": { owner: "bukalaris_resolver", execute: ["bukalaris_app"], reads: ["store_shipping_sync"] },
+  // T-115: the webhook address id -> its store (the route continues on the app pool in that store's context). Owned by the table owner like
+  // resolve_user_suspended, so bukalaris_resolver never holds SELECT on the table that carries the sealed Webhook Secret (review minor 8).
+  "resolve_mengantar_webhook_store(text)": { owner: "bukalaris_owner", kind: "guard", execute: ["bukalaris_app"] },
   // T-52 affiliate programme. The three callable by the checkout re-check app_store_id() themselves and read the buyer phone, the affiliate, the click and the financial
   // snapshot from the database: a caller names no affiliate, method, click or amount. The click entry point takes only the public token. Guards and triggers are never callable.
   "affiliate_resolve_core(bigint,bigint,text,text[])": { owner: "bukalaris_owner", kind: "guard", execute: [] },

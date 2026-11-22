@@ -256,8 +256,24 @@ async function restockOrder(tx: Executor, storeId: number, orderId: number, labe
   }
 }
 
-/** `released` (T-115, ADR-0013 decision 44): a parcel cancelled in the store's OWN courier account gives the order back to `processing`. */
+/**
+ * `released` (T-115, ADR-0013 decision 44): a parcel cancelled in the store's OWN courier account releases its booking. A shipped order goes back
+ * to `processing` with its resi cleared; an order not shipped yet (no resi, e.g. an unpaid booking) keeps its status (`noop`). Either way the
+ * seller may book again.
+ */
 export type ProviderTransition = "completed" | "returned" | "cancelled" | "released";
+/**
+ * T-115 review major 4 (ADR-0013 section 8, C-P1): money that reached the seller's OWN accounts is never booked or refunded by the platform. On a
+ * store's own courier account the COD cash is collected for the seller (no platform COD sale), and a prepaid order paid on the store's own
+ * AutoLaris account (T-106 attempt with `payment_account_id`) is refunded by the seller, not by a platform refund. Platform-held money keeps the
+ * ADR-0006 path. Deliberately minimal and named: T-107 builds the full money boundary.
+ */
+async function sellerHeldMoney(tx: Executor, storeId: number, orderId: number, o: { accountKind: string; paymentMethod: string }): Promise<boolean> {
+  if (o.accountKind !== "seller_owned") return false;
+  if (o.paymentMethod === "cod") return true;
+  const [own] = await tx.select({ id: paymentAttempt.id }).from(paymentAttempt).where(and(eq(paymentAttempt.storeId, storeId), eq(paymentAttempt.orderId, orderId), isNotNull(paymentAttempt.paymentAccountId))).limit(1);
+  return !!own;
+}
 export type ProviderTransitionOutcome = { outcome: "applied" | "noop" | "rejected"; status: OrderStatus; reason?: string };
 export const PROVIDER_ACTOR = "system:provider-status";
 
@@ -313,10 +329,11 @@ export async function applyProviderTransition(
     .update(order)
     .set({ status: target, updatedAt: now, ...(target === "completed" && o.paymentMethod === "cod" ? { paidAt: now } : {}) })
     .where(and(eq(order.storeId, storeId), eq(order.id, orderId)));
-  if (target === "completed" && o.paymentMethod === "cod") await bookCodSale(tx, storeId, orderId);
+  const sellerHeld = await sellerHeldMoney(tx, storeId, orderId, o);
+  if (target === "completed" && o.paymentMethod === "cod" && !sellerHeld) await bookCodSale(tx, storeId, orderId);
   if (target === "returned" || target === "cancelled") {
     await restockOrder(tx, storeId, orderId, target === "returned" ? "Pesanan dikembalikan (RTS)" : "Pembatalan oleh kurir", ctx.note ?? null, actor);
-    await settleTerminalOrder(tx, storeId, orderId, target === "returned" ? "order_returned" : "order_cancelled");
+    if (!sellerHeld) await settleTerminalOrder(tx, storeId, orderId, target === "returned" ? "order_returned" : "order_cancelled");
   }
   const label = ctx.source === "manual_approved" ? "disetujui dua orang (manual)" : "status kurir";
   await tx.insert(orderStatusHistory).values({ storeId, orderId, fromStatus: o.status, toStatus: target, actorUserId: actor, note: `${ctx.note ?? ORDER_STATUS_LABEL[target]} (${label})`.slice(0, 500) });

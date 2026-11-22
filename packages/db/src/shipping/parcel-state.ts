@@ -1,3 +1,4 @@
+import { PROVIDER_CODE_RE_SOURCE, REDACTED } from "../seller/commerce/privacy.ts";
 import type { ShipmentStatus } from "./schema-fulfillment.ts";
 
 // T-115 (ADR-0013 decision 42): the parcel states Bukalaris keeps equal to Mengantar's, and the ONE table that maps a Mengantar
@@ -84,6 +85,34 @@ export function categoryLabel(raw: string | null | undefined): string | null {
   return row ? (row.label ?? PARCEL_STATE_LABEL[row.parcel]) : null;
 }
 
-/** A raw category shown to the seller of the account as received (decision 42), only when it looks like a status code; anything else is not echoed. */
-export const RAW_CATEGORY_RE = /^[A-Za-z0-9][A-Za-z0-9 _/.-]{0,59}$/;
-export const displayableCategory = (raw: string | null | undefined): string | null => (raw && RAW_CATEGORY_RE.test(raw.trim()) ? raw.trim() : null);
+/**
+ * Review major 2 (T-47 privacy): a provider status may be free text ("Diterima oleh <nama>"). Only a STATUS CODE is ever stored in a T-115 table
+ * or shown: a category the one table knows, or an upper-case code by the rule redaction itself uses (`PROVIDER_CODE_RE_SOURCE`, at most 40
+ * characters). Anything else is stored as the redaction marker, never as received.
+ */
+const CODE_RE = new RegExp(PROVIDER_CODE_RE_SOURCE);
+export const isStatusCode = (raw: string): boolean => {
+  const v = raw.trim();
+  return v.length > 0 && v !== REDACTED && (PARCEL_STATE_MAP[categoryKey(v)] !== undefined || (v.length <= 40 && CODE_RE.test(v)));
+};
+/** The value a T-115 table stores for a provider status: the code as received, the redaction marker for anything else, null for nothing. */
+export function storableCategory(raw: string | null | undefined): string | null {
+  const v = raw?.trim();
+  if (!v) return null;
+  return isStatusCode(v) ? v : REDACTED;
+}
+/** A category shown to the seller as received (decision 42): status codes only; anything else is not echoed. */
+export const displayableCategory = (raw: string | null | undefined): string | null => (raw && isStatusCode(raw) ? raw.trim() : null);
+
+/**
+ * Review minor 5: the forward order of the non-final states, the fallback when an answer carries no `lastStatusChange` (UNVERIFIED on a single
+ * read). A read never moves a parcel back to a lower rank; final states are guarded separately (a final parcel never moves) and `error` or an
+ * unknown category has no rank. UNDELIVERED is a failed attempt after the last mile started, so it ranks with out for delivery.
+ */
+const RANK: Partial<Record<ParcelState, number>> = { created: 0, waiting_pickup: 1, pickup_failed: 1, picked_up: 2, in_transit: 3, out_for_delivery: 4, returning: 5 };
+export function forwardRank(raw: string | null | undefined): number | null {
+  if (!raw?.trim()) return null;
+  if (categoryKey(raw) === "UNDELIVERED") return RANK.out_for_delivery!;
+  const state = parcelStateOf(raw);
+  return state ? (RANK[state] ?? null) : null;
+}
