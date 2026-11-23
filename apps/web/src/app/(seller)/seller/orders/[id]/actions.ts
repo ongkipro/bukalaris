@@ -3,7 +3,7 @@
 import { requirePortalCsrf } from "@/lib/auth-csrf";
 
 import { sellerScope } from "@/lib/context";
-import { bookShipment, confirmBankTransfer, linkUnknownBooking, recordSellerRefund, refreshTracking, rejectPaymentProof, releaseUnknownBooking } from "@bukalaris/db";
+import { bookShipment, confirmBankTransfer, extendDigitalGrant, linkUnknownBooking, recordSellerRefund, refreshTracking, rejectPaymentProof, releaseUnknownBooking, revokeDigitalGrant } from "@bukalaris/db";
 import { run } from "../run";
 
 /** "Kirim lewat Mengantar" / "Coba lagi": enqueue the booking (T-39); the worker does the provider call. */
@@ -65,4 +65,24 @@ export async function rejectProofAction(orderId: number, proofId: string, f: For
   const scope = await sellerScope();
   const back = `/seller/orders/${orderId}`;
   await run(back, () => `${back}?saved=proof_rejected#bank-transfer`, () => rejectPaymentProof(scope, { orderId, proofId, reason: String(f.get("reason") ?? "") }));
+}
+
+/** T-112: extend or clear expiry of an active digital grant, audited. */
+export async function extendDigitalGrantAction(orderId: number, grantId: number, f: FormData) {
+  await requirePortalCsrf(f, `/seller/orders/${orderId}`);
+  const scope = await sellerScope();
+  const back = `/seller/orders/${orderId}`;
+  await run(back, () => `${back}?saved=grant_extended#akses-digital`, () =>
+    extendDigitalGrant(scope, grantId, { days: String(f.get("days") ?? ""), reason: String(f.get("reason") ?? "") }),
+  );
+}
+
+/** T-112: revoke a digital grant with a reason, audited. */
+export async function revokeDigitalGrantAction(orderId: number, grantId: number, f: FormData) {
+  await requirePortalCsrf(f, `/seller/orders/${orderId}`);
+  const scope = await sellerScope();
+  const back = `/seller/orders/${orderId}`;
+  await run(back, () => `${back}?saved=grant_revoked#akses-digital`, () =>
+    revokeDigitalGrant(scope, grantId, { reason: String(f.get("reason") ?? "") }),
+  );
 }

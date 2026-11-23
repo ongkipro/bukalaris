@@ -183,6 +183,13 @@
       "when": 1795424112256,
       "tag": "0025_t111_digital_kind",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1795433387535,
+      "tag": "0026_t112_digital_delivery",
+      "breakpoints": true
     }
   ]
 }

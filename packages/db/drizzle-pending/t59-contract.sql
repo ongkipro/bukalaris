@@ -48,6 +48,7 @@ GRANT SELECT, INSERT, UPDATE ON "cashback_rule" TO bukalaris_platform;--> statem
 GRANT SELECT, UPDATE, DELETE ON "checkout_session" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "collection" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE ON "courier_service_policy" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT, INSERT, UPDATE ON "digital_grant" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, UPDATE ON "discount" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, UPDATE ON "discount_buyer_usage" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT ON "discount_redemption" TO bukalaris_platform;--> statement-breakpoint
@@ -95,6 +96,8 @@ GRANT SELECT ON "payout_destination" TO bukalaris_platform;--> statement-breakpo
 GRANT SELECT ON "platform_job_kind" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, UPDATE ON "platform_operator" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "product" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT ON "product_access_item" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT ON "product_access_note" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "promo_hub" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "promo_hub_collection" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE ON "provider_live_setting" TO bukalaris_platform;--> statement-breakpoint

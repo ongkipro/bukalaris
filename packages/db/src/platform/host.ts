@@ -69,6 +69,8 @@ export const RESERVED_ROUTE_ROOTS: Record<string, true> = {
   search: true,
   cart: true,
   media: true,
+  member: true,
+  members: true,
   sitemap: true,
   robots: true,
 };
@@ -347,6 +349,18 @@ export function dispatchHostPath(input: {
 
   // `/api/internal/*` is never routable on any public host (DOM-5).
   if (matchesPrefix(pathname, "/api/internal")) {
+    return { action: "not_found", status: 404, surface: surface.kind };
+  }
+
+  // T-112 (ADR-0016 section 7 item 27): reserved member-area paths answer 404 on EVERY host (case-insensitive) until T-119 is scheduled.
+  const lowerPath = pathname.toLowerCase();
+  if (
+    matchesPrefix(lowerPath, "/member") ||
+    matchesPrefix(lowerPath, "/members") ||
+    matchesPrefix(lowerPath, "/buyer/members") ||
+    matchesPrefix(lowerPath, "/seller/memberships") ||
+    /^\/s\/[^/]+\/(member|members)(\/|$)/.test(lowerPath)
+  ) {
     return { action: "not_found", status: 404, surface: surface.kind };
   }
 

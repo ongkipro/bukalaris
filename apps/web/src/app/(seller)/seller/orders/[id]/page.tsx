@@ -10,12 +10,12 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { sellerScope } from "@/lib/context";
 import { rupiah, tanggal, tanggalIso } from "@/lib/format";
 import { orderActionLabel, orderStatusLabel, orderStatusTone, paymentLabel, type Tone } from "@/lib/status";
-import { BOOKABLE, can, codBookingAllowed, sellerBankTransferOrder, displayableCategory, getOrder, getShipment, PARCEL_STATE_LABEL, parcelStateOf, providerStatusLabel, RETRYABLE, SELLER_REFUND_METHOD_LABEL, SELLER_REFUND_METHODS, SHIPMENT_STATUS_LABEL, shipmentStatusHistory, shipmentTimeline, TERMINAL, whiteLabel, wibToday, type OrderStatus, type ShipmentStatus } from "@bukalaris/db";
+import { BOOKABLE, can, codBookingAllowed, sellerBankTransferOrder, sellerOrderDigitalGrants, displayableCategory, getOrder, getShipment, PARCEL_STATE_LABEL, parcelStateOf, providerStatusLabel, RETRYABLE, SELLER_REFUND_METHOD_LABEL, SELLER_REFUND_METHODS, SHIPMENT_STATUS_LABEL, shipmentStatusHistory, shipmentTimeline, TERMINAL, whiteLabel, wibToday, type OrderStatus, type ShipmentStatus } from "@bukalaris/db";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { orderAction } from "../actions";
 import { parseId } from "../status";
-import { bookShipmentAction, confirmBankTransferAction, linkUnknownBookingAction, recordRefundAction, refreshTrackingAction, rejectProofAction, releaseUnknownBookingAction } from "./actions";
+import { bookShipmentAction, confirmBankTransferAction, extendDigitalGrantAction, linkUnknownBookingAction, recordRefundAction, refreshTrackingAction, rejectProofAction, releaseUnknownBookingAction, revokeDigitalGrantAction } from "./actions";
 import { PROOF_STATUS_LABEL } from "@/components/bank-transfer";
 
 const label = (s: string) => orderStatusLabel[s as OrderStatus] ?? s;
@@ -41,6 +41,8 @@ const savedText: Record<string, string> = {
   refund: "Refund tercatat pada pesanan ini. Bukalaris tidak mengirim uang; refund sudah Anda bayar sendiri.",
   bank_confirmed: "Transfer bank dikonfirmasi. Pesanan sekarang berstatus dibayar dan bisa diproses.",
   proof_rejected: "Bukti ditolak. Pembeli melihat alasan Anda dan bisa mengirim bukti baru.",
+  grant_extended: "Masa berlaku akses digital diperbarui dan tercatat di audit.",
+  grant_revoked: "Akses digital dicabut dan tercatat di audit. Tautan tidak lagi tampil di halaman status pesanan pembeli.",
 };
 const bearerText = { buyer: "ditanggung pembeli", seller: "ditanggung toko" } as const;
 const pickupChoices = [
@@ -87,6 +89,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
   const confirming = o.status === "awaiting_confirmation" || o.status === "on_hold";
   // T-113: a bank-transfer order: the frozen destinations, the buyer's proofs (finance role only) and the confirmation of decision 38.
   const bank = o.paymentMethod === "bank_transfer" ? await sellerBankTransferOrder(scope, o.id) : null;
+  const digitalGrants = o.hasDigital ? await sellerOrderDigitalGrants(scope, o.id) : [];
   const finance = can(scope, "finance.confirm_payment");
 
   return (
@@ -513,6 +516,65 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
           )}
         </section>
       )}
+      {o.hasDigital && digitalGrants.length > 0 && (
+        <section id="akses-digital" aria-labelledby="grants-heading" className="grid gap-3 rounded-lg border p-4 text-sm" data-testid="seller-digital-grants">
+          <h2 id="grants-heading" className="text-base font-semibold">Akses digital pesanan</h2>
+          <p className="text-muted-foreground">
+            Tautan akses hanya tampil di halaman status pesanan pembeli selama status akses aktif. Mencabut akses menyembunyikan tautan di Bukalaris (izin di host penyimpanan Anda tetap Anda kelola sendiri).
+          </p>
+          <ul className="grid gap-3">
+            {digitalGrants.map((g) => {
+              const expired = g.expiresAt !== null && g.expiresAt <= new Date();
+              const tone = g.state === "revoked" ? "destructive" : expired ? "warning" : "success";
+              const stateText = g.state === "revoked" ? "Dicabut" : expired ? "Kedaluwarsa" : "Aktif";
+              return (
+                <li key={g.id} className="grid gap-2.5 rounded-md border p-3" data-testid={`grant-${g.id}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium">{g.productTitle} · {g.variantTitle}</span>
+                    <span className="flex flex-wrap gap-1.5">
+                      {g.isTest && <StatusBadge label="Uji coba" tone="secondary" />}
+                      <StatusBadge label={stateText} tone={tone} data-testid={`grant-state-${g.id}`} />
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Diberikan {tanggal(g.grantedAt)} · Berlaku hingga: {g.expiresAt ? tanggal(g.expiresAt) : "Tanpa batas waktu"}
+                  </p>
+                  {g.state === "revoked" && g.revokedReason && (
+                    <p className="text-xs text-destructive">Alasan pencabutan: {g.revokedReason}</p>
+                  )}
+                  {g.state === "active" && fulfil && (
+                    <div className="grid gap-3 border-t pt-2.5 sm:grid-cols-2">
+                      <form action={extendDigitalGrantAction.bind(null, o.id, g.id)} className="grid gap-2" aria-label={`Perpanjang akses ${g.productTitle}`}>
+                        <CsrfField />
+                        <div className="grid gap-1">
+                          <Label htmlFor={`grant-days-${g.id}`}>Tambah hari (kosong = tanpa batas)</Label>
+                          <Input id={`grant-days-${g.id}`} name="days" type="number" min={1} max={3650} placeholder="mis. 30" />
+                        </div>
+                        <div className="grid gap-1">
+                          <Label htmlFor={`grant-ext-reason-${g.id}`}>Alasan perpanjangan</Label>
+                          <Input id={`grant-ext-reason-${g.id}`} name="reason" required minLength={5} maxLength={500} placeholder="mis. perpanjangan atas permintaan pembeli" />
+                        </div>
+                        <SubmitButton variant="outline" size="sm" className="justify-self-start" pendingText="Menyimpan…">Perpanjang akses</SubmitButton>
+                      </form>
+                      <form action={revokeDigitalGrantAction.bind(null, o.id, g.id)} className="grid gap-2" aria-label={`Cabut akses ${g.productTitle}`}>
+                        <CsrfField />
+                        <div className="grid gap-1">
+                          <Label htmlFor={`grant-rev-reason-${g.id}`}>Alasan pencabutan</Label>
+                          <Input id={`grant-rev-reason-${g.id}`} name="reason" required minLength={5} maxLength={500} placeholder="mis. permintaan refund / penyalahgunaan" />
+                        </div>
+                        <ConfirmSubmit variant="destructive" size="sm" className="justify-self-start" message="Cabut akses digital ini? Tautan tidak lagi tampil di halaman status pesanan pembeli.">
+                          Cabut akses
+                        </ConfirmSubmit>
+                      </form>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
       {money && (
         <section aria-labelledby="money" className="grid gap-3 rounded-lg border p-4 text-sm" data-testid="order-money">
           <h2 id="money" className="text-base font-semibold">Uang pesanan</h2>

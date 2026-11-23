@@ -65,14 +65,21 @@ function normalizeVariantForKind(productKind: ProductKind, raw: { weightGrams?: 
   return { weightGrams: physicalWeightCheck.parse({ weightGrams: raw.weightGrams }).weightGrams, trackStock: true, stock: raw.stock ?? 0 };
 }
 
-/** ADR-0016 decision 21: a digital product activates only when a prepaid method is ready; a physical product on a seller-owned store only when shipping is ready. */
-async function assertCanActivate(tx: Executor, scope: SellerScope, productKind: ProductKind): Promise<void> {
+/** ADR-0016 decision 21 & decision 3: a digital product activates only when a prepaid method is ready AND it has delivery content; a physical product on a seller-owned store only when shipping is ready. */
+async function assertCanActivate(tx: Executor, scope: SellerScope, productKind: ProductKind, productId: number | null): Promise<void> {
   if (productKind === "digital") {
-    const [{ paymentReadiness }, { bankTransferReady }] = await Promise.all([import("../../payments/provider-accounts.ts"), import("../../payments/bank-transfer.ts")]);
+    const [{ paymentReadiness }, { bankTransferReady }, { hasDigitalDeliveryContent }] = await Promise.all([
+      import("../../payments/provider-accounts.ts"),
+      import("../../payments/bank-transfer.ts"),
+      import("./digital.ts"),
+    ]);
     const pay = await paymentReadiness({ exec: tx, storeId: scope.storeId });
     const bank = await bankTransferReady(tx, scope.storeId);
     if (!pay.ready && !bank) {
       throw new DomainError("prepaid_not_ready", "Produk digital hanya bisa diaktifkan setelah metode pembayaran prabayar (QRIS/VA atau transfer bank) siap.");
+    }
+    if (productId === null || !(await hasDigitalDeliveryContent(tx, scope.storeId, productId))) {
+      throw new DomainError("delivery_content_required", "Produk digital tidak dapat diaktifkan sebelum memiliki minimal satu tautan akses atau catatan akses. Simpan sebagai Draf dulu, lalu tambahkan tautan akses.");
     }
     return;
   }
@@ -172,7 +179,7 @@ export async function createProduct(scope: SellerScope, raw: unknown): Promise<n
   const vNorm = normalizeVariantForKind(input.kind, input.variant);
   try {
     return await inStore(scope, async ({ exec: tx }) => {
-      if (input.status === "active") await assertCanActivate(tx, scope, input.kind);
+      if (input.status === "active") await assertCanActivate(tx, scope, input.kind, null);
       if (input.slug) await assertSlugFree(tx, scope, input.slug, null);
       const [p] = await tx
         .insert(product)
@@ -245,7 +252,7 @@ export async function updateProduct(scope: SellerScope, productId: number, raw: 
           .from(variant)
           .where(and(eq(variant.storeId, scope.storeId), eq(variant.productId, productId)))) as [{ n: number }];
         if (n === 0) throw new DomainError("no_variant", "Produk aktif wajib punya minimal satu varian.");
-        if (before.status !== "active" || nextKind !== before.kind) await assertCanActivate(tx, scope, nextKind);
+        if (before.status !== "active" || nextKind !== before.kind) await assertCanActivate(tx, scope, nextKind, productId);
       }
       if (nextFields.slug !== before.slug) {
         if (nextFields.slug) await assertSlugFree(tx, scope, nextFields.slug, productId);
