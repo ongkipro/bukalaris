@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { bigint, boolean, check, foreignKey, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, foreignKey, index, integer, jsonb, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { order, store } from "../schema.ts";
 import { PROVIDER_ENVIRONMENTS } from "../shipping/schema-accounts.ts";
 import type { PaymentCustomer, PaymentInstruction } from "./contract.ts";
@@ -167,3 +167,102 @@ export const paymentProductionSwitch = pgTable("payment_production_switch", {
   updatedBy: text("updated_by"), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(), revision: integer("revision").notNull().default(0),
 }, (t) => [check("payment_production_switch_chk", sql`${t.provider} = 'autolaris' and (not ${t.enabled} or ${t.sandboxPassAt} is not null)
   and ((${t.sandboxPassAt} is null) = (${t.sandboxPassEvidence} is null)) and (${t.sandboxPassEvidence} is null or length(${t.sandboxPassEvidence}) between 3 and 500)`)]);
+
+// ── T-113 (ADR-0013 section 10, decisions 35 to 39, D-31, D-32, D-33): bank transfer to the seller's own bank account ──────────────
+/** A destination account as the buyer sees it, frozen on the order at submit (a later change of the store's list never alters an order). */
+export type BankAccountSnapshot = { bankCode: string; accountNumber: string; holderName: string };
+/** One stored proof image: a random private key (never a request value), the sniffed type, its size and digest. */
+export type ProofFile = { key: string; mime: "image/jpeg" | "image/png" | "image/webp"; bytes: number; sha256: string };
+
+/**
+ * Decision 36: the store's destination accounts, at most five listed at a time. Listing and removing need `integrations.manage` and a fresh
+ * step-up consumed in the same transaction (the guard re-checks it), and are audited. A removal is a stamp, never a DELETE: the row stays as the
+ * record of what buyers were shown, and the store's money mode never goes back (`store_money_mode` counts every row, D-36).
+ */
+export const storeBankAccount = pgTable("store_bank_account", {
+  id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+  storeId: bigint("store_id", { mode: "number" }).notNull().references(() => store.id),
+  bankCode: text("bank_code").notNull(),
+  accountNumber: text("account_number").notNull(),
+  holderName: text("holder_name").notNull(),
+  createdBy: text("created_by").notNull(),
+  stepUpRef: uuid("step_up_ref").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  removedAt: timestamp("removed_at", { withTimezone: true }),
+  removedBy: text("removed_by"),
+  removalStepUpRef: uuid("removal_step_up_ref"),
+}, (t) => [
+  unique("bank_account_store_id_uq").on(t.storeId, t.id),
+  index("bank_account_store_idx").on(t.storeId, t.removedAt),
+  check("bank_account_fields_chk", sql`${t.bankCode} ~ '^[A-Z0-9]{2,12}$' and ${t.accountNumber} ~ '^[0-9]{5,24}$' and length(btrim(${t.holderName})) between 2 and 120
+    and ((${t.removedAt} is null) = (${t.removedBy} is null)) and ((${t.removedAt} is null) = (${t.removalStepUpRef} is null))`),
+]);
+
+/** Decision 39a and 37: the store switch for bank transfer and its payment window (hours an unpaid order keeps its stock). No row = on, 24 hours. */
+export const storeBankTransfer = pgTable("store_bank_transfer", {
+  storeId: bigint("store_id", { mode: "number" }).primaryKey().references(() => store.id),
+  enabled: boolean("enabled").notNull().default(true),
+  paymentWindowHours: integer("payment_window_hours").notNull().default(24),
+  revision: integer("revision").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [check("bank_transfer_window_chk", sql`${t.paymentWindowHours} between 1 and 168 and ${t.revision} >= 0`)]);
+
+/** Decision 37: what a bank-transfer order froze at submit: the destination accounts shown to the buyer and when the unpaid order expires. Immutable. */
+export const orderBankTransfer = pgTable("order_bank_transfer", {
+  storeId: bigint("store_id", { mode: "number" }).notNull(),
+  orderId: bigint("order_id", { mode: "number" }).notNull(),
+  accounts: jsonb("accounts").$type<BankAccountSnapshot[]>().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ name: "order_bank_transfer_pk", columns: [t.storeId, t.orderId] }),
+  foreignKey({ name: "order_bank_transfer_order_fk", columns: [t.storeId, t.orderId], foreignColumns: [order.storeId, order.id] }),
+  index("order_bank_transfer_expiry_idx").on(t.expiresAt),
+  check("order_bank_transfer_chk", sql`jsonb_typeof(${t.accounts}) = 'array' and jsonb_array_length(${t.accounts}) between 1 and 5 and ${t.expiresAt} > ${t.createdAt}`),
+]);
+
+/**
+ * Decisions 37 to 39 (D-32): one proof submission of the buyer, up to three private images. It never changes the order: the seller accepts it
+ * (by confirming the payment) or rejects it with a reason, after which the buyer may send a new one. At most one submission waits at a time.
+ * The cleanup job deletes the files 90 days after the order closes (retention class `payment_proof`, D-33) and keeps the row.
+ */
+export const paymentProof = pgTable("payment_proof", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  storeId: bigint("store_id", { mode: "number" }).notNull(),
+  orderId: bigint("order_id", { mode: "number" }).notNull(),
+  files: jsonb("files").$type<ProofFile[]>().notNull(),
+  status: text("status", { enum: ["sent", "accepted", "rejected"] }).notNull().default("sent"),
+  decidedBy: text("decided_by"),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  rejectReason: text("reject_reason"),
+  filesPurgedAt: timestamp("files_purged_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  unique("payment_proof_store_id_uq").on(t.storeId, t.id),
+  uniqueIndex("payment_proof_one_sent_uq").on(t.storeId, t.orderId).where(sql`${t.status} = 'sent'`),
+  foreignKey({ name: "payment_proof_order_fk", columns: [t.storeId, t.orderId], foreignColumns: [order.storeId, order.id] }),
+  check("payment_proof_chk", sql`${t.status} in ('sent', 'accepted', 'rejected') and jsonb_typeof(${t.files}) = 'array'
+    and (jsonb_array_length(${t.files}) between 1 and 3 or (${t.filesPurgedAt} is not null and jsonb_array_length(${t.files}) = 0))
+    and ((${t.status} = 'sent') = (${t.decidedAt} is null)) and ((${t.decidedAt} is null) = (${t.decidedBy} is null))
+    and ((${t.status} = 'rejected') = (${t.rejectReason} is not null)) and (${t.rejectReason} is null or length(${t.rejectReason}) between 5 and 500)`),
+]);
+
+/**
+ * Decision 38: the only way a bank-transfer order becomes paid. One append-only record per order: who confirmed, why, and the proof the seller
+ * looked at (none when the money is visible in the seller's bank without one). The database refuses `awaiting_payment -> placed` for a
+ * bank-transfer order without it, for every role.
+ */
+export const bankTransferConfirmation = pgTable("bank_transfer_confirmation", {
+  id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+  storeId: bigint("store_id", { mode: "number" }).notNull(),
+  orderId: bigint("order_id", { mode: "number" }).notNull(),
+  proofId: uuid("proof_id"),
+  confirmedBy: text("confirmed_by").notNull(),
+  reason: text("reason").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  unique("bank_transfer_confirmation_order_uq").on(t.storeId, t.orderId),
+  foreignKey({ name: "bank_transfer_confirmation_order_fk", columns: [t.storeId, t.orderId], foreignColumns: [order.storeId, order.id] }),
+  foreignKey({ name: "bank_transfer_confirmation_proof_fk", columns: [t.storeId, t.proofId], foreignColumns: [paymentProof.storeId, paymentProof.id] }),
+  check("bank_transfer_confirmation_chk", sql`length(${t.reason}) between 5 and 500`),
+]);

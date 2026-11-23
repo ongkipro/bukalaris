@@ -37,10 +37,11 @@ export function proxy(request: NextRequest) {
   const hsts = https && process.env.ENABLE_HSTS === "1";
   // JSON API routes carry no HTML and image routes (`.../media/<id>`, storefront, host mode and
   // seller) set their own sandboxing CSP in lib/media.ts, which a proxy header would overwrite.
+  // T-113: so do the proof-of-transfer downloads (`.../proof/<uuid>/<n>`, payments/proof-store.ts `proofResponse`).
   // Everything else gets a fresh nonce that Next reads from the request header and applies to
   // its inline scripts.
   let csp: string | null = null;
-  if (!pathname.startsWith("/api/") && !/\/media\/[0-9]+$/.test(pathname)) {
+  if (!pathname.startsWith("/api/") && !/\/media\/[0-9]+$/.test(pathname) && !/\/proof\/[0-9a-f-]{36}\/[1-3]$/.test(pathname)) {
     const nonce = newNonce();
     csp = contentSecurityPolicy(nonce, { dev: process.env.NODE_ENV === "development", https });
     headers.set(NONCE_HEADER, nonce);

@@ -12,7 +12,7 @@ import { SELLER_STEP_UP_WINDOW_SECONDS } from "./settings.ts";
 // inside the transaction of the write it authorises, so a failed write leaves it unconsumed until it expires and it can never be used twice.
 // The database guards additionally refuse a destination or payout row whose proof was not consumed in the same transaction.
 
-export type SellerProofAction = "payout.destination" | "payout.request" | "integrations.provider_key"; // the last: T-104 provider key changes
+export type SellerProofAction = "payout.destination" | "payout.request" | "integrations.provider_key" | "integrations.bank_account"; // T-104 provider key changes; T-113 the bank-account list
 const REAUTH = "Masukkan kode verifikasi dua langkah lagi untuk melanjutkan. Aktifkan verifikasi dua langkah di Keamanan akun bila belum.";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const messageChain = (err: unknown): string => (err instanceof Error ? `${err.message} ${messageChain(err.cause)}` : "");

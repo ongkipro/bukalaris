@@ -10,12 +10,13 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { sellerScope } from "@/lib/context";
 import { rupiah, tanggal, tanggalIso } from "@/lib/format";
 import { orderActionLabel, orderStatusLabel, orderStatusTone, paymentLabel, type Tone } from "@/lib/status";
-import { BOOKABLE, can, codBookingAllowed, displayableCategory, getOrder, getShipment, PARCEL_STATE_LABEL, parcelStateOf, providerStatusLabel, RETRYABLE, SELLER_REFUND_METHOD_LABEL, SELLER_REFUND_METHODS, SHIPMENT_STATUS_LABEL, shipmentStatusHistory, shipmentTimeline, TERMINAL, whiteLabel, wibToday, type OrderStatus, type ShipmentStatus } from "@bukalaris/db";
+import { BOOKABLE, can, codBookingAllowed, sellerBankTransferOrder, displayableCategory, getOrder, getShipment, PARCEL_STATE_LABEL, parcelStateOf, providerStatusLabel, RETRYABLE, SELLER_REFUND_METHOD_LABEL, SELLER_REFUND_METHODS, SHIPMENT_STATUS_LABEL, shipmentStatusHistory, shipmentTimeline, TERMINAL, whiteLabel, wibToday, type OrderStatus, type ShipmentStatus } from "@bukalaris/db";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { orderAction } from "../actions";
 import { parseId } from "../status";
-import { bookShipmentAction, linkUnknownBookingAction, recordRefundAction, refreshTrackingAction, releaseUnknownBookingAction } from "./actions";
+import { bookShipmentAction, confirmBankTransferAction, linkUnknownBookingAction, recordRefundAction, refreshTrackingAction, rejectProofAction, releaseUnknownBookingAction } from "./actions";
+import { PROOF_STATUS_LABEL } from "@/components/bank-transfer";
 
 const label = (s: string) => orderStatusLabel[s as OrderStatus] ?? s;
 const shipmentTone: Record<ShipmentStatus, Tone> = {
@@ -38,6 +39,8 @@ const savedText: Record<string, string> = {
   released: "Booking dilepas. Anda boleh membooking pesanan ini lagi.",
   linked: "Order dari akun Mengantar ditautkan. Status diperbarui otomatis dari akun Mengantar Anda.",
   refund: "Refund tercatat pada pesanan ini. Bukalaris tidak mengirim uang; refund sudah Anda bayar sendiri.",
+  bank_confirmed: "Transfer bank dikonfirmasi. Pesanan sekarang berstatus dibayar dan bisa diproses.",
+  proof_rejected: "Bukti ditolak. Pembeli melihat alasan Anda dan bisa mengirim bukti baru.",
 };
 const bearerText = { buyer: "ditanggung pembeli", seller: "ditanggung toko" } as const;
 const pickupChoices = [
@@ -82,6 +85,9 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
   const rebookable = !!shipmentRow && ((RETRYABLE as readonly string[]).includes(shipmentRow.status) || (ownAccount && shipmentRow.status === "cancelled"));
   const simple = o.actions.filter((a) => a === "confirm" || a === "pay" || a === "process");
   const confirming = o.status === "awaiting_confirmation" || o.status === "on_hold";
+  // T-113: a bank-transfer order: the frozen destinations, the buyer's proofs (finance role only) and the confirmation of decision 38.
+  const bank = o.paymentMethod === "bank_transfer" ? await sellerBankTransferOrder(scope, o.id) : null;
+  const finance = can(scope, "finance.confirm_payment");
 
   return (
     <section className="grid max-w-3xl gap-6">
@@ -434,11 +440,77 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
         </section>
       </div>
 
+      {bank && (
+        <section aria-labelledby="bank-transfer" className="grid gap-3 rounded-lg border p-4 text-sm" data-testid="bank-transfer">
+          <h2 id="bank-transfer" className="text-base font-semibold">Transfer bank</h2>
+          <p className="text-muted-foreground">
+            Pembeli diminta mentransfer tepat <strong className="tabular-nums text-foreground">{rupiah(o.total)}</strong> ke salah satu rekening ini sebelum {tanggal(bank.expiresAt)}. Cocokkan dengan mutasi rekening Anda sendiri: Bukalaris tidak memeriksa rekening bank.
+          </p>
+          <ul className="grid gap-1" aria-label="Rekening tujuan pesanan ini">
+            {bank.accounts.map((a) => <li key={`${a.bankCode}-${a.accountNumber}`} className="font-mono">{a.bankCode} {a.accountNumber} · <span className="font-sans">a.n. {a.holderName}</span></li>)}
+          </ul>
+          {bank.confirmation ? (
+            <p data-testid="bank-transfer-confirmation">Dikonfirmasi {tanggal(bank.confirmation.createdAt)}: {bank.confirmation.reason}{bank.confirmation.proofId ? " (dengan bukti dari pembeli)" : " (tanpa bukti)"}</p>
+          ) : bank.proofs === null ? (
+            <p className="text-muted-foreground">Bukti transfer dan konfirmasi hanya untuk pemilik toko.</p>
+          ) : null}
+          {bank.proofs && bank.proofs.length > 0 && (
+            <ul className="divide-y rounded-lg border" aria-label="Bukti transfer dari pembeli" data-testid="seller-proofs">
+              {bank.proofs.map((p) => (
+                <li key={p.id} className="grid gap-2 p-3">
+                  <span className="flex flex-wrap justify-between gap-x-4">
+                    <span data-testid="seller-proof-status">{PROOF_STATUS_LABEL[p.status]}</span>
+                    <span className="text-muted-foreground">{tanggal(p.createdAt)}</span>
+                  </span>
+                  {p.rejectReason && <span>Alasan ditolak: {p.rejectReason}</span>}
+                  {p.purged ? (
+                    <span className="text-muted-foreground">Foto sudah dihapus sesuai masa simpan (90 hari setelah pesanan selesai).</span>
+                  ) : (
+                    <span className="flex flex-wrap gap-3">
+                      {Array.from({ length: p.files }, (_, i) => (
+                        <a key={i} href={`/seller/orders/${o.id}/proof/${p.id}/${i + 1}`} className="inline-flex min-h-6 items-center underline underline-offset-4" download data-testid="seller-proof-file">Unduh foto {i + 1}</a>
+                      ))}
+                    </span>
+                  )}
+                  {p.status === "sent" && o.status === "awaiting_payment" && finance && (
+                    <form action={rejectProofAction.bind(null, o.id, p.id)} className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end" aria-label="Tolak bukti transfer">
+                      <CsrfField />
+                      <div className="grid gap-1.5">
+                        <Label htmlFor={`reject-${p.id}`}>Alasan menolak (dibaca pembeli)</Label>
+                        <Input id={`reject-${p.id}`} name="reason" required minLength={5} maxLength={500} />
+                      </div>
+                      <SubmitButton variant="outline" pendingText="Menolak…">Tolak bukti</SubmitButton>
+                    </form>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {!bank.confirmation && o.status === "awaiting_payment" && finance && (
+            <form action={confirmBankTransferAction.bind(null, o.id)} className="grid gap-2 rounded-lg bg-muted/40 p-3" aria-label="Konfirmasi transfer bank">
+              <CsrfField />
+              <p className="text-muted-foreground">Konfirmasi hanya setelah dana {rupiah(o.total)} terlihat di mutasi rekening Anda. Catatan konfirmasi tidak bisa diubah.</p>
+              <div className="grid gap-1.5">
+                <Label htmlFor="bank-proof">Bukti yang Anda cocokkan</Label>
+                <NativeSelect id="bank-proof" name="proofId" defaultValue={bank.proofs?.find((p) => p.status === "sent")?.id ?? ""}>
+                  <option value="">Tanpa bukti (dana sudah terlihat di rekening)</option>
+                  {bank.proofs?.filter((p) => p.status === "sent").map((p) => <option key={p.id} value={p.id}>Bukti {tanggal(p.createdAt)}</option>)}
+                </NativeSelect>
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="bank-reason">Alasan</Label>
+                <Input id="bank-reason" name="reason" required minLength={5} maxLength={500} placeholder="Contoh: dana masuk di mutasi BCA tanggal …" />
+              </div>
+              <SubmitButton pendingText="Mengonfirmasi…">Konfirmasi transfer diterima</SubmitButton>
+            </form>
+          )}
+        </section>
+      )}
       {money && (
         <section aria-labelledby="money" className="grid gap-3 rounded-lg border p-4 text-sm" data-testid="order-money">
           <h2 id="money" className="text-base font-semibold">Uang pesanan</h2>
           <p className="text-muted-foreground">
-            Dibayar langsung ke akun {o.paymentMethod === "cod" ? "Mengantar" : "AutoLaris"} milik toko Anda. Bukalaris hanya mencatat: tidak memegang, memotong atau meneruskan uang ini.
+            Dibayar langsung ke {o.paymentMethod === "cod" ? "akun Mengantar" : o.paymentMethod === "bank_transfer" ? "rekening bank" : "akun AutoLaris"} milik toko Anda. Bukalaris hanya mencatat: tidak memegang, memotong atau meneruskan uang ini.
           </p>
           <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 tabular-nums">
             <dt>Total pesanan</dt>
@@ -448,7 +520,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
                 <dt>Biaya COD Mengantar (perkiraan), {money.codFeeBearer ? bearerText[money.codFeeBearer] : "—"}</dt>
                 <dd className="text-right" data-testid="order-cod-fee">{rupiah(money.expectedCodFeeIdr)}</dd>
               </>
-            ) : (
+            ) : o.paymentMethod === "bank_transfer" ? null : (
               <>
                 <dt>Biaya layanan AutoLaris (perkiraan), {money.paymentFeeBearer ? bearerText[money.paymentFeeBearer] : "—"}</dt>
                 <dd className="text-right" data-testid="order-gateway-fee">{rupiah(money.expectedGatewayFeeIdr)}</dd>

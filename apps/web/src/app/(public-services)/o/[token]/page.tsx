@@ -6,11 +6,12 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { BANKS, refundReasonLabel, refundStatusLabel } from "@/lib/finance";
 import { rupiah, tanggalIso } from "@/lib/format";
 import { CopyButton } from "@/components/copy-button";
-import { BUYER_STATUS_LABEL, buyerOrderMoneyForLink, buyerOrderPayment, db, getOrderForLink, getRefundForLink, getShipmentForLink, providerStatusLabel, resolveBuyerOrder, SHIPMENT_STATUS_LABEL, shipmentTimeline } from "@bukalaris/db";
+import { BUYER_STATUS_LABEL, buyerBankTransfer, buyerOrderMoneyForLink, buyerOrderPayment, db, getOrderForLink, getRefundForLink, getShipmentForLink, providerStatusLabel, resolveBuyerOrder, SHIPMENT_STATUS_LABEL, shipmentTimeline } from "@bukalaris/db";
 import { servesStore } from "@/lib/storefront";
 import { notFound } from "next/navigation";
 import { PaymentActions, paymentSavedText } from "../../../(checkout)/checkout/payment-actions";
-import { recheckPaymentByLinkAction, retryPaymentByLinkAction, submitRefundDestinationAction } from "./actions";
+import { recheckPaymentByLinkAction, retryPaymentByLinkAction, submitRefundDestinationAction, uploadProofByLinkAction } from "./actions";
+import { BankTransferInstruction, PROOF_STATUS_LABEL } from "@/components/bank-transfer";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,8 @@ export default async function OrderStatusPage({ params, searchParams }: PageProp
   // T-106: the payment of a prepaid order on the store's own AutoLaris account: instruction, "check now" and a new instruction.
   const ref = o.paymentMethod === "cod" ? null : await resolveBuyerOrder(db(), { token });
   const pay = ref ? await buyerOrderPayment(db(), ref) : null;
+  // T-113: a bank-transfer order: the seller's accounts, the exact total, the proofs sent and the upload (decision 37).
+  const bank = ref && o.paymentMethod === "bank_transfer" ? await buyerBankTransfer(db(), ref) : null;
   const p = pay?.payment?.sellerAccount ? pay.payment : null;
   const paySaved = typeof saved === "string" && saved in paymentSavedText ? saved : undefined;
   return (
@@ -97,7 +100,7 @@ export default async function OrderStatusPage({ params, searchParams }: PageProp
         </section>
       )}
       <dl className="grid gap-1 border-t pt-2 text-sm">
-        <div className="flex flex-wrap justify-between gap-x-4"><dt className="text-muted-foreground">Pembayaran</dt><dd>{o.paymentMethod === "cod" ? "Bayar di tempat (COD)" : "Transfer bank"}</dd></div>
+        <div className="flex flex-wrap justify-between gap-x-4"><dt className="text-muted-foreground">Pembayaran</dt><dd>{o.paymentMethod === "cod" ? "Bayar di tempat (COD)" : o.paymentMethod === "bank_transfer" ? "Transfer bank ke rekening penjual" : "Transfer bank"}</dd></div>
         <div className="flex flex-wrap justify-between gap-x-4"><dt className="text-muted-foreground">Kurir</dt><dd data-testid="courier">{o.courier}</dd></div>
         <div className="flex flex-wrap justify-between gap-x-4"><dt className="text-muted-foreground">Tujuan</dt><dd className="text-right">{o.destinationAreaLabel}</dd></div>
         <div className="flex flex-wrap justify-between gap-x-4">
@@ -158,6 +161,43 @@ export default async function OrderStatusPage({ params, searchParams }: PageProp
           )}
           {pay!.orderStatus === "awaiting_payment" && p.retryable && <p data-testid="payment-retry-note">{p.requestState === "failed" ? "Instruksi pembayaran tidak dapat dibuat." : "Batas waktu pembayaran sudah lewat."} Pesanan Anda tetap tersimpan; buat tagihan baru bila belum membayar.</p>}
           <PaymentActions payment={p} orderStatus={pay!.orderStatus} recheck={recheckPaymentByLinkAction.bind(null, token)} retry={retryPaymentByLinkAction.bind(null, token)} />
+        </section>
+      )}
+      {bank && (
+        <section id="bank-transfer" aria-labelledby="bank-heading" className="grid gap-3 border-t pt-3 text-sm" data-testid="bank-transfer-section">
+          <h2 id="bank-heading" className="font-semibold">Pembayaran transfer bank</h2>
+          {!refund && <Notice error={typeof error === "string" ? error : undefined} saved={saved === "proof" ? "proof" : undefined} savedText="Bukti transfer terkirim. Penjual akan mencocokkannya dengan mutasi rekeningnya." />}
+          {bank.confirmed && <p data-testid="bank-transfer-confirmed">Pembayaran sudah dikonfirmasi penjual.</p>}
+          <BankTransferInstruction bank={bank} storeName={o.storeName} />
+          {bank.proofs.length > 0 && (
+            <ul className="divide-y rounded-lg border" aria-label="Bukti transfer yang dikirim" data-testid="proof-list">
+              {bank.proofs.map((p) => (
+                <li key={p.id} className="grid gap-1 p-3">
+                  <span className="flex flex-wrap justify-between gap-x-4">
+                    <span data-testid="proof-status">{PROOF_STATUS_LABEL[p.status]}</span>
+                    <span className="text-muted-foreground">{dt.format(p.createdAt)} WIB</span>
+                  </span>
+                  {p.status === "rejected" && <span data-testid="proof-reject-reason">Alasan penjual: {p.rejectReason}</span>}
+                  {!p.purged && (
+                    <span className="flex flex-wrap gap-3">
+                      {Array.from({ length: p.files }, (_, i) => (
+                        <a key={i} href={`/o/${token}/proof/${p.id}/${i + 1}`} className="inline-flex min-h-6 items-center underline underline-offset-4" download>Unduh foto {i + 1}</a>
+                      ))}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {bank.canUpload && (
+            <form action={uploadProofByLinkAction.bind(null, token)} className="grid gap-2" aria-label="Kirim bukti transfer">
+              <Label htmlFor="proof">Foto bukti transfer (maksimal 3 foto, JPG, PNG atau WebP, 3 MB per foto)</Label>
+              <Input id="proof" name="proof" type="file" accept="image/jpeg,image/png,image/webp" multiple required aria-describedby="proof-help" />
+              <p id="proof-help" className="text-xs text-muted-foreground">Bukti hanya dilihat oleh Anda dan penjual. Mengirim bukti tidak langsung mengubah status pesanan: penjual mencocokkannya dengan mutasi rekeningnya lalu mengonfirmasi.</p>
+              <SubmitButton pendingText="Mengirim…">Kirim bukti transfer</SubmitButton>
+            </form>
+          )}
+          {!bank.canUpload && !bank.confirmed && bank.orderStatus === "awaiting_payment" && bank.proofs.some((p) => p.status === "sent") && <p data-testid="proof-waiting">Bukti terkirim, menunggu pemeriksaan penjual.</p>}
         </section>
       )}
       {refund && (

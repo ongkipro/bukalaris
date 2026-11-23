@@ -270,7 +270,7 @@ function parseShippingQuote(s: string): Map<string, { prepaid: number; cod: numb
  * The submit-time check (decisions 16 and section 4): the courier must be in the re-quoted method list, COD must be allowed for it on this
  * route, and — when the form carried the quote the buyer saw — the fee must not have changed. Never priced from the request.
  */
-export function chosenShippingFee<F extends Fee>(options: readonly QuotedOption<F>[], courier: string, paymentMethod: "cod" | "manual_transfer", seenQuote?: string, requireSeen = false): F {
+export function chosenShippingFee<F extends Fee>(options: readonly QuotedOption<F>[], courier: string, paymentMethod: "cod" | "manual_transfer" | "bank_transfer", seenQuote?: string, requireSeen = false): F {
   const option = options.find((o) => o.courier === courier);
   if (!option) throw new DomainError("courier", "Pilihan kurir tidak tersedia untuk area tujuan ini. Pilih kurir lain dari daftar terbaru.");
   const fee = paymentMethod === "cod" ? option.cod : option.prepaid;

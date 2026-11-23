@@ -17,6 +17,9 @@ export * from "./payments/settings.ts";
 export { buyerOrderPayment, confirmPaymentByHand, currentFeeSchedule, paymentPlatformSettings, publishPaymentFeeRates, recordAutoLarisSandboxPass, requestAutoLarisProduction, requestPaymentCheck, resolveBuyerOrder, retryOrderPayment, sellerPaymentAttempts, sellerPaymentPreferences, sellerRequestPaymentCheck, setAutoLarisProduction, setPaymentChannelLock, setPaymentPreferences, type BuyerOrderRef, type PaymentPreferences, type SellerAttemptView, type StorePaymentMethods } from "./payments/seller.ts";
 // T-104: the seller screen and readiness only; `openProviderKey` and the check transport seam stay server-internal.
 export { checkProviderNow, paymentReadiness, PROVIDER_NAME, PROVIDERS, removeProviderKey, saveProviderKey, sellerProviderAccounts, setPaymentAccountDetails, shippingReadiness, storeReadiness, type PaymentAccountDetails, type Provider, type ProviderAccountView, type Readiness, type ReadinessGap } from "./payments/provider-accounts.ts";
+// T-113: bank transfer to the seller's own bank account; the private proof store (read only after the link or the finance role was checked).
+export * from "./payments/bank-transfer.ts";
+export { isProofKey, proofResponse, readProofFile, unlinkProofFile, writeProofFile } from "./payments/proof-store.ts";
 export * from "./platform/membership.ts";
 export * from "./platform/platform.ts";
 export * from "./seller/commerce/orders.ts";

@@ -275,7 +275,8 @@ export const order = pgTable(
     // or reject → cancelled; transfer starts in awaiting_payment → pay → placed → processing → shipped → completed;
     // awaiting_payment/placed/processing → cancelled. Every cancellation restocks once. Transitions only via orders.ts.
     status: text("status", { enum: ORDER_STATUSES }).notNull(),
-    paymentMethod: text("payment_method", { enum: ["cod", "manual_transfer"] }).notNull(),
+    // T-113: `bank_transfer` = the seller's own bank account (ADR-0013 decision 35); `manual_transfer` keeps meaning a provider channel (QRIS/VA).
+    paymentMethod: text("payment_method", { enum: ["cod", "manual_transfer", "bank_transfer"] }).notNull(),
     paidAt: timestamp("paid_at", { withTimezone: true }),
     /** Seller confirmed the COD order (T-35); null for transfer orders and unconfirmed ones. */
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
@@ -328,7 +329,7 @@ export const order = pgTable(
     // Confirmation states belong to COD only.
     check("order_cod_state_chk", sql`${t.paymentMethod} = 'cod' or ${t.status} not in ('awaiting_confirmation', 'on_hold')`),
     check("order_shipped_chk", sql`${t.status} not in ('shipped', 'completed') or ${t.trackingNumber} is not null`),
-    check("order_payment_chk", sql`${t.paymentMethod} in ('cod', 'manual_transfer')`),
+    check("order_payment_chk", sql`${t.paymentMethod} in ('cod', 'manual_transfer', 'bank_transfer')`),
   ],
 );
 

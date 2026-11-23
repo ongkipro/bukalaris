@@ -3,7 +3,7 @@
 import { requirePortalCsrf } from "@/lib/auth-csrf";
 
 import { sellerScope } from "@/lib/context";
-import { bookShipment, linkUnknownBooking, recordSellerRefund, refreshTracking, releaseUnknownBooking } from "@bukalaris/db";
+import { bookShipment, confirmBankTransfer, linkUnknownBooking, recordSellerRefund, refreshTracking, rejectPaymentProof, releaseUnknownBooking } from "@bukalaris/db";
 import { run } from "../run";
 
 /** "Kirim lewat Mengantar" / "Coba lagi": enqueue the booking (T-39); the worker does the provider call. */
@@ -49,4 +49,20 @@ export async function recordRefundAction(orderId: number, f: FormData) {
   await run(back, () => `${back}?saved=refund`, () =>
     recordSellerRefund(scope, orderId, { amountIdr: text("amountIdr").replace(/[^0-9]/g, ""), refundedOn: text("refundedOn"), method: text("method"), reference: text("reference"), reason: text("reason") }),
   );
+}
+
+/** T-113 (decision 38): the seller confirms a bank transfer after checking their own bank statement (reason, the proof looked at or none). */
+export async function confirmBankTransferAction(orderId: number, f: FormData) {
+  await requirePortalCsrf(f, `/seller/orders/${orderId}`);
+  const scope = await sellerScope();
+  const back = `/seller/orders/${orderId}`;
+  await run(back, () => `${back}?saved=bank_confirmed#bank-transfer`, () => confirmBankTransfer(scope, { orderId, reason: String(f.get("reason") ?? ""), proofId: String(f.get("proofId") ?? "") }));
+}
+
+/** T-113: reject a proof with a reason the buyer reads; the buyer may send a new one. */
+export async function rejectProofAction(orderId: number, proofId: string, f: FormData) {
+  await requirePortalCsrf(f, `/seller/orders/${orderId}`);
+  const scope = await sellerScope();
+  const back = `/seller/orders/${orderId}`;
+  await run(back, () => `${back}?saved=proof_rejected#bank-transfer`, () => rejectPaymentProof(scope, { orderId, proofId, reason: String(f.get("reason") ?? "") }));
 }

@@ -31,6 +31,8 @@ process.env.PROVIDER_CHECK_FAKE = "1";
 process.env.KEYRING_CHECKOUT_RESUME = "e2er1:ZTJlLW9ubHktY2hlY2tvdXQtcmVzdW1lLWtleS0wMSE=";
 // Buyer order-status links (T-36): required, no fallback to BETTER_AUTH_SECRET (SEC-22); specs sign links with it too.
 process.env.ORDER_LINK_SECRET = "e2e-only-order-link-secret-0123456789abcdef";
+// T-113: buyer proof-of-transfer files, private and apart from the public media; one absolute path every server (and the worker) shares.
+process.env.PRIVATE_MEDIA_DIR = resolve("var/e2e-private-media");
 // T-73: the production build the suite runs against has no mail provider; local mode is allowed only on a loopback origin.
 // Set on process.env so every server a spec spawns inherits it.
 process.env.MAIL_MODE = "local";

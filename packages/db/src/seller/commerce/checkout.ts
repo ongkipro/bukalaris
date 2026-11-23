@@ -31,6 +31,7 @@ import { DomainError, storefrontScope, type StorefrontScope } from "../../platfo
 import { defaultProviders, defaultShippingAdapter, SHIPPING_NOT_READY_MESSAGE, shippingOptions, type CartForShipping } from "../../shipping/shipping.ts";
 import { chosenShippingFee, searchSellerAreas, sellerAccount, SHIPPING_QUOTE_RE } from "../../shipping/rules.ts";
 import { withStore } from "../../platform/tenant.ts";
+import { assertBankTransferOffered, bankTransferState, freezeBankTransfer } from "../../payments/bank-transfer.ts";
 
 // Hosted checkout (SF-07/SF-08). The client sends only contact, destination area,
 // courier choice, payment method and an idempotency key; price, stock, fee and
@@ -51,7 +52,7 @@ export const checkoutInput = z.strictObject({
   destinationAreaId: areaId,
   destinationAreaLabel: z.string().trim().min(3, "Pilih area tujuan dari hasil pencarian.").max(200),
   courier: z.string().min(1, "Pilih kurir.").max(40),
-  paymentMethod: z.enum(["cod", "manual_transfer"]),
+  paymentMethod: z.enum(["cod", "manual_transfer", "bank_transfer"]),
   // Prepaid orders pay through one channel of the provider's own list; COD has none. Validated against that list in `placeOrder`.
   paymentChannel: z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), z.string().regex(/^[A-Z0-9_-]{1,40}$/, "Pilih metode pembayaran.").optional()),
   voucherCode: z.string().trim().max(64).optional(),
@@ -162,11 +163,12 @@ async function providerGuard<T>(fn: () => Promise<T>): Promise<T> {
  * T-107: a store on its own accounts never pays into the platform account (ADR-0013 section 8; closes Ceiling T-106-1 for it), and the page
  * learns what the COD fee costs the buyer (`codFee`, decisions 17 to 19).
  */
-export async function checkoutPaymentChannels(exec: Executor, storeId: number, adapter: PaymentAdapter = defaultProviders().payment): Promise<StorePaymentMethods & { codFee: CodFeeTerms | null }> {
-  const [methods, mode] = await Promise.all([storePaymentMethods(exec, storeId, adapter), withStore(exec, storeId, (tx) => storeMoneyMode(tx, storeId))]);
-  if (mode !== "seller_owned") return { ...methods, codFee: null };
+export async function checkoutPaymentChannels(exec: Executor, storeId: number, adapter: PaymentAdapter = defaultProviders().payment): Promise<StorePaymentMethods & { codFee: CodFeeTerms | null; bankTransfer: boolean }> {
+  const [methods, mode, bank] = await Promise.all([storePaymentMethods(exec, storeId, adapter), withStore(exec, storeId, (tx) => storeMoneyMode(tx, storeId)), withStore(exec, storeId, (tx) => bankTransferState(tx, storeId))]);
+  // T-113 (decision 36, 39a): bank transfer is offered while the store has it on and lists an account; `placeOrder` re-checks the same function.
+  if (mode !== "seller_owned") return { ...methods, codFee: null, bankTransfer: false };
   const bearers = await withStore(exec, storeId, (tx) => feeBearers(tx, storeId));
-  return { ...(methods.account ? methods : { ...methods, channels: [] }), codFee: codFeeTerms(methods.schedule, bearers.cod) };
+  return { ...(methods.account ? methods : { ...methods, channels: [] }), codFee: codFeeTerms(methods.schedule, bearers.cod), bankTransfer: bank.ready };
 }
 
 /** T-107: the COD fee as the buyer sees it before ordering: who bears it and the rate (the amount follows from the order total). */
@@ -354,6 +356,8 @@ export async function placeOrder(
   // T-106: the payment channel goes through the store's one payment-method function (store's own AutoLaris key, switch, exclusions, locks).
   const picked = input.paymentMethod === "manual_transfer" ? await pickStorePaymentChannel(exec, storeId, providers.payment, input.paymentChannel) : null;
   const channel = picked?.channel ?? null;
+  // T-113: bank transfer only while the store has it on and lists an account (re-checked inside the transaction, where the accounts are frozen).
+  if (input.paymentMethod === "bank_transfer") await assertBankTransferOffered(exec, storeId);
 
   let orderId: number;
   try {
@@ -456,6 +460,8 @@ export async function placeOrder(
         money,
       });
       if (plan) await recordAffiliateAttribution(tx, { storeId, orderId: o.id, referral });
+      // T-113 (decision 37): the destination accounts the buyer is shown and the end of the payment window, frozen with the order.
+      if (input.paymentMethod === "bank_transfer") await freezeBankTransfer(tx, storeId, o.id);
       await recordPromotionRedemptions(tx, storeId, o.id, promotion);
       await tx.delete(cartLine).where(and(eq(cartLine.storeId, storeId), eq(cartLine.cartId, cartId)));
       // T-45: an order from this cart completes its checkout session. `recovered_at` is stamped by the guard and `abandoned_at` is never cleared, so a
@@ -503,8 +509,9 @@ export async function placeOrder(
  * bill on the attempt). COD: the provider COD fee from the schedule in force, on the order total before the fee; with bearer `buyer` the courier
  * collects the order total plus that fee, with `seller` the order total. Bukalaris adds no margin and books no VAT of its own (C-P7).
  */
-async function sellerOwnedMoney(tx: Executor, bearers: { payment: "buyer" | "seller"; cod: "buyer" | "seller" }, pay: { expectedFeeIdr: number; feeRateVersion: number } | null, method: "cod" | "manual_transfer", goodsOmset: number, payable: number): Promise<SellerOwnedMoney> {
-  if (method === "manual_transfer") {
+async function sellerOwnedMoney(tx: Executor, bearers: { payment: "buyer" | "seller"; cod: "buyer" | "seller" }, pay: { expectedFeeIdr: number; feeRateVersion: number } | null, method: "cod" | "manual_transfer" | "bank_transfer", goodsOmset: number, payable: number): Promise<SellerOwnedMoney> {
+  // T-113: a bank transfer has no provider and no fee (pay = null), so the bill is the order total whoever bears payment fees.
+  if (method !== "cod") {
     const fee = pay?.expectedFeeIdr ?? 0;
     return { mode: "seller_owned", paymentFeeBearer: bearers.payment, codFeeBearer: bearers.cod, expectedCodFeeIdr: 0, buyerFeeIdr: bearers.payment === "buyer" ? fee : 0, feeRateVersion: pay?.feeRateVersion ?? (await currentFeeSchedule(tx)).version };
   }
@@ -570,7 +577,7 @@ async function limitVoucherRedemption(exec: Executor, storeId: number, phone: st
 
 const promotionPreviewInput = z.object({
   buyerPhone: checkoutInput.shape.buyerPhone, voucherCode: z.string().trim().max(64).default(""), destinationAreaId: areaId,
-  courier: z.string().min(1).max(40), paymentMethod: z.enum(["cod", "manual_transfer"]),
+  courier: z.string().min(1).max(40), paymentMethod: z.enum(["cod", "manual_transfer", "bank_transfer"]),
 });
 /** Same rules and quote as submit, but no stock/quota reservation and no cart mutation. Submit always validates again atomically. */
 export async function checkoutPromotionPreview(exec: Executor, cartId: string | undefined, raw: unknown, ctx: ClientContext = {}) {

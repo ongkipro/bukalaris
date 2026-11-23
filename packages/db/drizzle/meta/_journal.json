@@ -162,6 +162,13 @@
       "when": 1795372631744,
       "tag": "0022_t107_money_boundary",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1795402948177,
+      "tag": "0023_t113_bank_transfer",
+      "breakpoints": true
     }
   ]
 }

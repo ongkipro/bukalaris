@@ -1,6 +1,6 @@
 "use server";
 
-import { db, defaultProviders, DomainError, getOrderForLink, requestPaymentCheck, resolveBuyerOrder, retryOrderPayment, submitRefundDestination } from "@bukalaris/db";
+import { db, defaultProviders, DomainError, getOrderForLink, requestPaymentCheck, resolveBuyerOrder, retryOrderPayment, submitRefundDestination, uploadPaymentProof, writeProofFile } from "@bukalaris/db";
 import { userError, withError } from "@/lib/errors";
 import { clientIp, servesStore } from "@/lib/storefront";
 import { redirect } from "next/navigation";
@@ -49,4 +49,24 @@ export async function recheckPaymentByLinkAction(token: string) {
 }
 export async function retryPaymentByLinkAction(token: string) {
   await linkPayment(token, (ref, ip) => retryOrderPayment(db(), ref, defaultProviders().payment, { clientIp: ip }), "retry");
+}
+
+/**
+ * T-113 (ADR-0013 decision 37, D-32): the buyer's proof of transfer, up to three images, on the signed one-order page only. The verified link is
+ * the only authority (a store host accepts only its own store's link); the service checks RL-PROOF-UPLOAD, each file's content and size, and
+ * writes the files to the private store under keys it chooses. The order does not change.
+ */
+export async function uploadProofByLinkAction(token: string, f: FormData) {
+  const back = `/o/${token}`;
+  let error: string | undefined;
+  try {
+    const o = await getOrderForLink(db(), token);
+    const ref = o && (await servesStore(o.storeSlug)) ? await resolveBuyerOrder(db(), { token }) : null;
+    if (!ref) throw new DomainError("not_found", "Tautan tidak valid atau sudah kedaluwarsa.");
+    const files = await Promise.all(f.getAll("proof").filter((v): v is File => v instanceof File).map(async (file) => new Uint8Array(await file.arrayBuffer())));
+    await uploadPaymentProof(db(), ref, files, writeProofFile, { clientIp: await clientIp() });
+  } catch (err) {
+    error = userError(err);
+  }
+  redirect(error ? withError(back, error) : `${back}?saved=proof#bank-transfer`);
 }

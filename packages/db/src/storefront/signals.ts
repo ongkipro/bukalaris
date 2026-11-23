@@ -412,7 +412,7 @@ async function groupIdsFor(exec: Executor, storeId: number, variantIds: number[]
  */
 export async function recordOrderSignals(
   tx: Executor,
-  input: { storeId: number; orderId: number; paymentMethod: "cod" | "manual_transfer"; request?: RequestSignalContext | undefined },
+  input: { storeId: number; orderId: number; paymentMethod: "cod" | "manual_transfer" | "bank_transfer"; request?: RequestSignalContext | undefined },
 ): Promise<void> {
   if (input.request) {
     const u = requestUser(input.request);

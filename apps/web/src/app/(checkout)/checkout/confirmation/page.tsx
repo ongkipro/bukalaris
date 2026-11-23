@@ -6,7 +6,8 @@ import { browserMatch, signalsFor } from "@/lib/signals";
 import { hostStoreScope, ORDER_COOKIE, servesStore } from "@/lib/storefront";
 import { Notice } from "@/components/notice";
 import { cartCsrfToken } from "@/lib/auth-csrf";
-import { channelReturnTarget, db, getBuyerOrder, purchaseEventId, storefrontScope } from "@bukalaris/db";
+import { buyerBankTransfer, channelReturnTarget, db, getBuyerOrder, purchaseEventId, signOrderLink, storefrontScope } from "@bukalaris/db";
+import { BankTransferInstruction } from "@/components/bank-transfer";
 import { recheckPaymentAction, retryPaymentAction } from "../actions";
 import { PaymentActions, paymentSavedText } from "../payment-actions";
 import { cookies } from "next/headers";
@@ -33,6 +34,8 @@ export default async function ConfirmationPage({ searchParams }: PageProps<"/che
   const csrf = sf ? await cartCsrfToken(sf) : undefined;
   const savedKey = typeof saved === "string" && saved in paymentSavedText ? saved : undefined;
   const match = signals ? browserMatch(o) : undefined;
+  // T-113: a bank-transfer order shows the seller's accounts and the exact total; the proof upload lives on the signed order-status page.
+  const bank = o.paymentMethod === "bank_transfer" ? await buyerBankTransfer(db(), { storeId: o.storeId, orderId: o.id }) : null;
   return (
     <section className="mx-auto grid w-full max-w-2xl gap-4 rounded-xl border bg-background p-6" aria-labelledby="done" data-purchase-event={o.paymentMethod === "cod" && signals ? purchaseEventId(o.id) : undefined}>
       <Pixels storeId={o.storeId} match={match} />
@@ -57,6 +60,8 @@ export default async function ConfirmationPage({ searchParams }: PageProps<"/che
       <p role="status" className="rounded-lg bg-muted/60 p-3" data-testid="payment-status">
         {o.paymentMethod === "cod"
           ? "Bayar di tempat (COD) saat barang tiba. Penjual akan menghubungi nomor HP Anda untuk konfirmasi sebelum pesanan dikirim."
+          : bank
+            ? bank.confirmed ? "Pembayaran dikonfirmasi penjual. Terima kasih." : o.status === "cancelled" ? "Pesanan dibatalkan." : "Menunggu transfer bank. Ikuti instruksi di bawah, lalu kirim foto bukti transfer di halaman status pesanan."
           : !o.payment
             ? "Menunggu pembayaran. Instruksi pembayaran sedang disiapkan — muat ulang halaman ini nanti."
             : o.payment.status === "paid" || ["placed", "processing", "shipped", "completed"].includes(o.status)
@@ -75,6 +80,14 @@ export default async function ConfirmationPage({ searchParams }: PageProps<"/che
       </p>
       <Notice error={typeof error === "string" ? error : undefined} saved={savedKey} savedText={savedKey ? paymentSavedText[savedKey] : undefined} />
       {o.payment?.environment === "sandbox" && <p className="text-xs text-muted-foreground" data-testid="test-order">Pesanan uji: toko ini memakai akun pembayaran uji coba (sandbox), tidak ada uang sungguhan yang ditagih.</p>}
+      {bank && (
+        <>
+          <BankTransferInstruction bank={bank} storeName={o.storeName} />
+          <a href={`/o/${signOrderLink(o.id)}`} className="inline-flex min-h-6 w-fit items-center py-1 text-sm underline underline-offset-4" data-testid="order-status-link">
+            {bank.canUpload ? "Kirim bukti transfer di halaman status pesanan" : "Lihat status pesanan"}
+          </a>
+        </>
+      )}
       <PaymentActions payment={o.payment} orderStatus={o.status} recheck={recheckPaymentAction.bind(null, o.id)} retry={retryPaymentAction.bind(null, o.id)} csrf={csrf} />
       {o.payment?.instruction && o.payment.status !== "paid" && !o.payment.retryable && (o.status === "awaiting_payment" || !o.payment.sellerAccount) && (
         <section aria-labelledby="instruksi" className="grid gap-2 rounded-lg border p-3 text-sm" data-testid="payment-instruction">

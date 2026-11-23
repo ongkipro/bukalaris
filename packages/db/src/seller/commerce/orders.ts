@@ -111,7 +111,8 @@ export async function getOrder(scope: SellerScope, orderId: number) {
     const risk = o.paymentMethod === "cod" && (o.status === "awaiting_confirmation" || o.status === "on_hold") ? await codRiskReasons(scope, o) : [];
     const payment = await orderPaymentView(scope.exec, scope.storeId, orderId);
     // T-106: an order on the store's own AutoLaris account is confirmed on the payments screen (reason and evidence), never by the bare "pay" action.
-    const actions = allowedActions(o.status).filter((a) => a !== "pay" || !payment?.sellerAccount);
+    // T-113: a bank-transfer order is paid only through the transfer confirmation form (reason, the proof looked at).
+    const actions = allowedActions(o.status).filter((a) => a !== "pay" || (!payment?.sellerAccount && o.paymentMethod !== "bank_transfer"));
     return { ...safe, lines, history, payment, actions, risk, money: await orderMoney(scope.exec, scope.storeId, orderId) };
   });
 }
@@ -284,6 +285,9 @@ export async function transitionOrder(scope: SellerScope, orderId: number, actio
     // a reason and evidence on the payments screen (`confirmPaymentByHand`, one record per attempt); the bare "pay" action is refused (also in the database).
     if (action === "pay" && (await exec.select({ id: paymentAttempt.id }).from(paymentAttempt).where(and(eq(paymentAttempt.storeId, scope.storeId), eq(paymentAttempt.orderId, orderId), isNotNull(paymentAttempt.paymentAccountId))).limit(1)).length > 0)
       throw new DomainError("manual_confirmation_required", "Pembayaran lewat akun pembayaran milik toko dikonfirmasi di menu Transaksi pembayaran dengan alasan dan bukti.");
+    // T-113 (decision 38): a bank-transfer order is paid only through `confirmBankTransfer` (reason, the proof looked at, one record); the database refuses it too.
+    if (action === "pay" && (await exec.select({ m: order.paymentMethod }).from(order).where(and(eq(order.storeId, scope.storeId), eq(order.id, orderId))))[0]?.m === "bank_transfer")
+      throw new DomainError("bank_transfer_confirmation_required", "Pembayaran transfer bank dikonfirmasi lewat formulir konfirmasi transfer pada pesanan ini, dengan alasan.");
     return applyTransition(exec, scope.storeId, orderId, action, note, scope.userId);
   });
 }

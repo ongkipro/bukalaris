@@ -9,7 +9,7 @@ import { resolveOrderStore } from "../../platform/resolvers.ts";
 import { enqueue, registerHandler } from "./jobs.ts";
 import type { OrderAction } from "../../seller/commerce/orders.ts";
 import { withStore } from "../../platform/tenant.ts";
-import { membership, NOTIFY_EVENTS, NOTIFY_RECIPIENTS, order, orderLine, orderNotification, store, user, type NotifyEvent, type NotifyRecipient, type OrderStatus } from "../../schema.ts";
+import { membership, NOTIFY_EVENTS, NOTIFY_RECIPIENTS, order, orderBankTransfer, orderLine, orderNotification, store, user, type NotifyEvent, type NotifyRecipient, type OrderStatus } from "../../schema.ts";
 
 // Order e-mail notifications (T-36, PR-21, Q-16: e-mail only). The business write
 // enqueues intent in its own transaction (`enqueueOrderNotifications`); the outbox
@@ -172,7 +172,19 @@ async function loadOrder(exec: Executor, storeId: number, orderId: number) {
     .from(orderLine)
     .where(and(eq(orderLine.storeId, storeId), eq(orderLine.orderId, orderId)))
     .orderBy(asc(orderLine.variantId));
-  return { ...o, lines };
+  // T-113 (decision 37): a bank-transfer order carries the destination accounts it froze at submit; the mail shows them with the exact total.
+  const [bank] = o.paymentMethod === "bank_transfer" ? await exec.select({ accounts: orderBankTransfer.accounts, expiresAt: orderBankTransfer.expiresAt }).from(orderBankTransfer).where(and(eq(orderBankTransfer.storeId, storeId), eq(orderBankTransfer.orderId, orderId))) : [];
+  return { ...o, lines, bank: bank ?? null };
+}
+const wib = new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Jakarta" });
+/** The transfer instruction of a bank-transfer order: the exact total (no unique code) and every frozen destination account. */
+function bankLines(o: OrderForMail): string[] {
+  if (!o.bank) return [];
+  return [
+    `Transfer tepat ${rupiah(o.total)} ke salah satu rekening ${o.storeName} berikut sebelum ${wib.format(o.bank.expiresAt)} WIB:`,
+    ...o.bank.accounts.map((a) => `- ${a.bankCode} ${a.accountNumber} a.n. ${a.holderName}`),
+    "Setelah transfer, kirim foto bukti transfer di halaman status pesanan. Pesanan diproses setelah penjual mengonfirmasi dana masuk.",
+  ];
 }
 
 /** Subject + lead paragraph per event and recipient; the order summary and link are appended by `renderMail`. */
@@ -185,9 +197,11 @@ function copy(event: NotifyEvent, recipient: NotifyRecipient, o: OrderForMail): 
           subject: `Pesanan ${n} di ${o.storeName} diterima`,
           lead: [
             `Halo ${o.buyerName}, pesanan Anda di ${o.storeName} sudah kami terima.`,
-            o.paymentMethod === "cod"
-              ? "Bayar di tempat (COD) saat barang tiba. Penjual akan menghubungi nomor HP Anda untuk konfirmasi sebelum pesanan dikirim."
-              : "Selesaikan pembayaran transfer sesuai instruksi di halaman konfirmasi; pesanan diproses setelah pembayaran dikonfirmasi penjual.",
+            ...(o.paymentMethod === "cod"
+              ? ["Bayar di tempat (COD) saat barang tiba. Penjual akan menghubungi nomor HP Anda untuk konfirmasi sebelum pesanan dikirim."]
+              : o.bank
+                ? bankLines(o)
+                : ["Selesaikan pembayaran transfer sesuai instruksi di halaman konfirmasi; pesanan diproses setelah pembayaran dikonfirmasi penjual."]),
           ],
         };
       case "confirmed":
@@ -208,7 +222,9 @@ function copy(event: NotifyEvent, recipient: NotifyRecipient, o: OrderForMail): 
             subject: `[${o.storeName}] Pesanan COD ${n} menunggu konfirmasi`,
             lead: [`Pesanan COD baru dari ${o.buyerName}.`, "Hubungi pembeli untuk konfirmasi, lalu tandai pesanan sebagai dikonfirmasi di Seller Admin sebelum diproses."],
           }
-        : { subject: `[${o.storeName}] Pesanan baru ${n} menunggu pembayaran`, lead: [`Pesanan transfer baru dari ${o.buyerName}.`, "Tandai sudah dibayar di Seller Admin setelah pembayaran masuk."] };
+        : o.bank
+          ? { subject: `[${o.storeName}] Pesanan transfer bank ${n} menunggu pembayaran`, lead: [`Pesanan transfer bank baru dari ${o.buyerName}, total ${rupiah(o.total)}.`, "Cek mutasi rekening Anda; setelah dana masuk, konfirmasi transfer pada pesanan di Seller Admin (dengan alasan). Bukti dari pembeli saja tidak mengubah status pesanan."] }
+          : { subject: `[${o.storeName}] Pesanan baru ${n} menunggu pembayaran`, lead: [`Pesanan transfer baru dari ${o.buyerName}.`, "Tandai sudah dibayar di Seller Admin setelah pembayaran masuk."] };
     case "cancelled":
       return { subject: `[${o.storeName}] Pesanan ${n} dibatalkan`, lead: [`Pesanan ${n} dari ${o.buyerName} dibatalkan; stok sudah dikembalikan.`] };
     default:

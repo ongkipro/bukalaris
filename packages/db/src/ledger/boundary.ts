@@ -1,12 +1,12 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { Executor } from "../client.ts";
 import { DomainError } from "../platform/scoped.ts";
-import { storePaymentAccount } from "../payments/schema-payments.ts";
+import { storeBankAccount, storePaymentAccount } from "../payments/schema-payments.ts";
 import { storeShippingAccount } from "../shipping/schema-accounts.ts";
 import { orderFinancials, type MoneyMode } from "./schema-ledger.ts";
 
 // T-107 — the money boundary (ADR-0013 section 8, BILL-5, D-27, D-31). One rule, stated here and in the database (`store_money_mode`, migration 0022):
-// a store is `seller_owned` when it holds a seller-owned account of either provider. Its buyers pay the seller's own AutoLaris and Mengantar accounts,
+// a store is `seller_owned` when it holds a seller-owned account of either provider, or a bank account for bank transfer (T-113, D-36). Its buyers pay the seller's own AutoLaris and Mengantar accounts,
 // so Bukalaris writes no ledger entry, payout, payout destination, reconciliation item, shipment-cost reservation, platform refund or late-payment
 // obligation for it, and never routes its orders to the platform's AutoLaris account. Each order freezes the mode in `order_financials.money_mode`.
 // The services refuse here by rule; `money_boundary_guard` refuses the same rows in the database for every role. Money the platform does hold
@@ -17,7 +17,8 @@ export type { MoneyMode };
 /** The store's money mode now. Runs in the store's context (the application role reads only its own accounts; the platform role reads any). */
 export async function storeMoneyMode(exec: Executor, storeId: number): Promise<MoneyMode> {
   const [row] = await exec.execute<{ own: boolean }>(sql`select (exists (select 1 from ${storeShippingAccount} where ${storeShippingAccount.storeId} = ${storeId} and ${storeShippingAccount.kind} = 'seller_owned')
-    or exists (select 1 from ${storePaymentAccount} where ${storePaymentAccount.storeId} = ${storeId})) as own`);
+    or exists (select 1 from ${storePaymentAccount} where ${storePaymentAccount.storeId} = ${storeId})
+    or exists (select 1 from ${storeBankAccount} where ${storeBankAccount.storeId} = ${storeId})) as own`);
   return row?.own ? "seller_owned" : "platform_held";
 }
 

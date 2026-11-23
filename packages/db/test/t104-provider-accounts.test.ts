@@ -301,6 +301,7 @@ describe("T-104 seller provider accounts: sealed keys, environment, connection c
     expect(await storeReadiness(me)).toEqual({
       shipping: { ready: false, missing: ["key", "pickup_registered"] },
       qrisVa: { ready: false, missing: ["key", "order_fields", "sender_address", "payment_only"] },
+      bankTransfer: false, // T-113: no bank account listed
       canOpen: false,
       physicalProducts: false,
     });
