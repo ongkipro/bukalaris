@@ -15,7 +15,7 @@ A reading aid. Each task block below owns its own status and text; when the two 
 | 1 | T-101 | Align the specification pack with D-27 to D-33 | Partial; the rest is done by each building task |
 | 2 | T-114 | Tidy repository and documentation structure | Partial; structure done 2026-11-15, final search for superseded text left |
 | 8 | T-115 | Mengantar lock, dedicated account, parcel sync | Merged 2026-11-23 (PR #14); one Done-when item open (UNVERIFIED categories) |
-| 11 | T-116 | Seller terms, notices and privacy statements | Planned; adviser review before production |
+| 11 | T-116 | Seller terms, notices and privacy statements | Built 2026-11-23 (PR #21), review APPROVE, CI pending; texts stay draft until adviser review |
 | 12 | T-111, T-112 | Digital products: kind and checkout rules, access links and grants | Planned |
 | 13 | T-117 | Seller setup guide and readiness checklist | Planned |
 | 14 | T-108, T-109, T-110 | Seller-run affiliate programme | Planned |
@@ -1738,7 +1738,7 @@ Source: [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md), 
   - UNVERIFIED and open: categories for "in transit" and "returning to sender" (Order Status Reference Sheet not read; they arrive raw); `lastStatusChange` and `statusCategory` on the single-order read; whether Mengantar keeps the `?h=` query string of the webhook address; retention classes for webhook events and status history named, purge not built; Webhook Secrets not covered by the ring re-seal job; sandbox origin. Deviations and collisions (0020, D-35, SC-34, JOB-37) in the track report.
 
 ### T-116 — Seller terms, notices and privacy statements for the seller-owned model
-- Status: Planned (added 2026-11-15 from the decision-coverage check; wording needs a privacy or legal adviser before production)
+- Status: Built 2026-11-23 on `task/t116-seller-terms` (migration `0024`); independent review (`agy`): APPROVE (minors fixed); local checks, mutations and populated-copy proof in [`docs/tracks/t116-seller-terms.md`](tracks/t116-seller-terms.md); texts stay marked as draft until adviser review is recorded; CI pending
 - Primary requirement: PR-27
 - Constraints: ADR-0013 section 8 (financial role, shipping money) and its D-33 table; ADR-0015 decision 8; ADR-0016 decision 23; D-33 item 3 (working position, not a legal conclusion; Q-11 stays open); 13-COMPLIANCE-PRIVACY; no statement promises custody, guarantee or reconciliation that Bukalaris does not perform; texts are Indonesian UI copy, rendered as text
 - Dependencies: T-104, T-107

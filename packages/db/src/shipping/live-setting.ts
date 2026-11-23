@@ -5,6 +5,7 @@ import { requirePlatformCap } from "../ops/capabilities.ts";
 import { consoleMutation } from "../ops/console.ts";
 import { consumeApproval, payloadHash, requestApproval } from "../ops/capabilities-approvals.ts";
 import { DomainError, type OperatorScope } from "../platform/scoped.ts";
+import { assertSellerTermsReviewed } from "../platform/terms.ts";
 import { providerLiveSetting } from "./schema-shipping.ts";
 
 // T-105 (ADR-0013 decision 34, C-P4): the Mengantar production switch in the Owner console (SA-07). Off by default (no row = off); it can be
@@ -57,6 +58,7 @@ export async function requestMengantarProductionOn(op: OperatorScope, raw: unkno
   const current = await mengantarLiveSetting(op);
   if (current.revision !== input.revision) throw new DomainError("conflict", "Pengaturan berubah; muat ulang halaman sebelum mengajukan.");
   if (!current.sandboxPassedAt) throw new DomainError("sandbox_pass_missing", "Catat dulu uji sandbox yang lolos sebelum membuka panggilan produksi.");
+  await assertSellerTermsReviewed(op.exec);
   const request = await requestApproval(op, { actionKey: PRODUCTION_ON_ACTION, targetKind: "provider_production_switch", targetId: "mengantar", payload: productionOnPayload(current), reason: input.reason });
   return { approvalId: request.id };
 }
@@ -72,6 +74,7 @@ export async function setMengantarProductionCalls(op: OperatorScope, raw: unknow
     const row = await lockedRow(tx, op.userId, input.revision);
     if (input.enabled && !row.sandboxPassedAt) throw new DomainError("sandbox_pass_missing", "Catat dulu uji sandbox yang lolos sebelum membuka panggilan produksi.");
     if (input.enabled) {
+      await assertSellerTermsReviewed(tx);
       if (!input.approvalId) throw new DomainError("approval_invalid", "Membuka panggilan produksi memerlukan persetujuan operator kedua.");
       await consumeApproval(tx, op, { approvalId: input.approvalId, actionKey: PRODUCTION_ON_ACTION, targetKind: "provider_production_switch", targetId: "mengantar", payloadSha256: payloadHash(productionOnPayload(row)) });
     }

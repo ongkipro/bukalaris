@@ -64,6 +64,11 @@ test("a store on its own courier account: pickup registered, couriers and COD fi
   await login(page, store.email, "/seller");
   const secret = await enrolTotpViaApi(page, store.email);
   await page.goto("/seller/payments");
+  // T-116: owner accepts the current seller terms before saving a provider key.
+  const termsForm = page.getByRole("form", { name: "Setujui syarat penjual" });
+  await termsForm.getByRole("checkbox").check();
+  await termsForm.getByRole("button", { name: "Setujui syarat penjual" }).click();
+  await expect(main(page).getByRole("status")).toContainText("Persetujuan syarat penjual tercatat");
   const mengantar = page.getByRole("form", { name: "Simpan kunci Mengantar" });
   await mengantar.getByLabel("Lingkungan").selectOption("sandbox");
   await mengantar.getByLabel("Kunci API").fill(`T105-E2E-${info.project.name}-key-0123456789abcdef`);

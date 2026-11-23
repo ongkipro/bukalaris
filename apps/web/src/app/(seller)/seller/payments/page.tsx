@@ -10,10 +10,10 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { sellerScope } from "@/lib/context";
 import { tanggal } from "@/lib/format";
-import { BANK_ACCOUNT_MAX, can, sellerBankTransfer, sellerPaymentPreferences, sellerProviderAccounts, type BankTransferState, type PaymentAccountDetails, type PaymentPreferences, type ProviderAccountView, type Readiness } from "@bukalaris/db";
+import { BANK_ACCOUNT_MAX, can, sellerBankTransfer, sellerPaymentPreferences, sellerProviderAccounts, sellerTermsStatus, type BankTransferState, type PaymentAccountDetails, type PaymentPreferences, type ProviderAccountView, type Readiness, type SellerTermsStatus } from "@bukalaris/db";
 import { BANKS } from "@/lib/finance";
 import Link from "next/link";
-import { addBankAccountAction, checkProviderNowAction, removeBankAccountAction, removeProviderKeyAction, saveBankTransferSettingsAction, savePaymentDetailsAction, savePaymentPreferencesAction, saveProviderKeyAction } from "./actions";
+import { acceptSellerTermsAction, addBankAccountAction, checkProviderNowAction, removeBankAccountAction, removeProviderKeyAction, saveBankTransferSettingsAction, savePaymentDetailsAction, savePaymentPreferencesAction, saveProviderKeyAction } from "./actions";
 import { checkLabel, environmentLabel, feeBearerLabel, gapLabel, providerName, savedLabel } from "./labels";
 
 export const metadata = { title: "Akun penyedia — Bukalaris" };
@@ -31,12 +31,14 @@ export default async function ProviderAccountsPage({ searchParams }: PageProps<"
         <p role="note" data-testid="providers-denied" className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">Hanya pemilik toko yang dapat menghubungkan, mengganti atau menghapus kunci akun pengiriman dan pembayaran toko.</p>
       </section>
     );
-  const [data, prefs, bank] = await Promise.all([sellerProviderAccounts(scope), sellerPaymentPreferences(scope), sellerBankTransfer(scope)]);
+  const [data, prefs, bank, terms] = await Promise.all([sellerProviderAccounts(scope), sellerPaymentPreferences(scope), sellerBankTransfer(scope), sellerTermsStatus(scope)]);
   const savedKey = typeof saved === "string" ? saved : undefined;
   return (
     <section className="grid max-w-3xl gap-6">
       <PageHeader title="Akun penyedia" description="Hubungkan akun Mengantar dan AutoLaris milik toko Anda. Uang pembeli dan uang COD masuk langsung ke akun Anda; Bukalaris tidak memegangnya." />
       <Notice error={error} saved={savedKey} savedText={savedKey ? savedLabel[savedKey] : undefined} />
+
+      <SellerTermsSection terms={terms} />
 
       <dl className="grid gap-3 sm:grid-cols-2" data-testid="readiness">
         <ReadinessCard testId="readiness-payment" title="Pembayaran QRIS/VA" readiness={data.readiness.qrisVa} />
@@ -283,6 +285,70 @@ function BankTransferSection({ bank }: { bank: BankTransferState }) {
         </div>
         <SubmitButton variant="outline" className="sm:justify-self-start" pendingText="Menyimpan…">Simpan pengaturan</SubmitButton>
       </form>
+    </section>
+  );
+}
+
+/**
+ * T-116 (PR-27): versioned seller terms for the seller-owned model. Always rendered as plain text (never HTML), marked as draft until an
+ * adviser review is recorded for this version. The store owner must accept the current version before saving a provider key or bank account.
+ */
+function SellerTermsSection({ terms }: { terms: SellerTermsStatus }) {
+  const { current } = terms;
+  const paragraphs = current.body.split("\n\n").filter(Boolean);
+  return (
+    <section id="syarat-penjual" aria-labelledby="terms-heading" className="grid gap-3 rounded-lg border p-4 text-sm" data-testid="seller-terms">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 id="terms-heading" className="text-base font-semibold">
+          {current.title} · Versi {current.version}
+        </h2>
+        <span className="flex flex-wrap gap-1.5">
+          {current.isDraft ? (
+            <StatusBadge label="Draf — belum ditinjau penasihat" tone="warning" data-testid="terms-draft-badge" />
+          ) : (
+            <StatusBadge label="Sudah ditinjau penasihat" tone="success" data-testid="terms-reviewed-badge" />
+          )}
+          <StatusBadge
+            label={terms.acceptedCurrent ? `Disetujui (v${current.version})` : "Belum disetujui"}
+            tone={terms.acceptedCurrent ? "success" : "warning"}
+            data-testid="terms-status-badge"
+          />
+        </span>
+      </div>
+      {current.isDraft ? (
+        <p role="note" className="rounded-md bg-amber-500/10 p-2.5 text-xs text-muted-foreground" data-testid="terms-draft-note">
+          Teks ini masih berstatus draf dan menunggu peninjauan penasihat privasi/hukum. Mode produksi penyedia tidak dapat diaktifkan sebelum tinjauan tercatat.
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground" data-testid="terms-review-info">
+          Ditinjau oleh {current.review!.adviserName} pada {current.review!.reviewedOn}.
+        </p>
+      )}
+      <div className="grid max-h-64 gap-2 overflow-y-auto rounded-md border bg-muted/30 p-3 text-xs leading-relaxed text-foreground" data-testid="terms-body">
+        {paragraphs.map((p, i) => (
+          <p key={i} className="whitespace-pre-line">{p}</p>
+        ))}
+      </div>
+      {terms.acceptedCurrent ? (
+        <p className="text-xs text-muted-foreground" data-testid="terms-accepted-info">
+          Pemilik toko menyetujui versi {current.version} pada {tanggal(terms.acceptedAt!)}. Catatan persetujuan tidak dapat diubah atau dihapus.
+        </p>
+      ) : (
+        <form action={acceptSellerTermsAction} className="grid gap-3" aria-label="Setujui syarat penjual">
+          <CsrfField />
+          <input type="hidden" name="version" value={current.version} />
+          {terms.needsReacceptance && (
+            <p role="note" className="text-xs text-muted-foreground" data-testid="terms-reaccept-note">
+              Anda sebelumnya menyetujui versi {terms.acceptedVersion}. Layanan yang sudah berjalan tidak dihentikan; setujui versi {current.version} sebelum menyimpan perubahan kunci penyedia atau rekening bank baru.
+            </p>
+          )}
+          <label className="flex min-h-6 items-start gap-2">
+            <input type="checkbox" name="agreed" required className="mt-0.5 size-4 shrink-0 accent-foreground" />
+            <span>Saya membaca dan menyetujui syarat penjual versi {current.version} di atas (termasuk peran catatan Bukalaris, tanggung jawab akun penyedia dan data pembeli, serta hak atas konten produk digital).</span>
+          </label>
+          <SubmitButton className="sm:justify-self-start" pendingText="Menyimpan…">Setujui syarat penjual</SubmitButton>
+        </form>
+      )}
     </section>
   );
 }

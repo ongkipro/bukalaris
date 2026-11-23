@@ -22,6 +22,7 @@ export * from "./payments/bank-transfer.ts";
 export { isProofKey, proofResponse, readProofFile, unlinkProofFile, writeProofFile } from "./payments/proof-store.ts";
 export * from "./platform/membership.ts";
 export * from "./platform/platform.ts";
+export * from "./platform/terms.ts";
 export * from "./seller/commerce/orders.ts";
 export * from "./platform/accounts.ts";
 export { resolveUserSuspended } from "./platform/resolvers.ts";

@@ -77,12 +77,15 @@ export default async function SellerShippingPage({ searchParams }: PageProps<"/s
             </div>
             <p className="font-medium" data-testid="shipping-account-kind">Pesanan dikirim dengan akun kurir Anda sendiri</p>
             {ready?.ready ? (
-              <p className="text-sm text-muted-foreground">Pembeli melihat tarif umum kurir yang Anda aktifkan; ongkos kirim dan COD diselesaikan langsung antara Anda dan penyedia kurir.</p>
+              <p className="text-sm text-muted-foreground">Pembeli melihat tarif umum kurir yang Anda aktifkan; ongkos kirim dan COD diselesaikan langsung antara Anda dan Mengantar.</p>
             ) : (
               <ul className="list-disc space-y-0.5 pl-5 text-sm" data-testid="shipping-gaps">
                 {ready?.missing.map((g) => <li key={g}>{gapText[g] ?? g}</li>)}
               </ul>
             )}
+            <p className="text-xs text-muted-foreground" data-testid="shipping-money-notice">
+              Uang pengiriman (ongkos kirim, saldo dan isi ulang akun, pencairan COD, biaya COD, retur, cashback, dan klaim) diselesaikan langsung antara Anda dan Mengantar; Bukalaris tidak memegang uang pengiriman dan tidak mencocokkan akun Mengantar Anda.
+            </p>
           </div>
         ) : (
           <div className="grid content-start gap-1.5 rounded-lg border p-4" data-testid="shipping-account">

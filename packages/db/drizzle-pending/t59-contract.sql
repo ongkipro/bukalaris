@@ -107,6 +107,8 @@ GRANT SELECT ON "retention_policy" TO bukalaris_platform;--> statement-breakpoin
 GRANT SELECT ON "retention_policy_event" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE ON "scheduler_cursor" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE ON "scheduler_heartbeat" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT, INSERT ON "seller_terms_review" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT, INSERT ON "seller_terms_version" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, DELETE ON "session" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE, DELETE ON "session_mfa" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, UPDATE ON "shipment" TO bukalaris_platform;--> statement-breakpoint
@@ -134,6 +136,7 @@ GRANT SELECT ON "store_shipping_setting" TO bukalaris_platform;--> statement-bre
 GRANT SELECT, INSERT, UPDATE ON "store_shipping_sync" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "store_step_up_proof" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, UPDATE ON "store_subscription" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT ON "store_terms_acceptance" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT ON "subscription_event" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE ON "subscription_invoice" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT ON "subscription_notice" TO bukalaris_platform;--> statement-breakpoint

@@ -387,6 +387,7 @@ export const auditLog = pgTable(
 // M2 track tables live in their own files so parallel branches merge cleanly.
 export * from "./seller/commerce/schema-orders.ts";
 export * from "./platform/schema-accounts.ts";
+export * from "./platform/schema-terms.ts";
 export * from "./ops/schema-ops.ts";
 export * from "./storefront/schema-content.ts";
 export * from "./storefront/schema-channels.ts";

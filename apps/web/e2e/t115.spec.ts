@@ -81,6 +81,11 @@ test("a store's own Mengantar account: a used account is refused, the dedicated 
 
   // 1. An account that already holds orders from elsewhere is refused at connection; nothing is stored.
   await page.goto("/seller/payments");
+  // T-116: owner accepts the current seller terms before saving a provider key.
+  const termsForm = page.getByRole("form", { name: "Setujui syarat penjual" });
+  await termsForm.getByRole("checkbox").check();
+  await termsForm.getByRole("button", { name: "Setujui syarat penjual" }).click();
+  await expect(status(page)).toContainText("Persetujuan syarat penjual tercatat");
   const mengantar = page.getByRole("form", { name: "Simpan kunci Mengantar" });
   await mengantar.getByLabel("Lingkungan").selectOption("sandbox");
   await mengantar.getByLabel("Kunci API").fill(`USED-${info.project.name}-account-key-0123456789`);

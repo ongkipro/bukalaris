@@ -125,6 +125,8 @@ export const ISOLATION_REGISTRY: Record<string, TableEntry> = {
   order_bank_transfer: tenant("SELECT,INSERT", "SELECT"), // immutable (payment_evidence_guard)
   payment_proof: { ...tenant("SELECT,INSERT", "SELECT"), appColumns: columnGrants({ UPDATE: ["decided_at", "decided_by", "reject_reason", "status"] }), platformColumns: columnGrants({ UPDATE: ["files", "files_purged_at"] }) },
   bank_transfer_confirmation: tenant("SELECT,INSERT", "SELECT"), // append-only (payment_evidence_guard)
+  // T-116: store owner's acceptance of versioned seller terms (append-only, owner membership verified by guard).
+  store_terms_acceptance: tenant("SELECT,INSERT", "SELECT"),
   // T-37 seller ledger, payouts and refunds (migration 0013). Credits, releases and settlement are the platform pool's; the app login can only DEBIT its own
   // balance (ledger_entry_insert_guard), request payouts, keep its destination, submit a refund destination and consume its own step-up proof.
   order_financials: tenant("SELECT,INSERT", "SELECT,INSERT"), // immutable (financial_snapshot_guard); platform INSERT: local seeds call placeOrder on the platform pool
@@ -273,6 +275,9 @@ export const ISOLATION_REGISTRY: Record<string, TableEntry> = {
   payment_channel_lock: { class: "shared-read", app: "SELECT", platform: "SELECT,INSERT,DELETE" },
   payment_fee_rate: { class: "shared-read", app: "SELECT", platform: "SELECT,INSERT" },
   payment_production_switch: { class: "shared-read", app: "SELECT", platform: "SELECT,UPDATE" },
+  // T-116: versioned seller terms and their adviser reviews (append-only; every store reads, only the Owner console writes).
+  seller_terms_version: { class: "shared-read", app: "SELECT", platform: "SELECT,INSERT" },
+  seller_terms_review: { class: "shared-read", app: "SELECT", platform: "SELECT,INSERT" },
 };
 
 /** Writers that may insert store-less `audit_log` rows from the app role. The SQL function `app_audit_writer()` carries the same list. */
@@ -361,6 +366,9 @@ export const DEFINER_FUNCTIONS: Record<string, DefinerFunction> = {
   "payment_proof_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
   "bank_transfer_confirmation_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
   "order_bank_transfer_paid_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
+  // T-116: append-only guards for seller terms, adviser reviews and store acceptances (plus owner membership on acceptance).
+  "seller_terms_immutable_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
+  "store_terms_acceptance_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
   "order_seller_refund_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
   // T-50: the signed callback reference of a subscription attempt resolves to its store (app pool); the effective vat_output policies (public tax configuration) are
   // readable by the seller Pay path. The triggers below pin what an invoice or attempt may start as and write the creation events; the bootstrap row-creates a trial

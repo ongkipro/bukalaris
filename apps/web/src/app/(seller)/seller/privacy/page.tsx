@@ -68,6 +68,9 @@ export default async function SellerPrivacyPage({ searchParams }: PageProps<"/se
 
       {manage && (
         <>
+          <p role="note" className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-sm text-muted-foreground" data-testid="privacy-provider-notice">
+            <strong className="font-medium text-foreground">Batas penghapusan:</strong> Penghapusan atau penyamaran data kontak pembeli di Bukalaris hanya berlaku pada salinan di platform Bukalaris dan tidak menjangkau salinan data pembeli yang sudah terkirim ke akun Mengantar atau AutoLaris milik toko Anda. Anda bertanggung jawab mengelola data pembeli di akun penyedia tersebut.
+          </p>
           <form method="get" action="/seller/privacy" className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
             <div className="grid gap-2">
               <Label htmlFor="q">Nomor HP atau email pembeli</Label>
@@ -148,7 +151,7 @@ export default async function SellerPrivacyPage({ searchParams }: PageProps<"/se
                 <legend className="px-1 text-sm font-medium">Hapus data kontak pesanan terpilih</legend>
                 <p className="text-sm text-muted-foreground">
                   Nama, nomor HP, alamat, dan email diganti menjadi <span className="font-mono">{REDACTED}</span>; konteks iklan dan isi email pesanan ikut dihapus. Nominal, item, status, dan resi tetap ada. Tindakan ini
-                  permanen dan tercatat di audit.
+                  permanen dan tercatat di audit. Salinan data pembeli di akun Mengantar atau AutoLaris milik toko Anda tidak ikut terhapus.
                 </p>
                 {open.length > 0 && (
                   <div className="grid gap-2 text-sm">

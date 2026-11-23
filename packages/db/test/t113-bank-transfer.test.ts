@@ -13,6 +13,7 @@ import { fakeProviders } from "../src/payments/providers.ts";
 import { bankTransferConfirmation, orderBankTransfer, paymentProof, storeBankAccount } from "../src/payments/schema-payments.ts";
 import { resolveBuyerOrder } from "../src/payments/seller.ts";
 import { bindSession, type SellerScope } from "../src/platform/scoped.ts";
+import { acceptSellerTerms } from "../src/platform/terms.ts";
 import { withStore } from "../src/platform/tenant.ts";
 import { auditLog, membership, order, orderFinancials, orderStatusHistory, variant } from "../src/schema.ts";
 import { checkoutPaymentChannels, placeOrder, searchDestinationAreas } from "../src/seller/commerce/checkout.ts";
@@ -47,6 +48,7 @@ type Own = Awaited<ReturnType<typeof makeStore>> & { me: SellerScope };
 async function bankStore(slug: string, accounts: { bankCode: string; accountNumber: string; holderName: string }[] = [{ bankCode: "BCA", accountNumber: "1234567890", holderName: "Budi Pemilik" }]): Promise<Own> {
   const s = await makeStore(slug);
   const me = bindSession(s.owner, await sessionOf(s.ownerId));
+  await acceptSellerTerms(me, { version: 1, agreed: true }); // T-116
   await saveProviderKey(me, { provider: "mengantar", environment: "sandbox", apiKey: `CANARY-T113-MENGANTAR-${slug}-0123456789`, proofId: await issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "mengantar" }) });
   await confirmDedicatedAccount(me, { confirmed: true });
   await setPickupAddress(me, { addressText: "Jl. Braga No. 10, Bandung", contactName: "Budi Pemilik", contactPhone: "081234567890" });

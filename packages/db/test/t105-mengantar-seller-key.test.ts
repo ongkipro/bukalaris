@@ -7,6 +7,7 @@ import { paymentAttempt, storePaymentAccount } from "../src/payments/schema-paym
 import { confirmPaymentByHand } from "../src/payments/seller.ts";
 import { FAKE_NO_COD_AREA } from "../src/payments/providers.ts";
 import { bindSession, type SellerScope } from "../src/platform/scoped.ts";
+import { acceptSellerTerms, recordSellerTermsReview } from "../src/platform/terms.ts";
 import { withStore } from "../src/platform/tenant.ts";
 import { runOnce } from "../src/ops/jobs/jobs.ts";
 import { auditLog, job, mailOutbox, order, shipment, shipmentCost, user } from "../src/schema.ts";
@@ -46,6 +47,7 @@ type Own = Awaited<ReturnType<typeof makeStore>> & { me: SellerScope };
 async function ownStore(slug: string, opts: { environment?: "sandbox" | "production"; rules?: typeof RULES; key?: string } = {}): Promise<Own> {
   const s = await makeStore(slug);
   const me = bindSession(s.owner, await sessionOf(s.ownerId));
+  await acceptSellerTerms(me, { version: 1, agreed: true }); // T-116: owner must accept seller terms before saving provider keys
   await saveProviderKey(me, { provider: "mengantar", environment: opts.environment ?? "sandbox", apiKey: opts.key ?? KEY, proofId: await issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "mengantar" }) });
   await confirmDedicatedAccount(me, { confirmed: true }); // T-115: shipping is ready only on a confirmed dedicated account
   await setPickupAddress(me, { addressText: "Jl. Braga No. 10, Bandung", contactName: "Budi Pemilik", contactPhone: "081234567890" });
@@ -535,8 +537,9 @@ describe("T-105 the one client strips the key; the production switch", () => {
     expect(await code(sellerTransport(db, "production"))).toBe("provider_off");
     expect(await sellerTransport(db, "sandbox")).toEqual({ mode: "fake" }); // no sandbox origin configured here: the local fake
     // The shared four-eyes action `providers.production_on` (aligned with T-106) needs `providers.manage` of the requester and the approver.
-    const op = await makeOperator([...DEFAULT_OPERATOR_CAPABILITIES, "providers.manage"]);
+    const op = await makeOperator([...DEFAULT_OPERATOR_CAPABILITIES, "providers.manage", "settings.manage"]);
     const second = await makeOperator([...DEFAULT_OPERATOR_CAPABILITIES, "providers.manage"]);
+    await recordSellerTermsReview(op, { version: 1, adviserName: "Penasihat T-105", reviewedOn: "2026-11-23", note: "Syarat penjual v1 ditinjau sebelum uji switch produksi" }); // T-116 gate
     expect(await code(requestMengantarProductionOn(op, { revision: 0, reason: "Pilot dimulai" }))).toBe("sandbox_pass_missing");
     expect(await code(setMengantarProductionCalls(op, { revision: 0, enabled: true, reason: "Pilot dimulai" }))).toBe("sandbox_pass_missing");
     expect(await code(platform.insert(providerLiveSetting).values({ provider: "mengantar", productionEnabled: true, updatedBy: "x" }))).toBe("23514"); // the database refuses it too
@@ -578,6 +581,7 @@ describe("T-105 review fixes: onboarding order, province per environment, provid
     const calls = stubProvider({ JNE: 12_000 });
     const s = await makeStore("t105-new", { pickupArea: false });
     const me = bindSession(s.owner, await sessionOf(s.ownerId));
+    await acceptSellerTerms(me, { version: 1, agreed: true }); // T-116
     await saveProviderKey(me, { provider: "mengantar", environment: "sandbox", apiKey: KEY, proofId: await issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "mengantar" }) });
     const keyed = `https://sandbox.example.test/api/public/${encodeURIComponent(KEY)}`;
     // T-115: then the dedicated-account check reads one page of the account's order list on the same key (archive included).

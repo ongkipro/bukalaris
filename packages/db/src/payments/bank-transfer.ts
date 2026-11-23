@@ -8,6 +8,7 @@ import { registerSchedule } from "../ops/jobs/scheduler.ts";
 import { dbMailer } from "../platform/accounts.ts";
 import { hit, type LimitRule } from "../platform/rate-limit.ts";
 import { can, DomainError, requireCap, type SellerScope } from "../platform/scoped.ts";
+import { assertSellerTermsAccepted } from "../platform/terms.ts";
 import { withStore } from "../platform/tenant.ts";
 import { auditLog, membership, order, user } from "../schema.ts";
 import { applyTransition } from "../seller/commerce/orders.ts";
@@ -85,6 +86,8 @@ export async function addBankAccount(scope: SellerScope, raw: unknown): Promise<
   const input = accountInput.parse(raw);
   try {
     return await withStore(scope.exec, scope.storeId, async (tx) => {
+      // T-116 (PR-27): the store owner must accept the current seller terms before listing a bank account.
+      await assertSellerTermsAccepted(tx, scope.storeId);
       await consumeSellerStepUp(tx, scope, input.proofId, BANK_ACCOUNT_STEP_UP);
       const listed = await tx.select({ id: storeBankAccount.id }).from(storeBankAccount).where(and(eq(storeBankAccount.storeId, scope.storeId), isNull(storeBankAccount.removedAt)));
       if (listed.length >= BANK_ACCOUNT_MAX) throw new DomainError("bank_account_limit", `Maksimal ${BANK_ACCOUNT_MAX} rekening. Hapus salah satu dulu.`);

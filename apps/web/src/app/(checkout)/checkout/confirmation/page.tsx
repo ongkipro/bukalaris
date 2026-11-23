@@ -146,6 +146,9 @@ export default async function ConfirmationPage({ searchParams }: PageProps<"/che
           </>
         )}
       </dl>
+      <p className="text-xs text-muted-foreground" data-testid="payee-notice">
+        Pembayaran pesanan ini diterima langsung oleh {o.storeName}; Bukalaris hanya menyimpan catatan transaksi.
+      </p>
       <a href={back} className="inline-flex min-h-6 w-fit items-center rounded-sm py-1 text-sm underline underline-offset-4 outline-none focus-visible:ring-3 focus-visible:ring-ring/50" data-testid="return-link">Kembali ke toko</a>
     </section>
   );
