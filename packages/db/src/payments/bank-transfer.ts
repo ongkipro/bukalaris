@@ -212,8 +212,8 @@ export async function uploadPaymentProof(exec: Executor, ref: BuyerOrderRef, fil
     const stored: ProofFile[] = checked.map(({ bytes, img }) => ({ key: `${ref.storeId}/${randomUUID()}.${mediaExt[img.mime]}`, mime: img.mime, bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") }));
     const [row] = await tx.insert(paymentProof).values({ storeId: ref.storeId, orderId: ref.orderId, files: stored }).returning({ id: paymentProof.id });
     for (let i = 0; i < stored.length; i++) {
+      written.push(stored[i]!.key); // before the write: a file cut short by a failing write is removed too
       await write(stored[i]!.key, checked[i]!.bytes);
-      written.push(stored[i]!.key);
     }
     await notifyOwners(tx, ref.storeId, `Bukti transfer untuk pesanan #${ref.orderId}`, `Pembeli mengirim bukti transfer untuk pesanan #${ref.orderId}. Cocokkan dengan mutasi rekening Anda, lalu konfirmasi atau tolak di Seller Admin. Bukti saja tidak mengubah status pesanan.`);
     return { id: row!.id };

@@ -82,6 +82,8 @@ Reviewer: Antigravity CLI (`agy`) through `ai-ask`, read-only, the change attach
 | C minor | download error handling | both routes map only `DomainError` to 404; the seller route refuses a non-positive id | route files |
 | C nit | 404 without `nosniff` | added with `text/plain` | route files |
 
+Confirmation review of the fixes (same reviewer, fix diff and this table attached): APPROVE. Two optional notes: the key of a file whose write fails is now recorded before the write, so a file cut short is removed too (done); one proof UUID could serve one add and one remove inside a single raw-SQL transaction because the two unique constraints are separate (not reachable through the services, which consume a proof per action; kept).
+
 ## Open points
 
 - Undecided proofs keep an order awaiting payment (D-36 item 3); the seller sees it on the order.

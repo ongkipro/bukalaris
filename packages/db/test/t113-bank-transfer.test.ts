@@ -296,7 +296,7 @@ describe("T-113 review fixes (independent review 2026-11-23)", () => {
     let n = 0;
     const flaky = async (key: string, bytes: Uint8Array) => { if (++n === 2) throw new Error("disk full"); files.set(key, bytes); };
     await expect(uploadPaymentProof(db, ref(s, orderId), [PNG, PNG], flaky, { remove: async (k) => { removed.push(k); files.delete(k); } })).rejects.toThrow("disk full");
-    expect(removed).toHaveLength(1);
+    expect(removed).toHaveLength(2); // the written file and the one whose write failed
     expect(files.size).toBe(0);
     expect(await proofsOf(orderId)).toEqual([]);
   });
