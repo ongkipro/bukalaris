@@ -13,6 +13,10 @@ const cellsOf = (line) => line.split(/(?<!\\)\|/).slice(1, -1).map((cell) => cel
 const tokens = (cell) => [...cell.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
 const normalizeUrl = (url) => url.split("?")[0].replace(/\[[^\]]+\]|<[^>]+>/g, "*").replace(/\/+$/, "") || "/";
 const urlOf = (entry) => normalizeUrl("/" + entry.split("/").slice(0, -1).filter((part) => !/^\(.+\)$/.test(part)).join("/"));
+const VALID_STATUS = /^(Implemented|Planned|Pending|Retired)\b/;
+const SERVICE_MODULE = /^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_.-]+)+\.ts$/;
+const TEST_FILE = /\.(?:test|spec)\.(?:ts|mjs)$/;
+const HAS_REAL_TEST = /(?<!\.)\b(?:test(?:\.describe)?|it|describe)\s*\(/;
 
 /** File-backed validation is also run against disposable fixtures by the node:test suite. */
 export function checkSystemMap(workspace, doc = readFileSync(join(workspace, "docs/04-SYSTEM-ARCHITECTURE.md"), "utf8")) {
@@ -28,6 +32,11 @@ export function checkSystemMap(workspace, doc = readFileSync(join(workspace, "do
     .filter((path) => /(^|\/)(page\.tsx|route\.ts)$/.test(path));
   const routeOwners = new Map(real.map((path) => [path, []]));
   const ids = new Set();
+  const realTestCache = new Map();
+  const hasRealTest = (fullPath) => {
+    if (!realTestCache.has(fullPath)) realTestCache.set(fullPath, HAS_REAL_TEST.test(readFileSync(fullPath, "utf8")));
+    return realTestCache.get(fullPath);
+  };
   const taskDoc = readFileSync(join(workspace, "docs/TASKS.md"), "utf8");
   const taskIds = new Set([...taskDoc.matchAll(/^### (T-\d+)\b/gm)].map((match) => match[1]));
   let rows = 0;
@@ -47,12 +56,17 @@ export function checkSystemMap(workspace, doc = readFileSync(join(workspace, "do
       problems.push(`${id}: expected ${columns} columns, got ${cells.length}`);
       continue;
     }
+    const status = cells.at(-1);
+    if (!VALID_STATUS.test(status)) {
+      problems.push(`${id}: invalid status: ${status}`);
+      continue;
+    }
     if (!isCurrent) {
-      if (/^Implemented/i.test(cells.at(-1))) problems.push(`${id}: implemented entry belongs in ARCH-5, not the future register`);
+      if (/^Implemented\b/.test(status)) problems.push(`${id}: implemented entry belongs in ARCH-5, not the future register`);
       continue;
     }
     rows++;
-    if (!/^Implemented/i.test(cells[8])) continue;
+    if (!/^Implemented\b/.test(status)) continue;
     implemented++;
     const taskRefs = cells[7].match(/T-\d+\b/g) ?? [];
     if (!taskRefs.length) problems.push(`${id}: implemented row has no task ID`);
@@ -78,13 +92,21 @@ export function checkSystemMap(workspace, doc = readFileSync(join(workspace, "do
         if (!existsSync(join(workspace, path))) problems.push(`${id}: background file missing: ${path}`);
       }
     }
-    const tests = tokens(cells[6]).filter((token) => /\.(?:test|spec)\.(?:ts|mjs)$/.test(token)
+    const serviceModules = tokens(cells[3]).filter((token) => SERVICE_MODULE.test(token) && !token.includes(".."));
+    for (const mod of serviceModules) {
+      if (!existsSync(join(workspace, "packages/db/src", mod)) && !existsSync(join(workspace, "apps/web/src", mod))) {
+        problems.push(`${id}: service module missing: ${mod}`);
+      }
+    }
+    const tests = tokens(cells[6]).filter((token) => TEST_FILE.test(token)
       || /^scripts\/[\w/-]+\.sh$/.test(token) || /^(?:e2e|test)\/global-setup\.ts$/.test(token));
     if (!tests.length) problems.push(`${id}: implemented row has no concrete test locator`);
     for (const test of tests) {
       const path = test.startsWith("test/") ? `packages/db/${test}`
         : test.startsWith("e2e/") ? `apps/web/${test}` : test;
-      if (!existsSync(join(workspace, path))) problems.push(`${id}: test file missing: ${path}`);
+      const full = join(workspace, path);
+      if (!existsSync(full)) problems.push(`${id}: test file missing: ${path}`);
+      else if (TEST_FILE.test(test) && !hasRealTest(full)) problems.push(`${id}: test file contains no test/it/describe: ${path}`);
     }
   }
   for (const [path, owners] of routeOwners) {
