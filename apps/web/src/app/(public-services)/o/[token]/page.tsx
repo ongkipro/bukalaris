@@ -6,8 +6,8 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { BANKS, refundReasonLabel, refundStatusLabel } from "@/lib/finance";
 import { rupiah, tanggalIso } from "@/lib/format";
 import { CopyButton } from "@/components/copy-button";
-import { BUYER_STATUS_LABEL, buyerBankTransfer, buyerOrderMoneyForLink, buyerOrderPayment, db, getOrderForLink, getRefundForLink, getShipmentForLink, providerStatusLabel, resolveBuyerOrder, SHIPMENT_STATUS_LABEL, shipmentTimeline } from "@bukalaris/db";
-import { servesStore } from "@/lib/storefront";
+import { BUYER_STATUS_LABEL, buyerBankTransfer, buyerOrderMoneyForLink, buyerOrderPayment, db, getOrderForLink, getRefundForLink, getShipmentForLink, providerStatusLabel, resolveBuyerOrder, resolveOrderDigitalGrants, SHIPMENT_STATUS_LABEL, shipmentTimeline } from "@bukalaris/db";
+import { clientIp, servesStore } from "@/lib/storefront";
 import { notFound } from "next/navigation";
 import { PaymentActions, paymentSavedText } from "../../../(checkout)/checkout/payment-actions";
 import { recheckPaymentByLinkAction, retryPaymentByLinkAction, submitRefundDestinationAction, uploadProofByLinkAction } from "./actions";
@@ -52,6 +52,10 @@ export default async function OrderStatusPage({ params, searchParams }: PageProp
   const pay = ref ? await buyerOrderPayment(db(), ref) : null;
   // T-113: a bank-transfer order: the seller's accounts, the exact total, the proofs sent and the upload (decision 37).
   const bank = ref && o.paymentMethod === "bank_transfer" ? await buyerBankTransfer(db(), ref) : null;
+  // T-112: single reader for buyer digital delivery (RL-ACCESS-OPEN, hides content on expiry/revocation/store suspension; skipped while unpaid so pre-payment refreshes never burn access quota).
+  const digital = ref && o.hasDigital && o.status !== "awaiting_payment" && o.status !== "awaiting_confirmation"
+    ? await resolveOrderDigitalGrants(db(), ref, { clientIp: await clientIp() })
+    : null;
   const p = pay?.payment?.sellerAccount ? pay.payment : null;
   const paySaved = typeof saved === "string" && saved in paymentSavedText ? saved : undefined;
   return (
@@ -119,6 +123,68 @@ export default async function OrderStatusPage({ params, searchParams }: PageProp
           </div>
         )}
       </dl>
+      {digital && (digital.rateLimited || digital.storeSuspended || digital.grants.length > 0) && (
+        <section id="digital-access" aria-labelledby="digital-heading" className="grid gap-3 border-t pt-3 text-sm" data-testid="digital-grants">
+          <h2 id="digital-heading" className="font-semibold">Akses produk digital</h2>
+          {digital.rateLimited ? (
+            <p role="alert" className="text-xs text-destructive" data-testid="digital-rate-limited">
+              Terlalu banyak permintaan membuka tautan akses. Coba lagi dalam {digital.retryAfterSec ?? 60} detik.
+            </p>
+          ) : digital.storeSuspended ? (
+            <p className="text-xs text-muted-foreground" data-testid="digital-store-suspended">
+              Tautan akses sementara tidak ditampilkan karena toko sedang dinonaktifkan.
+            </p>
+          ) : (
+            <ul className="grid gap-3">
+              {digital.grants.map((g) => (
+                <li key={g.id} className="grid gap-2 rounded-lg border p-3" data-testid={`buyer-grant-${g.id}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium">{g.productTitle} · {g.variantTitle}</span>
+                    {g.isTest && <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground" data-testid="grant-test-badge">Pesanan uji</span>}
+                  </div>
+                  {g.active ? (
+                    <>
+                      {g.links.length > 0 && (
+                        <ul className="grid gap-2" aria-label={`Tautan akses ${g.productTitle}`}>
+                          {g.links.map((l) => (
+                            <li key={l.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/40 px-3 py-2">
+                              <span className="min-w-0">
+                                <span className="block font-medium">{l.label}</span>
+                                <span className="block font-mono text-xs text-muted-foreground" data-testid="access-link-host">{l.host}</span>
+                              </span>
+                              <a
+                                href={l.url}
+                                target="_blank"
+                                rel="noopener noreferrer nofollow"
+                                referrerPolicy="no-referrer"
+                                className="inline-flex min-h-6 items-center font-medium underline underline-offset-4"
+                                data-testid="access-link"
+                              >
+                                Buka tautan
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {g.note && (
+                        <div className="rounded-md border bg-muted/20 p-2.5 text-xs">
+                          <p className="mb-1 font-medium text-foreground">Catatan dari penjual</p>
+                          <p className="whitespace-pre-line text-muted-foreground" data-testid="access-note">{g.note}</p>
+                        </div>
+                      )}
+                      {g.expiresAt && <p className="text-xs text-muted-foreground">Berlaku sampai {dt.format(g.expiresAt)} WIB.</p>}
+                    </>
+                  ) : (
+                    <p className="text-xs text-muted-foreground" data-testid="grant-inactive">
+                      {g.state === "revoked" ? "Akses produk digital ini sudah dicabut oleh penjual." : "Masa berlaku akses produk digital ini sudah berakhir."}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
       {tracking && (
         <section aria-labelledby="tracking-heading" className="grid gap-2 border-t pt-3 text-sm" data-testid="tracking-timeline">
           <h2 id="tracking-heading" className="font-semibold">Perjalanan paket</h2>

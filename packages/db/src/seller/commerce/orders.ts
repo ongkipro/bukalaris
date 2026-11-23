@@ -12,6 +12,7 @@ import { paymentAttempt } from "../../payments/schema-payments.ts";
 import { DomainError, requireCap, type SellerScope } from "../../platform/scoped.ts";
 import { enqueuePurchase } from "../../storefront/signals.ts";
 import { inStore } from "../../platform/tenant.ts";
+import { grantDigitalAccessInTx, revokeOrderDigitalGrantsInTx } from "./digital.ts";
 export { ORDER_STATUS_LABEL, ORDER_STATUSES, SELLER_REFUND_METHODS, type OrderStatus } from "../../schema.ts";
 
 // Seller orders (SC-12/SC-13) and inventory (SC-04). Q-10 is still open; the
@@ -208,6 +209,8 @@ export async function recordSellerRefund(scope: SellerScope, orderId: number, ra
       .returning({ id: orderSellerRefund.id });
     const note = `Refund Rp ${idr.format(input.amountIdr)} dicatat penjual (${SELLER_REFUND_METHOD_LABEL[input.method].toLowerCase()}, ${input.refundedOn}): ${input.reason}`.slice(0, 500);
     await tx.insert(orderStatusHistory).values({ storeId: scope.storeId, orderId, fromStatus: o.status, toStatus: o.status, actorUserId: scope.userId, note });
+    // T-112 (ADR-0016 decision 18): refunding revokes any active digital grants on the order.
+    await revokeOrderDigitalGrantsInTx(tx, scope.storeId, orderId, scope.userId, `Refund: ${input.reason}`.slice(0, 500));
     await tx.insert(auditLog).values({ storeId: scope.storeId, actorUserId: scope.userId, actorCapability: "finance.confirm_payment", action: "order.seller_refund.record", subjectKind: "order", subjectId: String(orderId), outcome: "allowed", reason: `amount:${input.amountIdr}` });
     return row!.id;
   });
@@ -329,11 +332,16 @@ export async function applyTransition(tx: Executor, storeId: number, orderId: nu
 
   if (RESTOCKING.includes(action)) {
     await restockOrder(tx, storeId, orderId, action === "reject" ? "Penolakan pesanan COD" : "Pembatalan pesanan", note, actorUserId);
+    // T-112 (ADR-0016 decision 18): cancelling revokes any active digital grants on the order.
+    await revokeOrderDigitalGrantsInTx(tx, storeId, orderId, actorUserId, note?.trim() || "Pesanan dibatalkan");
     await settleTerminalOrder(tx, storeId, orderId, "order_cancelled");
   }
 
-  // Prepaid Purchase signal at settlement (T-38, PR-20); idempotent per destination.
-  if (action === "pay") await enqueuePurchase(tx, storeId, orderId);
+  // Prepaid settlement triggers (in the same settlement transaction): digital grants (T-112, ADR-0016 decision 12) + Purchase signal (T-38).
+  if (action === "pay") {
+    await grantDigitalAccessInTx(tx, storeId, orderId);
+    await enqueuePurchase(tx, storeId, orderId);
+  }
 
   await tx.insert(orderStatusHistory).values({
     storeId,

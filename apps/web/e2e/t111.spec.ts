@@ -58,18 +58,26 @@ test("digital-only and mixed checkout flows at 320 px and desktop", async ({ pag
     return { storeId: Number(s.id), physSlug: prod.slug };
   `);
 
-  // 1. Seller creates an active digital product via SC-03 (no weight, unlimited stock).
+  // 1. Seller creates a digital product as draft, adds one access link (ADR-0016 decision 3), then activates it.
   await login(page, store.email, "/seller");
   await page.goto("/seller/products/new");
   await page.getByLabel("Judul produk").fill("E-Book Panduan Jualan");
   await page.getByLabel("Jenis produk").selectOption("digital");
-  await page.getByLabel("Status").selectOption("active");
+  await page.getByLabel("Status").selectOption("draft");
   await page.getByLabel("Nama varian").fill("PDF Lengkap");
   await page.getByLabel("Harga (Rp)").fill("59000");
   await page.getByRole("button", { name: "Simpan produk" }).click();
   await expect(page).toHaveURL(/\/seller\/products\/\d+\?saved=1/);
   await expect(page.getByTestId("product-kind-badge")).toContainText("Produk digital");
   await expect(page.getByTestId("variant-stock")).toHaveText("Tak terbatas");
+  const linkForm = page.getByRole("form", { name: "Tambah tautan akses" });
+  await linkForm.getByLabel("Label tautan").fill("Unduh E-Book PDF");
+  await linkForm.getByLabel("Tautan https://").fill("https://drive.google.com/file/d/t111-ebook/view");
+  await linkForm.getByRole("button", { name: "Tambah tautan" }).click();
+  await expect(page.getByTestId("access-links-list")).toContainText("Unduh E-Book PDF");
+  await page.getByLabel("Status").selectOption("active");
+  await page.getByRole("button", { name: "Simpan produk" }).click();
+  await expect(page).toHaveURL(/\/seller\/products\/\d+\?saved=1/);
   await evidence(page, info, "t111-seller-digital-product");
 
   const digitalSlug = node<string>(`

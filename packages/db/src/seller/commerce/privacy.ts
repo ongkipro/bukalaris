@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { Executor } from "../../client.ts";
 import { normalizeEmail, phoneLookupKey } from "../../buyer/normalize.ts";
 import { phoneKeyEquals } from "../../buyer/normalize-sql.ts";
+import { revokeOrderDigitalGrantsInTx } from "./digital.ts";
 import {
   auditLog,
   checkoutSession,
@@ -349,6 +350,8 @@ async function redactRows(
       .where(and(eq(order.storeId, storeId), inArray(order.id, ids)))
       .returning({ id: order.id })
   ).length;
+  // T-112 (ADR-0016 C-G3): a redacted order has its active digital grants revoked in the same transaction.
+  for (const id of ids) await revokeOrderDigitalGrantsInTx(tx, storeId, id, meta.actorUserId, "Data pesanan dihapus (redaksi privasi)");
   counts.signalContexts = (
     await tx.delete(orderSignalContext).where(and(eq(orderSignalContext.storeId, storeId), inArray(orderSignalContext.orderId, ids))).returning({ id: orderSignalContext.orderId })
   ).length;

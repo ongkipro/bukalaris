@@ -12,6 +12,7 @@ import { acceptSellerTerms } from "../src/platform/terms.ts";
 import { savePromoHub } from "../src/promotions/manage.ts";
 import { mailOutbox, media, order, product, variant } from "../src/schema.ts";
 import { addVariant, createProduct, getProduct, updateProduct, updateVariant } from "../src/seller/commerce/catalog.ts";
+import { addAccessLink } from "../src/seller/commerce/digital.ts";
 import { checkoutPromotionPreview, checkoutSummary, placeOrder, searchDestinationAreas } from "../src/seller/commerce/checkout.ts";
 import { applyProviderTransition, getOrder, transitionOrder } from "../src/seller/commerce/orders.ts";
 import { redactOrders } from "../src/seller/commerce/privacy.ts";
@@ -55,16 +56,18 @@ async function digitalReadyStore(slug: string, opts: { withShipping?: boolean } 
 
 const variantOf = async (productId: number) => (await admin.select().from(variant).where(eq(variant.productId, productId)))[0]!;
 const orderOf = async (orderId: number) => (await admin.select().from(order).where(eq(order.id, orderId)))[0]!;
+/** T-112 (ADR-0016 decision 3): create a digital product as draft, attach one access link, then activate. */
+async function createActiveDigital(me: SellerScope, title: string, variantSpec: { title: string; price: number; stock: number; trackStock?: boolean }) {
+  const id = await createProduct(me, { title, kind: "digital", status: "draft", variant: variantSpec });
+  await addAccessLink(me, id, { label: "Unduh file", url: "https://drive.google.com/file/d/t111-fixture/view" });
+  await updateProduct(me, id, { title, description: "", kind: "digital", status: "active", slug: null });
+  return id;
+}
 
 describe("T-111 product kind, variant rules and activation readiness (ADR-0016 decisions 1, 2, 21)", () => {
   it("digital variants have no weight and unlimited stock by default; physical variants require weight and tracked stock in service and database", async () => {
     const s = await digitalReadyStore("t111-kind");
-    const digId = await createProduct(s.me, {
-      title: "E-Book Panduan",
-      kind: "digital",
-      status: "active",
-      variant: { title: "PDF", price: 50_000, stock: 0 },
-    });
+    const digId = await createActiveDigital(s.me, "E-Book Panduan", { title: "PDF", price: 50_000, stock: 0 });
     const dv = await variantOf(digId);
     expect(dv.weightGrams).toBeNull();
     expect(dv.trackStock).toBe(false);
@@ -96,16 +99,17 @@ describe("T-111 product kind, variant rules and activation readiness (ADR-0016 d
     const draftDig = await createProduct(bareMe, { title: "Kursus PDF", kind: "digital", status: "draft", variant: { title: "Akses", price: 50_000, stock: 0 } });
     expect(await code(updateProduct(bareMe, draftDig, { title: "Kursus PDF", description: "", kind: "digital", status: "active", slug: null }))).toBe("prepaid_not_ready");
 
-    // Adding a bank account makes the store seller_owned with prepaid ready, NO shipping yet -> digital activates, physical is blocked!
+    // Adding a bank account makes the store seller_owned with prepaid ready, NO shipping yet -> digital activates (once delivery content is added), physical is blocked!
     await acceptSellerTerms(bareMe, { version: 1, agreed: true });
     await addBankAccount(bareMe, { bankCode: "BCA", accountNumber: "5555666677", holderName: "Toko Digital", proofId: await issueSellerStepUp(bareMe, BANK_ACCOUNT_STEP_UP) });
+    await addAccessLink(bareMe, draftDig, { label: "Unduh PDF", url: "https://drive.google.com/file/d/t111-bare/view" });
     await updateProduct(bareMe, draftDig, { title: "Kursus PDF", description: "", kind: "digital", status: "active", slug: null });
     expect(await code(createProduct(bareMe, { title: "Kaos Fisik", kind: "physical", status: "active", variant: { title: "M", price: 100_000, stock: 5, weightGrams: 250 } }))).toBe("shipping_not_ready");
   });
 
   it("kind change is refused after a sale (service and database)", async () => {
     const s = await digitalReadyStore("t111-lock");
-    const digId = await createProduct(s.me, { title: "Preset Foto", kind: "digital", status: "active", variant: { title: "Pack", price: 40_000, stock: 0 } });
+    const digId = await createActiveDigital(s.me, "Preset Foto", { title: "Pack", price: 40_000, stock: 0 });
     const dv = await variantOf(digId);
     const cartId = await setCartLine(s.sf, undefined, { variantId: dv.id, quantity: 1 }, "add");
     await placeOrder(db, cartId, {
@@ -135,7 +139,7 @@ describe("T-111 product kind, variant rules and activation readiness (ADR-0016 d
 describe("T-111 checkout rules, lifecycle and feeds for digital-only and mixed orders", () => {
   it("digital-only order skips shipping, requires email, refuses COD, handles unlimited/counted stock, completes on payment, omits shipping from email and redacts cleanly", async () => {
     const s = await digitalReadyStore("t111-digonly", { withShipping: false });
-    const digId = await createProduct(s.me, { title: "E-Book Bisnis", kind: "digital", status: "active", variant: { title: "PDF", price: 75_000, stock: 0 } });
+    const digId = await createActiveDigital(s.me, "E-Book Bisnis", { title: "PDF", price: 75_000, stock: 0 });
     const dv = await variantOf(digId);
     const cartId = await setCartLine(s.sf, undefined, { variantId: dv.id, quantity: 2 }, "add");
     const summary = await checkoutSummary(db, cartId);
@@ -208,7 +212,7 @@ describe("T-111 checkout rules, lifecycle and feeds for digital-only and mixed o
     const s = await digitalReadyStore("t111-mixed", { withShipping: true });
     // Physical product: 600 g, Rp 80.000; digital product: no weight, Rp 200.000.
     await updateVariant(s.me, s.variantId, { title: "Fisik 600g", price: 80_000, weightGrams: 600 });
-    const digId = await createProduct(s.me, { title: "Bonus E-Book", kind: "digital", status: "active", variant: { title: "PDF", price: 200_000, stock: 0 } });
+    const digId = await createActiveDigital(s.me, "Bonus E-Book", { title: "PDF", price: 200_000, stock: 0 });
     const dv = await variantOf(digId);
     // Free-shipping threshold at Rp 150.000: physical subtotal (80k) is BELOW threshold even though combined subtotal is 280k!
     await savePromoHub(s.me, { enabled: true, title: "Promo", subtitle: "", bannerMediaId: null, bannerCtaLabel: "", bannerCtaHref: "", freeShipEnabled: true, freeShipThresholdIdr: 150_000, percentRounding: "floor", featuredCollectionIds: [] });
@@ -287,7 +291,7 @@ describe("T-111 checkout rules, lifecycle and feeds for digital-only and mixed o
 
   it("catalog feeds exclude digital products (ADR-0016 decision 22)", async () => {
     const s = await digitalReadyStore("t111-feeds", { withShipping: true });
-    const digId = await createProduct(s.me, { title: "E-Book Rahasia", kind: "digital", status: "active", variant: { title: "PDF", price: 50_000, stock: 0 } });
+    const digId = await createActiveDigital(s.me, "E-Book Rahasia", { title: "PDF", price: 50_000, stock: 0 });
     // Give both physical and digital products cover images.
     await admin.insert(media).values([
       { storeId: s.storeId, productId: s.productId, mime: "image/png", bytes: 100, width: 100, height: 100, alt: "fisik", position: 0 },

@@ -127,6 +127,8 @@ export const store = pgTable(
     description: text("description").notNull().default(""),
     whatsapp: text("whatsapp"),
     theme: text("theme", { enum: ["responsive", "mobile"] }).notNull().default("responsive"),
+    /** Optional default expiry in days for newly issued digital grants (D-31 OPEN-G4: null = no default expiry). */
+    digitalGrantExpiryDays: integer("digital_grant_expiry_days"),
     createdAt: createdAt(),
   },
   (t) => [
@@ -134,6 +136,7 @@ export const store = pgTable(
     check("store_slug_chk", sql`${t.slug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$'`),
     check("store_theme_chk", sql`${t.theme} in ('responsive', 'mobile')`),
     check("store_whatsapp_chk", sql`${t.whatsapp} is null or ${t.whatsapp} ~ '^62[0-9]{8,13}$'`),
+    check("store_digital_expiry_chk", sql`${t.digitalGrantExpiryDays} is null or ${t.digitalGrantExpiryDays} between 1 and 3650`),
   ],
 );
 
@@ -410,6 +413,7 @@ export const auditLog = pgTable(
 
 // M2 track tables live in their own files so parallel branches merge cleanly.
 export * from "./seller/commerce/schema-orders.ts";
+export * from "./seller/commerce/schema-digital.ts";
 export * from "./platform/schema-accounts.ts";
 export * from "./platform/schema-terms.ts";
 export * from "./ops/schema-ops.ts";
