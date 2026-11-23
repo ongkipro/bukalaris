@@ -237,6 +237,9 @@ export default async function OrderStatusPage({ params, searchParams }: PageProp
           )}
         </section>
       )}
+      <p className="text-xs text-muted-foreground" data-testid="payee-notice">
+        Pembayaran pesanan ini diterima langsung oleh {o.storeName}; Bukalaris hanya menyimpan catatan transaksi.
+      </p>
       <p className="text-xs text-muted-foreground">Dipesan {dt.format(o.createdAt)} WIB. Hubungi penjual bila ada pertanyaan tentang pesanan ini.</p>
     </section>
   );

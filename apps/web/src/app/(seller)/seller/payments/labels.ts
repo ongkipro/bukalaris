@@ -33,6 +33,7 @@ export const savedLabel: Record<string, string> = {
   bank_added: "Rekening ditambahkan dan tercatat di log audit.",
   bank_removed: "Rekening dihapus dari daftar. Pesanan yang sudah dibuat tetap menampilkan rekening yang dulu dipilih.",
   bank_settings: "Pengaturan transfer bank tersimpan.",
+  terms_accepted: "Persetujuan syarat penjual tercatat. Anda sekarang dapat menyimpan kunci penyedia atau rekening bank.",
 };
 export const feeBearerLabel = { buyer: "Pembeli (tagihan = total pesanan + biaya)", seller: "Penjual (tagihan = total pesanan)" } as const;
 export const attemptStateLabel = (a: { status: string; requestState: string; expiresAt: Date; manual: unknown }, now = new Date()): { label: string; tone: "success" | "warning" | "secondary" | "destructive" } => {

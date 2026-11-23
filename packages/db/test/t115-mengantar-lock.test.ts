@@ -8,6 +8,7 @@ import { FakeProviderCheck, saveProviderKey, setPaymentAccountDetails, setProvid
 import { paymentAttempt, storePaymentAccount } from "../src/payments/schema-payments.ts";
 import { confirmPaymentByHand } from "../src/payments/seller.ts";
 import { bindSession, type SellerScope } from "../src/platform/scoped.ts";
+import { acceptSellerTerms } from "../src/platform/terms.ts";
 import { withStore } from "../src/platform/tenant.ts";
 import { runOnce } from "../src/ops/jobs/jobs.ts";
 import { auditLog, job, order, orderStatusHistory, shipment } from "../src/schema.ts";
@@ -58,6 +59,7 @@ type Own = Awaited<ReturnType<typeof makeStore>> & { me: SellerScope; hookId: st
 async function ownStore(slug: string, opts: { key?: string; environment?: "sandbox" | "production"; secret?: string | null } = {}): Promise<Own> {
   const s = await makeStore(slug);
   const me = bindSession(s.owner, await sessionOf(s.ownerId));
+  await acceptSellerTerms(me, { version: 1, agreed: true }); // T-116
   await saveProviderKey(me, { provider: "mengantar", environment: opts.environment ?? "sandbox", apiKey: opts.key ?? KEY, proofId: await issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "mengantar" }) });
   await confirmDedicatedAccount(me, { confirmed: true });
   await setPickupAddress(me, { addressText: "Jl. Braga No. 10, Bandung", contactName: "Budi Pemilik", contactPhone: "081234567890" });
@@ -159,6 +161,7 @@ describe("T-115 decision 40: Mengantar is the only shipping aggregator", () => {
     expect(await code(admin.execute(sql`insert into store_shipping_account (store_id, kind, status, external_user_id) values (${s.storeId}, 'autolaris', 'pending', ${`store:${s.storeId}`})`))).toBe("23514");
     // The AutoLaris key is a payment account: saving it never creates or touches a shipping account.
     const me = bindSession(s.owner, await sessionOf(s.ownerId));
+    await acceptSellerTerms(me, { version: 1, agreed: true }); // T-116
     await saveProviderKey(me, { provider: "autolaris", environment: "sandbox", apiKey: "autolaris-key-0123456789abcdef", proofId: await issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "autolaris" }) });
     expect((await platform.select().from(storeShippingAccount).where(and(eq(storeShippingAccount.storeId, s.storeId), eq(storeShippingAccount.kind, "seller_owned"))))).toEqual([]);
     // No seller or Owner-console shipping screen, and no shipping module, offers another aggregator or a provider choice.
@@ -176,6 +179,7 @@ describe("T-115 decision 41: a new account, used only by this store", () => {
   it("the connection check refuses an account that already holds orders; nothing is stored", async () => {
     const s = await makeStore("t115-used");
     const me = bindSession(s.owner, await sessionOf(s.ownerId));
+    await acceptSellerTerms(me, { version: 1, agreed: true }); // T-116
     const proof = () => issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "mengantar" });
     // An account with an order from elsewhere (the fake's "USED" account): refused, no key stored, the proof unconsumed.
     const p = await proof();
@@ -208,6 +212,7 @@ describe("T-115 decision 41: a new account, used only by this store", () => {
   it("the seller's dedicated-account confirmation is recorded for the connected key and environment only, after the account is checked again; shipping is ready only with it", async () => {
     const s = await makeStore("t115-dedicated");
     const me = bindSession(s.owner, await sessionOf(s.ownerId));
+    await acceptSellerTerms(me, { version: 1, agreed: true }); // T-116
     await saveProviderKey(me, { provider: "mengantar", environment: "sandbox", apiKey: KEY, proofId: await issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "mengantar" }) });
     await setPickupAddress(me, { addressText: "Jl. Braga No. 10, Bandung", contactName: "Budi Pemilik", contactPhone: "081234567890" });
     expect(await shippingReadiness(me)).toEqual({ ready: false, missing: ["dedicated"] });
@@ -665,6 +670,7 @@ describe("T-115 review fixes (2026-11-16)", () => {
     }) as typeof fetch);
     const t = await makeStore("t115-unreadable");
     const me = bindSession(t.owner, await sessionOf(t.ownerId));
+    await acceptSellerTerms(me, { version: 1, agreed: true }); // T-116
     expect(await code(saveProviderKey(me, { provider: "mengantar", environment: "sandbox", apiKey: KEY, proofId: await issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "mengantar" }) }))).toBe("account_not_empty");
     data = [];
     await saveProviderKey(me, { provider: "mengantar", environment: "sandbox", apiKey: KEY, proofId: await issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "mengantar" }) });

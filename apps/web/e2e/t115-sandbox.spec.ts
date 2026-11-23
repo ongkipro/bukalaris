@@ -34,6 +34,11 @@ test("sandbox: dedicated-account check, webhook secret, simulated ON DELIVERY an
   await login(page, store.email, "/seller");
   const secret = await enrolTotpViaApi(page, store.email);
   await page.goto("/seller/payments");
+  // T-116: owner accepts the current seller terms before saving a provider key.
+  const termsForm = page.getByRole("form", { name: "Setujui syarat penjual" });
+  await termsForm.getByRole("checkbox").check();
+  await termsForm.getByRole("button", { name: "Setujui syarat penjual" }).click();
+  await expect(page.getByRole("main").getByRole("status")).toContainText("Persetujuan syarat penjual tercatat");
   const key = page.getByRole("form", { name: "Simpan kunci Mengantar" });
   await key.getByLabel("Lingkungan").selectOption("sandbox");
   await key.getByLabel("Kunci API").fill(process.env.MENGANTAR_SANDBOX_TEST_KEY!);

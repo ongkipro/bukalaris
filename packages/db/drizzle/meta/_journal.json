@@ -169,6 +169,13 @@
       "when": 1795405336088,
       "tag": "0023_t113_bank_transfer",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1795418469216,
+      "tag": "0024_t116_seller_terms",
+      "breakpoints": true
     }
   ]
 }

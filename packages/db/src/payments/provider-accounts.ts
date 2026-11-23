@@ -6,6 +6,7 @@ import { cutoverError } from "../ledger/boundary.ts";
 import { dbMailer } from "../platform/accounts.ts";
 import { surfaceOriginsAreLoopback } from "../platform/mail-transport.ts";
 import { DomainError, requireCap, type SellerScope, type StorefrontScope } from "../platform/scoped.ts";
+import { assertSellerTermsAccepted } from "../platform/terms.ts";
 import { inStore, withStore } from "../platform/tenant.ts";
 import { auditLog, membership, storePickupArea, user } from "../schema.ts";
 import { enforceLimits } from "../seller/commerce/checkout.ts";
@@ -304,6 +305,8 @@ export async function saveProviderKey(scope: SellerScope, raw: unknown): Promise
   const { provider, environment } = input;
   const apiKey = input.apiKey.trim();
   if (apiKey && !KEY_RE.test(apiKey)) throw new DomainError("invalid_key", "Kunci API harus 8 sampai 512 karakter tanpa spasi.");
+  // T-116 (PR-27): the store owner must accept the current seller terms before any provider key is checked or saved.
+  await withStore(scope.exec, scope.storeId, (tx) => assertSellerTermsAccepted(tx, scope.storeId));
   const current = await inStore(scope, ({ exec }) => readAccount(exec, scope.storeId, provider));
   const connected = current?.status === "active";
   if (!apiKey && !connected) throw new DomainError("invalid_key", `Isi kunci API ${PROVIDER_NAME[provider]}.`);
@@ -319,6 +322,7 @@ export async function saveProviderKey(scope: SellerScope, raw: unknown): Promise
   }
   // T-107 (review M2): the first own account of a store is refused while platform money of it is in flight (`money_cutover_guard`); the seller sees why.
   return withStore(scope.exec, scope.storeId, async (tx) => {
+    await assertSellerTermsAccepted(tx, scope.storeId);
     await consumeSellerStepUp(tx, scope, input.proofId, { action: PROVIDER_KEY_ACTION, subjectId: provider });
     const row = await lockedAccount(tx, scope.storeId, provider, environment);
     // The account must still be the one read (and, for an empty key field, opened) before the check: a change saved meanwhile wins.

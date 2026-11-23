@@ -41,6 +41,8 @@ beforeEach(async () => {
   await admin.execute(`update affiliate_policy set min_rate_bps = ${AFFILIATE_MIN_RATE_BPS_DEFAULT}, max_rate_bps = ${AFFILIATE_MAX_RATE_BPS_DEFAULT}, attribution_window_days = ${AFFILIATE_ATTRIBUTION_WINDOW_DAYS_DEFAULT}, hold_days = ${AFFILIATE_HOLD_DAYS_DEFAULT}`);
   // The fake courier fixture (the COD-capable JNE) is data that T-48 tests edit: every test starts from the seeded values.
   await admin.execute(`update courier_service_policy set cod_allowed = true, return_free = true, return_free_evidence_ref = 'fixture:fake-adapter', status = 'active', updated_by = 'fixture:local-seed' where courier_code = 'JNE'; delete from courier_service_policy where courier_code not in ('JNE', 'SPX')`);
+  // T-116: seller terms start at seeded draft version 1 with no adviser review; reset any version/review written by a test.
+  await admin.execute(`alter table seller_terms_review disable trigger seller_terms_review_append_only; alter table seller_terms_version disable trigger seller_terms_version_append_only; delete from seller_terms_review; delete from seller_terms_version where version > 1; alter table seller_terms_review enable trigger seller_terms_review_append_only; alter table seller_terms_version enable trigger seller_terms_version_append_only`);
 });
 afterAll(async () => {
   await Promise.all([db.$client.end(), platform.$client.end(), admin.$client.end()]);

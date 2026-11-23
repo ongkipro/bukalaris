@@ -7,7 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { sellerScope } from "@/lib/context";
 import { themeLabel } from "@/lib/status";
-import { getStoreSettings } from "@bukalaris/db";
+import { getStoreSettings, sellerTermsStatus } from "@bukalaris/db";
+import Link from "next/link";
 import { updateSettingsAction } from "./actions";
 
 export const metadata = { title: "Pengaturan toko — Bukalaris" };
@@ -20,7 +21,7 @@ const themes = [
 export default async function SettingsPage({ searchParams }: PageProps<"/seller/settings">) {
   const { error, saved } = await searchParams;
   const scope = await sellerScope();
-  const s = await getStoreSettings(scope);
+  const [s, terms] = await Promise.all([getStoreSettings(scope), sellerTermsStatus(scope)]);
   const owner = scope.role === "owner";
   return (
     <section className="grid max-w-2xl gap-6">
@@ -71,6 +72,23 @@ export default async function SettingsPage({ searchParams }: PageProps<"/seller/
           </div>
         )}
       </form>
+      <section aria-labelledby="settings-terms-heading" className="grid gap-1.5 rounded-lg border p-4 text-sm" data-testid="settings-terms-notice">
+        <h2 id="settings-terms-heading" className="font-medium">Syarat penjual (versi {terms.current.version}{terms.current.isDraft ? " · draf" : ""})</h2>
+        <p className="text-muted-foreground">
+          {terms.acceptedCurrent
+            ? `Pemilik toko sudah menyetujui syarat penjual versi ${terms.current.version}.`
+            : terms.needsReacceptance
+              ? `Versi baru (${terms.current.version}) tersedia. Layanan yang berjalan tidak terganggu; pemilik toko perlu menyetujui versi terbaru sebelum menyimpan kunci penyedia atau rekening bank baru.`
+              : `Pemilik toko perlu menyetujui syarat penjual versi ${terms.current.version} sebelum menyimpan kunci penyedia atau rekening bank.`}
+        </p>
+        {owner && (
+          <p>
+            <Link href="/seller/payments#syarat-penjual" className="inline-flex min-h-6 items-center font-medium underline underline-offset-4">
+              Baca syarat penjual di Akun penyedia
+            </Link>
+          </p>
+        )}
+      </section>
     </section>
   );
 }

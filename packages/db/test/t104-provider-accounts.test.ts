@@ -7,6 +7,7 @@ import { consumeSellerStepUp, issueSellerStepUp } from "../src/ledger/stepup.ts"
 import { checkProviderNow, FakeProviderCheck, fakeCheckAllowed, openProviderKey, paymentReadiness, PROVIDER_CHECK_LIMIT, providerOrigin, removeProviderKey, saveProviderKey, sellerProviderAccounts, setPaymentAccountDetails, setProviderCheckTransport, shippingReadiness, storeReadiness, type Provider } from "../src/payments/provider-accounts.ts";
 import { storePaymentAccount } from "../src/payments/schema-payments.ts";
 import { bindSession, type SellerScope } from "../src/platform/scoped.ts";
+import { acceptSellerTerms } from "../src/platform/terms.ts";
 import { withStore } from "../src/platform/tenant.ts";
 import { auditLog, mailOutbox, membership, user } from "../src/schema.ts";
 import { resealShippingCredentials } from "../src/shipping/accounts.ts";
@@ -36,7 +37,9 @@ afterEach(() => {
 type S = Awaited<ReturnType<typeof makeStore>>;
 /** The store owner on a server-side session that verified a second factor (the step-up precondition). */
 async function ownerOf(s: S): Promise<SellerScope> {
-  return bindSession(s.owner, await sessionOf(s.ownerId));
+  const me = bindSession(s.owner, await sessionOf(s.ownerId));
+  await acceptSellerTerms(me, { version: 1, agreed: true }); // T-116: owner must accept seller terms before saving provider keys
+  return me;
 }
 const proof = (scope: SellerScope, provider: Provider) => issueSellerStepUp(scope, { action: "integrations.provider_key", subjectId: provider });
 async function connect(scope: SellerScope, provider: Provider, apiKey: string = CANARY[provider], environment: "sandbox" | "production" = "sandbox") {

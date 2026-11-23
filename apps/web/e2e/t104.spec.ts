@@ -71,6 +71,12 @@ test("seller connects, replaces, checks and removes the store's own provider key
   await expect(page.locator("input[type=url], input[name*=url i], input[name*=origin i]")).toHaveCount(0);
   await evidence(page, info, "t104-providers-empty");
 
+  // T-116: owner accepts the current seller terms before saving a provider key.
+  const termsForm = page.getByRole("form", { name: "Setujui syarat penjual" });
+  await termsForm.getByRole("checkbox").check();
+  await termsForm.getByRole("button", { name: "Setujui syarat penjual" }).click();
+  await expect(status(page)).toContainText("Persetujuan syarat penjual tercatat");
+
   const autolaris = page.getByRole("form", { name: "Simpan kunci AutoLaris" });
   // A wrong code stores nothing.
   await autolaris.getByLabel("Kunci API").fill(CANARY.autolaris);

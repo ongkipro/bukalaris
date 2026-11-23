@@ -24,6 +24,11 @@ test("sandbox: connect a seller test key, register a Jakarta pickup, quote, orde
 
   // The key first: without a pickup area the live check reads the account's pickup-address list (no area id needed).
   await page.goto("/seller/payments");
+  // T-116: owner accepts the current seller terms before saving a provider key.
+  const termsForm = page.getByRole("form", { name: "Setujui syarat penjual" });
+  await termsForm.getByRole("checkbox").check();
+  await termsForm.getByRole("button", { name: "Setujui syarat penjual" }).click();
+  await expect(page.getByRole("main").getByRole("status")).toContainText("Persetujuan syarat penjual tercatat");
   const form = page.getByRole("form", { name: "Simpan kunci Mengantar" });
   await form.getByLabel("Lingkungan").selectOption("sandbox");
   await form.getByLabel("Kunci API").fill(process.env.MENGANTAR_SANDBOX_TEST_KEY!);

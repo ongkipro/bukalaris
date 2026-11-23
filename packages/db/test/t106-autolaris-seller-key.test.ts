@@ -19,6 +19,7 @@ import { AUTOLARIS_PAID } from "../src/payments/settings.ts";
 import { callbackToken } from "../src/payments/signature.ts";
 import { orderPaymentView } from "../src/payments/view.ts";
 import { bindSession, type SellerScope } from "../src/platform/scoped.ts";
+import { acceptSellerTerms, recordSellerTermsReview } from "../src/platform/terms.ts";
 import { withStore } from "../src/platform/tenant.ts";
 import { auditLog, job, ledgerEntry, mailOutbox, membership, order, systemLog } from "../src/schema.ts";
 import { checkoutPaymentChannels, placeOrder, searchDestinationAreas } from "../src/seller/commerce/checkout.ts";
@@ -69,7 +70,11 @@ afterEach(async () => {
 });
 
 type S = Awaited<ReturnType<typeof makeStore>>;
-const ownerOf = async (s: S): Promise<SellerScope> => bindSession(s.owner, await sessionOf(s.ownerId));
+const ownerOf = async (s: S): Promise<SellerScope> => {
+  const me = bindSession(s.owner, await sessionOf(s.ownerId));
+  await acceptSellerTerms(me, { version: 1, agreed: true }); // T-116
+  return me;
+};
 /** A store on its own AutoLaris account that is ready (decision 13): key checked, order fields, sender address, payment-only profile confirmed. */
 async function sellerStore(slug: string, apiKey: string, environment: "sandbox" | "production" = "sandbox") {
   const s = await makeStore(slug);
@@ -88,7 +93,8 @@ async function sellerStore(slug: string, apiKey: string, environment: "sandbox" 
 type Seller = Awaited<ReturnType<typeof sellerStore>>;
 /** Decision 34 with four-eyes: a second operator approves, the requester switches on (consuming the approval). */
 async function switchProductionOn(op: OperatorScope) {
-  const second = await makeOperator(["providers.read", "providers.manage"]);
+  const second = await makeOperator(["providers.read", "providers.manage", "settings.manage"]);
+  await recordSellerTermsReview(second, { version: 1, adviserName: "Penasihat T-106", reviewedOn: "2026-11-23", note: "Syarat penjual v1 ditinjau sebelum uji switch produksi" }); // T-116 gate
   const { approvalId } = await requestAutoLarisProduction(op, { reason: "sandbox pass verified" });
   expect(await code(decideApproval(op, approvalId, "approve"))).toBe("self_approval");
   expect(await code(setAutoLarisProduction(op, { enabled: true, reason: "go live", approvalId }))).toBe("approval_invalid"); // not approved yet
@@ -432,6 +438,7 @@ describe("T-106 limits, platform account for subscriptions, key custody", () => 
   it("subscription invoices keep using the platform account even when the store has its own AutoLaris account", async () => {
     const s = await billingStore("toko-a");
     const me = bindSession(s.owner, await sessionOf(s.ownerId));
+    await acceptSellerTerms(me, { version: 1, agreed: true }); // T-116
     await saveProviderKey(me, { provider: "autolaris", environment: "sandbox", apiKey: KEY.a, proofId: await issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "autolaris" }) });
     const p = new FakeAutoLaris();
     setPaymentAdapter(p);
@@ -594,8 +601,9 @@ describe("T-106 review fixes", () => {
   });
 
   it("a production-ON approval is bound to the recorded sandbox pass: a pass recorded after the approval voids it", async () => {
-    const op = await makeOperator(["providers.read", "providers.manage"]);
+    const op = await makeOperator(["providers.read", "providers.manage", "settings.manage"]);
     const second = await makeOperator(["providers.read", "providers.manage"]);
+    await recordSellerTermsReview(op, { version: 1, adviserName: "Penasihat T-106", reviewedOn: "2026-11-23", note: "Syarat penjual v1 ditinjau sebelum uji switch produksi" }); // T-116 gate
     await recordAutoLarisSandboxPass(op, { evidence: "first sandbox run", reason: "sandbox pass recorded" });
     const { approvalId } = await requestAutoLarisProduction(op, { reason: "go live" });
     await decideApproval(second, approvalId, "approve");

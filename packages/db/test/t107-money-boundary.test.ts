@@ -17,6 +17,7 @@ import { fakeProviders, type Providers } from "../src/payments/providers.ts";
 import { paymentAttempt } from "../src/payments/schema-payments.ts";
 import { confirmPaymentByHand, FakeAutoLarisAccounts, setPaymentPreferences, setSellerPaymentTransport } from "../src/payments/seller.ts";
 import { bindSession, type SellerScope } from "../src/platform/scoped.ts";
+import { acceptSellerTerms } from "../src/platform/terms.ts";
 import { withStore } from "../src/platform/tenant.ts";
 import { ledgerEntry, membership, order, orderFinancials, orderSellerRefund, payout, payoutDestination, reconciliationBatch, refund, shipment } from "../src/schema.ts";
 import { checkoutPaymentChannels, placeOrder, searchDestinationAreas } from "../src/seller/commerce/checkout.ts";
@@ -66,6 +67,7 @@ type Own = Awaited<ReturnType<typeof makeStore>> & { me: SellerScope };
 async function ownStore(slug: string, o: { mengantar?: boolean; autolaris?: boolean; payBearer?: "buyer" | "seller"; codBearer?: "buyer" | "seller" } = {}): Promise<Own> {
   const s = await makeStore(slug);
   const me = bindSession(s.owner, await sessionOf(s.ownerId));
+  await acceptSellerTerms(me, { version: 1, agreed: true }); // T-116
   if (o.mengantar !== false) {
     await saveProviderKey(me, { provider: "mengantar", environment: "sandbox", apiKey: KEY.mengantar, proofId: await issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "mengantar" }) });
     await confirmDedicatedAccount(me, { confirmed: true }); // T-115: shipping is ready only on a confirmed dedicated account
@@ -289,6 +291,7 @@ describe("T-107 clean cut-over to the store's own accounts (review M2)", () => {
   it("a store with platform money in flight cannot connect its own account (service and database), the seller sees why; with none left it can", async () => {
     const legacy = await makeStore("cutover");
     const me = bindSession(legacy.owner, await sessionOf(legacy.ownerId));
+    await acceptSellerTerms(me, { version: 1, agreed: true }); // T-116
     const connect = async () => saveProviderKey(me, { provider: "autolaris", environment: "sandbox", apiKey: KEY.autolaris, proofId: await issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "autolaris" }) });
     // An order that is not completed, cancelled or returned.
     const cartId = await setCartLine(legacy.sf, undefined, { variantId: legacy.variantId, quantity: 1 }, "add");
@@ -313,6 +316,7 @@ describe("T-107 clean cut-over to the store's own accounts (review M2)", () => {
     const legacy = await makeStore("history");
     await activateDestination(legacy); // platform history: a payout destination before the conversion
     const me = bindSession(legacy.owner, await sessionOf(legacy.ownerId));
+    await acceptSellerTerms(me, { version: 1, agreed: true }); // T-116
     await saveProviderKey(me, { provider: "autolaris", environment: "sandbox", apiKey: KEY.autolaris, proofId: await issueSellerStepUp(me, { action: "integrations.provider_key", subjectId: "autolaris" }) });
     expect((await verifyLedger(platform)).violations).toEqual([]);
     // A destination forced past the guard after the conversion is flagged.

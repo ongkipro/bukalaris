@@ -10,6 +10,7 @@ import { requirePlatformCap } from "../ops/capabilities.ts";
 import { hit, type LimitRule } from "../platform/rate-limit.ts";
 import { resolveCartStore, resolveOrderStore } from "../platform/resolvers.ts";
 import { DomainError, requireCap, type OperatorScope, type SellerScope } from "../platform/scoped.ts";
+import { assertSellerTermsReviewed } from "../platform/terms.ts";
 import { withStore } from "../platform/tenant.ts";
 import { auditLog, order, store } from "../schema.ts";
 import { credentialKeyring, keyFingerprint, sealCredential, unsealCredential } from "../shipping/credentials.ts";
@@ -474,6 +475,7 @@ export async function requestAutoLarisProduction(op: OperatorScope, raw: unknown
   const { reason: why } = z.strictObject({ reason }).parse(raw);
   const [row] = await op.exec.select().from(paymentProductionSwitch).where(eq(paymentProductionSwitch.provider, "autolaris"));
   if (!row?.sandboxPassAt) throw new DomainError("sandbox_pass_required", "Produksi hanya bisa diaktifkan setelah uji sandbox AutoLaris tercatat.");
+  await assertSellerTermsReviewed(op.exec);
   const r = await requestApproval(op, { actionKey: PRODUCTION_ON_ACTION, targetKind: "provider_production_switch", targetId: "autolaris", payload: productionOnPayload(row), reason: why });
   return { approvalId: r.id };
 }
@@ -487,6 +489,7 @@ export async function setAutoLarisProduction(op: OperatorScope, raw: unknown) {
     const [row] = await tx.select().from(paymentProductionSwitch).where(eq(paymentProductionSwitch.provider, "autolaris")).for("update");
     if (input.enabled && !row?.sandboxPassAt) throw new DomainError("sandbox_pass_required", "Produksi hanya bisa diaktifkan setelah uji sandbox AutoLaris tercatat.");
     if (input.enabled) {
+      await assertSellerTermsReviewed(tx);
       if (!input.approvalId) throw new DomainError("approval_invalid", "Mengaktifkan produksi memerlukan persetujuan operator kedua.");
       await consumeApproval(tx, op, { approvalId: input.approvalId, actionKey: PRODUCTION_ON_ACTION, targetKind: "provider_production_switch", targetId: "autolaris", payloadSha256: payloadHash(productionOnPayload(row!)) });
     }

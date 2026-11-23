@@ -270,6 +270,9 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
                   </label>
                 )}
                 {!codOffered && options.length > 0 && <p className="text-xs text-muted-foreground">COD tidak tersedia untuk area ini.</p>}
+                <p className="text-xs text-muted-foreground" data-testid="payee-notice">
+                  Pembayaran pesanan ini diterima langsung oleh {summary.store.name}; Bukalaris hanya menyediakan platform dan catatan transaksi.
+                </p>
               </fieldset>
               <VoucherField />
               <fieldset className="grid gap-2">

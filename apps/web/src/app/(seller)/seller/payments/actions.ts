@@ -2,7 +2,7 @@
 
 import { requirePortalCsrf } from "@/lib/auth-csrf";
 
-import { addBankAccount, BANK_ACCOUNT_STEP_UP, checkProviderNow, confirmPaymentByHand, DomainError, PROVIDERS, removeBankAccount, removeProviderKey, saveProviderKey, sellerRequestPaymentCheck, setBankTransferSettings, setPaymentAccountDetails, setPaymentPreferences, type Provider } from "@bukalaris/db";
+import { acceptSellerTerms, addBankAccount, BANK_ACCOUNT_STEP_UP, checkProviderNow, confirmPaymentByHand, DomainError, PROVIDERS, removeBankAccount, removeProviderKey, saveProviderKey, sellerRequestPaymentCheck, setBankTransferSettings, setPaymentAccountDetails, setPaymentPreferences, type Provider } from "@bukalaris/db";
 import { clientIp } from "@/lib/storefront";
 import { sellerScope } from "@/lib/context";
 import { userError, withError } from "@/lib/errors";
@@ -148,5 +148,15 @@ export async function saveBankTransferSettingsAction(f: FormData) {
   await run(async () => {
     await setBankTransferSettings(scope, { enabled: f.get("enabled") === "on", paymentWindowHours: text(f, "paymentWindowHours"), revision: text(f, "revision") });
     return "bank_settings";
+  });
+}
+
+// T-116: owner accepts the current versioned seller terms (append-only, audited). Required before saving a provider key or bank account.
+export async function acceptSellerTermsAction(f: FormData) {
+  await requirePortalCsrf(f, PAGE);
+  const scope = await sellerScope();
+  await run(async () => {
+    await acceptSellerTerms(scope, { version: text(f, "version"), agreed: f.get("agreed") === "on" });
+    return "terms_accepted";
   });
 }
