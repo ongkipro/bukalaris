@@ -21,6 +21,7 @@ import "./shipping/jobs.ts"; // T-48 Partner provisioning sweep, bounded account
 import "./buyer/jobs.ts"; // registers the buyer.resolve handler (JOB-10, T-57)
 import "./affiliate/jobs.ts"; // registers the affiliate.catalog.project handler (JOB-20, T-52)
 import "./billing/jobs.ts"; // registers subscription.instruction / subscription.verify, their reconcilers and the hourly billing.cycle schedule (T-50)
+import "./payments/bank-transfer.ts"; // T-113: the expiry sweep of unpaid bank-transfer orders (bank_transfer.expire)
 import "./payments/jobs.ts"; // registers payment.instruction / payment.verify, their reconcilers and the JOB-25 poll + callback redaction schedules (T-49)
 import "./ledger/release.ts"; // registers JOB-24 ledger.release (T-37)
 import "./ledger/reconciliation.ts"; // registers JOB-33 cod.reconciliation.poll, a no-op while provider reconciliation is off (T-37)

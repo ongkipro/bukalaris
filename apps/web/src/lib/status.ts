@@ -30,8 +30,8 @@ export const orderActionLabel: Record<OrderAction, string> = {
   cancel: "Batalkan pesanan",
 };
 
-export const paymentLabel = { cod: "COD (bayar di tempat)", manual_transfer: "Transfer manual" } as const;
-export const paymentShortLabel = { cod: "COD", manual_transfer: "Transfer" } as const;
+export const paymentLabel = { cod: "COD (bayar di tempat)", manual_transfer: "Transfer manual", bank_transfer: "Transfer bank ke rekening toko" } as const;
+export const paymentShortLabel = { cod: "COD", manual_transfer: "Transfer", bank_transfer: "Transfer bank" } as const;
 
 export type ProductStatus = "draft" | "active" | "archived";
 export const productStatusLabel: Record<ProductStatus, string> = { draft: "Draf", active: "Aktif", archived: "Diarsipkan" };

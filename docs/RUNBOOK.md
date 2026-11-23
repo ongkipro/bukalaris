@@ -108,6 +108,16 @@ local dev default `./var/media`, both git-ignored). The image pre-creates
 - the volume is part of the backup set (`tar` the directory or snapshot the
   volume together with a database dump), and one web replica at a time.
 
+Buyer proof-of-transfer images (T-113, bank transfer) are a second, private
+store under `PRIVATE_MEDIA_DIR` (required in production; locally
+`<repo>/var/private-media`, git-ignored). Mount a separate persistent volume
+there for the web container and the cleanup command (the same path in both),
+owned by `10001:10001`. Never mount it under `MEDIA_DIR`: the public media route
+must not reach it. The cleanup command deletes the files 90 days after the order
+closed (retention class `payment_proof`; change the period with
+`setRetentionPeriod`) and keeps the database rows; back the volume up with the
+database dump, and treat the backup as personal data.
+
 ## Backup
 
 ```bash

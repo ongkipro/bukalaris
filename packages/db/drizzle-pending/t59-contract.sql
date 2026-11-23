@@ -40,6 +40,7 @@ GRANT SELECT ON "affiliate_policy" TO bukalaris_platform;--> statement-breakpoin
 GRANT SELECT ON "affiliate_seller_policy" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE ON "approval_request" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT ON "audit_log" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT ON "bank_transfer_confirmation" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, UPDATE ON "billing_control" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE ON "break_glass_grant" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, DELETE ON "cart" TO bukalaris_platform;--> statement-breakpoint
@@ -67,6 +68,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON "operator_grant" TO bukalaris_platform;-
 GRANT SELECT, INSERT ON "operator_grant_event" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE, DELETE ON "operator_step_up_proof" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, UPDATE ON "order" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT ON "order_bank_transfer" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT ON "order_financials" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "order_line" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT ON "order_line_financials" TO bukalaris_platform;--> statement-breakpoint
@@ -85,6 +87,8 @@ GRANT SELECT, INSERT ON "payment_fee_rate" TO bukalaris_platform;--> statement-b
 GRANT SELECT ON "payment_manual_confirmation" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT ON "payment_observation" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, UPDATE ON "payment_production_switch" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT ON "payment_proof" TO bukalaris_platform;--> statement-breakpoint
+GRANT UPDATE ("files", "files_purged_at") ON "payment_proof" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, UPDATE ON "payout" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, UPDATE ON "payout_control" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "payout_destination" TO bukalaris_platform;--> statement-breakpoint
@@ -118,6 +122,8 @@ GRANT SELECT ON "shipping_webhook_event" TO bukalaris_platform;--> statement-bre
 GRANT SELECT ON "signal_destination" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE ON "signal_event" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE ON "store" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT ON "store_bank_account" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT ON "store_bank_transfer" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, UPDATE ON "store_courier_rule" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "store_payment_account" TO bukalaris_platform;--> statement-breakpoint
 GRANT UPDATE ("key_fingerprint", "key_id", "sealed_at", "sealed_key") ON "store_payment_account" TO bukalaris_platform;--> statement-breakpoint

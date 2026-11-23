@@ -229,8 +229,9 @@ export async function paymentReadiness(scope: ReadScope): Promise<Readiness> {
  * activation, the checkout method list) are wired by T-93, T-105 and T-106.
  */
 export async function storeReadiness(scope: ReadScope) {
-  const [shipping, qrisVa] = await Promise.all([shippingReadiness(scope), paymentReadiness(scope)]);
-  return { shipping, qrisVa, canOpen: qrisVa.ready || shipping.ready, physicalProducts: shipping.ready };
+  const [shipping, qrisVa, bankTransfer] = await Promise.all([shippingReadiness(scope), paymentReadiness(scope), import("./bank-transfer.ts").then((m) => m.bankTransferReady(scope.exec, scope.storeId))]);
+  // T-113 (decision 36): bank transfer with one listed account counts as a ready prepaid method.
+  return { shipping, qrisVa, bankTransfer, canOpen: qrisVa.ready || bankTransfer || shipping.ready, physicalProducts: shipping.ready };
 }
 
 /** The seller screen (owner only): both accounts, the AutoLaris readiness inputs and readiness. Never a key, an envelope or a fingerprint. */
@@ -240,7 +241,8 @@ export async function sellerProviderAccounts(scope: SellerScope) {
     const [ship, pay, [pickup], dedicated] = await Promise.all([readAccount(exec, scope.storeId, "mengantar"), readAccount(exec, scope.storeId, "autolaris"), exec.select({ storeId: storePickupArea.storeId }).from(storePickupArea).where(eq(storePickupArea.storeId, scope.storeId)), readDedicated(exec, scope.storeId)]);
     const details: PaymentAccountDetails | null = pay ? { originAreaId: pay.originAreaId ?? null, destinationAreaId: pay.destinationAreaId ?? null, shipperEmail: pay.shipperEmail ?? null, senderAddress: pay.senderAddress ?? null, paymentOnlyConfirmedAt: pay.paymentOnlyConfirmedAt ?? null } : null;
     const shipping = shippingGaps(ship, !!pickup, dedicated), qrisVa = paymentGaps(pay, await autolarisProductionOn(exec));
-    return { mengantar: view("mengantar", ship), autolaris: view("autolaris", pay), details, readiness: { shipping, qrisVa, canOpen: qrisVa.ready || shipping.ready, physicalProducts: shipping.ready } };
+    const bankTransfer = (await (await import("./bank-transfer.ts")).bankTransferState(exec, scope.storeId)).ready; // T-113 (decision 36)
+    return { mengantar: view("mengantar", ship), autolaris: view("autolaris", pay), details, readiness: { shipping, qrisVa, bankTransfer, canOpen: qrisVa.ready || bankTransfer || shipping.ready, physicalProducts: shipping.ready } };
   });
 }
 

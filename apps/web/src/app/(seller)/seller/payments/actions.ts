@@ -2,7 +2,7 @@
 
 import { requirePortalCsrf } from "@/lib/auth-csrf";
 
-import { checkProviderNow, confirmPaymentByHand, DomainError, PROVIDERS, removeProviderKey, saveProviderKey, sellerRequestPaymentCheck, setPaymentAccountDetails, setPaymentPreferences, type Provider } from "@bukalaris/db";
+import { addBankAccount, BANK_ACCOUNT_STEP_UP, checkProviderNow, confirmPaymentByHand, DomainError, PROVIDERS, removeBankAccount, removeProviderKey, saveProviderKey, sellerRequestPaymentCheck, setBankTransferSettings, setPaymentAccountDetails, setPaymentPreferences, type Provider } from "@bukalaris/db";
 import { clientIp } from "@/lib/storefront";
 import { sellerScope } from "@/lib/context";
 import { userError, withError } from "@/lib/errors";
@@ -119,5 +119,34 @@ export async function sellerRecheckAction(f: FormData) {
   await runTx(async () => {
     await sellerRequestPaymentCheck(scope, text(f, "orderId"), { clientIp: await clientIp() });
     return "recheck";
+  });
+}
+
+// T-113: the store's bank accounts for bank transfer. Listing and removing need the owner's fresh second factor (the code becomes a single-use
+// proof bound to this session and the bank-account list, consumed in the write); the switch and the payment window do not move money.
+export async function addBankAccountAction(f: FormData) {
+  await requirePortalCsrf(f, PAGE);
+  const scope = await sellerScope();
+  await run(async () => {
+    const proofId = await stepUpWithCode(scope, text(f, "code"), BANK_ACCOUNT_STEP_UP);
+    await addBankAccount(scope, { bankCode: text(f, "bankCode"), accountNumber: text(f, "accountNumber"), holderName: text(f, "holderName"), proofId });
+    return "bank_added";
+  });
+}
+export async function removeBankAccountAction(f: FormData) {
+  await requirePortalCsrf(f, PAGE);
+  const scope = await sellerScope();
+  await run(async () => {
+    const proofId = await stepUpWithCode(scope, text(f, "code"), BANK_ACCOUNT_STEP_UP);
+    await removeBankAccount(scope, { id: text(f, "id"), proofId });
+    return "bank_removed";
+  });
+}
+export async function saveBankTransferSettingsAction(f: FormData) {
+  await requirePortalCsrf(f, PAGE);
+  const scope = await sellerScope();
+  await run(async () => {
+    await setBankTransferSettings(scope, { enabled: f.get("enabled") === "on", paymentWindowHours: text(f, "paymentWindowHours"), revision: text(f, "revision") });
+    return "bank_settings";
   });
 }

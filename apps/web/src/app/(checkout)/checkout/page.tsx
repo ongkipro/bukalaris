@@ -73,6 +73,7 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
   let schedule: FeeSchedule | null = null;
   let sellerBearsFee = false;
   let codFee: CodFeeTerms | null = null;
+  let bankTransfer = false;
   let channelError: string | undefined;
   if (area && summary.canShip) {
     try {
@@ -80,6 +81,7 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
       const methods = await checkoutPaymentChannels(db(), scope.storeId);
       ({ channels, schedule } = methods);
       sellerBearsFee = methods.account?.feeBearer === "seller";
+      bankTransfer = methods.bankTransfer; // T-113: the store's own bank account, when listed and switched on (decision 36)
       codFee = methods.codFee; // T-107: a store on its own accounts states its COD fee before the buyer orders (decisions 17 and 18)
     } catch (err) {
       if (!(err instanceof DomainError)) throw err;
@@ -257,7 +259,16 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
                     ))}
                   </fieldset>
                 )}
-                {channels.length === 0 && <p role="note" className="text-xs text-muted-foreground">{channelError ?? "Pembayaran online belum tersedia untuk toko ini."}</p>}
+                {channels.length === 0 && !bankTransfer && <p role="note" className="text-xs text-muted-foreground">{channelError ?? "Pembayaran online belum tersedia untuk toko ini."}</p>}
+                {bankTransfer && (
+                  <label className={optionClass}>
+                    <input type="radio" name="paymentMethod" value="bank_transfer" defaultChecked={!codOffered && channels.length === 0} required />
+                    <span className="flex-1">
+                      Transfer bank ke rekening penjual
+                      <span className="block text-xs text-muted-foreground">Nomor rekening dan total yang harus ditransfer tampil setelah pesanan dibuat. Pesanan diproses setelah penjual mengonfirmasi dana masuk.</span>
+                    </span>
+                  </label>
+                )}
                 {!codOffered && options.length > 0 && <p className="text-xs text-muted-foreground">COD tidak tersedia untuk area ini.</p>}
               </fieldset>
               <VoucherField />
@@ -268,7 +279,7 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
                 <p id="affiliate-help" className="text-xs text-muted-foreground">Kode yang tidak dikenal atau sudah tidak berlaku tidak menghalangi pesanan.</p>
               </fieldset>
               <p className="text-sm text-muted-foreground">Harga, stok dan ongkir dicek ulang oleh server saat pesanan dibuat.</p>
-              <Button type="submit" size="lg" className="h-11 text-base sm:justify-self-start sm:px-8" disabled={options.length === 0 || (!codOffered && channels.length === 0)}>
+              <Button type="submit" size="lg" className="h-11 text-base sm:justify-self-start sm:px-8" disabled={options.length === 0 || (!codOffered && channels.length === 0 && !bankTransfer)}>
                 Buat pesanan
               </Button>
             </form>

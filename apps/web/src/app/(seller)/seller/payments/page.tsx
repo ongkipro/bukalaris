@@ -10,9 +10,10 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { sellerScope } from "@/lib/context";
 import { tanggal } from "@/lib/format";
-import { can, sellerPaymentPreferences, sellerProviderAccounts, type PaymentAccountDetails, type PaymentPreferences, type ProviderAccountView, type Readiness } from "@bukalaris/db";
+import { BANK_ACCOUNT_MAX, can, sellerBankTransfer, sellerPaymentPreferences, sellerProviderAccounts, type BankTransferState, type PaymentAccountDetails, type PaymentPreferences, type ProviderAccountView, type Readiness } from "@bukalaris/db";
+import { BANKS } from "@/lib/finance";
 import Link from "next/link";
-import { checkProviderNowAction, removeProviderKeyAction, savePaymentDetailsAction, savePaymentPreferencesAction, saveProviderKeyAction } from "./actions";
+import { addBankAccountAction, checkProviderNowAction, removeBankAccountAction, removeProviderKeyAction, saveBankTransferSettingsAction, savePaymentDetailsAction, savePaymentPreferencesAction, saveProviderKeyAction } from "./actions";
 import { checkLabel, environmentLabel, feeBearerLabel, gapLabel, providerName, savedLabel } from "./labels";
 
 export const metadata = { title: "Akun penyedia — Bukalaris" };
@@ -30,7 +31,7 @@ export default async function ProviderAccountsPage({ searchParams }: PageProps<"
         <p role="note" data-testid="providers-denied" className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">Hanya pemilik toko yang dapat menghubungkan, mengganti atau menghapus kunci akun pengiriman dan pembayaran toko.</p>
       </section>
     );
-  const [data, prefs] = await Promise.all([sellerProviderAccounts(scope), sellerPaymentPreferences(scope)]);
+  const [data, prefs, bank] = await Promise.all([sellerProviderAccounts(scope), sellerPaymentPreferences(scope), sellerBankTransfer(scope)]);
   const savedKey = typeof saved === "string" ? saved : undefined;
   return (
     <section className="grid max-w-3xl gap-6">
@@ -40,6 +41,7 @@ export default async function ProviderAccountsPage({ searchParams }: PageProps<"
       <dl className="grid gap-3 sm:grid-cols-2" data-testid="readiness">
         <ReadinessCard testId="readiness-payment" title="Pembayaran QRIS/VA" readiness={data.readiness.qrisVa} />
         <ReadinessCard testId="readiness-shipping" title="Pengiriman dan COD" readiness={data.readiness.shipping} />
+        <ReadinessCard testId="readiness-bank" title="Transfer bank" readiness={{ ready: bank.ready, missing: [] }} note={bank.ready ? undefined : bank.accounts.length === 0 ? "Tambahkan minimal satu rekening." : "Transfer bank dimatikan."} />
       </dl>
       <p className="-mt-3 text-xs text-muted-foreground" data-testid="readiness-open">
         {data.readiness.canOpen ? "Toko punya setidaknya satu cara bayar yang siap." : "Toko butuh setidaknya satu cara bayar yang siap sebelum bisa dibuka."} Produk fisik hanya bisa diaktifkan saat pengiriman siap.
@@ -54,6 +56,7 @@ export default async function ProviderAccountsPage({ searchParams }: PageProps<"
           <span className="text-muted-foreground"> — status tagihan, cek status sekarang dan konfirmasi manual.</span>
         </p>
       )}
+      <BankTransferSection bank={bank} />
       <ProviderSection account={data.mengantar} title="Pengiriman · Mengantar" intro="Kunci API dari akun Mengantar baru yang khusus dipakai toko ini. Ongkir, pemesanan kurir dan pelacakan berjalan di akun Anda." />
       <p className="text-xs text-muted-foreground">
         Tidak ada kolom alamat server: Bukalaris memakai alamat resmi penyedia sesuai lingkungan yang Anda pilih. Area dan alamat pickup diatur di <Link href="/seller/shipping" className="underline underline-offset-4">Pengiriman</Link>.
@@ -62,7 +65,7 @@ export default async function ProviderAccountsPage({ searchParams }: PageProps<"
   );
 }
 
-function ReadinessCard({ title, readiness, testId }: { title: string; readiness: Readiness; testId: string }) {
+function ReadinessCard({ title, readiness, testId, note }: { title: string; readiness: Readiness; testId: string; note?: string | undefined }) {
   return (
     <div className="grid content-start gap-1.5 rounded-lg border p-4" data-testid={testId}>
       <dt className="flex flex-wrap items-center justify-between gap-2 text-sm font-medium text-muted-foreground">
@@ -72,6 +75,7 @@ function ReadinessCard({ title, readiness, testId }: { title: string; readiness:
       {readiness.missing.map((gap) => (
         <dd key={gap} className="text-sm">{gapLabel[gap]}</dd>
       ))}
+      {note && <dd className="text-sm">{note}</dd>}
       {readiness.ready && <dd className="text-sm">Semua syarat terpenuhi.</dd>}
     </div>
   );
@@ -207,5 +211,78 @@ function PreferencesForm({ preferences, channels }: { preferences: PaymentPrefer
       <p className="text-xs text-muted-foreground">Berlaku untuk pesanan baru. Pesanan yang sudah dibuat memakai pengaturan saat pesanan dibuat.</p>
       <SubmitButton className="justify-self-start">Simpan pengaturan</SubmitButton>
     </form>
+  );
+}
+
+/**
+ * T-113 (ADR-0013 decisions 35 to 39a): bank transfer to the store's own bank account. Up to five destination accounts; listing or removing one
+ * needs the owner's fresh second factor (a code, turned into a single-use proof), and every change is audited. The switch and the payment window
+ * apply to new orders; an order keeps the accounts it showed the buyer.
+ */
+function BankTransferSection({ bank }: { bank: BankTransferState }) {
+  return (
+    <section aria-labelledby="bank-heading" className="grid gap-3" data-testid="bank-transfer-settings">
+      <h2 id="bank-heading" className="text-base font-semibold">Transfer bank ke rekening toko</h2>
+      <p className="text-sm text-muted-foreground">Pembeli mentransfer tepat sebesar total pesanan ke rekening Anda dan bisa mengirim foto bukti. Pesanan menjadi dibayar hanya setelah Anda mengonfirmasi dana masuk pada halaman pesanan; Bukalaris tidak memeriksa rekening bank.</p>
+      {bank.accounts.length > 0 ? (
+        <ul className="divide-y rounded-lg border text-sm" aria-label="Rekening tujuan" data-testid="bank-accounts">
+          {bank.accounts.map((a) => (
+            <li key={a.id} className="grid gap-2 p-3 sm:grid-cols-[1fr_auto] sm:items-end">
+              <span><span className="font-medium">{a.bankCode}</span> <span className="font-mono">{a.accountNumber}</span><span className="block text-muted-foreground">a.n. {a.holderName}</span></span>
+              <form action={removeBankAccountAction} className="flex flex-wrap items-end gap-2" aria-label={`Hapus rekening ${a.bankCode} ${a.accountNumber}`}>
+                <CsrfField />
+                <input type="hidden" name="id" value={a.id} />
+                <div className="grid gap-1">
+                  <Label htmlFor={`bank-remove-code-${a.id}`} className="text-xs">Kode verifikasi</Label>
+                  <Input id={`bank-remove-code-${a.id}`} name="code" inputMode="numeric" pattern="[0-9 ]{6,7}" autoComplete="one-time-code" required className="w-32" />
+                </div>
+                <ConfirmSubmit variant="outline" message={`Hapus rekening ${a.bankCode} ${a.accountNumber}? Pesanan yang sudah dibuat tetap menampilkan rekening ini.`}>Hapus</ConfirmSubmit>
+              </form>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p role="note" className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground" data-testid="bank-accounts-empty">Belum ada rekening. Transfer bank tampil di checkout setelah satu rekening ditambahkan.</p>
+      )}
+      {bank.accounts.length < BANK_ACCOUNT_MAX && (
+        <form action={addBankAccountAction} className="grid gap-3 rounded-lg border p-4 text-sm" aria-label="Tambah rekening">
+          <CsrfField />
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-1.5">
+              <Label htmlFor="bank-code">Bank</Label>
+              <NativeSelect id="bank-code" name="bankCode" defaultValue="BCA">{BANKS.map((b) => <option key={b} value={b}>{b}</option>)}</NativeSelect>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="bank-number">Nomor rekening</Label>
+              <Input id="bank-number" name="accountNumber" inputMode="numeric" pattern="[0-9]{5,24}" required autoComplete="off" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="bank-holder">Nama pemilik rekening</Label>
+              <Input id="bank-holder" name="holderName" required minLength={2} maxLength={120} autoComplete="off" />
+            </div>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="bank-add-code">Kode verifikasi dua langkah</Label>
+            <Input id="bank-add-code" name="code" inputMode="numeric" pattern="[0-9 ]{6,7}" autoComplete="one-time-code" required className="sm:max-w-48" aria-describedby="bank-add-code-help" />
+            <p id="bank-add-code-help" className="text-xs text-muted-foreground">Kode 6 angka dari aplikasi autentikator. Maksimal {BANK_ACCOUNT_MAX} rekening.</p>
+          </div>
+          <SubmitButton className="sm:justify-self-start" pendingText="Menyimpan…">Tambah rekening</SubmitButton>
+        </form>
+      )}
+      <form action={saveBankTransferSettingsAction} className="grid gap-3 rounded-lg border p-4 text-sm" aria-label="Pengaturan transfer bank">
+        <CsrfField />
+        <input type="hidden" name="revision" value={bank.revision} />
+        <label className="flex min-h-6 items-center gap-2">
+          <input type="checkbox" name="enabled" defaultChecked={bank.enabled} className="size-4" />
+          Tawarkan transfer bank di checkout
+        </label>
+        <div className="grid gap-1.5 sm:max-w-64">
+          <Label htmlFor="bank-window">Batas waktu bayar (jam)</Label>
+          <Input id="bank-window" name="paymentWindowHours" type="number" min={1} max={168} required defaultValue={bank.paymentWindowHours} aria-describedby="bank-window-help" />
+          <p id="bank-window-help" className="text-xs text-muted-foreground">Stok ditahan selama ini; pesanan yang belum dibayar lalu dibatalkan otomatis, kecuali bukti transfer masih menunggu pemeriksaan Anda.</p>
+        </div>
+        <SubmitButton variant="outline" className="sm:justify-self-start" pendingText="Menyimpan…">Simpan pengaturan</SubmitButton>
+      </form>
+    </section>
   );
 }

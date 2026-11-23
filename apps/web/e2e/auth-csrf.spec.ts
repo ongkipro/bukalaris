@@ -503,7 +503,10 @@ test("T82 refused checkout capture and submit leave no contact or order effect; 
     const restoredByClient = (await field.inputValue()) !== forged;
     console.info(JSON.stringify({ phase: "checkout field before submit", restoredByClient }));
     await forge();
-    const submit = page.waitForRequest((r) => r.method() === "POST" && new URL(r.url()).pathname === "/checkout");
+    // A client re-render after the capture action can restore the rendered token between the forge and the click (seen in CI): set it again in a
+    // window capture-phase submit listener, which runs before React reads the form, so the submit always carries the forged token.
+    await page.evaluate((value) => window.addEventListener("submit", (e) => { const f = (e.target as HTMLFormElement).querySelector<HTMLInputElement>('input[name="_csrf"]'); if (f) f.value = value; }, { capture: true, once: true }), forged);
+    const submit = page.waitForRequest((r) => r.method() === "POST" && new URL(r.url()).pathname === "/checkout" && (r.postData() ?? "").includes("idempotencyKey"));
     await page.getByRole("button", { name: "Buat pesanan" }).click();
     expect(carriesForged(await submit), "submit request carried the forged token").toBe(true);
     await expect(page.getByRole("alert").filter({ hasText: "Muat ulang" })).toBeVisible();

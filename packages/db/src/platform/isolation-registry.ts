@@ -117,6 +117,14 @@ export const ISOLATION_REGISTRY: Record<string, TableEntry> = {
   // the payment anomalies raised for the seller (by the worker's status check or by a manual confirmation). Both append-only (trigger), never deleted but by the demo reset.
   payment_manual_confirmation: tenant("SELECT,INSERT", "SELECT"),
   payment_anomaly: tenant("SELECT,INSERT", "SELECT,INSERT"),
+  // T-113 (ADR-0013 section 10): the store's bank accounts (listed and removed by the owner with a step-up; the removal stamp is the only change), its
+  // bank-transfer switch, the frozen destinations of an order, the buyer's proof (decided by the seller; the files purged by the cleanup on the platform
+  // pool) and the seller's confirmation record (append-only).
+  store_bank_account: { ...tenant("SELECT,INSERT", "SELECT"), appColumns: columnGrants({ UPDATE: ["removal_step_up_ref", "removed_at", "removed_by"] }) },
+  store_bank_transfer: tenant("SELECT,INSERT,UPDATE", "SELECT"),
+  order_bank_transfer: tenant("SELECT,INSERT", "SELECT"), // immutable (payment_evidence_guard)
+  payment_proof: { ...tenant("SELECT,INSERT", "SELECT"), appColumns: columnGrants({ UPDATE: ["decided_at", "decided_by", "reject_reason", "status"] }), platformColumns: columnGrants({ UPDATE: ["files", "files_purged_at"] }) },
+  bank_transfer_confirmation: tenant("SELECT,INSERT", "SELECT"), // append-only (payment_evidence_guard)
   // T-37 seller ledger, payouts and refunds (migration 0013). Credits, releases and settlement are the platform pool's; the app login can only DEBIT its own
   // balance (ledger_entry_insert_guard), request payouts, keep its destination, submit a refund destination and consume its own step-up proof.
   order_financials: tenant("SELECT,INSERT", "SELECT,INSERT"), // immutable (financial_snapshot_guard); platform INSERT: local seeds call placeOrder on the platform pool
@@ -347,6 +355,12 @@ export const DEFINER_FUNCTIONS: Record<string, DefinerFunction> = {
   "money_boundary_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
   "money_cutover_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] }, // review M2: the first own account only with no platform money in flight
   "order_financials_money_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
+  // T-113: the bank-account list (step-up, five listed, removal stamp only), the bank-transfer order records and the paid rule of decision 38.
+  "store_bank_account_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
+  "order_bank_transfer_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
+  "payment_proof_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
+  "bank_transfer_confirmation_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
+  "order_bank_transfer_paid_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
   "order_seller_refund_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
   // T-50: the signed callback reference of a subscription attempt resolves to its store (app pool); the effective vat_output policies (public tax configuration) are
   // readable by the seller Pay path. The triggers below pin what an invoice or attempt may start as and write the creation events; the bootstrap row-creates a trial

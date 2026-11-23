@@ -15,7 +15,7 @@ export const metadata = { title: "Pesanan — Bukalaris" };
 const isStatus = (s: unknown): s is OrderStatus => typeof s === "string" && (ORDER_STATUSES as readonly string[]).includes(s);
 
 /** Separate payment axis from fulfilment/order status: a confirmed or shipped COD order is not paid yet (admin-dashboard §8). */
-function paymentAxisNote(method: "cod" | "manual_transfer", status: OrderStatus): string {
+function paymentAxisNote(method: "cod" | "manual_transfer" | "bank_transfer", status: OrderStatus): string {
   if (method === "cod") {
     if (status === "cancelled" || status === "returned") return "Tidak tertagih";
     if (status === "completed") return "Diterima kurir";

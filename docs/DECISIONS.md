@@ -573,3 +573,21 @@ Accepted cost: an account rotated to a new key with more than 100 of its own par
 Upgrade path: page through the whole order list with the cursor in a worker job when the owner wants a full audit; switch the address to a path segment (one prefix rule in `platform/host.ts`) if Mengantar drops query strings; tune the numbers from pilot load (doc 16 RL-ACCOUNT-SCAN, RL-PARCEL-SWEEP).
 
 Revisit when: the opt-in sandbox run shows how a delivery and the order list behave, or the pilot shows provider rate limits.
+
+
+## D-36 — Bank transfer: a listed bank account is a seller-owned money account; proofs, expiry and retention (2026-11-23, T-113, engineering decisions)
+
+Context: ADR-0013 section 10 (decisions 35 to 39) adds bank transfer to the seller's own bank account. The T-107 money rule names only provider accounts.
+
+Decision:
+
+1. A listed bank account (`store_bank_account`) makes the store `seller_owned` (`store_money_mode` and `storeMoneyMode` count every row; a removal is a stamp, never a DELETE, so the mode never goes back) and obeys the clean cut-over of T-107 (`money_cutover_guard` on its first row). Money paid by bank transfer is the seller's; a platform-held store could otherwise freeze an order as `platform_held` whose money never reached the platform.
+2. The order freezes the destination accounts and the end of the payment window (`order_bank_transfer`); a later change of the list never alters an order.
+3. The expiry sweep (`bank_transfer.expire`, every minute) cancels an unpaid bank-transfer order past its window and returns the stock, except while a proof waits for the seller's decision: the buyer acted within the window and only the seller can judge the transfer.
+4. Proof files live in a private directory (`PRIVATE_MEDIA_DIR`), apart from the public media store, under keys of store id and random UUID; downloads are attachments with a sandboxing CSP. Up to three images of at most 3 MB each (three of them stay under the 11 MB Server Action body limit). The retention period is the retention setting of class `payment_proof`, seeded to 90 days (D-33); "closed" is read from `order.updated_at` of a completed, cancelled or returned order.
+
+Accepted cost: an order whose proof is never decided stays awaiting payment until the seller acts; a file written in an upload transaction that then fails to commit stays on disk without a row (no reader can reach it; the private directory is not listed anywhere); "closed" by `updated_at` can move later if a closed order is touched again.
+
+Upgrade path: an object store with the same keys (T-79); an orphan-file sweep comparing the directory with `payment_proof` rows; a closing timestamp on the order if retention needs to be exact to the day.
+
+Revisit when: the hosting work picks the production file store, or the pilot shows undecided proofs piling up.
