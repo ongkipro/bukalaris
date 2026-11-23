@@ -47,7 +47,10 @@ const ownerB = await makeUser("owner-b@bukalaris.local", "Bima (Toko B)");
 const storeA = await createStore(op, { slug: "toko-a", name: "Toko Ayu", ownerUserId: ownerA });
 await db.insert(membership).values({ storeId: storeA, userId: staffA, role: "staff" });
 await db.insert(membership).values({ storeId: storeA, userId: recoveryA, role: "staff" });
-await createStore(op, { slug: "toko-b", name: "Toko Bima", ownerUserId: ownerB });
+const storeB = await createStore(op, { slug: "toko-b", name: "Toko Bima", ownerUserId: ownerB });
+// T-117 (D-37): the dev seed models the pre-0027 platform-shipping stores.
+await db.update(store).set({ legacyPlatformShipping: true }).where(eq(store.id, storeA));
+await db.update(store).set({ legacyPlatformShipping: true }).where(eq(store.id, storeB));
 
 const scopeOf = async (userId: string) => {
   const ctx = await sellerContext(db, userId);

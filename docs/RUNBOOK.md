@@ -321,6 +321,30 @@ reads from the provider statement, and JOB-33 stays off.
   tracking status, or by a SQL update; confirm your own batch; reuse one statement
   for two batches.
 
+## AutoLaris payment-only profile request (T-117)
+
+Every store needs an AutoLaris account limited to payments (the payment-only
+profile, ADR-0013 decision 12 and D-31 owner answer 4). There is no self-serve
+form: the profile is requested by hand per seller.
+
+- **Who asks.** The seller asks Bukalaris support from the Seller Admin contact
+  channel. An operator with Owner-console access then contacts AutoLaris's
+  partner contact on the seller's behalf.
+- **What is sent to AutoLaris.** The store name, the store slug, the seller's
+  legal name, and the e-mail of the seller's OWN AutoLaris account — plus the
+  request itself: a payment-only profile for that store. Never any key,
+  password or buyer data.
+- **How the key reaches the seller.** AutoLaris issues the API key to the
+  seller inside the seller's own AutoLaris dashboard. The key never passes
+  through Bukalaris staff, chat or e-mail in clear text: the operator never
+  sees or forwards it.
+- **Where it is entered.** The seller enters the key on `/seller/payments`
+  (SC-32, owner, step-up) and ticks the payment-only confirmation
+  (`payment_only_confirmed_at`).
+- **Recording.** The record is the operator ticket of the seller's request;
+  it carries the date, the store slug, the requesting user, the AutoLaris
+  reference number and the outcome.
+
 ## Reading logs
 
 - Dev server: the terminal running `pnpm dev`.

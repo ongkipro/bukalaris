@@ -223,7 +223,7 @@ export function seedFixtureUser(prefix: string): string {
 }
 
 /** A fresh store (trial, writable) with its own owner, created through createStore like an operator would. */
-export function seedFixtureStore(prefix: string): { email: string; slug: string; name: string } {
+export function seedFixtureStore(prefix: string, opts: { legacy?: boolean } = {}): { email: string; slug: string; name: string } {
   const slug = `${prefix}-${fixtureTag()}`;
   const email = `${slug}@bukalaris.local`;
   fixtureDb(`
@@ -232,7 +232,10 @@ export function seedFixtureStore(prefix: string): { email: string; slug: string;
     const id = randomUUID();
     await db.insert(user).values({ id, email: ${JSON.stringify(email)}, name: ${JSON.stringify(`Pemilik ${slug}`)}, emailVerified: true });
     await db.insert(account).values({ id: randomUUID(), accountId: id, providerId: "credential", userId: id, password: await hashPassword(${JSON.stringify(DEV_PASSWORD)}) });
-    return await createStore(op, { slug: ${JSON.stringify(slug)}, name: ${JSON.stringify(`Toko ${slug}`)}, ownerUserId: id });
+    const storeId = await createStore(op, { slug: ${JSON.stringify(slug)}, name: ${JSON.stringify(`Toko ${slug}`)}, ownerUserId: id });
+    // T-117 (D-37): fixture stores model the pre-0027 platform-shipping stores unless a spec asks for a new (fail-closed) store.
+    if (${JSON.stringify(opts.legacy !== false)}) await db.$client.unsafe("update store set legacy_platform_shipping = true where id = $1", [storeId]);
+    return storeId;
   `);
   return { email, slug, name: `Toko ${slug}` };
 }
