@@ -164,6 +164,9 @@ export const membership = pgTable(
 // Catalog. Every store-owned row carries store_id; child rows use compound
 // (store_id, parent_id) foreign keys so a relation can never cross stores.
 // ---------------------------------------------------------------------------
+export const PRODUCT_KINDS = ["physical", "digital"] as const;
+export type ProductKind = (typeof PRODUCT_KINDS)[number];
+
 export const product = pgTable(
   "product",
   {
@@ -176,6 +179,8 @@ export const product = pgTable(
     // on as aliases (product_slug_alias) that redirect to the canonical slug.
     slug: text("slug"),
     description: text("description").notNull().default(""),
+    /** T-111 (ADR-0016 decision 1): applies to every variant; changeable only while no order line refers to this product. */
+    kind: text("kind", { enum: PRODUCT_KINDS }).notNull().default("physical"),
     status: text("status", { enum: ["draft", "active", "archived"] }).notNull().default("draft"),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -183,6 +188,7 @@ export const product = pgTable(
   (t) => [
     unique("product_store_id_uq").on(t.storeId, t.id),
     unique("product_store_slug_uq").on(t.storeId, t.slug),
+    check("product_kind_chk", sql`${t.kind} in ('physical', 'digital')`),
     check("product_status_chk", sql`${t.status} in ('draft', 'active', 'archived')`),
     check("product_slug_chk", sql`${t.slug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$' and ${t.slug} !~ '^[0-9]+$'`),
     check("product_catalog_id_chk", sql`${t.catalogId} >= 10000`),
@@ -200,8 +206,10 @@ export const variant = pgTable(
     sku: text("sku"),
     price: idr("price").notNull(),
     stock: integer("stock").notNull().default(0),
-    /** Parcel weight of one unit in grams (T-61); the seller sets it, there is no default. */
-    weightGrams: integer("weight_grams").notNull(),
+    /** T-111 (ADR-0016 decision 2): false = unlimited stock (digital default); physical variants always keep true (enforced by variant_kind_guard). */
+    trackStock: boolean("track_stock").notNull().default(true),
+    /** Parcel weight of one unit in grams (T-61); mandatory > 0 for physical variants, NULL for digital (enforced by variant_kind_guard). */
+    weightGrams: integer("weight_grams"),
     createdAt: createdAt(),
   },
   (t) => [
@@ -210,7 +218,7 @@ export const variant = pgTable(
     index("variant_product_idx").on(t.storeId, t.productId),
     check("variant_price_chk", sql`${t.price} >= 0`),
     check("variant_stock_chk", sql`${t.stock} >= 0`),
-    check("variant_weight_chk", sql`${t.weightGrams} > 0`),
+    check("variant_weight_chk", sql`${t.weightGrams} is null or ${t.weightGrams} > 0`),
     check("variant_catalog_id_chk", sql`${t.catalogId} >= 10000`),
   ],
 );
@@ -283,26 +291,30 @@ export const order = pgTable(
     trackingNumber: text("tracking_number"),
     buyerName: text("buyer_name").notNull(),
     buyerPhone: text("buyer_phone").notNull(),
-    /** Optional, lower-cased; only used for order notifications (T-36, PR-21). */
+    /** Optional for physical-only; required when `hasDigital` (ADR-0016 decision 8). */
     buyerEmail: text("buyer_email"),
-    shippingAddress: text("shipping_address").notNull(),
+    /** T-111 (ADR-0016): physical/digital composition frozen at submit; at least one is true. */
+    hasPhysical: boolean("has_physical").notNull().default(true),
+    hasDigital: boolean("has_digital").notNull().default(false),
+    /** Nullable ONLY when `hasPhysical = false` (enforced by `order_shipping_presence_chk`). */
+    shippingAddress: text("shipping_address"),
     // Shipping snapshot (T-34, Q-12): provider courier key + label, route area ids, and the
-    // fee split. `shipping_fee` is what the buyer pays = provider cost + platform margin.
-    shippingAccountId: bigint("shipping_account_id", { mode: "number" }).notNull().default(0),
-    shippingAccountKind: text("shipping_account_kind", { enum: ["partner_managed", "platform_master", "seller_owned"] }).notNull().default("platform_master"),
+    // fee split. `shipping_fee` is what the buyer pays = provider cost + platform margin. NULL when `!hasPhysical`.
+    shippingAccountId: bigint("shipping_account_id", { mode: "number" }),
+    shippingAccountKind: text("shipping_account_kind", { enum: ["partner_managed", "platform_master", "seller_owned"] }),
     /** T-105 (ADR-0013 decision 11, C-P10): created under a sandbox account; never counted in sales figures or affiliate commission. Set once at submit. */
     testOrder: boolean("test_order").notNull().default(false),
-    courierCode: text("courier_code").notNull(),
-    courier: text("courier").notNull(),
-    originAreaId: text("origin_area_id").notNull(),
-    destinationAreaId: text("destination_area_id").notNull(),
-    destinationAreaLabel: text("destination_area_label").notNull(),
-    weightKg: integer("weight_kg").notNull(),
-    shippingProviderCost: idr("shipping_provider_cost").notNull(),
-    shippingMargin: idr("shipping_margin").notNull(),
+    courierCode: text("courier_code"),
+    courier: text("courier"),
+    originAreaId: text("origin_area_id"),
+    destinationAreaId: text("destination_area_id"),
+    destinationAreaLabel: text("destination_area_label"),
+    weightKg: integer("weight_kg"),
+    shippingProviderCost: idr("shipping_provider_cost").notNull().default(0),
+    shippingMargin: idr("shipping_margin").notNull().default(0),
     subtotal: idr("subtotal").notNull(),
     /** What the buyer pays for shipping AFTER a store-funded shipping discount (T-46): `shipping_fee + shipping_discount = provider cost + margin`. */
-    shippingFee: idr("shipping_fee").notNull(),
+    shippingFee: idr("shipping_fee").notNull().default(0),
     /** Store-funded goods discount (vouchers, flash-sale price overrides) and shipping discount, copied from the immutable financial snapshot (T-46, BILL-4). */
     goodsDiscount: idr("goods_discount").notNull().default(0),
     shippingDiscount: idr("shipping_discount").notNull().default(0),
@@ -315,20 +327,29 @@ export const order = pgTable(
     index("order_store_status_idx").on(t.storeId, t.status, t.id),
     unique("order_idempotency_uq").on(t.storeId, t.idempotencyKey),
     foreignKey({ name: "order_shipping_account_fk", columns: [t.storeId, t.shippingAccountId, t.shippingAccountKind], foreignColumns: [storeShippingAccount.storeId, storeShippingAccount.id, storeShippingAccount.kind] }),
+    check("order_kind_chk", sql`${t.hasPhysical} or ${t.hasDigital}`),
+    check(
+      "order_shipping_presence_chk",
+      sql`(${t.hasPhysical} and ${t.shippingAddress} is not null and ${t.shippingAccountId} is not null and ${t.shippingAccountKind} is not null and ${t.courierCode} is not null and ${t.courier} is not null and ${t.originAreaId} is not null and ${t.destinationAreaId} is not null and ${t.destinationAreaLabel} is not null and ${t.weightKg} is not null)
+        or (not ${t.hasPhysical} and ${t.shippingAddress} is null and ${t.shippingAccountId} is null and ${t.shippingAccountKind} is null and ${t.courierCode} is null and ${t.courier} is null and ${t.originAreaId} is null and ${t.destinationAreaId} is null and ${t.destinationAreaLabel} is null and ${t.weightKg} is null and ${t.trackingNumber} is null and ${t.shippingProviderCost} = 0 and ${t.shippingMargin} = 0 and ${t.shippingFee} = 0 and ${t.shippingDiscount} = 0)`,
+    ),
+    // T-111 (ADR-0016 decisions 7 and 8): digital lines forbid COD and require buyer e-mail (redaction clears email while stamping buyer_name = '[dihapus]').
+    check("order_digital_rules_chk", sql`not ${t.hasDigital} or (${t.paymentMethod} <> 'cod' and (${t.buyerEmail} is not null or ${t.buyerName} = '[dihapus]'))`),
     // The immutable financial snapshot (`order_financials`) re-checks these figures against the exact BILL-4 allocation identity.
     check("order_total_chk", sql`${t.total} = ${t.subtotal} - ${t.goodsDiscount} + ${t.shippingFee} and ${t.subtotal} >= 0 and ${t.shippingFee} >= 0 and ${t.goodsDiscount} >= 0 and ${t.goodsDiscount} <= ${t.subtotal}`),
     check(
       "order_shipping_fee_chk",
-      sql`${t.shippingFee} + ${t.shippingDiscount} = ${t.shippingProviderCost} + ${t.shippingMargin} and ${t.shippingDiscount} >= 0 and ${t.shippingDiscount} <= ${t.shippingProviderCost} and ${t.shippingProviderCost} >= 0 and ${t.shippingMargin} >= 0 and ${t.weightKg} >= 1`,
+      sql`${t.shippingFee} + ${t.shippingDiscount} = ${t.shippingProviderCost} + ${t.shippingMargin} and ${t.shippingDiscount} >= 0 and ${t.shippingDiscount} <= ${t.shippingProviderCost} and ${t.shippingProviderCost} >= 0 and ${t.shippingMargin} >= 0 and (not ${t.hasPhysical} or ${t.weightKg} >= 1)`,
     ),
-    check("order_area_chk", sql`${t.originAreaId} ~ '^[a-f0-9]{24}$' and ${t.destinationAreaId} ~ '^[a-f0-9]{24}$'`),
+    check("order_area_chk", sql`not ${t.hasPhysical} or (${t.originAreaId} ~ '^[a-f0-9]{24}$' and ${t.destinationAreaId} ~ '^[a-f0-9]{24}$')`),
     check(
       "order_status_chk",
       sql`${t.status} in ('awaiting_confirmation', 'on_hold', 'awaiting_payment', 'placed', 'processing', 'shipped', 'completed', 'cancelled', 'returned')`,
     ),
     // Confirmation states belong to COD only.
     check("order_cod_state_chk", sql`${t.paymentMethod} = 'cod' or ${t.status} not in ('awaiting_confirmation', 'on_hold')`),
-    check("order_shipped_chk", sql`${t.status} not in ('shipped', 'completed') or ${t.trackingNumber} is not null`),
+    // Physical/mixed orders need a tracking number when shipped or completed; digital-only orders complete on payment with no tracking number.
+    check("order_shipped_chk", sql`(${t.status} <> 'shipped' or (${t.hasPhysical} and ${t.trackingNumber} is not null)) and (${t.status} <> 'completed' or not ${t.hasPhysical} or ${t.trackingNumber} is not null)`),
     check("order_payment_chk", sql`${t.paymentMethod} in ('cod', 'manual_transfer', 'bank_transfer')`),
   ],
 );
@@ -343,6 +364,9 @@ export const orderLine = pgTable(
     variantCatalogId: text("variant_catalog_id").notNull(),
     productTitle: text("product_title").notNull(),
     variantTitle: text("variant_title").notNull(),
+    /** T-111: product kind and stock-tracking mode frozen at submit (restock skips lines with trackStock = false). */
+    productKind: text("product_kind", { enum: PRODUCT_KINDS }).notNull().default("physical"),
+    trackStock: boolean("track_stock").notNull().default(true),
     unitPrice: idr("unit_price").notNull(),
     quantity: integer("quantity").notNull(),
     lineTotal: idr("line_total").notNull(),
@@ -351,7 +375,7 @@ export const orderLine = pgTable(
     primaryKey({ columns: [t.orderId, t.variantId] }),
     foreignKey({ name: "order_line_order_fk", columns: [t.storeId, t.orderId], foreignColumns: [order.storeId, order.id] }),
     foreignKey({ name: "order_line_variant_fk", columns: [t.storeId, t.variantId], foreignColumns: [variant.storeId, variant.id] }),
-    check("order_line_chk", sql`${t.quantity} > 0 and ${t.lineTotal} = ${t.unitPrice} * ${t.quantity}`),
+    check("order_line_chk", sql`${t.quantity} > 0 and ${t.lineTotal} = ${t.unitPrice} * ${t.quantity} and ${t.productKind} in ('physical', 'digital') and (${t.productKind} <> 'physical' or ${t.trackStock})`),
   ],
 );
 

@@ -75,7 +75,8 @@ export async function feedSettings(scope: SellerScope): Promise<FeedSettings> {
       .select({ prefix: feedToken.tokenPrefix, createdAt: feedToken.createdAt })
       .from(feedToken)
       .where(and(eq(feedToken.storeId, scope.storeId), eq(feedToken.status, "active")));
-    const active = and(eq(product.storeId, scope.storeId), eq(product.status, "active"));
+    // T-111 (ADR-0016 decision 22): catalog feeds cover physical products only (digital products are excluded).
+    const active = and(eq(product.storeId, scope.storeId), eq(product.status, "active"), eq(product.kind, "physical"));
     const noImage = notExists(
       scope.exec.select({ one: sql`1` }).from(media).where(and(eq(media.storeId, product.storeId), eq(media.productId, product.id))),
     );
@@ -196,7 +197,7 @@ export async function feedItems(scope: StorefrontScope): Promise<{ items: FeedIt
       })
       .from(variant)
       .innerJoin(product, and(eq(product.storeId, variant.storeId), eq(product.id, variant.productId)))
-      .where(and(eq(product.storeId, scope.storeId), eq(product.status, "active")))
+      .where(and(eq(product.storeId, scope.storeId), eq(product.status, "active"), eq(product.kind, "physical")))
       .orderBy(asc(product.id), asc(variant.id));
     const productIds = [...new Set(rows.map((r) => r.productId))];
     const covers = await coverImages(scope, productIds);

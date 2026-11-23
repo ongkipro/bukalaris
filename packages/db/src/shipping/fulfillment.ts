@@ -136,11 +136,14 @@ export async function bookShipment(scope: SellerScope, orderId: number, raw: unk
   const { pickupType } = bookInput.parse(raw);
   return inStore(scope, async ({ exec: tx }) => {
     const [o] = await tx
-      .select({ status: order.status, paymentMethod: order.paymentMethod, courierCode: order.courierCode, originAreaId: order.originAreaId, destinationAreaId: order.destinationAreaId, weightKg: order.weightKg, total: order.total, accountKind: order.shippingAccountKind })
+      .select({ status: order.status, paymentMethod: order.paymentMethod, hasPhysical: order.hasPhysical, courierCode: order.courierCode, originAreaId: order.originAreaId, destinationAreaId: order.destinationAreaId, weightKg: order.weightKg, total: order.total, accountKind: order.shippingAccountKind })
       .from(order)
       .where(and(eq(order.storeId, scope.storeId), eq(order.id, orderId)))
       .for("update");
     if (!o) throw new DomainError("not_found", "Pesanan tidak ditemukan.");
+    if (!o.hasPhysical || !o.courierCode || !o.originAreaId || !o.destinationAreaId || !o.weightKg) {
+      throw new DomainError("no_shipment", "Pesanan digital tidak memerlukan pengiriman fisik.");
+    }
     const [existing] = await tx.select().from(shipment).where(and(eq(shipment.storeId, scope.storeId), eq(shipment.orderId, orderId)));
     if (existing && (existing.status === "queued" || existing.status === "booking")) {
       return { shipmentId: existing.id, attempt: existing.bookingAttempts, created: false }; // duplicate click: the job already exists
@@ -437,11 +440,11 @@ const bookingErrorMessage = (err: unknown, own = false) =>
 
 async function bookingInput(db: Db, storeId: number, orderId: number, s: ShipmentView): Promise<(BookingInput & { status: OrderStatus; paymentMethod: string }) | null> {
   const [o] = await db
-    .select({ status: order.status, paymentMethod: order.paymentMethod, buyerName: order.buyerName, buyerPhone: order.buyerPhone, shippingAddress: order.shippingAddress, subtotal: order.subtotal, total: order.total, shippingAccountId: order.shippingAccountId, shippingAccountKind: order.shippingAccountKind })
+    .select({ status: order.status, paymentMethod: order.paymentMethod, hasPhysical: order.hasPhysical, buyerName: order.buyerName, buyerPhone: order.buyerPhone, shippingAddress: order.shippingAddress, subtotal: order.subtotal, total: order.total, shippingAccountId: order.shippingAccountId, shippingAccountKind: order.shippingAccountKind })
     .from(order)
     .where(and(eq(order.storeId, storeId), eq(order.id, orderId)));
-  if (!o) return null;
-  const lines = await db.select({ title: orderLine.productTitle, quantity: orderLine.quantity }).from(orderLine).where(and(eq(orderLine.storeId, storeId), eq(orderLine.orderId, orderId)));
+  if (!o || !o.hasPhysical || !o.shippingAddress || !o.shippingAccountId || !o.shippingAccountKind) return null;
+  const lines = await db.select({ title: orderLine.productTitle, quantity: orderLine.quantity }).from(orderLine).where(and(eq(orderLine.storeId, storeId), eq(orderLine.orderId, orderId), eq(orderLine.productKind, "physical")));
   return {
     orderId,
     storeId,

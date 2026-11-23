@@ -47,8 +47,9 @@ export default async function CartPage({ params, searchParams }: PageProps<"/s/[
                   </Link>
                   <div className="min-w-0">
                     <Link href={href} className="font-medium underline-offset-4 hover:underline">{l.productTitle}</Link>
+                    {l.productKind === "digital" && <span className="ml-1.5 inline-block rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">Digital</span>}
                     <p className="text-sm tabular-nums text-muted-foreground">{l.variantTitle} · {rupiah(l.price)}</p>
-                    {l.quantity > l.stock && <p className="mt-1 text-sm text-destructive" role="alert">Stok tersisa {l.stock}; jumlah akan ditolak saat checkout.</p>}
+                    {l.trackStock && l.quantity > l.stock && <p className="mt-1 text-sm text-destructive" role="alert">Stok tersisa {l.stock}; jumlah akan ditolak saat checkout.</p>}
                   </div>
                   <form action={updateCart.bind(null, store)} className="col-start-2 flex items-center gap-2 @xl:col-start-3">
                     <CsrfField />
@@ -68,7 +69,10 @@ export default async function CartPage({ params, searchParams }: PageProps<"/s/[
             </p>
             <Link href={`/checkout?store=${scope.storeSlug}`} className={buttonVariants({ size: "lg", className: "h-11 px-6 text-base" })}>Checkout</Link>
           </div>
-          <p className="text-xs text-muted-foreground">Ongkir dihitung saat checkout. Ubah jumlah ke 0 untuk menghapus barang.</p>
+          <p className="text-xs text-muted-foreground">
+            {cart.lines.some((l) => l.productKind === "physical") ? "Ongkir dihitung saat checkout. " : "Pesanan digital tanpa ongkir. "}
+            Ubah jumlah ke 0 untuk menghapus barang.
+          </p>
         </>
       )}
     </section>

@@ -196,18 +196,23 @@ export async function setPickupAddress(scope: SellerScope, raw: unknown): Promis
 
 // ── Checkout-facing service (wired to /checkout in the next phase) ─────────
 
-export type CartForShipping = { lines: { quantity: number; weightGrams: number }[]; subtotal: number };
+export type CartForShipping = { lines: { quantity: number; weightGrams: number | null; productKind?: "physical" | "digital" | undefined }[]; subtotal: number };
 
 /**
- * Parcel weight in whole kilograms (T-61): the sum of quantity × variant weight, rounded up, minimum 1 kg.
- * The quote, the order snapshot (`order.weight_kg`) and the booking all read this one number. Rounding up and the
- * provider minimum are UNVERIFIED against Mengantar until an observed estimate or booking confirms them.
+ * Parcel weight in whole kilograms (T-61, T-111): the sum of quantity × variant weight of PHYSICAL lines only,
+ * rounded up, minimum 1 kg. Digital lines carry no weight and never enter a shipping quote (ADR-0016 decision 2 & 6).
+ * The quote, the order snapshot (`order.weight_kg`) and the booking all read this one number.
  */
 /** T-107: shown when a store on its own accounts has no own shipping account yet (same words as an own account that is not active). */
 export const SHIPPING_NOT_READY_MESSAGE = "Toko ini belum siap mengirim pesanan. Hubungi penjual.";
 
-export function parcelWeightKg(lines: readonly { quantity: number; weightGrams: number }[]): number {
-  const grams = lines.reduce((sum, l) => sum + l.quantity * l.weightGrams, 0);
+export function parcelWeightKg(lines: readonly { quantity: number; weightGrams: number | null; productKind?: "physical" | "digital" | undefined }[]): number {
+  let grams = 0;
+  for (const l of lines) {
+    if (l.productKind === "digital") continue;
+    if (l.weightGrams == null || l.weightGrams < 1) throw new DomainError("weight_required", "Berat varian fisik tidak valid.");
+    grams += l.quantity * l.weightGrams;
+  }
   return Math.max(1, Math.ceil(grams / 1000));
 }
 

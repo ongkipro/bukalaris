@@ -8,7 +8,7 @@ import { useRef, useState, useTransition } from "react";
 import { previewVoucher, type VoucherPreview } from "./actions";
 
 /** Voucher code lives inside the checkout form (it is submitted and validated again by the server). The preview is optional and read-only. */
-export function VoucherField() {
+export function VoucherField({ step = 5, needsShipping = true }: { step?: number; needsShipping?: boolean }) {
   const input = useRef<HTMLInputElement>(null);
   const [result, setResult] = useState<VoucherPreview | null>(null);
   const [pending, start] = useTransition();
@@ -20,13 +20,15 @@ export function VoucherField() {
   };
   return (
     <fieldset className="grid gap-2">
-      <legend className="mb-2 font-medium">5. Voucher</legend>
+      <legend className="mb-2 font-medium">{step}. Voucher</legend>
       <Label htmlFor="voucherCode">Kode voucher (opsional)</Label>
       <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
         <Input ref={input} id="voucherCode" name="voucherCode" autoComplete="off" autoCapitalize="characters" maxLength={64} aria-describedby="voucher-help voucher-result" onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); apply(); } }} />
         <Button type="button" variant="outline" onClick={apply} disabled={pending}>{pending ? "Memeriksa…" : "Terapkan voucher"}</Button>
       </div>
-      <p id="voucher-help" className="text-xs text-muted-foreground">Isi nomor HP dan pilih kurir lebih dulu. Pemeriksaan tidak mengubah keranjang; server memeriksa ulang saat pesanan dibuat.</p>
+      <p id="voucher-help" className="text-xs text-muted-foreground">
+        {needsShipping ? "Isi nomor HP dan pilih kurir lebih dulu." : "Isi nomor HP lebih dulu."} Pemeriksaan tidak mengubah keranjang; server memeriksa ulang saat pesanan dibuat.
+      </p>
       <div id="voucher-result" aria-live="polite" data-testid="voucher-result">
         {result && ("error" in result ? <p role="alert" className="text-sm text-destructive">{result.error}</p> : (
           <dl className="grid gap-1 rounded-lg border bg-muted/30 p-3 text-sm">

@@ -14,7 +14,7 @@ export const VOUCHER_REDEEM_LIMITS = {
 } as const;
 export const VOUCHER_UNAVAILABLE = "Voucher tidak dapat dipakai: kode tidak valid, belum berlaku, berakhir, atau kuota habis.";
 export const PROMOTION_PERCENT_ROUNDING_DEFAULT = "floor" as const;
-export type PromotionLine = { variantId: number; productId: number; price: number; quantity: number };
+export type PromotionLine = { variantId: number; productId: number; productKind: "physical" | "digital"; price: number; quantity: number };
 export type PromotionFee = { buyerFee: number; providerCost: number; margin: number };
 export type PromotionPlan = {
   finance: OrderFinance;
@@ -63,8 +63,11 @@ export async function checkoutPromotions(tx: Executor, storeId: number, lines: r
   let shippingDiscount = 0;
   // Wave 4 review: when the automatic free-shipping threshold already covers the courier cost with the discounts known so far (flash sales), a free-shipping voucher
   // would only be replaced by it: it is then not consumed at all (no use, no buyer quota, no redemption row that disagrees with the order).
+  const physicalSubtotalOf = (fin: OrderFinance) =>
+    fin.lines.reduce((s, l, i) => (lines[i]?.productKind === "digital" ? s : s + l.netGoods), 0);
   const pre = calculateOrderFinance({ lines: financeLines, goodsDiscounts: discounts, checkoutShipping: fee.buyerFee, shippingDiscount: fee.providerCost });
-  const thresholdCovers = !!hub?.freeShipEnabled && pre.subtotal - pre.goodsDiscount >= hub.freeShipThresholdIdr && pre.saleAmount >= fee.providerCost && pre.payable >= 0;
+  // T-111 (ADR-0016 decision 9): free-shipping thresholds count physical lines only and apply only when there is shipping.
+  const thresholdCovers = fee.providerCost > 0 && !!hub?.freeShipEnabled && physicalSubtotalOf(pre) >= hub.freeShipThresholdIdr && pre.saleAmount >= fee.providerCost && pre.payable >= 0;
   if (code?.trim()) {
     const digest = voucherDigest(code);
     const [v] = await tx.select().from(discount).where(and(eq(discount.storeId, storeId), eq(discount.codeSha256, digest)));
@@ -84,6 +87,7 @@ export async function checkoutPromotions(tx: Executor, storeId: number, lines: r
     const keys = buyerFingerprintsAllKeys("promotion.buyer_usage", "phone", phone);
     const usage = await tx.select().from(discountBuyerUsage).where(and(eq(discountBuyerUsage.storeId, storeId), eq(discountBuyerUsage.discountId, v.id), inArray(discountBuyerUsage.phoneFingerprint, keys)));
     if (v.buyerUsageLimit !== null && usage.reduce((s, u) => s + u.usedCount, 0) >= v.buyerUsageLimit) throw new DomainError("voucher_unavailable", VOUCHER_UNAVAILABLE);
+    if (v.kind === "free_shipping" && fee.providerCost === 0) throw new DomainError("voucher_scope", "Voucher gratis ongkir tidak berlaku untuk pesanan tanpa pengiriman fisik.");
     const value = v.kind === "free_shipping" ? fee.providerCost : v.kind === "fixed" ? v.value : percentDiscount(base, v.value, hub?.percentRounding ?? PROMOTION_PERCENT_ROUNDING_DEFAULT);
     const amount = Math.min(value, v.maxDiscountIdr ?? Number.MAX_SAFE_INTEGER, v.kind === "free_shipping" ? fee.providerCost : base);
     if (v.kind === "free_shipping") shippingDiscount = amount;
@@ -102,7 +106,8 @@ export async function checkoutPromotions(tx: Executor, storeId: number, lines: r
   const financeInput = { lines: financeLines, goodsDiscounts: discounts, checkoutShipping: fee.buyerFee };
   const goods = calculateOrderFinance(financeInput);
   // The automatic threshold never blocks a checkout: when the sale amount cannot carry the courier cost it is simply not applied (a voucher the buyer chose still is, or is refused visibly below).
-  if (hub?.freeShipEnabled && goods.subtotal - goods.goodsDiscount >= hub.freeShipThresholdIdr) {
+  // T-111 (ADR-0016 decision 9): free-shipping threshold counts physical lines only.
+  if (fee.providerCost > 0 && hub?.freeShipEnabled && physicalSubtotalOf(goods) >= hub.freeShipThresholdIdr) {
     const trial = calculateOrderFinance({ ...financeInput, shippingDiscount: fee.providerCost });
     if (trial.saleAmount >= fee.providerCost && trial.payable >= 0) shippingDiscount = fee.providerCost;
     else if (voucher === null) shippingDiscount = 0;

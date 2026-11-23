@@ -28,8 +28,8 @@ export const productSlugAlias = pgTable(
 
 export const CATALOG_AUDIT_ACTIONS = ["product.create", "product.update", "variant.create", "variant.update"] as const;
 export type CatalogAuditAction = (typeof CATALOG_AUDIT_ACTIONS)[number];
-/** Tracked fields: product → title, slug, status; variant → title, sku, price, stock. */
-export type CatalogSnapshot = Record<string, string | number | null>;
+/** Tracked fields: product → title, slug, kind, status; variant → title, sku, price, stock, trackStock, weightGrams. */
+export type CatalogSnapshot = Record<string, string | number | boolean | null>;
 
 /** Every catalog write, in the same transaction (SEC-17, IAM-5): actor, store, object, before/after snapshot. */
 export const catalogAudit = pgTable(

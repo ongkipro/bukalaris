@@ -345,7 +345,7 @@ async function redactRows(
   counts.orders = (
     await tx
       .update(order)
-      .set({ buyerName: REDACTED, buyerPhone: REDACTED, buyerEmail: null, shippingAddress: REDACTED, updatedAt: new Date() })
+      .set({ buyerName: REDACTED, buyerPhone: REDACTED, buyerEmail: null, shippingAddress: sql`case when ${order.shippingAddress} is null then null else ${REDACTED}::text end`, updatedAt: new Date() })
       .where(and(eq(order.storeId, storeId), inArray(order.id, ids)))
       .returning({ id: order.id })
   ).length;

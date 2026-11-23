@@ -63,6 +63,8 @@ test.describe("Seller Admin shell and pages", () => {
     await page.keyboard.press("Tab");
     await expect(page.getByLabel("Deskripsi")).toBeFocused();
     await page.keyboard.type("Kanvas tebal, jahitan ganda.");
+    await page.keyboard.press("Tab"); // T-111 kind (keep Produk fisik)
+    await expect(page.getByLabel("Jenis produk")).toBeFocused();
     await page.keyboard.press("Tab"); // status (keep Draf)
     await expect(page.getByLabel("Status")).toBeFocused();
     await page.keyboard.press("Tab"); // slug
@@ -75,6 +77,7 @@ test.describe("Seller Admin shell and pages", () => {
     await expect(page.getByLabel("Stok")).toBeFocused();
     await page.keyboard.press("Control+a");
     await page.keyboard.type("5");
+    await page.keyboard.press("Tab"); // T-111 digital stock-limit checkbox
     await page.keyboard.press("Tab"); // sku
     await page.keyboard.press("Tab"); // weight (required, no default)
     await expect(page.getByLabel("Berat (gram)")).toBeFocused();

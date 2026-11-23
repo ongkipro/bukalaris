@@ -46,10 +46,13 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
   if (summary.store.status !== "active")
     return <p role="alert" className="rounded-lg border bg-background p-6">{summary.store.name} sedang tidak menerima pesanan.</p>;
 
+  const needsShipping = summary.hasPhysical;
+  const hasDigital = summary.hasDigital;
+  const physicalLines = summary.lines.filter((l) => l.productKind === "physical");
   const q = str(sp.q).trim();
   let results: Area[] = [];
   let searchError: string | undefined;
-  if (q) {
+  if (needsShipping && q) {
     try {
       results = await searchDestinationAreas(q, undefined, scope, { clientIp: await clientIp() });
     } catch (err) {
@@ -58,12 +61,12 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
     }
   }
   // The chosen area must be one of the current results, so its label is the provider's, not the URL's.
-  const area = results.find((a) => a.id === str(sp.area)) ?? null;
+  const area = needsShipping ? (results.find((a) => a.id === str(sp.area)) ?? null) : null;
   let options: ShippingOption[] = [];
   let quoteError: string | undefined;
-  if (area && summary.canShip) {
+  if (needsShipping && area && summary.canShip) {
     try {
-      ({ options } = await checkoutShippingOptions(scope, area.id, { lines: summary.lines, subtotal: summary.subtotal }, undefined, { clientIp: await clientIp() }));
+      ({ options } = await checkoutShippingOptions(scope, area.id, { lines: physicalLines, subtotal: summary.subtotal }, undefined, { clientIp: await clientIp() }));
     } catch (err) {
       if (!(err instanceof DomainError)) throw err;
       quoteError = err.message;
@@ -75,7 +78,8 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
   let codFee: CodFeeTerms | null = null;
   let bankTransfer = false;
   let channelError: string | undefined;
-  if (area && summary.canShip) {
+  const formReady = !needsShipping || (area !== null && summary.canShip);
+  if (formReady) {
     try {
       // T-106: the same function the order submit checks again (store's own AutoLaris key, switch, exclusions, locks, fee schedule).
       const methods = await checkoutPaymentChannels(db(), scope.storeId);
@@ -88,8 +92,9 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
       channelError = err.message;
     }
   }
-  const codOffered = options.some((o) => o.cod !== null);
-  const defaultCourier = options.find((o) => o.cod !== null) ?? options[0];
+  // T-111 (ADR-0016 decision 7): any digital line removes COD from the method list (and the server refuses it at submit).
+  const codOffered = needsShipping && !hasDigital && options.some((o) => o.cod !== null);
+  const defaultCourier = options.find((o) => codOffered && o.cod !== null) ?? options[0];
   const here = `/checkout?store=${encodeURIComponent(scope.storeSlug)}`;
   const signals = await signalsFor(scope.storeId);
   const pick = (id: string) => `${here}&q=${encodeURIComponent(q)}&area=${id}`;
@@ -124,90 +129,100 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
             <span>Subtotal</span>
             <span data-testid="subtotal" className="tabular-nums">{rupiah(summary.subtotal)}</span>
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">Ongkir ditambahkan sesuai kurir yang dipilih.</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {needsShipping ? "Ongkir ditambahkan sesuai kurir yang dipilih." : "Pesanan digital tanpa pengiriman fisik dan tanpa ongkir."}
+          </p>
         </section>
 
         <div className="grid gap-6 lg:order-1">
-          <section aria-labelledby="tujuan" className="grid gap-4 rounded-xl border bg-background p-4 sm:p-6">
-            <h2 id="tujuan" className="font-medium">1. Area tujuan</h2>
-            {!summary.canShip ? (
-              <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
-                Toko ini belum mengatur area pickup, jadi ongkir belum bisa dihitung dan pesanan belum bisa dibuat. Hubungi penjual.
-              </p>
-            ) : (
-              <>
-                <form method="get" action="/checkout" className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
-                  <input type="hidden" name="store" value={scope.storeSlug} />
-                  <div className="grid gap-2">
-                    <Label htmlFor="q">Cari kelurahan, kecamatan atau kota tujuan</Label>
-                    <Input id="q" name="q" type="search" defaultValue={q} minLength={3} required placeholder="mis. Menteng" autoComplete="off" />
-                  </div>
-                  <Button type="submit" variant="outline">Cari area</Button>
-                </form>
-                {searchError && <p role="alert" className="text-sm text-destructive">{searchError}</p>}
-                {q && !searchError && !area && (
-                  <ul aria-label="Hasil pencarian area" className="grid gap-2">
-                    {results.length === 0 && <li className="text-sm text-muted-foreground">Area tidak ditemukan. Coba nama kecamatan atau kota.</li>}
-                    {results.map((a) => (
-                      <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
-                        <span>{a.label}</span>
-                        <a href={pick(a.id)} className={buttonVariants({ size: "sm" })} aria-label={`Pilih ${a.label}`}>Pilih</a>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {area && (
-                  <p className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm" data-testid="destination-area">
-                    <span><span className="text-muted-foreground">Dikirim ke:</span> {area.label}</span>
-                    <a href={`${here}&q=${encodeURIComponent(q)}`} className="inline-flex min-h-6 items-center rounded-sm px-1 underline underline-offset-4 outline-none focus-visible:ring-3 focus-visible:ring-ring/50">Ubah</a>
-                  </p>
-                )}
-              </>
-            )}
-          </section>
+          {needsShipping && (
+            <section aria-labelledby="tujuan" className="grid gap-4 rounded-xl border bg-background p-4 sm:p-6">
+              <h2 id="tujuan" className="font-medium">1. Area tujuan</h2>
+              {!summary.canShip ? (
+                <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+                  Toko ini belum mengatur area pickup, jadi ongkir belum bisa dihitung dan pesanan belum bisa dibuat. Hubungi penjual.
+                </p>
+              ) : (
+                <>
+                  <form method="get" action="/checkout" className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                    <input type="hidden" name="store" value={scope.storeSlug} />
+                    <div className="grid gap-2">
+                      <Label htmlFor="q">Cari kelurahan, kecamatan atau kota tujuan</Label>
+                      <Input id="q" name="q" type="search" defaultValue={q} minLength={3} required placeholder="mis. Menteng" autoComplete="off" />
+                    </div>
+                    <Button type="submit" variant="outline">Cari area</Button>
+                  </form>
+                  {searchError && <p role="alert" className="text-sm text-destructive">{searchError}</p>}
+                  {q && !searchError && !area && (
+                    <ul aria-label="Hasil pencarian area" className="grid gap-2">
+                      {results.length === 0 && <li className="text-sm text-muted-foreground">Area tidak ditemukan. Coba nama kecamatan atau kota.</li>}
+                      {results.map((a) => (
+                        <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
+                          <span>{a.label}</span>
+                          <a href={pick(a.id)} className={buttonVariants({ size: "sm" })} aria-label={`Pilih ${a.label}`}>Pilih</a>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {area && (
+                    <p className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm" data-testid="destination-area">
+                      <span><span className="text-muted-foreground">Dikirim ke:</span> {area.label}</span>
+                      <a href={`${here}&q=${encodeURIComponent(q)}`} className="inline-flex min-h-6 items-center rounded-sm px-1 underline underline-offset-4 outline-none focus-visible:ring-3 focus-visible:ring-ring/50">Ubah</a>
+                    </p>
+                  )}
+                </>
+              )}
+            </section>
+          )}
 
-          {area && summary.canShip && (
+          {formReady && (
             <form action={submitCheckout} className="grid gap-6 rounded-xl border bg-background p-4 sm:p-6">
               <CsrfField token={await cartCsrfToken(scope)} />
               {/* Same key across double-clicks/resubmits of this render: the server returns the same order. */}
               <input type="hidden" name="idempotencyKey" value={randomUUID()} />
               <input type="hidden" name="store" value={scope.storeSlug} />
-              <input type="hidden" name="q" value={q} />
-              <input type="hidden" name="destinationAreaId" value={area.id} />
-              <input type="hidden" name="destinationAreaLabel" value={area.label} />
-              {/* The fees shown below: the server refuses the order when the courier or its price changed meanwhile (never a price source). */}
-              {options.length > 0 && <input type="hidden" name="shippingQuote" value={formatShippingQuote(options)} />}
+              {needsShipping && area && (
+                <>
+                  <input type="hidden" name="q" value={q} />
+                  <input type="hidden" name="destinationAreaId" value={area.id} />
+                  <input type="hidden" name="destinationAreaLabel" value={area.label} />
+                  {/* The fees shown below: the server refuses the order when the courier or its price changed meanwhile (never a price source). */}
+                  {options.length > 0 && <input type="hidden" name="shippingQuote" value={formatShippingQuote(options)} />}
+                </>
+              )}
               <CaptureProgress store={scope.storeSlug} />
-              <fieldset className="grid gap-2">
-                <legend className="mb-2 font-medium">2. Kurir</legend>
-                {quoteError && <p role="alert" className="text-sm text-destructive">{quoteError}</p>}
-                {!quoteError && options.length === 0 && (
-                  <p role="alert" className="text-sm text-destructive">Belum ada kurir yang melayani area ini. Coba area lain.</p>
-                )}
-                {options.map((o) => (
-                  <label key={o.courier} className={optionClass}>
-                    <input type="radio" name="courier" value={o.courier} defaultChecked={o.courier === defaultCourier?.courier} required />
-                    <span className="min-w-0 flex-1">
-                      {o.label}
-                      {o.etd && <span className="block text-xs text-muted-foreground">Estimasi {o.etd.replace(/\bdays?\b/gi, "hari")}</span>}
-                    </span>
-                    <span className="text-right text-sm tabular-nums">
-                      <span className="block">Transfer {rupiah(o.prepaid.buyerFee)}</span>
-                      <span className="block text-xs text-muted-foreground">{o.cod ? `COD ${rupiah(o.cod.buyerFee)}` : "Tidak melayani COD"}</span>
-                      {o.cod && buyerCodFee(codFee, summary.subtotal, summary.subtotal + o.cod.buyerFee) > 0 && (
-                        // T-107 review minor 1: the exact COD fee and the total the courier collects, before the order exists (without a voucher; the preview below adds it).
-                        <span className="block text-xs text-muted-foreground" data-testid={`cod-fee-${o.courier}`}>
-                          + biaya COD {rupiah(buyerCodFee(codFee, summary.subtotal, summary.subtotal + o.cod.buyerFee))} · total COD {rupiah(summary.subtotal + o.cod.buyerFee + buyerCodFee(codFee, summary.subtotal, summary.subtotal + o.cod.buyerFee))}
-                        </span>
-                      )}
-                    </span>
-                  </label>
-                ))}
-              </fieldset>
+              {needsShipping && (
+                <fieldset className="grid gap-2">
+                  <legend className="mb-2 font-medium">2. Kurir</legend>
+                  {quoteError && <p role="alert" className="text-sm text-destructive">{quoteError}</p>}
+                  {!quoteError && options.length === 0 && (
+                    <p role="alert" className="text-sm text-destructive">Belum ada kurir yang melayani area ini. Coba area lain.</p>
+                  )}
+                  {options.map((o) => (
+                    <label key={o.courier} className={optionClass}>
+                      <input type="radio" name="courier" value={o.courier} defaultChecked={o.courier === defaultCourier?.courier} required />
+                      <span className="min-w-0 flex-1">
+                        {o.label}
+                        {o.etd && <span className="block text-xs text-muted-foreground">Estimasi {o.etd.replace(/\bdays?\b/gi, "hari")}</span>}
+                      </span>
+                      <span className="text-right text-sm tabular-nums">
+                        <span className="block">Transfer {rupiah(o.prepaid.buyerFee)}</span>
+                        <span className="block text-xs text-muted-foreground">{hasDigital ? "COD tidak tersedia (produk digital)" : o.cod ? `COD ${rupiah(o.cod.buyerFee)}` : "Tidak melayani COD"}</span>
+                        {!hasDigital && o.cod && buyerCodFee(codFee, summary.subtotal, summary.subtotal + o.cod.buyerFee) > 0 && (
+                          // T-107 review minor 1: the exact COD fee and the total the courier collects, before the order exists (without a voucher; the preview below adds it).
+                          <span className="block text-xs text-muted-foreground" data-testid={`cod-fee-${o.courier}`}>
+                            + biaya COD {rupiah(buyerCodFee(codFee, summary.subtotal, summary.subtotal + o.cod.buyerFee))} · total COD {rupiah(summary.subtotal + o.cod.buyerFee + buyerCodFee(codFee, summary.subtotal, summary.subtotal + o.cod.buyerFee))}
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  ))}
+                </fieldset>
+              )}
               <fieldset className="grid gap-4">
-                <legend className="mb-2 font-medium">3. Data penerima</legend>
+                <legend className="mb-2 font-medium">{needsShipping ? "3. Data penerima" : "1. Data pembeli"}</legend>
                 <p id="capture-notice" data-testid="capture-notice" role="note" className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
-                  Nama, nomor HP, email, dan alamat yang Anda ketik di sini disimpan sementara (paling lama 30 hari) agar {summary.store.name} dapat menghubungi Anda jika pesanan belum selesai. Data ini tidak dibagikan ke platform iklan.
+                  Nama, nomor HP, email{needsShipping ? ", dan alamat" : ""} yang Anda ketik di sini disimpan sementara (paling lama 30 hari) agar {summary.store.name} dapat menghubungi Anda jika pesanan belum selesai. Data ini tidak dibagikan ke platform iklan.
                 </p>
                 <div className="grid gap-2">
                   <Label htmlFor="buyerName">Nama</Label>
@@ -219,18 +234,24 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
                   <p id="phone-help" className="text-xs text-muted-foreground">Angka saja, 8–15 digit. Penjual menghubungi nomor ini untuk konfirmasi.</p>
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="buyerEmail">Email <span className="font-normal text-muted-foreground">(opsional)</span></Label>
-                  <Input id="buyerEmail" name="buyerEmail" type="email" autoComplete="email" inputMode="email" maxLength={254} aria-describedby="email-help" />
-                  <p id="email-help" className="text-xs text-muted-foreground">Untuk menerima status pesanan dan nomor resi lewat email.</p>
+                  <Label htmlFor="buyerEmail">
+                    Email {!hasDigital && <span className="font-normal text-muted-foreground">(opsional)</span>}
+                  </Label>
+                  <Input id="buyerEmail" name="buyerEmail" type="email" autoComplete="email" inputMode="email" required={hasDigital} maxLength={254} aria-describedby="email-help" />
+                  <p id="email-help" className="text-xs text-muted-foreground">
+                    {hasDigital ? "Wajib untuk pesanan produk digital: tautan status pesanan dikirim ke email ini." : "Untuk menerima status pesanan dan nomor resi lewat email."}
+                  </p>
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="shippingAddress">Alamat lengkap</Label>
-                  <Textarea id="shippingAddress" name="shippingAddress" autoComplete="street-address" required minLength={10} maxLength={500} rows={3} aria-describedby="address-help" />
-                  <p id="address-help" className="text-xs text-muted-foreground">Nama jalan, nomor rumah, RT/RW dan patokan di {area.label.split(",")[0]}.</p>
-                </div>
+                {needsShipping && area && (
+                  <div className="grid gap-2">
+                    <Label htmlFor="shippingAddress">Alamat lengkap</Label>
+                    <Textarea id="shippingAddress" name="shippingAddress" autoComplete="street-address" required minLength={10} maxLength={500} rows={3} aria-describedby="address-help" />
+                    <p id="address-help" className="text-xs text-muted-foreground">Nama jalan, nomor rumah, RT/RW dan patokan di {area.label.split(",")[0]}.</p>
+                  </div>
+                )}
               </fieldset>
               <fieldset className="group/pay grid gap-2">
-                <legend className="mb-2 font-medium">4. Pembayaran</legend>
+                <legend className="mb-2 font-medium">{needsShipping ? "4. Pembayaran" : "2. Pembayaran"}</legend>
                 {codOffered && (
                   <label className={optionClass}>
                     <input type="radio" name="paymentMethod" value="cod" defaultChecked required />
@@ -269,20 +290,21 @@ export default async function CheckoutPage({ searchParams }: PageProps<"/checkou
                     </span>
                   </label>
                 )}
-                {!codOffered && options.length > 0 && <p className="text-xs text-muted-foreground">COD tidak tersedia untuk area ini.</p>}
+                {hasDigital && <p className="text-xs text-muted-foreground" data-testid="cod-disabled-digital">COD tidak tersedia karena keranjang berisi produk digital.</p>}
+                {!hasDigital && !codOffered && options.length > 0 && <p className="text-xs text-muted-foreground">COD tidak tersedia untuk area ini.</p>}
                 <p className="text-xs text-muted-foreground" data-testid="payee-notice">
                   Pembayaran pesanan ini diterima langsung oleh {summary.store.name}; Bukalaris hanya menyediakan platform dan catatan transaksi.
                 </p>
               </fieldset>
-              <VoucherField />
+              <VoucherField step={needsShipping ? 5 : 3} needsShipping={needsShipping} />
               <fieldset className="grid gap-2">
-                <legend className="mb-2 font-medium">6. Kode afiliasi</legend>
+                <legend className="mb-2 font-medium">{needsShipping ? "6. Kode afiliasi" : "4. Kode afiliasi"}</legend>
                 <Label htmlFor="affiliateCode">Kode afiliasi (opsional)</Label>
                 <Input id="affiliateCode" name="affiliateCode" autoComplete="off" autoCapitalize="characters" maxLength={64} aria-describedby="affiliate-help" />
                 <p id="affiliate-help" className="text-xs text-muted-foreground">Kode yang tidak dikenal atau sudah tidak berlaku tidak menghalangi pesanan.</p>
               </fieldset>
-              <p className="text-sm text-muted-foreground">Harga, stok dan ongkir dicek ulang oleh server saat pesanan dibuat.</p>
-              <Button type="submit" size="lg" className="h-11 text-base sm:justify-self-start sm:px-8" disabled={options.length === 0 || (!codOffered && channels.length === 0 && !bankTransfer)}>
+              <p className="text-sm text-muted-foreground">{needsShipping ? "Harga, stok dan ongkir dicek ulang oleh server saat pesanan dibuat." : "Harga dan stok dicek ulang oleh server saat pesanan dibuat."}</p>
+              <Button type="submit" size="lg" className="h-11 text-base sm:justify-self-start sm:px-8" disabled={(needsShipping && options.length === 0) || (!codOffered && channels.length === 0 && !bankTransfer)}>
                 Buat pesanan
               </Button>
             </form>

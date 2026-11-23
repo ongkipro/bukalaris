@@ -358,8 +358,9 @@ export type LandingProduct = {
   catalogId: string;
   title: string;
   slug: string | null;
+  kind: "physical" | "digital";
   status: "draft" | "active" | "archived";
-  variants: { id: number; catalogId: string; title: string; price: number; stock: number }[];
+  variants: { id: number; catalogId: string; title: string; price: number; stock: number; trackStock: boolean }[];
 };
 export type ResolvedLanding = {
   id: number;
@@ -388,12 +389,12 @@ async function resolveDocument(tx: Tx, storeId: number, page: { id: number; titl
   let orderProduct: LandingProduct | null = null;
   if (order) {
     const [p] = await tx
-      .select({ id: product.id, catalogId: product.catalogId, title: product.title, slug: product.slug, status: product.status })
+      .select({ id: product.id, catalogId: product.catalogId, title: product.title, slug: product.slug, kind: product.kind, status: product.status })
       .from(product)
       .where(and(eq(product.storeId, storeId), eq(product.id, order.productId)));
     if (p) {
       const variants = await tx
-        .select({ id: variant.id, catalogId: variant.catalogId, title: variant.title, price: variant.price, stock: variant.stock })
+        .select({ id: variant.id, catalogId: variant.catalogId, title: variant.title, price: variant.price, stock: variant.stock, trackStock: variant.trackStock })
         .from(variant)
         .where(and(eq(variant.storeId, storeId), eq(variant.productId, p.id)))
         .orderBy(asc(variant.id));

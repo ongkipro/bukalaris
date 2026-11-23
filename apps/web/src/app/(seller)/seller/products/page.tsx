@@ -43,13 +43,14 @@ export default async function ProductsPage() {
                 <TableCell className="max-sm:hidden"><span className="font-mono text-xs tabular-nums text-muted-foreground">{p.catalogId}</span></TableCell>
                 <TableCell className="max-w-[14rem] whitespace-normal sm:max-w-xs">
                   <Link href={`/seller/products/${p.id}`} className="font-medium underline-offset-4 hover:underline">{p.title}</Link>
+                  {p.kind === "digital" && <span className="ml-1.5 inline-block rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">Digital</span>}
                   <span className="mt-0.5 block font-mono text-xs tabular-nums text-muted-foreground sm:hidden">{p.catalogId} · {p.variants} varian</span>
                 </TableCell>
                 <TableCell>
                   <StatusBadge label={productStatusLabel[p.status]} tone={productStatusTone[p.status]} />
                 </TableCell>
                 <TableCell numeric className="max-sm:hidden">{p.variants}</TableCell>
-                <TableCell numeric className={p.stock ? undefined : "text-destructive"}>{p.stock ?? 0}</TableCell>
+                <TableCell numeric className={!p.hasUnlimitedStock && !p.stock ? "text-destructive" : undefined}>{p.hasUnlimitedStock ? "Tak terbatas" : (p.stock ?? 0)}</TableCell>
                 <TableCell numeric>{rupiah(p.minPrice)}</TableCell>
               </TableRow>
             ))}

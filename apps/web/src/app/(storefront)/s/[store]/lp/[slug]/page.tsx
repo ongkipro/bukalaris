@@ -30,7 +30,7 @@ export default async function LandingPage({ params, searchParams }: PageProps<"/
   const lp = await getPublishedLandingPage(scope, slug);
   if (!lp) notFound();
   const signals = await signalsFor(scope.storeId);
-  const viewed = lp.product?.status === "active" ? (lp.product.variants.find((v) => v.stock > 0) ?? lp.product.variants[0]) : undefined;
+  const viewed = lp.product?.status === "active" ? (lp.product.variants.find((v) => !v.trackStock || v.stock > 0) ?? lp.product.variants[0]) : undefined;
   return (
     <CsrfProvider token={await cartCsrfToken(scope)}>
       <Pixels storeId={scope.storeId} />

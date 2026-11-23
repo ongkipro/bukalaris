@@ -8,7 +8,7 @@ import type { BrowserSignals } from "@bukalaris/db";
 import { useRef } from "react";
 import { useFormStatus } from "react-dom";
 
-export type OrderVariant = { id: number; catalogId: string; title: string; price: number; stock: number };
+export type OrderVariant = { id: number; catalogId: string; title: string; price: number; stock: number; trackStock?: boolean };
 
 /**
  * Platform order component of a landing page (UI-4 "locked element"): variant + quantity
@@ -19,19 +19,21 @@ export type OrderVariant = { id: number; catalogId: string; title: string; price
 export function OrderForm({
   action,
   store,
+  productKind = "physical",
   variants,
   signals,
   preview,
 }: {
   action?: (f: FormData) => Promise<void>;
   store: string;
+  productKind?: "physical" | "digital";
   variants: OrderVariant[];
   signals: BrowserSignals | null;
   /** Seller preview: real controls, no submission. */
   preview?: boolean;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
-  const sellable = variants.filter((v) => v.stock > 0);
+  const sellable = variants.filter((v) => v.trackStock === false || v.stock > 0);
   const first = sellable[0];
   if (!first) return <p role="status" className="lp-card lp-soft p-4 font-medium">Stok habis. Hubungi penjual untuk informasi stok berikutnya.</p>;
 
@@ -57,14 +59,20 @@ export function OrderForm({
   return (
     <form ref={formRef} action={preview ? undefined : action} onSubmit={preview ? (e) => e.preventDefault() : onSubmit} className="grid gap-5">
       {!preview && <CsrfField />}
+      {productKind === "digital" && (
+        <div className="grid gap-1" data-testid="lp-digital-notice">
+          <span className="w-fit rounded-md border px-2 py-0.5 text-xs font-medium">Produk digital</span>
+          <p className="lp-xs lp-muted">Tanpa pengiriman fisik; tautan akses tampil di halaman status pesanan setelah pembayaran prabayar terverifikasi.</p>
+        </div>
+      )}
       <fieldset className="grid gap-2">
         <legend className="lp-sm mb-2 font-semibold">Pilih varian</legend>
         {variants.map((v) => (
           <label key={v.id} className="lp-option">
-            <input type="radio" name="variantId" value={v.id} defaultChecked={v.id === first.id} disabled={v.stock === 0} required />
+            <input type="radio" name="variantId" value={v.id} defaultChecked={v.id === first.id} disabled={v.trackStock !== false && v.stock === 0} required />
             <span className="flex-1 font-medium">{v.title}</span>
             <span className="tabular-nums">{rupiah(v.price)}</span>
-            <span className="lp-xs lp-muted">{v.stock > 0 ? `stok ${v.stock}` : "habis"}</span>
+            <span className="lp-xs lp-muted">{v.trackStock === false ? "tersedia" : v.stock > 0 ? `stok ${v.stock}` : "habis"}</span>
           </label>
         ))}
       </fieldset>

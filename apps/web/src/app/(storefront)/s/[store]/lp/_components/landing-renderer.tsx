@@ -186,11 +186,11 @@ function Block({
               <p role="status" className="lp-soft rounded-xl p-4 font-medium">Produk ini sedang tidak tersedia.</p>
             ) : order.preview ? (
               <>
-                <OrderForm store={order.store} variants={p.variants} signals={null} preview />
+                <OrderForm store={order.store} productKind={p.kind} variants={p.variants} signals={null} preview />
                 <p id="lp-preview-note" className="lp-xs lp-muted">Pratinjau: tombol pemesanan nonaktif.</p>
               </>
             ) : (
-              <OrderForm action={order.action} store={order.store} variants={p.variants} signals={order.signals} />
+              <OrderForm action={order.action} store={order.store} productKind={p.kind} variants={p.variants} signals={order.signals} />
             )}
           </div>
         </section>

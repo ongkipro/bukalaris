@@ -15,7 +15,7 @@ const published = (scope: StorefrontScope) => and(eq(product.storeId, scope.stor
 export async function listPublishedProducts(scope: StorefrontScope) {
   return inStore(scope, (scope) =>
     scope.exec
-      .select({ id: product.id, catalogId: product.catalogId, title: product.title, slug: product.slug, minPrice: min(variant.price) })
+      .select({ id: product.id, catalogId: product.catalogId, title: product.title, slug: product.slug, kind: product.kind, minPrice: min(variant.price) })
       .from(product)
       .innerJoin(variant, and(eq(variant.storeId, product.storeId), eq(variant.productId, product.id)))
       .where(published(scope))
@@ -24,7 +24,7 @@ export async function listPublishedProducts(scope: StorefrontScope) {
   );
 }
 
-const productCard = { id: product.id, catalogId: product.catalogId, title: product.title, slug: product.slug, description: product.description };
+const productCard = { id: product.id, catalogId: product.catalogId, title: product.title, slug: product.slug, kind: product.kind, description: product.description };
 
 /**
  * Look up a published product by URL segment: an all-digit segment ≥ 10000 is the catalog id,
@@ -53,7 +53,7 @@ export async function getPublishedProduct(scope: StorefrontScope, segment: strin
     }
     if (!p) return null;
     const variants = await scope.exec
-      .select({ id: variant.id, catalogId: variant.catalogId, title: variant.title, price: variant.price, stock: variant.stock })
+      .select({ id: variant.id, catalogId: variant.catalogId, title: variant.title, price: variant.price, stock: variant.stock, trackStock: variant.trackStock })
       .from(variant)
       .where(and(eq(variant.storeId, scope.storeId), eq(variant.productId, p.id)))
       .orderBy(asc(variant.id));
@@ -119,10 +119,12 @@ export async function getCart(scope: StorefrontScope, cartId: string | undefined
         productTitle: product.title,
         productSlug: product.slug,
         productId: product.id,
+        productKind: product.kind,
         productCatalogId: product.catalogId,
         variantTitle: variant.title,
         price: variant.price,
         stock: variant.stock,
+        trackStock: variant.trackStock,
         quantity: cartLine.quantity,
       })
       .from(cartLine)

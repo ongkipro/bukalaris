@@ -217,7 +217,7 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
         </p>
       )}
 
-      {(shipmentRow || (fulfil && bookable && !platformBookingClosed)) && (
+      {o.hasPhysical && (shipmentRow || (fulfil && bookable && !platformBookingClosed)) && (
         <section aria-labelledby="shipment" className="grid gap-4 rounded-lg border p-4" data-testid="shipment">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 id="shipment" className="text-base font-semibold">{ownAccount ? "Pengiriman lewat akun Mengantar toko" : "Pengiriman Bukalaris Kirim"}</h2>
@@ -357,16 +357,23 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
 
       <div className="grid gap-4 sm:grid-cols-2">
         <section aria-labelledby="buyer" className="grid content-start gap-1.5 rounded-lg border p-4 text-sm">
-          <h2 id="buyer" className="text-base font-semibold">Pembeli & Pengiriman</h2>
+          <h2 id="buyer" className="text-base font-semibold">{o.hasPhysical ? "Pembeli & Pengiriman" : "Pembeli"}</h2>
           <p className="font-medium">{o.buyerName}</p>
           <p><a href={`tel:${o.buyerPhone}`} className="underline underline-offset-4">{o.buyerPhone}</a></p>
-          <p className="whitespace-pre-line text-muted-foreground">{o.shippingAddress}</p>
-          <p className="text-muted-foreground">Area: {o.destinationAreaLabel}</p>
-          <p className="text-muted-foreground">Kurir: {o.courier} <span className="font-mono text-xs">({o.courierCode})</span> · {o.weightKg} kg</p>
-          <p className="text-muted-foreground" data-testid="order-shipping-account">
-            {ownAccount ? "Akun Mengantar: milik toko Anda" : `Akun Bukalaris Kirim: ${o.shippingAccountKind === "partner_managed" ? "Akun khusus toko Anda" : "Akun induk Bukalaris Kirim"}`}
-          </p>
-          {o.trackingNumber && <p>Resi: <span className="font-mono font-medium" data-testid="tracking">{o.trackingNumber}</span></p>}
+          {o.buyerEmail && <p className="text-muted-foreground">{o.buyerEmail}</p>}
+          {o.hasPhysical ? (
+            <>
+              <p className="whitespace-pre-line text-muted-foreground">{o.shippingAddress}</p>
+              <p className="text-muted-foreground">Area: {o.destinationAreaLabel}</p>
+              <p className="text-muted-foreground">Kurir: {o.courier} <span className="font-mono text-xs">({o.courierCode})</span> · {o.weightKg} kg</p>
+              <p className="text-muted-foreground" data-testid="order-shipping-account">
+                {ownAccount ? "Akun Mengantar: milik toko Anda" : `Akun Bukalaris Kirim: ${o.shippingAccountKind === "partner_managed" ? "Akun khusus toko Anda" : "Akun induk Bukalaris Kirim"}`}
+              </p>
+              {o.trackingNumber && <p>Resi: <span className="font-mono font-medium" data-testid="tracking">{o.trackingNumber}</span></p>}
+            </>
+          ) : (
+            <p className="text-muted-foreground" data-testid="seller-order-digital">Pesanan digital — tanpa pengiriman fisik.</p>
+          )}
           {o.status === "returned" && (
             <p className="mt-1 rounded-md border border-destructive/30 bg-destructive/5 px-2.5 py-1.5 text-xs text-destructive">
               Paket dikembalikan ke penjual (RTS). Stok setiap barang sudah dikembalikan ke inventaris.
@@ -601,7 +608,9 @@ export default async function OrderPage({ params, searchParams }: PageProps<"/se
         <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 px-3 text-sm tabular-nums">
           <dt>Subtotal</dt><dd className="text-right">{rupiah(o.subtotal)}</dd>
           {o.goodsDiscount > 0 && <><dt>Diskon barang (dibiayai toko)</dt><dd className="text-right" data-testid="order-goods-discount">−{rupiah(o.goodsDiscount)}</dd></>}
-          <dt>Ongkir{o.shippingDiscount > 0 && <span className="font-normal text-muted-foreground"> (diskon ongkir dibiayai toko {rupiah(o.shippingDiscount)})</span>}</dt><dd className="text-right">{rupiah(o.shippingFee)}</dd>
+          {o.hasPhysical && (
+            <><dt>Ongkir{o.shippingDiscount > 0 && <span className="font-normal text-muted-foreground"> (diskon ongkir dibiayai toko {rupiah(o.shippingDiscount)})</span>}</dt><dd className="text-right">{rupiah(o.shippingFee)}</dd></>
+          )}
           <dt className="font-semibold">Total</dt><dd className="text-right font-semibold" data-testid="order-total">{rupiah(o.total)}</dd>
         </dl>
       </section>
