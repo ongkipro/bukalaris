@@ -264,3 +264,40 @@ describe("T-113 expiry and retention (decision 37, D-33)", () => {
     await admin.execute(sql`insert into retention_policy (class, period_days) values ('payment_proof', 90)`);
   });
 });
+
+describe("T-113 review fixes (independent review 2026-11-23)", () => {
+  it("the window bounds the upload, a decision needs a waiting order, and one step-up proof authorises one account change", async () => {
+    const s = await bankStore("bankreview");
+    const late = await submit(s);
+    await withoutGuard("order_bank_transfer", "order_bank_transfer_append_only", () => admin.execute(sql`update order_bank_transfer set expires_at = created_at + interval '1 second' where order_id = ${late}`));
+    await new Promise((r) => setTimeout(r, 1100));
+    expect(await code(uploadPaymentProof(db, ref(s, late), [PNG], write))).toBe("window_closed");
+    expect((await buyerBankTransfer(db, ref(s, late)))!.canUpload).toBe(false);
+    const paid = await submit(s);
+    const { id: proofId } = await uploadPaymentProof(db, ref(s, paid), [PNG], write);
+    await confirmBankTransfer(s.me, { orderId: paid, reason: "dana masuk tanpa memilih bukti" });
+    expect(await code(rejectPaymentProof(s.me, { orderId: paid, proofId, reason: "terlambat ditolak" }))).toBe("not_awaiting");
+    expect(await pgCode(withStore(db, s.storeId, (tx) => tx.update(paymentProof).set({ status: "rejected", decidedBy: s.ownerId, decidedAt: new Date(), rejectReason: "lewat jalur basis data" }).where(eq(paymentProof.id, proofId))))).toBe("23514");
+    // Inside ONE transaction that consumed one proof, a second account under the same proof is refused (a later transaction fails the freshness rule anyway).
+    expect(await pgCode(admin.transaction(async (tx) => {
+      const [p] = (await tx.execute(sql`insert into store_step_up_proof (store_id, user_id, session_id, action_key, subject_kind, subject_id, expires_at, consumed_at) values (${s.storeId}, ${s.ownerId}, 'review', 'integrations.bank_account', 'store', 'bank_transfer', now() + interval '5 minutes', now()) returning id`)) as unknown as { id: string }[];
+      await tx.execute(sql`insert into store_bank_account (store_id, bank_code, account_number, holder_name, created_by, step_up_ref) values (${s.storeId}, 'BNI', '7777777777', 'Budi', ${s.ownerId}, ${p!.id})`);
+      await tx.execute(sql`insert into store_bank_account (store_id, bank_code, account_number, holder_name, created_by, step_up_ref) values (${s.storeId}, 'BRI', '8888888888', 'Budi', ${s.ownerId}, ${p!.id})`);
+    }))).toBe("23505");
+  });
+
+  it("the database keeps a bank-transfer order's method and start state, and a failed upload leaves no file behind", async () => {
+    const s = await bankStore("bankreview2");
+    const orderId = await submit(s);
+    expect(await pgCode(admin.execute(sql`update "order" set payment_method = 'manual_transfer' where id = ${orderId}`))).toBe("42501");
+    expect(await pgCode(admin.execute(sql`insert into "order" (store_id, cart_id, idempotency_key, request_hash, status, payment_method, buyer_name, buyer_phone, shipping_address, courier_code, courier, origin_area_id, destination_area_id, destination_area_label, weight_kg, shipping_provider_cost, shipping_margin, subtotal, shipping_fee, total)
+      select store_id, gen_random_uuid(), 'x-' || gen_random_uuid(), request_hash, 'placed', 'bank_transfer', buyer_name, buyer_phone, shipping_address, courier_code, courier, origin_area_id, destination_area_id, destination_area_label, weight_kg, shipping_provider_cost, shipping_margin, subtotal, shipping_fee, total from "order" where id = ${orderId}`))).toBe("23514");
+    const removed: string[] = [];
+    let n = 0;
+    const flaky = async (key: string, bytes: Uint8Array) => { if (++n === 2) throw new Error("disk full"); files.set(key, bytes); };
+    await expect(uploadPaymentProof(db, ref(s, orderId), [PNG, PNG], flaky, { remove: async (k) => { removed.push(k); files.delete(k); } })).rejects.toThrow("disk full");
+    expect(removed).toHaveLength(1);
+    expect(files.size).toBe(0);
+    expect(await proofsOf(orderId)).toEqual([]);
+  });
+});

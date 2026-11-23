@@ -4,6 +4,9 @@ import { HOST_STORE_HEADER, WWW_REDIRECT_HEADER } from "./lib/host-header";
 import { REQUEST_ID_COOKIE, REQUEST_ID_HEADER, validRequestId } from "./lib/request-id";
 import { CSP_HEADER, contentSecurityPolicy, HSTS_HEADER, HSTS_VALUE, newNonce, NONCE_HEADER } from "./lib/security-headers";
 
+/** T-113: the two proof-of-transfer download routes (HTTP-34, HTTP-35) set their own sandboxing CSP; anchored, case-insensitive UUID. */
+const PROOF_DOWNLOAD = /^\/(?:o\/[^/]+|seller\/orders\/[0-9]{1,15})\/proof\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[1-3]$/i;
+
 /**
  * Storefront host resolution (TEN-2, DOM-1 subset): `<slug>.<STORE_ROOT_DOMAIN>`
  * is rewritten to `/s/<slug>/...`; platform surfaces live on `PLATFORM_ROOT_DOMAIN` (ADR-0014, T-102; unset = the
@@ -41,7 +44,7 @@ export function proxy(request: NextRequest) {
   // Everything else gets a fresh nonce that Next reads from the request header and applies to
   // its inline scripts.
   let csp: string | null = null;
-  if (!pathname.startsWith("/api/") && !/\/media\/[0-9]+$/.test(pathname) && !/\/proof\/[0-9a-f-]{36}\/[1-3]$/.test(pathname)) {
+  if (!pathname.startsWith("/api/") && !/\/media\/[0-9]+$/.test(pathname) && !PROOF_DOWNLOAD.test(pathname)) {
     const nonce = newNonce();
     csp = contentSecurityPolicy(nonce, { dev: process.env.NODE_ENV === "development", https });
     headers.set(NONCE_HEADER, nonce);

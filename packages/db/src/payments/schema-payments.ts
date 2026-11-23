@@ -194,6 +194,9 @@ export const storeBankAccount = pgTable("store_bank_account", {
 }, (t) => [
   unique("bank_account_store_id_uq").on(t.storeId, t.id),
   index("bank_account_store_idx").on(t.storeId, t.removedAt),
+  // One step-up proof authorises one change: a single proof can never list or remove several accounts.
+  unique("bank_account_step_up_uq").on(t.stepUpRef),
+  uniqueIndex("bank_account_removal_step_up_uq").on(t.removalStepUpRef).where(sql`${t.removalStepUpRef} is not null`),
   check("bank_account_fields_chk", sql`${t.bankCode} ~ '^[A-Z0-9]{2,12}$' and ${t.accountNumber} ~ '^[0-9]{5,24}$' and length(btrim(${t.holderName})) between 2 and 120
     and ((${t.removedAt} is null) = (${t.removedBy} is null)) and ((${t.removedAt} is null) = (${t.removalStepUpRef} is null))`),
 ]);
@@ -244,7 +247,7 @@ export const paymentProof = pgTable("payment_proof", {
   check("payment_proof_chk", sql`${t.status} in ('sent', 'accepted', 'rejected') and jsonb_typeof(${t.files}) = 'array'
     and (jsonb_array_length(${t.files}) between 1 and 3 or (${t.filesPurgedAt} is not null and jsonb_array_length(${t.files}) = 0))
     and ((${t.status} = 'sent') = (${t.decidedAt} is null)) and ((${t.decidedAt} is null) = (${t.decidedBy} is null))
-    and ((${t.status} = 'rejected') = (${t.rejectReason} is not null)) and (${t.rejectReason} is null or length(${t.rejectReason}) between 5 and 500)`),
+    and ((${t.status} = 'rejected') = (${t.rejectReason} is not null)) and (${t.rejectReason} is null or length(btrim(${t.rejectReason})) between 5 and 500)`),
 ]);
 
 /**
@@ -264,5 +267,5 @@ export const bankTransferConfirmation = pgTable("bank_transfer_confirmation", {
   unique("bank_transfer_confirmation_order_uq").on(t.storeId, t.orderId),
   foreignKey({ name: "bank_transfer_confirmation_order_fk", columns: [t.storeId, t.orderId], foreignColumns: [order.storeId, order.id] }),
   foreignKey({ name: "bank_transfer_confirmation_proof_fk", columns: [t.storeId, t.proofId], foreignColumns: [paymentProof.storeId, paymentProof.id] }),
-  check("bank_transfer_confirmation_chk", sql`length(${t.reason}) between 5 and 500`),
+  check("bank_transfer_confirmation_chk", sql`length(btrim(${t.reason})) between 5 and 500`),
 ]);

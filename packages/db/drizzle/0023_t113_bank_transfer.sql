@@ -7,7 +7,7 @@ CREATE TABLE "bank_transfer_confirmation" (
 	"reason" text NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "bank_transfer_confirmation_order_uq" UNIQUE("store_id","order_id"),
-	CONSTRAINT "bank_transfer_confirmation_chk" CHECK (length("bank_transfer_confirmation"."reason") between 5 and 500)
+	CONSTRAINT "bank_transfer_confirmation_chk" CHECK (length(btrim("bank_transfer_confirmation"."reason")) between 5 and 500)
 );
 --> statement-breakpoint
 CREATE TABLE "order_bank_transfer" (
@@ -35,7 +35,7 @@ CREATE TABLE "payment_proof" (
 	CONSTRAINT "payment_proof_chk" CHECK ("payment_proof"."status" in ('sent', 'accepted', 'rejected') and jsonb_typeof("payment_proof"."files") = 'array'
     and (jsonb_array_length("payment_proof"."files") between 1 and 3 or ("payment_proof"."files_purged_at" is not null and jsonb_array_length("payment_proof"."files") = 0))
     and (("payment_proof"."status" = 'sent') = ("payment_proof"."decided_at" is null)) and (("payment_proof"."decided_at" is null) = ("payment_proof"."decided_by" is null))
-    and (("payment_proof"."status" = 'rejected') = ("payment_proof"."reject_reason" is not null)) and ("payment_proof"."reject_reason" is null or length("payment_proof"."reject_reason") between 5 and 500))
+    and (("payment_proof"."status" = 'rejected') = ("payment_proof"."reject_reason" is not null)) and ("payment_proof"."reject_reason" is null or length(btrim("payment_proof"."reject_reason")) between 5 and 500))
 );
 --> statement-breakpoint
 CREATE TABLE "store_bank_account" (
@@ -51,6 +51,7 @@ CREATE TABLE "store_bank_account" (
 	"removed_by" text,
 	"removal_step_up_ref" uuid,
 	CONSTRAINT "bank_account_store_id_uq" UNIQUE("store_id","id"),
+	CONSTRAINT "bank_account_step_up_uq" UNIQUE("step_up_ref"),
 	CONSTRAINT "bank_account_fields_chk" CHECK ("store_bank_account"."bank_code" ~ '^[A-Z0-9]{2,12}$' and "store_bank_account"."account_number" ~ '^[0-9]{5,24}$' and length(btrim("store_bank_account"."holder_name")) between 2 and 120
     and (("store_bank_account"."removed_at" is null) = ("store_bank_account"."removed_by" is null)) and (("store_bank_account"."removed_at" is null) = ("store_bank_account"."removal_step_up_ref" is null)))
 );
@@ -74,6 +75,7 @@ ALTER TABLE "store_bank_transfer" ADD CONSTRAINT "store_bank_transfer_store_id_s
 CREATE INDEX "order_bank_transfer_expiry_idx" ON "order_bank_transfer" USING btree ("expires_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "payment_proof_one_sent_uq" ON "payment_proof" USING btree ("store_id","order_id") WHERE "payment_proof"."status" = 'sent';--> statement-breakpoint
 CREATE INDEX "bank_account_store_idx" ON "store_bank_account" USING btree ("store_id","removed_at");--> statement-breakpoint
+CREATE UNIQUE INDEX "bank_account_removal_step_up_uq" ON "store_bank_account" USING btree ("removal_step_up_ref") WHERE "store_bank_account"."removal_step_up_ref" is not null;--> statement-breakpoint
 ALTER TABLE "order" ADD CONSTRAINT "order_payment_chk" CHECK ("order"."payment_method" in ('cod', 'manual_transfer', 'bank_transfer'));--> statement-breakpoint
 
 -- ===== T-113 bank transfer to the seller's own bank account (ADR-0013 section 10, decisions 35 to 39; D-31, D-32, D-33, D-36) ===========
@@ -193,9 +195,14 @@ BEGIN
       RAISE EXCEPTION 'the files of a proof are only purged, once' USING ERRCODE = 'insufficient_privilege';
     END IF;
   END IF;
-  IF (NEW.status, NEW.decided_by, NEW.decided_at, NEW.reject_reason) IS DISTINCT FROM (OLD.status, OLD.decided_by, OLD.decided_at, OLD.reject_reason)
-     AND (OLD.status <> 'sent' OR NEW.status NOT IN ('accepted', 'rejected')) THEN
-    RAISE EXCEPTION 'a proof is decided once' USING ERRCODE = 'check_violation';
+  IF (NEW.status, NEW.decided_by, NEW.decided_at, NEW.reject_reason) IS DISTINCT FROM (OLD.status, OLD.decided_by, OLD.decided_at, OLD.reject_reason) THEN
+    IF OLD.status <> 'sent' OR NEW.status NOT IN ('accepted', 'rejected') THEN
+      RAISE EXCEPTION 'a proof is decided once' USING ERRCODE = 'check_violation';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public."order" o WHERE o.store_id = NEW.store_id AND o.id = NEW.order_id AND o.status = 'awaiting_payment')
+       OR (NEW.status = 'rejected' AND EXISTS (SELECT 1 FROM public.bank_transfer_confirmation c WHERE c.store_id = NEW.store_id AND c.proof_id = NEW.id)) THEN
+      RAISE EXCEPTION 'a proof is decided only while its order waits for payment' USING ERRCODE = 'check_violation';
+    END IF;
   END IF;
   RETURN NEW;
 END $$;--> statement-breakpoint
@@ -214,18 +221,28 @@ END $$;--> statement-breakpoint
 REVOKE ALL ON FUNCTION public.bank_transfer_confirmation_guard() FROM PUBLIC;--> statement-breakpoint
 CREATE TRIGGER bank_transfer_confirmation_guard BEFORE INSERT ON public.bank_transfer_confirmation FOR EACH ROW EXECUTE FUNCTION public.bank_transfer_confirmation_guard();--> statement-breakpoint
 
--- 5. Decision 38: a bank-transfer order moves from awaiting payment to placed only with its confirmation record, for every role (an upload, the
---    worker, an Owner console path or a bare seller "pay" cannot make it paid).
+-- 5. Decision 38: a bank-transfer order starts unpaid, keeps its method, and leaves awaiting payment other than by cancellation only with its
+--    confirmation record, for every role (an upload, the worker, an Owner console path or a bare seller "pay" cannot make it paid).
 CREATE FUNCTION public.order_bank_transfer_paid_guard() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM public.bank_transfer_confirmation c WHERE c.store_id = NEW.store_id AND c.order_id = NEW.id) THEN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.payment_method = 'bank_transfer' AND NEW.status <> 'awaiting_payment' THEN
+      RAISE EXCEPTION 'a bank-transfer order starts awaiting payment' USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF (OLD.payment_method = 'bank_transfer') IS DISTINCT FROM (NEW.payment_method = 'bank_transfer') THEN
+    RAISE EXCEPTION 'the payment method of a bank-transfer order never changes' USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  IF NEW.payment_method = 'bank_transfer' AND OLD.status = 'awaiting_payment' AND NEW.status NOT IN ('awaiting_payment', 'cancelled')
+     AND NOT EXISTS (SELECT 1 FROM public.bank_transfer_confirmation c WHERE c.store_id = NEW.store_id AND c.order_id = NEW.id) THEN
     RAISE EXCEPTION 'a bank-transfer order is paid only by the seller''s confirmation record' USING ERRCODE = 'insufficient_privilege';
   END IF;
   RETURN NEW;
 END $$;--> statement-breakpoint
 REVOKE ALL ON FUNCTION public.order_bank_transfer_paid_guard() FROM PUBLIC;--> statement-breakpoint
-CREATE TRIGGER order_bank_transfer_paid_guard BEFORE UPDATE OF status ON public."order" FOR EACH ROW
-  WHEN (OLD.status = 'awaiting_payment' AND NEW.status = 'placed' AND NEW.payment_method = 'bank_transfer') EXECUTE FUNCTION public.order_bank_transfer_paid_guard();--> statement-breakpoint
+CREATE TRIGGER order_bank_transfer_paid_guard BEFORE INSERT OR UPDATE OF status, payment_method ON public."order" FOR EACH ROW
+  EXECUTE FUNCTION public.order_bank_transfer_paid_guard();--> statement-breakpoint
 
 -- 6. Retention (D-33, owner 2026-11-15): proof files 90 days after the order closes. The row is kept (the confirmation names it); the cleanup
 --    command deletes the files and stamps `files_purged_at`. The period is the retention setting of class `payment_proof` (`setRetentionPeriod`).

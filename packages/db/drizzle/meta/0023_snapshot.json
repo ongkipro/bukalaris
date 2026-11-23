@@ -1,5 +1,5 @@
 {
-  "id": "59254595-cd48-4446-88b3-f7b9b1e58e3e",
+  "id": "bfb3f18c-b67d-4b5c-b010-e6bf4ac645ec",
   "prevId": "89b59390-baf7-47ed-8443-5e02a5321b7a",
   "version": "7",
   "dialect": "postgresql",
@@ -7568,7 +7568,7 @@
       "checkConstraints": {
         "bank_transfer_confirmation_chk": {
           "name": "bank_transfer_confirmation_chk",
-          "value": "length(\"bank_transfer_confirmation\".\"reason\") between 5 and 500"
+          "value": "length(btrim(\"bank_transfer_confirmation\".\"reason\")) between 5 and 500"
         }
       },
       "isRLSEnabled": false
@@ -8868,7 +8868,7 @@
       "checkConstraints": {
         "payment_proof_chk": {
           "name": "payment_proof_chk",
-          "value": "\"payment_proof\".\"status\" in ('sent', 'accepted', 'rejected') and jsonb_typeof(\"payment_proof\".\"files\") = 'array'\n    and (jsonb_array_length(\"payment_proof\".\"files\") between 1 and 3 or (\"payment_proof\".\"files_purged_at\" is not null and jsonb_array_length(\"payment_proof\".\"files\") = 0))\n    and ((\"payment_proof\".\"status\" = 'sent') = (\"payment_proof\".\"decided_at\" is null)) and ((\"payment_proof\".\"decided_at\" is null) = (\"payment_proof\".\"decided_by\" is null))\n    and ((\"payment_proof\".\"status\" = 'rejected') = (\"payment_proof\".\"reject_reason\" is not null)) and (\"payment_proof\".\"reject_reason\" is null or length(\"payment_proof\".\"reject_reason\") between 5 and 500)"
+          "value": "\"payment_proof\".\"status\" in ('sent', 'accepted', 'rejected') and jsonb_typeof(\"payment_proof\".\"files\") = 'array'\n    and (jsonb_array_length(\"payment_proof\".\"files\") between 1 and 3 or (\"payment_proof\".\"files_purged_at\" is not null and jsonb_array_length(\"payment_proof\".\"files\") = 0))\n    and ((\"payment_proof\".\"status\" = 'sent') = (\"payment_proof\".\"decided_at\" is null)) and ((\"payment_proof\".\"decided_at\" is null) = (\"payment_proof\".\"decided_by\" is null))\n    and ((\"payment_proof\".\"status\" = 'rejected') = (\"payment_proof\".\"reject_reason\" is not null)) and (\"payment_proof\".\"reject_reason\" is null or length(btrim(\"payment_proof\".\"reject_reason\")) between 5 and 500)"
         }
       },
       "isRLSEnabled": false
@@ -8977,6 +8977,22 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "bank_account_removal_step_up_uq": {
+          "name": "bank_account_removal_step_up_uq",
+          "columns": [
+            {
+              "expression": "removal_step_up_ref",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"store_bank_account\".\"removal_step_up_ref\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -9002,6 +9018,13 @@
           "columns": [
             "store_id",
             "id"
+          ]
+        },
+        "bank_account_step_up_uq": {
+          "name": "bank_account_step_up_uq",
+          "nullsNotDistinct": false,
+          "columns": [
+            "step_up_ref"
           ]
         }
       },

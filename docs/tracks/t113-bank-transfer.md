@@ -17,7 +17,7 @@
 | Web | SC-32 bank accounts (add and remove with the 6-digit code, switch, payment window); checkout option; SF-08 instruction and the link to the order-status page; SF-11 instruction, proofs, upload; seller order page (SC-13) proofs (finance role), reject and confirm forms; download routes HTTP-34 (buyer, signed link) and HTTP-35 (seller finance role); `proxy.ts` leaves the downloads' own CSP in place |
 | Docs | ARCH-5 rows SC-13, SC-32, SF-08, SF-11, JOB-01, JOB-02, HTTP-34, HTTP-35; D-36; `DEPLOY-COOLIFY.md` and `RUNBOOK.md` (`PRIVATE_MEDIA_DIR`); `.env.example` |
 
-## Named tests (`packages/db/test/t113-bank-transfer.test.ts`, 10)
+## Named tests (`packages/db/test/t113-bank-transfer.test.ts`, 12)
 
 1. "accounts are listed and removed by the owner with a fresh step-up, audited, at most five, never edited or deleted; staff and a missing proof are refused"
 2. "store A can neither read nor change store B's accounts; a listed account makes the store seller_owned (D-36) and counts as a ready prepaid method"
@@ -29,6 +29,8 @@
 8. "a proof is read only through its own order's signed link or by the store's finance role: another buyer's link, store A's finance role and staff get nothing"
 9. "an unpaid order past its payment window is cancelled and its stock returned; one with a proof waiting for the seller is kept"
 10. "retention deletes the proof files of an order closed longer ago than the period and keeps the proof row and the confirmation record"
+11. "the window bounds the upload, a decision needs a waiting order, and one step-up proof authorises one account change" (review)
+12. "the database keeps a bank-transfer order's method and start state, and a failed upload leaves no file behind" (review)
 
 E2E `apps/web/e2e/t113.spec.ts` (mobile-320 and desktop): bank account on the payments screen, checkout by bank transfer, account and exact total on the confirmation, proof upload on the signed page (order unchanged), the buyer's download is a sandboxed attachment, the public media route answers 404 for the proof, the seller downloads it and confirms with a reason, the buyer sees the order paid.
 
@@ -54,9 +56,35 @@ Each mutation applied in place, the named test run (the test database is re-migr
 - E2E `t113.spec.ts` at mobile-320 and desktop: 2 passed. Rendered evidence opened: `docs/evidence/m1/{mobile-320,desktop}-t113-{seller-bank-accounts,checkout-bank-transfer,confirmation-bank-transfer,order-status-proof-sent,seller-order-proof,order-status-paid}.png`. The desktop seller order page review led to two fixes: the money block no longer names AutoLaris or a gateway fee for a bank-transfer order, and the deadline no longer reads "WIB WIB".
 - Tests outside the new file: `t104-provider-accounts.test.ts` (`storeReadiness` now reports `bankTransfer`); the demo reset lists the new tables (`seed-demo.ts`, `reset_demo_payments`).
 
+## Independent review (2026-11-23) and how each finding was handled
+
+Reviewer: Antigravity CLI (`agy`) through `ai-ask`, read-only, the change attached in three parts (Codex: 401, not logged in; Claude: weekly limit until 2026-11-25). Verdict on each part: CHANGES REQUIRED, no blocker. Findings were checked against the code before acting.
+
+| Part | Finding | Handling | Evidence |
+|---|---|---|---|
+| A major | the paid guard covered only `awaiting_payment -> placed` on UPDATE | `order_bank_transfer_paid_guard` now runs on INSERT and on UPDATE of status or method: a bank-transfer order starts awaiting payment, keeps its method, and leaves awaiting payment other than by cancellation only with the confirmation (the state machine of `order_status_guard` already allowed only `placed` or `cancelled`) | test "the database keeps a bank-transfer order's method and start state …" |
+| A minor | a proof could be decided after the order left awaiting payment, or rejected while a confirmation names it | `payment_proof_guard` refuses both; `rejectPaymentProof` locks the order and needs it awaiting payment | test "the window bounds the upload, a decision needs a waiting order …" |
+| A minor | one step-up proof could list or remove several accounts in one transaction | unique `step_up_ref`, partial unique `removal_step_up_ref` | same test (23505) |
+| A minor | `PRIVATE_MEDIA_DIR` whitespace, relative or overlapping `MEDIA_DIR` | trimmed; absolute required in production; refused when it overlaps the public store | `proof-store.ts` |
+| A minor | `proofResponse` took any type | allow-list of the three image types | `proof-store.ts` |
+| A minor | reasons of spaces only passed the database checks | `btrim` in both checks (migration regenerated) | migration `0023` |
+| A nit | file modes, index for the purge | files `0600`, directories `0700`; index not added (the purge reads at most 200 rows a day) | `proof-store.ts` |
+| B major | expiry race: a proof sent between the scan and the lock | re-checked under the order lock (proof waiting, confirmation, expiry) | `expireBankTransferOrders` |
+| B major | upload after the window kept the stock reserved | the upload needs `expires_at > now()`; `canUpload` follows it | test "the window bounds the upload …" (mutation: check removed → "expected 'ok' to be 'window_closed'") |
+| B major | files of a failed upload stayed on disk | written keys removed on failure (`ctx.remove`) | test "… a failed upload leaves no file behind" (mutation: cleanup skipped → "expected [] to have a length of 1") |
+| B minor | audit subject kind always `store_bank_account` | `order` for confirm and reject, `store` for settings | `bank-transfer.ts` |
+| B minor | first settings save raced to a unique violation | `onConflictDoNothing` then `conflict` | `bank-transfer.ts` |
+| B minor | one failing order or file stopped the whole sweep | per item, logged with codes only | `bank-transfer.ts` |
+| B weakened | the per-IP limit is skipped without a client IP | kept: the same rule as RL-PAY-RECHECK; the web action always passes the IP | — |
+| C major | proxy CSP exception unanchored and lower-case only | anchored to the two routes, case-insensitive UUID | `proxy.ts` |
+| C major | body limit and buffering | the body limit is already 11 MB (`next.config.ts`); the action now refuses more than three files or a file over 3 MB before reading any | `o/[token]/actions.ts` |
+| C minor | raw token in the redirect | `encodeURIComponent` | same file |
+| C minor | download error handling | both routes map only `DomainError` to 404; the seller route refuses a non-positive id | route files |
+| C nit | 404 without `nosniff` | added with `text/plain` | route files |
+
 ## Open points
 
 - Undecided proofs keep an order awaiting payment (D-36 item 3); the seller sees it on the order.
 - The proof upload notifies the owners by e-mail; there is no in-app notification list for sellers yet.
 - Doc 17 has no full SC contract for the bank-account list beyond the row of its table ("contract written in T-113"): the screen is SC-32 with the fields above.
-- The independent review and the full CI run are still to come.
+- The full CI run is still to come.

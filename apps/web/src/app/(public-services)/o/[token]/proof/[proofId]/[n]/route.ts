@@ -1,4 +1,4 @@
-import { buyerProofFile, db, getOrderForLink, proofResponse, readProofFile, resolveBuyerOrder } from "@bukalaris/db";
+import { buyerProofFile, db, DomainError, getOrderForLink, proofResponse, readProofFile, resolveBuyerOrder } from "@bukalaris/db";
 import { servesStore } from "@/lib/storefront";
 
 /**
@@ -10,8 +10,8 @@ export async function GET(_req: Request, { params }: RouteContext<"/o/[token]/pr
   const { token, proofId, n } = await params;
   const o = await getOrderForLink(db(), token);
   const ref = o && (await servesStore(o.storeSlug)) ? await resolveBuyerOrder(db(), { token }) : null;
-  const found = ref ? await buyerProofFile(db(), ref, { proofId, n }) : null;
+  const found = ref ? await buyerProofFile(db(), ref, { proofId, n }).catch((err) => { if (err instanceof DomainError) return null; throw err; }) : null;
   const bytes = found ? await readProofFile(found.file.key) : null;
-  if (!found || !bytes) return new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
+  if (!found || !bytes) return new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store", "Content-Type": "text/plain; charset=utf-8", "X-Content-Type-Options": "nosniff" } });
   return proofResponse(bytes, found.file.mime, found.n);
 }

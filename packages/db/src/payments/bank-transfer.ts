@@ -72,8 +72,8 @@ const accountInput = z.strictObject({
 });
 const pgMessage = (err: unknown): string => (err instanceof Error ? `${err.message} ${pgMessage(err.cause)}` : "");
 
-async function audit(tx: Executor, scope: SellerScope, action: string, subjectId: string, reason: string, capability = "integrations.manage") {
-  await tx.insert(auditLog).values({ storeId: scope.storeId, actorUserId: scope.userId, actorCapability: capability, action, subjectKind: "store_bank_account", subjectId, accessLevel: "write", outcome: "allowed", reason: reason.slice(0, 500) });
+async function audit(tx: Executor, scope: SellerScope, action: string, subjectId: string, reason: string, capability = "integrations.manage", subjectKind = "store_bank_account") {
+  await tx.insert(auditLog).values({ storeId: scope.storeId, actorUserId: scope.userId, actorCapability: capability, action, subjectKind, subjectId, accessLevel: "write", outcome: "allowed", reason: reason.slice(0, 500) });
 }
 
 // Lazy, like `setWebhookSecret`: the step-up module imports the checkout limiter, which imports this module (no import cycle at load time).
@@ -122,8 +122,9 @@ export async function setBankTransferSettings(scope: SellerScope, raw: unknown):
     if ((cur?.revision ?? 0) !== input.revision) throw new DomainError("conflict", "Pengaturan baru saja diubah di sesi lain. Muat ulang halaman lalu coba lagi.");
     const values = { enabled: input.enabled, paymentWindowHours: input.paymentWindowHours, revision: input.revision + 1, updatedAt: new Date() };
     if (cur) await tx.update(storeBankTransfer).set(values).where(eq(storeBankTransfer.storeId, scope.storeId));
-    else await tx.insert(storeBankTransfer).values({ storeId: scope.storeId, ...values });
-    await audit(tx, scope, "bank_transfer.settings", String(scope.storeId), `enabled=${input.enabled}; window=${input.paymentWindowHours}h`);
+    else if ((await tx.insert(storeBankTransfer).values({ storeId: scope.storeId, ...values }).onConflictDoNothing().returning({ s: storeBankTransfer.storeId })).length === 0)
+      throw new DomainError("conflict", "Pengaturan baru saja diubah di sesi lain. Muat ulang halaman lalu coba lagi.");
+    await audit(tx, scope, "bank_transfer.settings", String(scope.storeId), `enabled=${input.enabled}; window=${input.paymentWindowHours}h`, "integrations.manage", "store");
   });
 }
 
@@ -169,7 +170,7 @@ export async function buyerBankTransfer(exec: Executor, ref: BuyerOrderRef): Pro
       tx.select({ id: bankTransferConfirmation.id }).from(bankTransferConfirmation).where(and(eq(bankTransferConfirmation.storeId, ref.storeId), eq(bankTransferConfirmation.orderId, ref.orderId))),
     ]);
     const waiting = proofs.some((p) => p.status === "sent");
-    return { accounts: t.accounts, expiresAt: t.expiresAt, totalIdr: t.total, orderStatus: t.status, confirmed: !!c, proofs: proofs.map(proofView), canUpload: t.status === "awaiting_payment" && !c && !waiting };
+    return { accounts: t.accounts, expiresAt: t.expiresAt, totalIdr: t.total, orderStatus: t.status, confirmed: !!c, proofs: proofs.map(proofView), canUpload: t.status === "awaiting_payment" && !c && !waiting && t.expiresAt.getTime() > Date.now() };
   });
 }
 
@@ -190,25 +191,38 @@ async function notifyOwners(tx: Tx, storeId: number, subject: string, text: stri
  * content and size). The files are written inside the transaction that records them, under keys the server chooses. The order does not change;
  * the store's owners are told to compare the proof with their own bank statement.
  */
-export async function uploadPaymentProof(exec: Executor, ref: BuyerOrderRef, files: Uint8Array[], write: (key: string, bytes: Uint8Array) => Promise<void>, ctx: { clientIp?: string | undefined } = {}): Promise<{ id: string }> {
+export async function uploadPaymentProof(exec: Executor, ref: BuyerOrderRef, files: Uint8Array[], write: (key: string, bytes: Uint8Array) => Promise<void>, ctx: { clientIp?: string | undefined; remove?: (key: string) => Promise<void> } = {}): Promise<{ id: string }> {
   await limitProofUpload(exec, ref.orderId, ctx.clientIp);
   const chosen = files.filter((f) => f.length > 0);
   if (chosen.length === 0) throw new DomainError("empty_file", "Pilih foto bukti transfer.");
   if (chosen.length > PROOF_MAX_FILES) throw new DomainError("too_many_files", `Maksimal ${PROOF_MAX_FILES} foto bukti transfer.`);
   if (chosen.some((f) => f.length > PROOF_MAX_BYTES)) throw new DomainError("too_large", "Ukuran tiap foto bukti maksimal 3 MB.");
   const checked = chosen.map((bytes) => ({ bytes, img: validateImage(bytes) }));
-  return withStore(exec, ref.storeId, async (tx) => {
+  const written: string[] = [];
+  try {
+  return await withStore(exec, ref.storeId, async (tx) => {
     const [o] = await tx.select({ status: order.status, method: order.paymentMethod }).from(order).where(and(eq(order.storeId, ref.storeId), eq(order.id, ref.orderId))).for("update");
     if (!o || o.method !== "bank_transfer") throw new DomainError("not_found", "Pesanan tidak ditemukan.");
     if (o.status !== "awaiting_payment") throw new DomainError("not_awaiting", "Pesanan ini tidak menunggu pembayaran lagi.");
     const [waiting] = await tx.select({ id: paymentProof.id }).from(paymentProof).where(and(eq(paymentProof.storeId, ref.storeId), eq(paymentProof.orderId, ref.orderId), eq(paymentProof.status, "sent")));
     if (waiting) throw new DomainError("proof_waiting", "Bukti transfer sebelumnya masih menunggu pemeriksaan penjual.");
+    // Decision 37: the window bounds the upload too, so a proof sent after it cannot keep the stock reserved (the expiry sweep skips waiting proofs).
+    const [t] = await tx.select({ expiresAt: orderBankTransfer.expiresAt }).from(orderBankTransfer).where(and(eq(orderBankTransfer.storeId, ref.storeId), eq(orderBankTransfer.orderId, ref.orderId), sql`${orderBankTransfer.expiresAt} > now()`));
+    if (!t) throw new DomainError("window_closed", "Batas waktu pembayaran sudah lewat. Hubungi penjual bila Anda sudah mentransfer.");
     const stored: ProofFile[] = checked.map(({ bytes, img }) => ({ key: `${ref.storeId}/${randomUUID()}.${mediaExt[img.mime]}`, mime: img.mime, bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") }));
     const [row] = await tx.insert(paymentProof).values({ storeId: ref.storeId, orderId: ref.orderId, files: stored }).returning({ id: paymentProof.id });
-    for (let i = 0; i < stored.length; i++) await write(stored[i]!.key, checked[i]!.bytes);
+    for (let i = 0; i < stored.length; i++) {
+      await write(stored[i]!.key, checked[i]!.bytes);
+      written.push(stored[i]!.key);
+    }
     await notifyOwners(tx, ref.storeId, `Bukti transfer untuk pesanan #${ref.orderId}`, `Pembeli mengirim bukti transfer untuk pesanan #${ref.orderId}. Cocokkan dengan mutasi rekening Anda, lalu konfirmasi atau tolak di Seller Admin. Bukti saja tidak mengubah status pesanan.`);
     return { id: row!.id };
   });
+  } catch (err) {
+    // Nothing was recorded: remove the files this attempt wrote, so no private file outlives a refused upload (best effort; the row is the only reader).
+    for (const key of written) await ctx.remove?.(key).catch(() => undefined);
+    throw err;
+  }
 }
 
 const fileRef = z.strictObject({ proofId: z.uuid(), n: z.coerce.number().int().min(1).max(PROOF_MAX_FILES) });
@@ -269,7 +283,7 @@ export async function confirmBankTransfer(scope: SellerScope, raw: unknown): Pro
     }
     await tx.insert(bankTransferConfirmation).values({ storeId: scope.storeId, orderId: input.orderId, proofId: input.proofId ?? null, confirmedBy: scope.userId, reason: input.reason });
     await applyTransition(tx, scope.storeId, input.orderId, "pay", `Transfer bank dikonfirmasi penjual: ${input.reason}`.slice(0, 500), scope.userId);
-    await audit(tx, scope, "bank_transfer.confirm", String(input.orderId), `proof=${input.proofId ?? "none"}; ${input.reason}`, "finance.confirm_payment");
+    await audit(tx, scope, "bank_transfer.confirm", String(input.orderId), `proof=${input.proofId ?? "none"}; ${input.reason}`, "finance.confirm_payment", "order");
   });
 }
 
@@ -279,10 +293,12 @@ export async function rejectPaymentProof(scope: SellerScope, raw: unknown): Prom
   requireCap(scope, "finance.confirm_payment");
   const input = rejectInput.parse(raw);
   await withStore(scope.exec, scope.storeId, async (tx) => {
+    const [o] = await tx.select({ status: order.status }).from(order).where(and(eq(order.storeId, scope.storeId), eq(order.id, input.orderId))).for("update");
+    if (o?.status !== "awaiting_payment") throw new DomainError("not_awaiting", "Pesanan ini tidak menunggu pembayaran lagi.");
     const [p] = await tx.update(paymentProof).set({ status: "rejected", decidedBy: scope.userId, decidedAt: new Date(), rejectReason: input.reason })
       .where(and(eq(paymentProof.storeId, scope.storeId), eq(paymentProof.orderId, input.orderId), eq(paymentProof.id, input.proofId), eq(paymentProof.status, "sent"))).returning({ id: paymentProof.id });
     if (!p) throw new DomainError("proof_unavailable", "Bukti transfer itu sudah diputuskan atau bukan milik pesanan ini.");
-    await audit(tx, scope, "bank_transfer.proof_reject", String(input.orderId), `proof=${input.proofId}; ${input.reason}`, "finance.confirm_payment");
+    await audit(tx, scope, "bank_transfer.proof_reject", String(input.orderId), `proof=${input.proofId}; ${input.reason}`, "finance.confirm_payment", "order");
   });
 }
 
@@ -302,13 +318,23 @@ export async function expireBankTransferOrders(db: Db, limit = 100): Promise<num
   let n = 0;
   for (const r of due) {
     const storeId = Number(r.store_id), orderId = Number(r.order_id);
-    const moved = await withStore(db, storeId, async (tx) => {
-      const [o] = await tx.select({ status: order.status }).from(order).where(and(eq(order.storeId, storeId), eq(order.id, orderId))).for("update");
-      if (o?.status !== "awaiting_payment") return false;
-      await applyTransition(tx, storeId, orderId, "cancel", "Batas waktu pembayaran transfer bank lewat; stok dikembalikan", BANK_TRANSFER_SYSTEM_ACTOR);
-      return true;
-    });
-    if (moved) n++;
+    try {
+      const moved = await withStore(db, storeId, async (tx) => {
+        const [o] = await tx.select({ status: order.status }).from(order).where(and(eq(order.storeId, storeId), eq(order.id, orderId))).for("update");
+        if (o?.status !== "awaiting_payment") return false;
+        // Re-checked under the order lock: a proof sent or a confirmation recorded since the scan keeps the order.
+        const [still] = (await tx.execute(sql`select 1 from public.order_bank_transfer t where t.store_id = ${storeId} and t.order_id = ${orderId} and t.expires_at < now()
+          and not exists (select 1 from public.bank_transfer_confirmation c where c.store_id = t.store_id and c.order_id = t.order_id)
+          and not exists (select 1 from public.payment_proof p where p.store_id = t.store_id and p.order_id = t.order_id and p.status = 'sent')`)) as unknown as unknown[];
+        if (!still) return false;
+        await applyTransition(tx, storeId, orderId, "cancel", "Batas waktu pembayaran transfer bank lewat; stok dikembalikan", BANK_TRANSFER_SYSTEM_ACTOR);
+        return true;
+      });
+      if (moved) n++;
+    } catch (err) {
+      // One order that cannot move never stops the others; it is logged (codes only) and retried by the next sweep.
+      console.error(JSON.stringify({ ts: new Date().toISOString(), level: "error", event: "bank_transfer.expire_failed", storeId, orderId, error: err instanceof DomainError ? err.code : "error" }));
+    }
   }
   return n;
 }
@@ -326,9 +352,15 @@ export async function purgeProofFiles(db: Db, unlinkFile: (key: string) => Promi
     select p.store_id, p.id, p.files from public.payment_proof p join public."order" o on o.store_id = p.store_id and o.id = p.order_id
      where p.files_purged_at is null and o.status in ('completed', 'cancelled', 'returned') and o.updated_at < now() - ${policy.period_days} * interval '1 day'
      order by o.updated_at limit ${limit}`)) as unknown as { store_id: string; id: string; files: ProofFile[] }[];
+  let purged = 0;
   for (const p of due) {
-    for (const f of p.files) await unlinkFile(f.key);
-    await db.update(paymentProof).set({ files: [], filesPurgedAt: new Date() }).where(and(eq(paymentProof.storeId, Number(p.store_id)), eq(paymentProof.id, p.id), isNull(paymentProof.filesPurgedAt)));
+    try {
+      for (const f of p.files) await unlinkFile(f.key);
+      await db.update(paymentProof).set({ files: [], filesPurgedAt: new Date() }).where(and(eq(paymentProof.storeId, Number(p.store_id)), eq(paymentProof.id, p.id), isNull(paymentProof.filesPurgedAt)));
+      purged++;
+    } catch {
+      console.error(JSON.stringify({ ts: new Date().toISOString(), level: "error", event: "payment_proof.purge_failed", storeId: Number(p.store_id), proofId: p.id }));
+    }
   }
-  return { enabled: true, purged: due.length };
+  return { enabled: true, purged };
 }

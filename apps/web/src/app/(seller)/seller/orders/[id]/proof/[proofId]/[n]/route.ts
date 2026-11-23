@@ -1,5 +1,5 @@
 import { sellerScope } from "@/lib/context";
-import { proofResponse, readProofFile, sellerProofFile } from "@bukalaris/db";
+import { DomainError, proofResponse, readProofFile, sellerProofFile } from "@bukalaris/db";
 import { parseId } from "../../../../status";
 
 /**
@@ -10,8 +10,9 @@ export async function GET(_req: Request, { params }: RouteContext<"/seller/order
   const { id, proofId, n } = await params;
   const scope = await sellerScope();
   const orderId = parseId(id);
-  const found = Number.isSafeInteger(orderId) ? await sellerProofFile(scope, orderId, { proofId, n }).catch(() => null) : null;
+  // A missing capability is the same 404 as another store's or another order's proof; anything unexpected is a real error.
+  const found = Number.isSafeInteger(orderId) && orderId > 0 ? await sellerProofFile(scope, orderId, { proofId, n }).catch((err) => { if (err instanceof DomainError) return null; throw err; }) : null;
   const bytes = found ? await readProofFile(found.file.key) : null;
-  if (!found || !bytes) return new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
+  if (!found || !bytes) return new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store", "Content-Type": "text/plain; charset=utf-8", "X-Content-Type-Options": "nosniff" } });
   return proofResponse(bytes, found.file.mime, found.n);
 }

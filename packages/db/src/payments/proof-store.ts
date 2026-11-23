@@ -11,9 +11,13 @@ import { isAbsolute, join, resolve, sep } from "node:path";
 const KEY_RE = /^[0-9]{1,15}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png|webp)$/;
 
 function root(): string {
-  const dir = process.env.PRIVATE_MEDIA_DIR;
-  if (!dir && process.env.NODE_ENV === "production") throw new Error("PRIVATE_MEDIA_DIR is not set");
-  return resolve(/*turbopackIgnore: true*/ dir ?? join(process.cwd(), "..", "..", "var", "private-media"));
+  const dir = process.env.PRIVATE_MEDIA_DIR?.trim() || null;
+  if (process.env.NODE_ENV === "production" && !(dir && isAbsolute(dir))) throw new Error("PRIVATE_MEDIA_DIR must be an absolute path");
+  const base = resolve(/*turbopackIgnore: true*/ dir ?? join(process.cwd(), "..", "..", "var", "private-media"));
+  // Never inside (or around) the public media store, which a public route serves.
+  const pub = resolve(/*turbopackIgnore: true*/ process.env.MEDIA_DIR?.trim() || "var/media");
+  if (base === pub || base.startsWith(pub + sep) || pub.startsWith(base + sep)) throw new Error("PRIVATE_MEDIA_DIR overlaps MEDIA_DIR");
+  return base;
 }
 function pathOf(key: string): string {
   if (!KEY_RE.test(key)) throw new Error("bad proof key");
@@ -26,8 +30,8 @@ export const isProofKey = (key: string) => KEY_RE.test(key);
 
 export async function writeProofFile(key: string, bytes: Uint8Array): Promise<void> {
   const p = pathOf(key);
-  await mkdir(/*turbopackIgnore: true*/ join(p, ".."), { recursive: true });
-  await writeFile(/*turbopackIgnore: true*/ p, bytes, { flag: "wx" });
+  await mkdir(/*turbopackIgnore: true*/ join(p, ".."), { recursive: true, mode: 0o700 });
+  await writeFile(/*turbopackIgnore: true*/ p, bytes, { flag: "wx", mode: 0o600 });
 }
 export async function readProofFile(key: string): Promise<Uint8Array | null> {
   try {
@@ -47,8 +51,10 @@ export async function unlinkProofFile(key: string): Promise<void> {
  * The response of a proof download: always an attachment, never rendered by the browser as a page, sandboxed, no caching (personal data,
  * decision 39). The file name is generic: no buyer, bank or order data in a header.
  */
+const PROOF_MIMES = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" } as const;
 export function proofResponse(bytes: Uint8Array, mime: string, n: number): Response {
-  const ext = mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "jpg";
+  if (!Object.hasOwn(PROOF_MIMES, mime)) throw new Error("proof file of an unexpected type");
+  const ext = PROOF_MIMES[mime as keyof typeof PROOF_MIMES];
   return new Response(bytes as BodyInit, {
     headers: {
       "Content-Type": mime,
