@@ -84,6 +84,11 @@ Reviewer: Antigravity CLI (`agy`) through `ai-ask`, read-only, the change attach
 
 Confirmation review of the fixes (same reviewer, fix diff and this table attached): APPROVE. Two optional notes: the key of a file whose write fails is now recorded before the write, so a file cut short is removed too (done); one proof UUID could serve one add and one remove inside a single raw-SQL transaction because the two unique constraints are separate (not reachable through the services, which consume a proof per action; kept).
 
+## CI and an intermittent outside the task
+
+- CI run 45108750028 attempt 1: DB 82 files / 1560 tests; E2E 298 passed, 1 failed `[desktop] t63.spec.ts:60` (TOTP verify 429 from the shared sign-in limit; passed locally after `t113.spec.ts`, 8/8). Attempt 2: that test passed, `auth-csrf.spec.ts:469` (T82, the intermittent of T-115 and T-107) failed at both projects; locally 1 of 6 runs failed.
+- Root cause of the T82 intermittent: after the debounced capture action the client re-renders the form and restores the rendered CSRF token between the test's forge and its click (the test logged `restoredByClient: true` in 8 of 12 runs), so the submit carried the current token. The test now sets the forged value in a window capture-phase `submit` listener (before React reads the form) and waits only for the submit request (`idempotencyKey` in the body). Locally 12/12 at both projects. Test change only (`apps/web/e2e/auth-csrf.spec.ts`, outside the Allowed Paths; the product behaviour it checks is unchanged).
+
 ## Open points
 
 - Undecided proofs keep an order awaiting payment (D-36 item 3); the seller sees it on the order.
