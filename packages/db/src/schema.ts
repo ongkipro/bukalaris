@@ -129,6 +129,8 @@ export const store = pgTable(
     theme: text("theme", { enum: ["responsive", "mobile"] }).notNull().default("responsive"),
     /** Optional default expiry in days for newly issued digital grants (D-31 OPEN-G4: null = no default expiry). */
     digitalGrantExpiryDays: integer("digital_grant_expiry_days"),
+    /** T-117 (D-37): stores that existed when migration 0027 ran keep shipping on the platform account until T-118; a new store ships only on its own Mengantar account. Set by the migration and the platform role only — never by the seller (not in `appColumns`). */
+    legacyPlatformShipping: boolean("legacy_platform_shipping").notNull().default(false),
     createdAt: createdAt(),
   },
   (t) => [

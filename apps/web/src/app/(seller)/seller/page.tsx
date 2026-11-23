@@ -4,12 +4,13 @@ import { buttonVariants } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { seller } from "@/lib/context";
 import { rupiah, tanggalSaja } from "@/lib/format";
-import { PERIODS, sellerDashboard, type Period, type SignalEventName } from "@bukalaris/db";
+import { can, PERIODS, sellerDashboard, sellerSetupChecklist, type Period, type SignalEventName } from "@bukalaris/db";
 import Link from "next/link";
 import { Bar } from "./_dashboard/bar";
 import { angka, Kpi, rate } from "./_dashboard/kpi";
 import { CollectedByMethod, COLLECTED_NOTE } from "./_dashboard/collected";
 import { PERIOD_LABEL, PeriodSwitcher } from "./_dashboard/period-switcher";
+import { SetupChecklistCard } from "./_dashboard/setup-checklist";
 
 export const metadata = { title: "Ringkasan — Bukalaris" };
 
@@ -23,7 +24,8 @@ export default async function SellerHome({ searchParams }: PageProps<"/seller">)
   if (!ctx.ok) return null; // the layout renders the denial
   const sp = await searchParams;
   const period = isPeriod(sp.period) ? sp.period : "today";
-  const d = await sellerDashboard(ctx.scope, period);
+  // T-117 (SC-01): only the owner sees the setup checklist (staff see nothing of it); it is fetched only for them.
+  const [d, checklist] = await Promise.all([sellerDashboard(ctx.scope, period), can(ctx.scope, "integrations.manage") && ctx.scope.billing.writable ? sellerSetupChecklist(ctx.scope) : null]);
   const { kpi, funnel } = d;
   // `to` is exclusive (tomorrow 00:00 WIB): the last day shown is the day before it.
   const lastDay = new Date(d.range.to.getTime() - 1);
@@ -40,6 +42,8 @@ export default async function SellerHome({ searchParams }: PageProps<"/seller">)
           {PERIOD_LABEL[period]}: {rangeText}
         </p>
       </div>
+
+      {checklist && <SetupChecklistCard checklist={checklist} />}
 
       {/* The work queue is not period-bound: an old unanswered COD order must never hide behind "today". */}
       <dl className="grid max-w-md gap-3">

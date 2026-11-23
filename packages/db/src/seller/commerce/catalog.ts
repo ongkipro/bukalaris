@@ -2,7 +2,7 @@ import { and, asc, count, desc, eq, min, sql, sum } from "drizzle-orm";
 import { z } from "zod";
 import type { Executor } from "../../client.ts";
 import { storeMoneyMode } from "../../ledger/boundary.ts";
-import { catalogAudit, orderLine, product, PRODUCT_KINDS, productSlugAlias, user, variant, type CatalogAuditAction, type CatalogSnapshot, type ProductKind } from "../../schema.ts";
+import { catalogAudit, orderLine, product, PRODUCT_KINDS, productSlugAlias, store, user, variant, type CatalogAuditAction, type CatalogSnapshot, type ProductKind } from "../../schema.ts";
 import { DomainError, requireCap, type SellerScope } from "../../platform/scoped.ts";
 import { inStore } from "../../platform/tenant.ts";
 
@@ -83,7 +83,10 @@ async function assertCanActivate(tx: Executor, scope: SellerScope, productKind: 
     }
     return;
   }
-  if ((await storeMoneyMode(tx, scope.storeId)) === "seller_owned") {
+  // T-117 (D-37): a store that held money or shipping accounts when migration 0027 ran keeps the platform model until T-118; every newer store
+  // needs its own ready Mengantar account even while its money is still platform-held.
+  const [s] = await tx.select({ legacy: store.legacyPlatformShipping }).from(store).where(eq(store.id, scope.storeId));
+  if ((await storeMoneyMode(tx, scope.storeId)) === "seller_owned" || !s?.legacy) {
     const { shippingReadiness } = await import("../../payments/provider-accounts.ts");
     const ship = await shippingReadiness({ exec: tx, storeId: scope.storeId });
     if (!ship.ready) {
