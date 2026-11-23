@@ -881,3 +881,9 @@ dummy content.
 - T-107 (draft #15): `main` merged twice (after T-115, after T-126), migration renumbered `0022` (generated part identical to the old `0021` draft, hand-written section unchanged), conflicts listed in its track report. Waiting for CI and for the review record of its WIP fixes.
 - T-126 independent review (agy, read-only; Codex 401, Claude weekly limit): APPROVE; the low finding on the untested `verifyOrderLink` path is fixed here (`notify.test.ts`).
 - Note: `ccd9036` (Records, 2026-11-16) reached `main` without a CI run on its push (GitHub 502 day, PR #13 closed); the T-115 run above covers it.
+
+## Merge of 2026-11-23 (T-107)
+
+- #15 T-107 money boundary, squash-merged as `3fc617a`. Integrated onto T-115 and T-126 by merging `main` into the branch (no force push); migration regenerated as `0022`. Two CI runs after the integration failed on fixtures that predated the other task's rules (47 DB tests, then 7 E2E): fixtures and specs fixed, no application change; `t115.spec.ts` step 7 no longer races the scheduled account scan. Review of 2026-11-16 committed by the owner (`docs/reviews/2026-11-16-t107-independent-review.md`); M3 (two rules for seller-held money) fixed by removing T-115's interim `sellerHeldMoney`, with a named test and a mutation. Populated-copy proof of `0022` on the seeded dev database. CI run 45072836271: system map ok (107 route files, 130 rows), DB 81 files / 1548 tests, E2E 297 passed / 6 skipped, `verify:docker` healthy (85/85 policies).
+- Local loop on this device: Postgres 18.6 unpacked from the Ubuntu archive (no Docker) and Playwright Chromium in the user cache; CI stays the authority (Postgres 17).
+- Known intermittents seen on the way, unrelated to T-107 and green on re-run or locally: `[mobile-320] checkout2.spec.ts:150` (form reset under load, recorded by T-106) and `[mobile-320] auth-csrf.spec.ts:469` (T82 forged token, recorded by T-115; 8/8 locally).

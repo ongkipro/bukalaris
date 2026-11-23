@@ -102,7 +102,7 @@ Runner: `mutate.py` in the session scratchpad. Each row breaks one invariant in 
 
 ## Open points
 
-- The seller shipping screen (`(seller)/seller/shipping`, outside the Allowed Paths) still labels `cod_fee_bearer` "Disimpan, belum diterapkan" and says "akun kurir" for the own account; the bearer is applied since T-107. One-line copy change for the owner of SC-22.
+- The seller shipping screen (`(seller)/seller/shipping`) no longer says "Disimpan, belum diterapkan" (review minor 5), but still says "akun kurir" for the store's own Mengantar account although Seller Admin may name Mengantar since T-107: a copy change for the owner of SC-22.
 - The COD fee rate (3%), its minimum and VAT are UNVERIFIED with Mengantar (Ceiling T-107-1 item 2); the Owner console screen for fee versions is still services only (T-106 open point).
 - Buyer e-mails do not show the COD fee or the recorded seller refund yet (`ops/jobs/notify.ts`, outside the Allowed Paths); the buyer portal (ADR-0010) does not show recorded refunds yet (C-P9 names both; the signed order-status page does).
 - The buyer's shipment timeline for a store on its own account still says "Resi terbit dari Bukalaris Kirim" (buyer copy names neither brand; a neutral text is a buyer-copy change, not done here).
