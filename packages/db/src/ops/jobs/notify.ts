@@ -97,6 +97,8 @@ export async function getOrderForLink(exec: Executor, token: string, now = Date.
         storeSlug: store.slug,
         status: order.status,
         paymentMethod: order.paymentMethod,
+        hasPhysical: order.hasPhysical,
+        hasDigital: order.hasDigital,
         courier: order.courier,
         trackingNumber: order.trackingNumber,
         destinationAreaLabel: order.destinationAreaLabel,
@@ -152,6 +154,8 @@ async function loadOrder(exec: Executor, storeId: number, orderId: number) {
       storeSlug: store.slug,
       status: order.status,
       paymentMethod: order.paymentMethod,
+      hasPhysical: order.hasPhysical,
+      hasDigital: order.hasDigital,
       buyerName: order.buyerName,
       buyerEmail: order.buyerEmail,
       courier: order.courier,
@@ -238,7 +242,7 @@ export function renderMail(event: NotifyEvent, recipient: NotifyRecipient, o: Or
   // The buyer's signed status page lives on the store's own host (ADR-0014 decisions 5 and 7, T-103); the seller's link on Seller Admin.
   const link = recipient === "buyer" ? `${storeLinks(o.storeSlug).origin}/o/${signOrderLink(o.id)}` : `${origins().appOrigin}/seller/orders/${o.id}`;
   const linkLabel = recipient === "buyer" ? "Lihat status pesanan" : "Buka pesanan di Seller Admin";
-  const route = `${o.courier} ke ${o.destinationAreaLabel}`;
+  const route = o.hasPhysical && o.courier && o.destinationAreaLabel ? `${o.courier} ke ${o.destinationAreaLabel}` : null;
   const text = [
     ...lead,
     "",
@@ -246,9 +250,9 @@ export function renderMail(event: NotifyEvent, recipient: NotifyRecipient, o: Or
     ...o.lines.map((l) => `- ${l.productTitle} · ${l.variantTitle} × ${l.quantity} = ${rupiah(l.lineTotal)}`),
     `Subtotal ${rupiah(o.subtotal)}`,
     ...(o.goodsDiscount > 0 ? [`Diskon barang -${rupiah(o.goodsDiscount)}`] : []),
-    `Ongkir ${rupiah(o.shippingFee)}${o.shippingDiscount > 0 ? ` (sudah dipotong diskon ongkir ${rupiah(o.shippingDiscount)})` : ""}`,
+    ...(o.hasPhysical ? [`Ongkir ${rupiah(o.shippingFee)}${o.shippingDiscount > 0 ? ` (sudah dipotong diskon ongkir ${rupiah(o.shippingDiscount)})` : ""}`] : []),
     `Total ${rupiah(o.total)}`,
-    `Pengiriman: ${route}${o.trackingNumber ? ` · resi ${o.trackingNumber}` : ""}`,
+    ...(route ? [`Pengiriman: ${route}${o.trackingNumber ? ` · resi ${o.trackingNumber}` : ""}`] : []),
     "",
     `${linkLabel}: ${link}`,
     "",
@@ -266,10 +270,10 @@ export function renderMail(event: NotifyEvent, recipient: NotifyRecipient, o: Or
     ),
     `<tr><td style="padding:6px 0">Subtotal</td><td style="padding:6px 0;text-align:right">${escapeHtml(rupiah(o.subtotal))}</td></tr>`,
     ...(o.goodsDiscount > 0 ? [`<tr><td style="padding:6px 0">Diskon barang</td><td style="padding:6px 0;text-align:right">-${escapeHtml(rupiah(o.goodsDiscount))}</td></tr>`] : []),
-    `<tr><td style="padding:6px 0">Ongkir${o.shippingDiscount > 0 ? ` (diskon ongkir ${escapeHtml(rupiah(o.shippingDiscount))})` : ""}</td><td style="padding:6px 0;text-align:right">${escapeHtml(rupiah(o.shippingFee))}</td></tr>`,
+    ...(o.hasPhysical ? [`<tr><td style="padding:6px 0">Ongkir${o.shippingDiscount > 0 ? ` (diskon ongkir ${escapeHtml(rupiah(o.shippingDiscount))})` : ""}</td><td style="padding:6px 0;text-align:right">${escapeHtml(rupiah(o.shippingFee))}</td></tr>`] : []),
     `<tr><td style="padding:6px 0;font-weight:600">Total</td><td style="padding:6px 0;text-align:right;font-weight:600">${escapeHtml(rupiah(o.total))}</td></tr>`,
     "</table>",
-    `<p style="margin:12px 0;font-size:14px">Pengiriman: ${escapeHtml(route)}${o.trackingNumber ? ` · resi <strong>${escapeHtml(o.trackingNumber)}</strong>` : ""}</p>`,
+    ...(route ? [`<p style="margin:12px 0;font-size:14px">Pengiriman: ${escapeHtml(route)}${o.trackingNumber ? ` · resi <strong>${escapeHtml(o.trackingNumber)}</strong>` : ""}</p>`] : []),
     `<p style="margin:20px 0"><a href="${escapeHtml(link)}" style="display:inline-block;padding:10px 16px;background:#111;color:#fff;text-decoration:none;border-radius:6px">${linkLabel}</a></p>`,
     `<p style="margin:0;font-size:12px;color:#666">Email ini dikirim otomatis oleh Bukalaris. Jangan membalas email ini.</p>`,
     "</div></body></html>",

@@ -42,26 +42,45 @@ import { assertBankTransferOffered, bankTransferState, freezeBankTransfer } from
 
 const areaId = z.string().regex(/^[a-f0-9]{24}$/, "Pilih area tujuan dari hasil pencarian.");
 
+const optStr = <T extends z.ZodTypeAny>(schema: T) => z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), schema.optional());
+
 export const checkoutInput = z.strictObject({
   idempotencyKey: z.uuid(),
   buyerName: z.string().trim().min(2, "Nama wajib diisi.").max(120),
   buyerPhone: z.string().trim().regex(/^\+?[0-9]{8,15}$/, "Nomor HP 8–15 digit."),
-  // Optional (T-36): an empty form field counts as "not given"; never required for COD.
-  buyerEmail: z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), z.string().trim().toLowerCase().email("Alamat email tidak valid.").max(254).optional()),
-  shippingAddress: z.string().trim().min(10, "Alamat terlalu pendek.").max(500),
-  destinationAreaId: areaId,
-  destinationAreaLabel: z.string().trim().min(3, "Pilih area tujuan dari hasil pencarian.").max(200),
-  courier: z.string().min(1, "Pilih kurir.").max(40),
+  // Optional for physical-only; required when the cart holds a digital line (T-111, ADR-0016 decision 8).
+  buyerEmail: optStr(z.string().trim().toLowerCase().email("Alamat email tidak valid.").max(254)),
+  // Shipping fields are required when the cart has a physical line, and omitted for digital-only orders (T-111, ADR-0016 decision 6).
+  shippingAddress: optStr(z.string().trim().min(10, "Alamat terlalu pendek.").max(500)),
+  destinationAreaId: optStr(areaId),
+  destinationAreaLabel: optStr(z.string().trim().min(3, "Pilih area tujuan dari hasil pencarian.").max(200)),
+  courier: optStr(z.string().min(1, "Pilih kurir.").max(40)),
   paymentMethod: z.enum(["cod", "manual_transfer", "bank_transfer"]),
   // Prepaid orders pay through one channel of the provider's own list; COD has none. Validated against that list in `placeOrder`.
-  paymentChannel: z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), z.string().regex(/^[A-Z0-9_-]{1,40}$/, "Pilih metode pembayaran.").optional()),
+  paymentChannel: optStr(z.string().regex(/^[A-Z0-9_-]{1,40}$/, "Pilih metode pembayaran.")),
   voucherCode: z.string().trim().max(64).optional(),
   // T-52: an affiliate code typed by the buyer. A selector only: unknown, expired, blocked or malformed codes never fail the order (ADR-0009 section 4).
   affiliateCode: z.string().trim().max(64).optional(),
   // T-105 (ADR-0013 decision 16): the courier fees the buyer was shown, only to refuse a stale price at submit; never a price source.
-  shippingQuote: z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), z.string().max(2000).refine((v) => SHIPPING_QUOTE_RE.test(v), "Muat ulang halaman checkout.").optional()), // lazy: shipping/rules.ts is in an import cycle with this module
+  shippingQuote: optStr(z.string().max(2000).refine((v) => SHIPPING_QUOTE_RE.test(v), "Muat ulang halaman checkout.")), // lazy: shipping/rules.ts is in an import cycle with this module
+}).superRefine((v, ctx) => {
+  // Any partial shipping submission must carry the complete shipping fields at input validation (before rate limits / quotes).
+  const hasAnyShipping = Boolean(v.shippingAddress || v.destinationAreaId || v.destinationAreaLabel || v.courier);
+  if (hasAnyShipping) {
+    if (!v.shippingAddress) ctx.addIssue({ code: "custom", path: ["shippingAddress"], message: "Alamat lengkap wajib diisi." });
+    if (!v.destinationAreaId) ctx.addIssue({ code: "custom", path: ["destinationAreaId"], message: "Pilih area tujuan dari hasil pencarian." });
+    if (!v.destinationAreaLabel) ctx.addIssue({ code: "custom", path: ["destinationAreaLabel"], message: "Pilih area tujuan dari hasil pencarian." });
+    if (!v.courier) ctx.addIssue({ code: "custom", path: ["courier"], message: "Pilih kurir." });
+  }
 });
 export type CheckoutInput = z.input<typeof checkoutInput>;
+
+const physicalShippingFields = z.object({
+  shippingAddress: z.string().trim().min(10, "Alamat terlalu pendek.").max(500),
+  destinationAreaId: areaId,
+  destinationAreaLabel: z.string().trim().min(3, "Pilih area tujuan dari hasil pencarian.").max(200),
+  courier: z.string().min(1, "Pilih kurir.").max(40),
+});
 
 class Replay extends Error {}
 
@@ -247,9 +266,11 @@ const cartLines = (exec: Executor, storeId: number, cartId: string) =>
       productId: product.id,
       variantCatalogId: variant.catalogId, // snapshot on order_line (T-14)
       productTitle: product.title,
+      productKind: product.kind,
       productStatus: product.status,
       variantTitle: variant.title,
       price: variant.price,
+      trackStock: variant.trackStock,
       weightGrams: variant.weightGrams,
       quantity: cartLine.quantity,
     })
@@ -261,7 +282,7 @@ const cartLines = (exec: Executor, storeId: number, cartId: string) =>
 
 const sumOf = (lines: { price: number; quantity: number }[]) => lines.reduce((sum, l) => sum + l.price * l.quantity, 0);
 
-/** What the hosted checkout page shows: store, current lines, subtotal and whether the store can ship at all. */
+/** What the hosted checkout page shows: store, current lines, subtotal, digital/physical composition and whether the store can ship. */
 export async function checkoutSummary(exec: Executor, cartId: string | undefined) {
   const storeId = await cartStore(exec, cartId);
   if (!storeId) return null;
@@ -275,7 +296,9 @@ export async function checkoutSummary(exec: Executor, cartId: string | undefined
     const lines = await cartLines(tx, storeId, cartId!);
     if (lines.length === 0) return null;
     const { pickupAreaId, ...info } = s!;
-    return { storeId, store: info, canShip: pickupAreaId !== null, lines, subtotal: sumOf(lines) };
+    const hasPhysical = lines.some((l) => l.productKind === "physical");
+    const hasDigital = lines.some((l) => l.productKind === "digital");
+    return { storeId, store: info, canShip: !hasPhysical || pickupAreaId !== null, hasPhysical, hasDigital, lines, subtotal: sumOf(lines) };
   });
 }
 
@@ -349,10 +372,23 @@ export async function placeOrder(
   if (preview.length === 0) throw new DomainError("empty", "Keranjang kosong.");
   const scope = slug ? await storefrontScope(exec, slug) : null;
   if (!scope) throw new DomainError("store_unavailable", "Toko sedang tidak menerima pesanan.");
-  // The same eligibility function as the method list (ADR-0013 section 4): a hidden courier, COD where it is not allowed, or a changed price is refused.
-  const quote = await checkoutShippingOptions(scope, input.destinationAreaId, { lines: preview, subtotal: sumOf(preview) }, providers.shipping, ctx);
-  const option = quote.options.find((o) => o.courier === input.courier)!;
-  const fee = chosenShippingFee(quote.options, input.courier, input.paymentMethod, input.shippingQuote, quote.shippingAccountKind === "seller_owned");
+  const hasPhysical = preview.some((l) => l.productKind === "physical");
+  const hasDigital = preview.some((l) => l.productKind === "digital");
+  // T-111 (ADR-0016 decisions 7 and 8): any digital line forbids COD and requires the buyer's e-mail.
+  if (hasDigital && input.paymentMethod === "cod") throw new DomainError("cod_unavailable_digital", "Pembayaran COD tidak tersedia untuk pesanan yang berisi produk digital.");
+  if (hasDigital && !input.buyerEmail) throw new DomainError("email_required", "Alamat email wajib diisi untuk pesanan produk digital.");
+  // Shipping quote runs for physical lines only (ADR-0016 decision 6); digital-only orders skip area, address, courier and shipping fee.
+  let quote: Awaited<ReturnType<typeof checkoutShippingOptions>> | null = null;
+  let option: { courier: string; label: string } | null = null;
+  let fee = { providerCost: 0, margin: 0, buyerFee: 0, platformDiscount: 0 };
+  if (hasPhysical) {
+    const phys = physicalShippingFields.parse(input);
+    const physicalLines = preview.filter((l) => l.productKind === "physical");
+    // The same eligibility function as the method list (ADR-0013 section 4): a hidden courier, COD where it is not allowed, or a changed price is refused.
+    quote = await checkoutShippingOptions(scope, phys.destinationAreaId, { lines: physicalLines, subtotal: sumOf(preview) }, providers.shipping, ctx);
+    option = quote.options.find((o) => o.courier === phys.courier) ?? null;
+    fee = chosenShippingFee(quote.options, phys.courier, input.paymentMethod, input.shippingQuote, quote.shippingAccountKind === "seller_owned");
+  }
   // T-106: the payment channel goes through the store's one payment-method function (store's own AutoLaris key, switch, exclusions, locks).
   const picked = input.paymentMethod === "manual_transfer" ? await pickStorePaymentChannel(exec, storeId, providers.payment, input.paymentChannel) : null;
   const channel = picked?.channel ?? null;
@@ -370,10 +406,15 @@ export async function placeOrder(
       // own accounts never takes a payment into the platform account nor ships on a platform account (the database refuses both rows too).
       const mode: MoneyMode = await storeMoneyMode(tx, storeId);
       if (mode === "seller_owned" && picked && !picked.methods.account) throw new DomainError("payment_channel", "Metode pembayaran tidak tersedia. Pilih metode lain.");
-      if (mode === "seller_owned" && quote.shippingAccountKind !== "seller_owned") throw new DomainError("shipping_not_ready", SHIPPING_NOT_READY_MESSAGE);
+      if (hasPhysical && mode === "seller_owned" && quote?.shippingAccountKind !== "seller_owned") throw new DomainError("shipping_not_ready", SHIPPING_NOT_READY_MESSAGE);
 
       const lines = await cartLines(tx, storeId, cartId);
-      if (lines.length !== preview.length) throw new DomainError("cart_changed", "Keranjang berubah. Silakan ulangi.");
+      const cartChanged =
+        lines.length !== preview.length ||
+        lines.some((l, i) => l.variantId !== preview[i]!.variantId || l.quantity !== preview[i]!.quantity || l.productKind !== preview[i]!.productKind || l.weightGrams !== preview[i]!.weightGrams);
+      if (cartChanged) {
+        throw new DomainError("cart_changed", "Keranjang berubah. Silakan ulangi.");
+      }
       const gone = lines.find((l) => l.productStatus !== "active");
       if (gone) throw new DomainError("unavailable", `${gone.productTitle} tidak lagi dijual.`);
 
@@ -393,17 +434,19 @@ export async function placeOrder(
           buyerName: input.buyerName,
           buyerPhone: input.buyerPhone,
           buyerEmail: input.buyerEmail ?? null,
-          shippingAddress: input.shippingAddress,
-          courierCode: option.courier,
-          shippingAccountId: quote.shippingAccountId,
-          shippingAccountKind: quote.shippingAccountKind,
+          hasPhysical,
+          hasDigital,
+          shippingAddress: hasPhysical ? input.shippingAddress! : null,
+          courierCode: hasPhysical ? option!.courier : null,
+          shippingAccountId: hasPhysical ? quote!.shippingAccountId : null,
+          shippingAccountKind: hasPhysical ? quote!.shippingAccountKind : null,
           // Decision 11: a sandbox shipping account (T-105) or a sandbox AutoLaris account (T-106) makes a test order.
-          testOrder: quote.environment === "sandbox" || picked?.methods.account?.environment === "sandbox",
-          courier: option.label,
-          originAreaId: quote.originAreaId,
-          destinationAreaId: quote.destinationAreaId,
-          destinationAreaLabel: input.destinationAreaLabel,
-          weightKg: quote.weightKg,
+          testOrder: quote?.environment === "sandbox" || picked?.methods.account?.environment === "sandbox",
+          courier: hasPhysical ? option!.label : null,
+          originAreaId: hasPhysical ? quote!.originAreaId : null,
+          destinationAreaId: hasPhysical ? quote!.destinationAreaId : null,
+          destinationAreaLabel: hasPhysical ? input.destinationAreaLabel! : null,
+          weightKg: hasPhysical ? quote!.weightKg : null,
           shippingProviderCost: fee.providerCost,
           shippingMargin: fee.margin,
           subtotal,
@@ -417,6 +460,8 @@ export async function placeOrder(
       if (!o) throw new Replay();
 
       for (const l of lines) {
+        // T-111 (ADR-0016 decision 2): digital variants with unlimited stock (`trackStock = false`) reserve nothing.
+        if (!l.trackStock) continue;
         const ok = await tx
           .update(variant)
           .set({ stock: sql`${variant.stock} - ${l.quantity}` })
@@ -432,6 +477,8 @@ export async function placeOrder(
           variantCatalogId: l.variantCatalogId,
           productTitle: l.productTitle,
           variantTitle: l.variantTitle,
+          productKind: l.productKind,
+          trackStock: l.trackStock,
           unitPrice: l.price,
           quantity: l.quantity,
           lineTotal: l.price * l.quantity,
@@ -541,6 +588,8 @@ export async function getBuyerOrder(exec: Executor, orderId: number, cartId: str
         storeSlug: store.slug,
         status: order.status,
         paymentMethod: order.paymentMethod,
+        hasPhysical: order.hasPhysical,
+        hasDigital: order.hasDigital,
         courier: order.courier,
         destinationAreaLabel: order.destinationAreaLabel,
         // Buyer fields feed the hashed advanced-matching block of the confirmation page (T-38); never rendered.
@@ -576,18 +625,24 @@ async function limitVoucherRedemption(exec: Executor, storeId: number, phone: st
 }
 
 const promotionPreviewInput = z.object({
-  buyerPhone: checkoutInput.shape.buyerPhone, voucherCode: z.string().trim().max(64).default(""), destinationAreaId: areaId,
-  courier: z.string().min(1).max(40), paymentMethod: z.enum(["cod", "manual_transfer", "bank_transfer"]),
+  buyerPhone: checkoutInput.shape.buyerPhone, voucherCode: z.string().trim().max(64).default(""),
+  destinationAreaId: optStr(areaId), courier: optStr(z.string().min(1).max(40)),
+  paymentMethod: z.enum(["cod", "manual_transfer", "bank_transfer"]),
 });
 /** Same rules and quote as submit, but no stock/quota reservation and no cart mutation. Submit always validates again atomically. */
 export async function checkoutPromotionPreview(exec: Executor, cartId: string | undefined, raw: unknown, ctx: ClientContext = {}) {
   const input = promotionPreviewInput.parse(raw);
   const summary = await checkoutSummary(exec, cartId);
   if (!summary || summary.store.status !== "active") throw new DomainError("no_cart", "Keranjang tidak ditemukan.");
+  if (summary.hasDigital && input.paymentMethod === "cod") throw new DomainError("cod_unavailable_digital", "Pembayaran COD tidak tersedia untuk pesanan yang berisi produk digital.");
   await limitVoucherRedemption(exec, summary.storeId, input.buyerPhone, ctx);
   const scope = (await storefrontScope(exec, summary.store.slug))!;
-  const quote = await checkoutShippingOptions(scope, input.destinationAreaId, { lines: summary.lines, subtotal: summary.subtotal }, undefined, ctx);
-  const fee = chosenShippingFee(quote.options, input.courier, input.paymentMethod);
+  let fee = { providerCost: 0, margin: 0, buyerFee: 0, platformDiscount: 0 };
+  if (summary.hasPhysical) {
+    if (!input.destinationAreaId || !input.courier) throw new DomainError("destination_required", "Pilih area tujuan dan kurir terlebih dahulu.");
+    const quote = await checkoutShippingOptions(scope, input.destinationAreaId, { lines: summary.lines.filter((l) => l.productKind === "physical"), subtotal: summary.subtotal }, undefined, ctx);
+    fee = chosenShippingFee(quote.options, input.courier, input.paymentMethod);
+  }
   return withStore(exec, summary.storeId, async (tx) => {
     const finance = (await checkoutPromotions(tx, summary.storeId, summary.lines, fee, input.voucherCode, input.buyerPhone, false)).finance;
     // T-107 review minor 1: the COD fee the buyer bears is part of what the preview shows; the same formula freezes it at submit.

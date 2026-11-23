@@ -41,7 +41,7 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
   if (!p) notFound();
   if (canonicalSlug(p) !== slug) permanentRedirect(`${base}/products/${canonicalSlug(p)}`);
   const images = await publishedProductImages(scope, p.id);
-  const sellable = p.variants.filter((v) => v.stock > 0);
+  const sellable = p.variants.filter((v) => !v.trackStock || v.stock > 0);
   const signals = await signalsFor(scope.storeId);
   const viewed = sellable[0] ?? p.variants[0];
   const prices = p.variants.map((v) => v.price);
@@ -86,11 +86,21 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
       </div>
       <div className="grid content-start gap-5">
         <div className="grid gap-2">
+          {p.kind === "digital" && (
+            <p className="w-fit rounded-md border bg-muted/50 px-2 py-0.5 text-xs font-medium text-foreground" data-testid="pdp-digital-badge">
+              Produk digital
+            </p>
+          )}
           <h1 className="text-2xl font-semibold tracking-tight text-balance @3xl:text-3xl">{p.title}</h1>
           <p className="text-xl font-medium tabular-nums" data-testid="price">
             {rupiah(min)}
             {max > min && <span className="text-base font-normal text-muted-foreground"> – {rupiah(max)}</span>}
           </p>
+          {p.kind === "digital" && (
+            <p className="text-xs text-muted-foreground" data-testid="pdp-digital-delivery">
+              Produk digital tanpa pengiriman fisik. Tautan akses tampil di halaman status pesanan setelah pembayaran prabayar terverifikasi.
+            </p>
+          )}
         </div>
         <Notice error={error} />
         {sellable.length === 0 ? (
@@ -102,10 +112,10 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
               <legend className="mb-2 text-sm font-medium">Varian</legend>
               {p.variants.map((v) => (
                 <label key={v.id} className="flex cursor-pointer items-center gap-3 rounded-lg border p-3 has-checked:border-foreground has-checked:bg-muted/40 has-disabled:cursor-not-allowed has-disabled:opacity-50 has-focus-visible:ring-3 has-focus-visible:ring-ring/50">
-                  <input type="radio" name="variantId" value={v.id} defaultChecked={v.id === sellable[0]!.id} disabled={v.stock === 0} required className="accent-foreground" />
+                  <input type="radio" name="variantId" value={v.id} defaultChecked={v.id === sellable[0]!.id} disabled={v.trackStock && v.stock === 0} required className="accent-foreground" />
                   <span className="flex-1 font-medium">{v.title}</span>
                   <span className="text-sm tabular-nums">{rupiah(v.price)}</span>
-                  <span className="text-xs tabular-nums text-muted-foreground">{v.stock > 0 ? `stok ${v.stock}` : "habis"}</span>
+                  <span className="text-xs tabular-nums text-muted-foreground">{!v.trackStock ? "tersedia" : v.stock > 0 ? `stok ${v.stock}` : "habis"}</span>
                 </label>
               ))}
             </fieldset>

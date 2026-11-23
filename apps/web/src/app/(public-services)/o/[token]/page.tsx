@@ -75,8 +75,10 @@ export default async function OrderStatusPage({ params, searchParams }: PageProp
       <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 border-t pt-2 text-sm tabular-nums">
         <dt>Subtotal</dt><dd className="text-right">{rupiah(o.subtotal)}</dd>
         {o.goodsDiscount > 0 && <><dt>Diskon barang</dt><dd className="text-right" data-testid="order-goods-discount">−{rupiah(o.goodsDiscount)}</dd></>}
-        {o.shippingDiscount > 0 && <><dt>Diskon ongkir</dt><dd className="text-right" data-testid="order-shipping-discount">−{rupiah(o.shippingDiscount)}</dd></>}
-        <dt>Ongkir{o.shippingDiscount > 0 && <span className="font-normal text-muted-foreground"> (setelah diskon)</span>}</dt><dd className="text-right" data-testid="order-shipping">{rupiah(o.shippingFee)}</dd>
+        {o.hasPhysical && o.shippingDiscount > 0 && <><dt>Diskon ongkir</dt><dd className="text-right" data-testid="order-shipping-discount">−{rupiah(o.shippingDiscount)}</dd></>}
+        {o.hasPhysical && (
+          <><dt>Ongkir{o.shippingDiscount > 0 && <span className="font-normal text-muted-foreground"> (setelah diskon)</span>}</dt><dd className="text-right" data-testid="order-shipping">{rupiah(o.shippingFee)}</dd></>
+        )}
         <dt className="font-semibold">Total</dt><dd className="text-right font-semibold" data-testid="order-total">{rupiah(o.total)}</dd>
         {own && o.paymentMethod === "cod" && own.codFeeIdr > 0 && (
           <>
@@ -101,12 +103,21 @@ export default async function OrderStatusPage({ params, searchParams }: PageProp
       )}
       <dl className="grid gap-1 border-t pt-2 text-sm">
         <div className="flex flex-wrap justify-between gap-x-4"><dt className="text-muted-foreground">Pembayaran</dt><dd>{o.paymentMethod === "cod" ? "Bayar di tempat (COD)" : o.paymentMethod === "bank_transfer" ? "Transfer bank ke rekening penjual" : "Transfer bank"}</dd></div>
-        <div className="flex flex-wrap justify-between gap-x-4"><dt className="text-muted-foreground">Kurir</dt><dd data-testid="courier">{o.courier}</dd></div>
-        <div className="flex flex-wrap justify-between gap-x-4"><dt className="text-muted-foreground">Tujuan</dt><dd className="text-right">{o.destinationAreaLabel}</dd></div>
-        <div className="flex flex-wrap justify-between gap-x-4">
-          <dt className="text-muted-foreground">Nomor resi</dt>
-          <dd className="font-mono break-all" data-testid="tracking">{o.trackingNumber ?? "Belum tersedia"}</dd>
-        </div>
+        {o.hasPhysical ? (
+          <>
+            <div className="flex flex-wrap justify-between gap-x-4"><dt className="text-muted-foreground">Kurir</dt><dd data-testid="courier">{o.courier}</dd></div>
+            <div className="flex flex-wrap justify-between gap-x-4"><dt className="text-muted-foreground">Tujuan</dt><dd className="text-right">{o.destinationAreaLabel}</dd></div>
+            <div className="flex flex-wrap justify-between gap-x-4">
+              <dt className="text-muted-foreground">Nomor resi</dt>
+              <dd className="font-mono break-all" data-testid="tracking">{o.trackingNumber ?? "Belum tersedia"}</dd>
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-wrap justify-between gap-x-4" data-testid="digital-no-shipping">
+            <dt className="text-muted-foreground">Pengiriman</dt>
+            <dd>Produk digital (tanpa pengiriman fisik)</dd>
+          </div>
+        )}
       </dl>
       {tracking && (
         <section aria-labelledby="tracking-heading" className="grid gap-2 border-t pt-3 text-sm" data-testid="tracking-timeline">

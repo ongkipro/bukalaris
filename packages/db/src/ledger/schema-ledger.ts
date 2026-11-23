@@ -33,8 +33,8 @@ export const orderFinancials = pgTable(
   {
     orderId: bigint("order_id", { mode: "number" }).primaryKey(),
     storeId: storeCol(),
-    shippingAccountId: bigint("shipping_account_id", { mode: "number" }).notNull().default(0),
-    shippingAccountKind: text("shipping_account_kind", { enum: ["partner_managed", "platform_master"] }).notNull().default("platform_master"),
+    shippingAccountId: bigint("shipping_account_id", { mode: "number" }),
+    shippingAccountKind: text("shipping_account_kind", { enum: ["partner_managed", "platform_master", "seller_owned"] }),
     subtotalIdr: idr("subtotal_idr").notNull(),
     goodsDiscountIdr: idr("goods_discount_idr").notNull().default(0),
     shippingDiscountIdr: idr("shipping_discount_idr").notNull().default(0),
@@ -91,6 +91,7 @@ export const orderFinancials = pgTable(
     foreignKey({ name: "order_financials_affiliate_fk", columns: [t.affiliateId], foreignColumns: [affiliate.id] }),
     check("order_financials_affiliate_chk", sql`${t.affiliateCommissionIdr} = 0 or ${t.affiliateId} is not null`),
     foreignKey({ name: "order_financials_account_fk", columns: [t.storeId, t.shippingAccountId, t.shippingAccountKind], foreignColumns: [storeShippingAccount.storeId, storeShippingAccount.id, storeShippingAccount.kind] }),
+    check("order_financials_account_pair_chk", sql`(${t.shippingAccountId} is null) = (${t.shippingAccountKind} is null)`),
     check(
       "order_financials_amounts_chk",
       sql`${t.subtotalIdr} >= 0 and ${t.goodsDiscountIdr} >= 0 and ${t.shippingDiscountIdr} >= 0 and ${t.platformShippingDiscountIdr} >= 0 and ${t.includedSalesTaxIdr} >= 0 and ${t.addedSalesTaxIdr} >= 0 and ${t.goodsProceedsIdr} >= 0 and ${t.shippingChargedIdr} >= 0 and ${t.shippingCashbackGrossIdr} >= 0 and ${t.platformCashbackIdr} >= 0 and ${t.sellerCashbackIdr} >= 0 and ${t.affiliateCommissionIdr} >= 0 and ${t.codFeeIdr} >= 0 and ${t.codFeeVatIdr} >= 0 and ${t.payableIdr} >= 0 and ${t.saleAmountIdr} >= 0 and ${t.expectedGatewayFeeIdr} >= 0`,

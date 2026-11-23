@@ -369,6 +369,9 @@ export const DEFINER_FUNCTIONS: Record<string, DefinerFunction> = {
   // T-116: append-only guards for seller terms, adviser reviews and store acceptances (plus owner membership on acceptance).
   "seller_terms_immutable_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
   "store_terms_acceptance_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
+  // T-111: product kind immutability after sale and variant weight/stock-tracking rules per product kind.
+  "product_kind_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
+  "variant_kind_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
   "order_seller_refund_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
   // T-50: the signed callback reference of a subscription attempt resolves to its store (app pool); the effective vat_output policies (public tax configuration) are
   // readable by the seller Pay path. The triggers below pin what an invoice or attempt may start as and write the creation events; the bootstrap row-creates a trial

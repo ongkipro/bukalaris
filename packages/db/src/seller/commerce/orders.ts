@@ -112,7 +112,7 @@ export async function getOrder(scope: SellerScope, orderId: number) {
     const payment = await orderPaymentView(scope.exec, scope.storeId, orderId);
     // T-106: an order on the store's own AutoLaris account is confirmed on the payments screen (reason and evidence), never by the bare "pay" action.
     // T-113: a bank-transfer order is paid only through the transfer confirmation form (reason, the proof looked at).
-    const actions = allowedActions(o.status).filter((a) => a !== "pay" || (!payment?.sellerAccount && o.paymentMethod !== "bank_transfer"));
+    const actions = allowedActions(o.status, o.hasPhysical).filter((a) => a !== "pay" || (!payment?.sellerAccount && o.paymentMethod !== "bank_transfer"));
     return { ...safe, lines, history, payment, actions, risk, money: await orderMoney(scope.exec, scope.storeId, orderId) };
   });
 }
@@ -231,7 +231,7 @@ const idr = new Intl.NumberFormat("id-ID");
 
 export async function codRiskReasons(
   scope: SellerScope,
-  o: { id: number; buyerPhone: string; shippingAddress: string; total: number },
+  o: { id: number; buyerPhone: string; shippingAddress: string | null; total: number },
 ): Promise<RiskReason[]> {
   const samePhone = and(eq(order.storeId, scope.storeId), sql`${order.id} <> ${o.id}`, phoneMatches(order.buyerPhone, o.buyerPhone));
   const [[phone], [amount]] = await inStore(scope, (scope) => Promise.all([
@@ -255,7 +255,7 @@ export async function codRiskReasons(
     reasons.push({ code: "repeat_cancelled", message: `${phone!.cancelled} pesanan sebelumnya dengan nomor HP ini dibatalkan atau ditolak di toko ini.` });
   if (phone!.unconfirmed > 0)
     reasons.push({ code: "repeat_unconfirmed", message: `${phone!.unconfirmed} pesanan lain dengan nomor HP ini masih menunggu konfirmasi.` });
-  if (addressIncomplete(o.shippingAddress))
+  if (o.shippingAddress && addressIncomplete(o.shippingAddress))
     reasons.push({ code: "address_incomplete", message: "Alamat terlalu pendek atau tanpa nomor rumah/jalan; pastikan lewat telepon sebelum dikirim." });
   if (amount!.n >= HIGH_AMOUNT_MIN_ORDERS && o.total > HIGH_AMOUNT_FACTOR * amount!.median)
     reasons.push({
@@ -265,8 +265,10 @@ export async function codRiskReasons(
   return reasons;
 }
 
-export const allowedActions = (status: OrderStatus): OrderAction[] =>
-  (Object.keys(TRANSITIONS) as OrderAction[]).filter((a) => (TRANSITIONS[a].from as readonly OrderStatus[]).includes(status));
+export const allowedActions = (status: OrderStatus, hasPhysical = true): OrderAction[] =>
+  (Object.keys(TRANSITIONS) as OrderAction[]).filter(
+    (a) => (TRANSITIONS[a].from as readonly OrderStatus[]).includes(status) && (hasPhysical || (a !== "process" && a !== "ship")),
+  );
 
 const shipInput = z.strictObject({ trackingNumber: z.string().trim().min(3, "Nomor resi minimal 3 karakter.").max(80) });
 const reasonInput = z.strictObject({ reason: z.string().trim().min(5, "Alasan minimal 5 karakter.").max(500) });
@@ -300,19 +302,24 @@ export async function transitionOrder(scope: SellerScope, orderId: number, actio
 export async function applyTransition(tx: Executor, storeId: number, orderId: number, action: OrderAction, note: string | null, actorUserId: string): Promise<OrderStatus> {
   const t = TRANSITIONS[action];
   const [o] = await tx
-    .select({ id: order.id, status: order.status, paymentMethod: order.paymentMethod })
+    .select({ id: order.id, status: order.status, paymentMethod: order.paymentMethod, hasPhysical: order.hasPhysical })
     .from(order)
     .where(and(eq(order.storeId, storeId), eq(order.id, orderId)))
     .for("update");
   if (!o) throw new DomainError("not_found", "Pesanan tidak ditemukan.");
+  if (!o.hasPhysical && (action === "process" || action === "ship")) {
+    throw new DomainError("invalid_transition", "Pesanan digital tidak memiliki proses pengiriman fisik.");
+  }
   if (!(t.from as readonly OrderStatus[]).includes(o.status)) {
     throw new DomainError("invalid_transition", `Pesanan berstatus "${ORDER_STATUS_LABEL[o.status]}" tidak bisa diproses dengan aksi ini.`);
   }
+  // T-111 (ADR-0016 section 5): a digital-only order completes immediately when paid; a mixed or physical order moves to `placed`.
+  const nextStatus: OrderStatus = action === "pay" && !o.hasPhysical ? "completed" : t.to;
 
   await tx
     .update(order)
     .set({
-      status: t.to,
+      status: nextStatus,
       updatedAt: new Date(),
       ...(action === "pay" ? { paidAt: new Date() } : {}),
       ...(action === "confirm" ? { confirmedAt: new Date() } : {}),
@@ -332,29 +339,30 @@ export async function applyTransition(tx: Executor, storeId: number, orderId: nu
     storeId,
     orderId,
     fromStatus: o.status,
-    toStatus: t.to,
+    toStatus: nextStatus,
     actorUserId,
     note: action === "pay" ? (note ?? "Pembayaran transfer dikonfirmasi manual oleh penjual") : action === "confirm" ? "Pesanan COD dikonfirmasi oleh penjual" : note,
   });
   await enqueueOrderNotifications(tx, storeId, orderId, action); // T-36: no-op for actions without a notification
-  return t.to;
+  return nextStatus;
 }
 
-/** Return every line to stock exactly once (the order row lock held by the caller makes the block run at most once per order). */
+/** Return every stock-tracked line to stock exactly once (the order row lock held by the caller makes the block run at most once per order). */
 async function restockOrder(tx: Executor, storeId: number, orderId: number, label: string, note: string | null, actorUserId: string): Promise<void> {
   const lines = await tx
-    .select({ variantId: orderLine.variantId, quantity: orderLine.quantity })
+    .select({ variantId: orderLine.variantId, quantity: orderLine.quantity, trackStock: orderLine.trackStock })
     .from(orderLine)
     .where(and(eq(orderLine.storeId, storeId), eq(orderLine.orderId, orderId)))
     .orderBy(asc(orderLine.variantId)); // same lock order as checkout and adjustStock
-  for (const l of lines) {
+  const tracked = lines.filter((l) => l.trackStock);
+  for (const l of tracked) {
     await tx
       .update(variant)
       .set({ stock: sql`${variant.stock} + ${l.quantity}` })
       .where(and(eq(variant.storeId, storeId), eq(variant.id, l.variantId)));
   }
-  if (lines.length > 0) {
-    await tx.insert(stockAdjustment).values(lines.map((l) => ({ storeId, variantId: l.variantId, delta: l.quantity, reason: `${label} #${orderId}: ${note}`, actorUserId, orderId })));
+  if (tracked.length > 0) {
+    await tx.insert(stockAdjustment).values(tracked.map((l) => ({ storeId, variantId: l.variantId, delta: l.quantity, reason: `${label} #${orderId}: ${note}`, actorUserId, orderId })));
   }
 }
 

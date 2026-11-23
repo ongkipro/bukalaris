@@ -23,6 +23,7 @@ const text = (f: FormData, k: string) => String(f.get(k) ?? "");
 const productFields = (f: FormData) => ({
   title: text(f, "title"),
   description: text(f, "description"),
+  ...(f.get("kind") ? { kind: text(f, "kind") } : {}),
   status: text(f, "status"),
   slug: text(f, "slug"),
 });
@@ -31,6 +32,7 @@ const variantFields = (f: FormData, prefix = "") => ({
   sku: text(f, `${prefix}sku`),
   price: text(f, `${prefix}price`),
   weightGrams: text(f, `${prefix}weightGrams`),
+  trackStock: f.get(`${prefix}trackStock`) === "on",
 });
 
 /** Run a mutation; on an expected failure go back with a message, otherwise to `done`. */

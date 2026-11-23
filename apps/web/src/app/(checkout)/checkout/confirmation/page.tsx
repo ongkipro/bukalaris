@@ -124,14 +124,22 @@ export default async function ConfirmationPage({ searchParams }: PageProps<"/che
           </li>
         ))}
       </ul>
-      <p className="text-sm text-muted-foreground" data-testid="shipping-route">
-        Dikirim dengan <strong className="font-medium text-foreground">{o.courier}</strong> ke {o.destinationAreaLabel}.
-      </p>
+      {o.hasPhysical ? (
+        <p className="text-sm text-muted-foreground" data-testid="shipping-route">
+          Dikirim dengan <strong className="font-medium text-foreground">{o.courier}</strong> ke {o.destinationAreaLabel}.
+        </p>
+      ) : (
+        <p className="text-sm text-muted-foreground" data-testid="digital-no-shipping">
+          Produk digital — tanpa pengiriman fisik.
+        </p>
+      )}
       <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 border-t pt-2 text-sm tabular-nums">
         <dt>Subtotal</dt><dd className="text-right">{rupiah(o.subtotal)}</dd>
         {o.goodsDiscount > 0 && <><dt>Diskon barang</dt><dd className="text-right" data-testid="order-goods-discount">−{rupiah(o.goodsDiscount)}</dd></>}
-        {o.shippingDiscount > 0 && <><dt>Diskon ongkir</dt><dd className="text-right" data-testid="order-shipping-discount">−{rupiah(o.shippingDiscount)}</dd></>}
-        <dt>Ongkir{o.shippingDiscount > 0 && <span className="font-normal text-muted-foreground"> (setelah diskon)</span>}</dt><dd className="text-right" data-testid="order-shipping">{rupiah(o.shippingFee)}</dd>
+        {o.hasPhysical && o.shippingDiscount > 0 && <><dt>Diskon ongkir</dt><dd className="text-right" data-testid="order-shipping-discount">−{rupiah(o.shippingDiscount)}</dd></>}
+        {o.hasPhysical && (
+          <><dt>Ongkir{o.shippingDiscount > 0 && <span className="font-normal text-muted-foreground"> (setelah diskon)</span>}</dt><dd className="text-right" data-testid="order-shipping">{rupiah(o.shippingFee)}</dd></>
+        )}
         <dt className="font-semibold">Total</dt><dd className="text-right font-semibold" data-testid="order-total">{rupiah(o.total)}</dd>
         {o.paymentMethod === "cod" && o.bill && o.bill.codFeeIdr > 0 && (
           <>

@@ -28,7 +28,16 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
   return (
     <section className="grid max-w-3xl gap-8">
       <div className="grid gap-4">
-        <PageHeader back={{ href: "/seller/products", label: "Semua produk" }} title={p.title} badge={<StatusBadge label={productStatusLabel[p.status]} tone={productStatusTone[p.status]} />} />
+        <PageHeader
+          back={{ href: "/seller/products", label: "Semua produk" }}
+          title={p.title}
+          badge={
+            <span className="flex flex-wrap gap-1.5">
+              {p.kind === "digital" && <StatusBadge label="Produk digital" tone="secondary" data-testid="product-kind-badge" />}
+              <StatusBadge label={productStatusLabel[p.status]} tone={productStatusTone[p.status]} />
+            </span>
+          }
+        />
         {/* PR-12: the stable product (catalog) id and URL are visible and copyable; neither changes with title, slug, theme or domain. */}
         <dl className="grid gap-x-4 gap-y-2 rounded-lg border px-4 py-3 text-sm sm:grid-cols-[auto_minmax(0,1fr)]">
           <dt className="text-muted-foreground">ID produk</dt>
@@ -70,7 +79,7 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
               ID varian <span className="font-mono tabular-nums text-foreground" data-testid="variant-catalog-id">{v.catalogId}</span>
               <CopyButton value={v.catalogId} label={`ID varian ${v.title}`} />
             </p>
-            <VariantFields prefix={`v${v.id}_`} d={v} />
+            <VariantFields prefix={`v${v.id}_`} productKind={p.kind} d={v} />
             <div>
               <SubmitButton variant="outline" size="sm">Simpan varian</SubmitButton>
             </div>
@@ -79,7 +88,7 @@ export default async function ProductPage({ params, searchParams }: PageProps<"/
         <form action={addVariantAction.bind(null, p.id)} className="grid gap-3 rounded-lg border border-dashed p-4">
         <CsrfField />
           <h3 className="text-sm font-medium">Tambah varian</h3>
-          <VariantFields prefix="new_" />
+          <VariantFields prefix="new_" productKind={p.kind} />
           <div>
             <SubmitButton variant="outline" size="sm" pendingText="Menambahkan…">Tambah varian</SubmitButton>
           </div>
