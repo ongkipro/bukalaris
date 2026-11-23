@@ -15,7 +15,7 @@ A reading aid. Each task block below owns its own status and text; when the two 
 | 1 | T-101 | Align the specification pack with D-27 to D-33 | Partial; the rest is done by each building task |
 | 2 | T-114 | Tidy repository and documentation structure | Partial; structure done 2026-11-15, final search for superseded text left |
 | 8 | T-115 | Mengantar lock, dedicated account, parcel sync | Merged 2026-11-23 (PR #14); one Done-when item open (UNVERIFIED categories) |
-| 12 | T-111, T-112 | Digital products: kind and checkout rules, access links and grants | Planned |
+| 12 | T-112 | Digital products: access links, grants and digital delivery | Planned |
 | 13 | T-117 | Seller setup guide and readiness checklist | Planned |
 | 14 | T-108, T-109, T-110 | Seller-run affiliate programme | Planned |
 
@@ -1683,7 +1683,7 @@ Source: [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md), 
 - Done when: the seller can switch the programme on, accept its terms, set rates, review applicants, suspend a member, see the statement and record a payment with proof. The affiliate can register once, apply to a store, get links and codes per store, read the statement across stores, and confirm or dispute a payment; the application screen and statement state that the seller pays. The Owner console shows stores in arrears and can freeze or unfreeze a programme behind the console gate. E2E at 320 px and desktop: apply → approve → attributed order → delivered → payable → payment recorded → confirmed; a dispute; arrears after the configured age; a frozen store. Responses inspected, not only visible text, for buyer data and unmasked bank details. Rendered evidence under `docs/evidence/`.
 
 ### T-111 — Product kind and checkout rules for digital and mixed orders
-- Status: Built 2026-11-23 on `task/t111-digital-kind` (migration `0025`); independent review (`agy`, 3-part + 2-part confirmation): APPROVE; local checks, mutations (M1–M3) and populated-copy proof in [`docs/tracks/t111-digital-kind.md`](tracks/t111-digital-kind.md); CI pending
+- Status: Done 2026-11-23: merged through pull request #23 (CI run 45157072288: DB 84 files / 1571 tests, E2E 303 passed / 6 skipped, image ok); migration `0025`; independent review (`agy`, 3-part + 2-part confirmation): APPROVE; mutations M1–M3, populated-copy proof and evidence in [`docs/tracks/t111-digital-kind.md`](tracks/t111-digital-kind.md)
 - Primary requirement: PR-4
 - Constraints: ADR-0016 sections 1 to 3, 5 and decisions 19 to 22; ADR-0002 (one store per order); ADR-0013 section 4 (one eligibility function); T-61 weight rule for physical lines; money stays integer IDR and server-derived
 - Dependencies: T-105, T-106, T-107
