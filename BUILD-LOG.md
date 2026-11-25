@@ -916,3 +916,9 @@ dummy content.
 ## T-115 status-sheet follow-up (task/t115-status-sheet, 2026-11-25)
 
 - Read the official Order Status Reference Sheet (linked from the Mengantar webhook page) and mapped its middle-mile categories to `in_transit` and its return-leg categories to `returning` in `shipping/parcel-state.ts`; problem categories stay raw on purpose. Closes the last open Done-when item of T-115. Test 21/21, DB suite 86 files / 1585 passed, one mutation failed the named test. Snapshot table in `docs/tracks/t115-mengantar-lock.md`.
+
+## Merge of 2026-11-25 (T-117 and the T-115 follow-up)
+
+- #28 T-117 seller setup checklist and the new-store shipping gate, squash-merged as `ebbf546` (the first branch was rebased onto `main` and pushed as `task/t117-setup-checklist-r2`; no force push): migration `0027` (`store.legacy_platform_shipping`), one activation predicate for the catalog gate and the checklist, the owner-only "Persiapan toko" card with lock lines limited to what is still closed and a warning for legacy platform-held stores, RUNBOOK AutoLaris profile request. CI run 45584640216: system map ok (109 route files, 132 rows), DB 86 files / 1585 tests, E2E 309 passed / 6 skipped, image ok.
+- Docs: the Seller Storefront and Checkout rows of the platform host table in `docs/04-SYSTEM-ARCHITECTURE.md` now state the built model (`<slug>.bukalaris.id`, checkout on the store host; T-102/T-103) instead of the single-root hosts under a direction note.
+- #29 T-115 status-sheet follow-up squash-merged as `c4ca751`; CI run 45597138059: DB 86 files / 1585 tests, E2E 309 passed / 6 skipped, image ok. T-115 is Done.
