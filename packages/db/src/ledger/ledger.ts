@@ -39,8 +39,12 @@ export async function writeOrderFinancials(tx: Executor, input: {
   platformShippingDiscountIdr: number;
   variantIds: readonly number[];
   expectedGatewayFeeIdr: number;
-  /** T-52: the attributed affiliate and the rate frozen on each line (index = line order, 0 for a line that is not opted in); omitted when no commission was earned. */
-  affiliate?: { affiliateId: number; ratesBps: readonly number[] } | undefined;
+  /**
+   * T-52: the rate frozen on each line (index = line order, 0 for a line that is not opted in); omitted when no commission was earned. T-108 (ADR-0015): the
+   * snapshot no longer names the affiliate nor deducts its commission (`affiliate_id` NULL, `affiliate_commission_idr` 0); the commission is the seller's
+   * obligation on `affiliate_commission`, written with the attribution.
+   */
+  affiliate?: { ratesBps: readonly number[] } | undefined;
   /** T-107: the money mode and, for `seller_owned`, both fee bearers and the fee amounts (decision 18). Omitted = `platform_held`. */
   money?: SellerOwnedMoney | undefined;
 }): Promise<void> {
@@ -57,7 +61,6 @@ export async function writeOrderFinancials(tx: Executor, input: {
     addedSalesTaxIdr: f.addedSalesTax,
     goodsProceedsIdr: f.goodsProceeds,
     shippingChargedIdr: f.shippingCharged,
-    affiliateId: input.affiliate?.affiliateId ?? null,
     affiliateCommissionIdr: f.affiliateCommission,
     codFeeIdr: f.codFee,
     codFeeVatIdr: f.codFeeVat,

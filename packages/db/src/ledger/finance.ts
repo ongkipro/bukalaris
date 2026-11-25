@@ -167,6 +167,8 @@ export function calculateOrderFinance(input: FinanceInput): OrderFinance {
  * The same finance with the affiliate commission deducted from the seller's goods proceeds (BILL-8, T-52): `saleAmount` falls by the commission,
  * the buyer's `payable` and every allocation line are untouched (shipping, tax, COD and gateway amounts are never in the commission). The commission
  * is computed from this finance's own `lines[].commissionBase` by the caller; it can never exceed the goods side.
+ * Unused since T-108 (ADR-0015: the commission is the seller's obligation, never deducted; the database refuses a deducting snapshot). Kept, not
+ * deleted, with the rest of the platform-managed money code (D-31).
  */
 export function withAffiliateCommission(finance: OrderFinance, commission: number): OrderFinance {
   nonNegInt(commission, "Komisi afiliasi");

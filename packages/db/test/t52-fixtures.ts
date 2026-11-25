@@ -3,6 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import { captureReferralClick } from "../src/affiliate/click.ts";
 import { createCode, createLink, registerAffiliate } from "../src/affiliate/accounts.ts";
 import { affiliate, affiliateAttribution, affiliateCatalog, affiliateClick } from "../src/affiliate/schema-affiliate.ts";
+import { applyToStore, reviewMembership } from "../src/affiliate/membership.ts";
 import { optInProduct, saveAffiliatePolicy } from "../src/affiliate/seller.ts";
 import { placeOrder, type ClientContext } from "../src/seller/commerce/checkout.ts";
 import { createProduct } from "../src/seller/commerce/catalog.ts";
@@ -40,6 +41,21 @@ export type A = Awaited<ReturnType<typeof makeAffiliate>>;
 /** Open the store to affiliates with a default rate (bps). */
 export const openStore = (s: S, defaultRateBps: number | null = 1_000, participation: "open" | "closed" = "open") => saveAffiliatePolicy(s.owner, { participation, defaultRateBps });
 export const optIn = (s: S, productId = s.productId, rateBps: number | null = null) => optInProduct(s.owner, { productId, rateBps });
+/**
+ * T-108: the affiliate applies to the store and the owner moves the membership to `to` (default `active`: attribution needs an active membership of the
+ * store at order time). The store's programme must be open. Returns the membership id.
+ */
+export async function member(a: A, s: S, to: "pending" | "active" | "rejected" | "suspended" = "active"): Promise<number> {
+  const { membershipId, status } = await applyToStore(db, a.affiliateId, { storeId: s.storeId });
+  if (to === "pending" || status === to) return membershipId;
+  if (to === "rejected") {
+    await reviewMembership(s.owner, { membershipId, to: "rejected", reason: "uji tolak" });
+    return membershipId;
+  }
+  if (status !== "active") await reviewMembership(s.owner, { membershipId, to: "active" });
+  if (to === "suspended") await reviewMembership(s.owner, { membershipId, to: "suspended", reason: "uji tangguh" });
+  return membershipId;
+}
 export const code = (a: A, text: string) => createCode(db, a.affiliateId, { code: text });
 export const link = (a: A, s: S, offerId: number | null = null) => createLink(db, a.affiliateId, { storeId: s.storeId, offerId });
 

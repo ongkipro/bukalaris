@@ -197,6 +197,13 @@
       "when": 1795438757349,
       "tag": "0027_t117_setup_gate",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1795597678206,
+      "tag": "0028_t108_affiliate_membership",
+      "breakpoints": true
     }
   ]
 }

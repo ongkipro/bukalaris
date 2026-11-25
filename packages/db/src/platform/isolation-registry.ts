@@ -164,6 +164,11 @@ export const ISOLATION_REGISTRY: Record<string, TableEntry> = {
   affiliate_seller_policy: tenant("SELECT,INSERT,UPDATE", "SELECT"),
   affiliate_offer: tenant("SELECT,INSERT,UPDATE", "SELECT"),
   affiliate_block: tenant("SELECT,INSERT,DELETE", "SELECT"),
+  // T-108 (ADR-0015 decisions 1 and 4): store membership and the seller's commission obligation are store records. The app role inserts neither (affiliate_apply()
+  // and affiliate_record_attribution() write them); the seller reviews through four column grants; the affiliate reads its own rows through two definer functions.
+  // Platform: the Owner console reads both; the release job (JOB-38) moves obligations to `payable`.
+  affiliate_membership: { class: "tenant", key: "store_id", app: "SELECT", appColumns: columnGrants({ UPDATE: ["reviewed_at", "reviewed_by", "status", "status_reason"] }), platform: "SELECT" },
+  affiliate_commission: tenant("SELECT", "SELECT,UPDATE"),
   // T-45: what a hosted-checkout buyer typed (PR-25). The app role captures, marks the recovery, stamps "WA dibuka" and redacts; it never deletes. The platform
   // role (cleanup.ts) sweeps idle sessions to abandoned and purges rows older than 30 days. checkout_session_guard pins the transitions and both stamps.
   checkout_session: tenant("SELECT,INSERT,UPDATE", "SELECT,UPDATE,DELETE"),
@@ -485,6 +490,13 @@ export const DEFINER_FUNCTIONS: Record<string, DefinerFunction> = {
   "affiliate_offer_enqueue()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
   "affiliate_seller_policy_enqueue()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
   "affiliate_product_touch()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
+  // T-108: membership and obligation. affiliate_apply() and the two own-reads take the affiliate from app.affiliate_id only; guards and the order hook are never callable.
+  "affiliate_apply(bigint,text,text[])": { owner: "bukalaris_owner", kind: "guard", execute: ["bukalaris_app"] },
+  "affiliate_own_memberships()": { owner: "bukalaris_owner", kind: "guard", execute: ["bukalaris_app"] },
+  "affiliate_own_commissions()": { owner: "bukalaris_owner", kind: "guard", execute: ["bukalaris_app"] },
+  "affiliate_membership_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
+  "affiliate_commission_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
+  "affiliate_commission_order_sync()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
 };
 
 // ── Canonical forms used by the invariant test and the shell scripts ─────────────────────────
