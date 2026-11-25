@@ -286,6 +286,35 @@ describe("T-108 the store default applies to every product (D-38 B, ADR-0015 dec
     await nothingEarned((await buy(s, { code: "HEMAT10" })).orderId);
   });
 
+  it("a new override offer waits for an in-flight checkout that share-locked the programme row (two real connections)", async () => {
+    const s = await makeStore("toko-a", { price: 100_000, stock: 20 });
+    await openStore(s, 1_000);
+    const hat = await addProduct(s, 50_000, "Topi");
+    let opted: Promise<number> | undefined;
+    let optedDone = false;
+    await admin.transaction(async (tx) => {
+      // the share lock affiliate_line_rate takes during a checkout, held uncommitted
+      await tx.execute(sql`select 1 from affiliate_seller_policy where store_id = ${s.storeId} for share`);
+      opted = optInProduct(s.owner, { productId: hat.productId, rateBps: 2_500 }).then((id) => ((optedDone = true), id));
+      for (let i = 0; ; i++) {
+        const [w] = (await platform.execute(sql`select count(*)::int as n from pg_locks where not granted and (locktype = 'transactionid' or relation = 'affiliate_seller_policy'::regclass)`)) as unknown as { n: number }[];
+        if (w!.n > 0) break;
+        if (i > 200) throw new Error("the offer insert never waited on the programme row");
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      expect(optedDone).toBe(false); // still waiting while the checkout holds the row
+    });
+    expect(await opted!).toBeGreaterThan(0); // proceeds once the checkout commits
+  });
+
+  it("a review naming a system reviewer is refused whatever its case or spacing", async () => {
+    const { s, a } = await world();
+    const mid = await member(a, s, "pending");
+    for (const who of ["system:x", " System:x", "SYSTEM:auto_approve"]) {
+      await expect(withStore(admin, s.storeId, (t) => t.execute(sql`update affiliate_membership set status = 'rejected', status_reason = 'uji', reviewed_by = ${who} where id = ${mid}`))).rejects.toMatchObject({ cause: { code: "23514" } });
+    }
+  });
+
   it("affiliate_line_rate (SQL) and effectiveOfferRate (TypeScript) give the same rate over one corpus of facts", async () => {
     const s = await makeStore("toko-a", { price: 100_000, stock: 20 });
     const p2 = await addProduct(s, 50_000, "Topi");

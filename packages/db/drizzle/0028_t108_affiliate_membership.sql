@@ -148,7 +148,7 @@ BEGIN
       RAISE EXCEPTION 'the application changes only with a new application' USING ERRCODE = 'check_violation';
     END IF;
     IF NEW.reviewed_by IS NULL OR pg_catalog.btrim(NEW.reviewed_by) = '' THEN RAISE EXCEPTION 'a membership review names its reviewer' USING ERRCODE = 'check_violation'; END IF;
-    IF NEW.reviewed_by LIKE 'system:%' THEN RAISE EXCEPTION 'a system reviewer is written only by automatic approval' USING ERRCODE = 'check_violation'; END IF;
+    IF pg_catalog.lower(pg_catalog.btrim(NEW.reviewed_by)) LIKE 'system:%' THEN RAISE EXCEPTION 'a system reviewer is written only by automatic approval' USING ERRCODE = 'check_violation'; END IF;
     NEW.reviewed_at := pg_catalog.now();
   END IF;
   NEW.revision := OLD.revision + 1;
@@ -507,4 +507,37 @@ BEGIN
   DELETE FROM public.affiliate_seller_policy WHERE store_id = ANY (v_ids); GET DIAGNOSTICS v_n = ROW_COUNT; v_total := v_total + v_n;
   PERFORM pg_catalog.set_config('bukalaris.affiliate_reset', '', true);
   RETURN v_total;
+END $$;--> statement-breakpoint
+-- T-108 review follow-up: lock the programme row on a new offer (see the comment inside); same name and signature, grants unchanged.
+CREATE OR REPLACE FUNCTION public.affiliate_offer_guard() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+DECLARE v_pstatus text; v_min integer; v_max integer;
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    -- T-108 review: under D-38 B a product without an offer earns the store default, so a new override must wait for in-flight checkouts,
+    -- which share-lock this row in affiliate_line_rate; otherwise the attribution re-check sees another rate and fails the order.
+    PERFORM 1 FROM public.affiliate_seller_policy WHERE store_id = NEW.store_id FOR UPDATE;
+    IF NEW.status <> 'active' THEN RAISE EXCEPTION 'an offer starts active' USING ERRCODE = 'check_violation'; END IF;
+    NEW.revision := 1;
+  ELSE
+    IF NEW.id <> OLD.id OR NEW.store_id <> OLD.store_id OR NEW.source <> OLD.source OR NEW.product_id <> OLD.product_id OR NEW.created_at <> OLD.created_at THEN
+      RAISE EXCEPTION 'the offer identity is immutable' USING ERRCODE = 'check_violation';
+    END IF;
+    IF NEW.status <> OLD.status AND NOT (
+         (OLD.status = 'active' AND NEW.status IN ('paused', 'withdrawn'))
+      OR (OLD.status = 'paused' AND NEW.status IN ('active', 'withdrawn'))
+      OR (OLD.status = 'withdrawn' AND NEW.status = 'active')) THEN
+      RAISE EXCEPTION 'illegal offer transition % to %', OLD.status, NEW.status USING ERRCODE = 'check_violation';
+    END IF;
+    NEW.revision := OLD.revision + 1;
+  END IF;
+  NEW.updated_at := pg_catalog.clock_timestamp();
+  IF NEW.status = 'active' AND (TG_OP = 'INSERT' OR OLD.status <> 'active' OR NEW.rate_bps IS DISTINCT FROM OLD.rate_bps) THEN
+    SELECT pr.status INTO v_pstatus FROM public.product pr WHERE pr.store_id = NEW.store_id AND pr.id = NEW.product_id;
+    IF v_pstatus IS DISTINCT FROM 'active' THEN RAISE EXCEPTION 'only a published product can be offered' USING ERRCODE = 'check_violation'; END IF;
+    IF NEW.rate_bps IS NOT NULL THEN
+      SELECT p.min_rate_bps, p.max_rate_bps INTO v_min, v_max FROM public.affiliate_policy p WHERE p.id = 1;
+      IF NEW.rate_bps < v_min OR NEW.rate_bps > v_max THEN RAISE EXCEPTION 'commission rate % is outside the programme bounds', NEW.rate_bps USING ERRCODE = 'check_violation'; END IF;
+    END IF;
+  END IF;
+  RETURN NEW;
 END $$;

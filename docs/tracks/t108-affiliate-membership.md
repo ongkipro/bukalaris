@@ -134,3 +134,16 @@ Final tree, rebased on `origin/main` `ebbf546`. Everything ran under `heavy-run 
 - The `affiliate_catalog` discovery projection still lists offer rows only (D-38 B; discovery deferred).
 - Ceiling D-38 D: legacy deducted attributions stay unpaid until T-118.
 - `docs/evidence/m1/` baseline PNGs rewritten by the E2E run are noise and are not staged.
+
+## Confirmation review (2026-11-25)
+
+Second independent review of `a8fb5e6`: **APPROVE** (every earlier finding fixed in code or tests; `t108-membership` + six `t52-*` files, 183 tests passed). Remaining items, fixed in the next commit:
+
+- **ADR-0016 decision 20** contradicted D-38 A: a dated "superseded in part" note added.
+- **Offer-insert race** (more likely under D-38 B, where most products have no offer row): a seller inserting an override between `planAffiliateCommission` and `recordAffiliateAttribution` changed the re-checked rate and failed the order. `affiliate_offer_guard` (re-created in `0028`, same name, signature and grants) now locks the store's `affiliate_seller_policy` row `FOR UPDATE` on INSERT, the row `affiliate_line_rate` share-locks during checkout, so the insert waits. Test "a new override offer waits for an in-flight checkout …" (two real connections, waits observed in `pg_locks`).
+- **`system:` reviewer check** now `lower(btrim(...)) LIKE 'system:%'`; test "a review naming a system reviewer is refused whatever its case or spacing".
+- **Mutation checks of the auth rules** (baseline sha256 `646dffe6…` of `0028`, restored, `sha256sum -c` OK): **MC** lock removed → the offer-race test FAILED; **MD** case-sensitive check → the system-reviewer test FAILED; **ME** database e-mail-verification gate removed → the C-A3 test FAILED.
+- **D-38 B** now states that a store already open under the T-52 opt-in rule earns the default on every published product from `0028`.
+- Not done (nit): the SQL/TS parity corpus still uses an active store and the default minimum bound only; store status and the bounds are covered by the other line-rate tests.
+
+`t108-membership.test.ts`: 22 passed.
