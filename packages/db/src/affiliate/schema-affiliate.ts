@@ -16,6 +16,10 @@ export const OFFER_STATUSES = ["active", "paused", "withdrawn"] as const;
 export const SELECTOR_STATUSES = ["active", "revoked"] as const;
 export const ATTRIBUTION_METHODS = ["code", "link"] as const;
 export const ATTRIBUTION_STATUSES = ["pending", "credited", "paid_out", "void"] as const;
+/** T-108 (ADR-0015 decision 1): an affiliate's membership of one store's programme. */
+export const MEMBERSHIP_STATUSES = ["pending", "active", "rejected", "suspended"] as const;
+/** T-108 (ADR-0015 decision 4): the seller's obligation per attributed order. T-108 writes pending, void and payable; paid, confirmed and disputed belong to T-109. */
+export const COMMISSION_STATUSES = ["pending", "void", "payable", "paid", "confirmed", "disputed"] as const;
 /** The only product origin of phase 1 (T-56 external sources are deferred). It never describes how an attribution was won. */
 export const AFFILIATE_SOURCE = "bukalaris" as const;
 /** Phase-1 fraud counters (SEC-20, SA-18): written only by the definer functions that observe the event. */
@@ -41,7 +45,7 @@ export const affiliate = pgTable(
     displayName: text("display_name").notNull(),
     /** Canonical Indonesian mobile (`628…`, the T-57 normalisation): the self-referral comparison value. Protected: no public projection carries it. */
     contactPhone: text("contact_phone").notNull(),
-    status: text("status", { enum: AFFILIATE_STATUSES }).notNull().default("pending"),
+    status: text("status", { enum: AFFILIATE_STATUSES }).notNull().default("active"),
     statusReason: text("status_reason"),
     reviewedBy: text("reviewed_by"),
     reviewedAt: timestamptz("reviewed_at"),
@@ -184,6 +188,8 @@ export const affiliateSellerPolicy = pgTable(
     storeId: storeKey().primaryKey().references(() => store.id),
     participation: text("participation", { enum: ["closed", "open"] }).notNull().default("closed"),
     defaultRateBps: integer("default_rate_bps"),
+    /** T-108 (D-31 OPEN-A5): applications become active without review. Off by default; the seller switches it per store. */
+    autoApprove: boolean("auto_approve").notNull().default(false),
     revision: integer("revision").notNull().default(1),
     updatedBy: text("updated_by").notNull(),
     updatedAt: timestamptz("updated_at").notNull().defaultNow(),
@@ -235,6 +241,78 @@ export const affiliateBlock = pgTable(
   (t) => [
     primaryKey({ name: "affiliate_block_pk", columns: [t.storeId, t.affiliateId] }),
     check("affiliate_block_reason_chk", sql`char_length(btrim(${t.reason})) between 1 and 300`),
+  ],
+);
+
+/**
+ * T-108 (ADR-0015 decision 1, C-A4): one affiliate's membership of one store's programme; `UNIQUE(store_id, affiliate_id)` is the "one open application per
+ * affiliate and store" of RL-AFF-STORE-APPLY. Created only by `affiliate_apply()` (definer, the affiliate's own context); the seller moves the state through
+ * four column grants under the store policy. `display_name`, `channels` and `application_note` are the application as submitted: the whole C-A4 projection
+ * the seller reviews (no e-mail, phone or tax identity), so the seller never reads the affiliate account itself. The affiliate reads its own rows only through
+ * `affiliate_own_memberships()`.
+ */
+export const affiliateMembership = pgTable(
+  "affiliate_membership",
+  {
+    id: ident(),
+    storeId: storeKey().references(() => store.id),
+    affiliateId: affiliateKey().references(() => affiliate.id),
+    status: text("status", { enum: MEMBERSHIP_STATUSES }).notNull().default("pending"),
+    displayName: text("display_name").notNull(),
+    channels: text("channels").array().notNull().default(sql`'{}'::text[]`),
+    applicationNote: text("application_note"),
+    statusReason: text("status_reason"),
+    reviewedBy: text("reviewed_by"),
+    reviewedAt: timestamptz("reviewed_at"),
+    revision: integer("revision").notNull().default(1),
+    createdAt: timestamptz("created_at").notNull().defaultNow(),
+    updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    unique("affiliate_membership_store_affiliate_uq").on(t.storeId, t.affiliateId),
+    index("affiliate_membership_affiliate_idx").on(t.affiliateId),
+    check("affiliate_membership_status_chk", sql`${t.status} in (${quoted(MEMBERSHIP_STATUSES)}) and (${t.status} = 'pending' or ${t.reviewedAt} is not null)`),
+    check("affiliate_membership_reason_chk", sql`${t.status} not in ('rejected', 'suspended') or char_length(btrim(coalesce(${t.statusReason}, ''))) between 1 and 300`),
+    check("affiliate_membership_application_chk", sql`char_length(btrim(${t.displayName})) between 2 and 80 and cardinality(${t.channels}) <= 5 and (${t.applicationNote} is null or char_length(${t.applicationNote}) <= 500)`),
+  ],
+);
+
+/**
+ * T-108 (ADR-0015 decision 4): the seller's commission obligation, one per attributed order (`UNIQUE(order_id)`, and the order must carry an attribution).
+ * Written with the attribution by `affiliate_record_attribution()`, equal to it (guard); never a ledger entry and never platform money. The order status
+ * trigger stamps delivery (`delivered_at`, `payable_at` = delivery + the snapshotted hold) and voids on a cancel or return before delivery; the
+ * `affiliate.commission.release` job moves it to `payable` once `payable_at` has passed. `paid`, `confirmed` and `disputed` are T-109.
+ */
+export const affiliateCommission = pgTable(
+  "affiliate_commission",
+  {
+    id: ident(),
+    storeId: storeKey(),
+    orderId: bigint("order_id", { mode: "number" }).notNull().unique("affiliate_commission_order_uq"),
+    affiliateId: affiliateKey().references(() => affiliate.id),
+    commissionBaseIdr: idr("commission_base_idr").notNull(),
+    commissionIdr: idr("commission_idr").notNull(),
+    /** Snapshot of `affiliate_hold_days` at order time (from the attribution). */
+    holdDays: integer("hold_days").notNull(),
+    status: text("status", { enum: COMMISSION_STATUSES }).notNull().default("pending"),
+    deliveredAt: timestamptz("delivered_at"),
+    payableAt: timestamptz("payable_at"),
+    voidReason: text("void_reason"),
+    voidedAt: timestamptz("voided_at"),
+    createdAt: timestamptz("created_at").notNull().defaultNow(),
+    updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({ name: "affiliate_commission_order_fk", columns: [t.storeId, t.orderId], foreignColumns: [orderFinancials.storeId, orderFinancials.orderId] }),
+    foreignKey({ name: "affiliate_commission_attribution_fk", columns: [t.orderId], foreignColumns: [affiliateAttribution.orderId] }),
+    index("affiliate_commission_store_idx").on(t.storeId, t.status),
+    index("affiliate_commission_affiliate_idx").on(t.affiliateId, t.id),
+    index("affiliate_commission_due_idx").on(t.status, t.payableAt),
+    check("affiliate_commission_amounts_chk", sql`${t.commissionIdr} > 0 and ${t.commissionBaseIdr} >= ${t.commissionIdr} and ${t.holdDays} >= 0`),
+    check(
+      "affiliate_commission_status_chk",
+      sql`${t.status} in (${quoted(COMMISSION_STATUSES)}) and (${t.deliveredAt} is null) = (${t.payableAt} is null) and (${t.status} in ('pending', 'void') or ${t.deliveredAt} is not null) and ((${t.status} = 'void') = (${t.voidReason} is not null and ${t.voidedAt} is not null))`,
+    ),
   ],
 );
 

@@ -167,7 +167,7 @@ async function resetDemo(db: Db, ownerDb: Db, storeIds: number[], mediaRoot: str
   // The ledger tables (T-37) refuse DELETE for every login role; the same owner-side pattern removes the demo stores' rows (before the payment rows: refunds reference attempts).
   const LEDGER_TABLES = ["order_financials", "order_line_financials", "shipment_cost", "ledger_entry", "reconciliation_batch_item", "payout_destination", "payout", "refund", "store_step_up_proof"];
   // Affiliate attributions reference the frozen order financials and are never deleted by a login role (T-52): an owner-side reset removes the demo stores' rows first.
-  const AFFILIATE_TABLES = ["affiliate_attribution", "affiliate_click", "affiliate_link", "affiliate_catalog", "affiliate_block", "affiliate_offer", "affiliate_seller_policy"];
+  const AFFILIATE_TABLES = ["affiliate_commission", "affiliate_membership", "affiliate_attribution", "affiliate_click", "affiliate_link", "affiliate_catalog", "affiliate_block", "affiliate_offer", "affiliate_seller_policy"];
   await ownerDb.execute(sql`select reset_demo_affiliate(array[${ids}]::bigint[])`);
   await ownerDb.execute(sql`select reset_demo_ledger(array[${ids}]::bigint[])`);
   await ownerDb.execute(sql`select reset_demo_payments(array[${ids}]::bigint[])`); // owner connection only: no login role may call it (wave 2 review)

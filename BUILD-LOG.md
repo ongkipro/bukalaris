@@ -923,6 +923,18 @@ dummy content.
 - Docs: the Seller Storefront and Checkout rows of the platform host table in `docs/04-SYSTEM-ARCHITECTURE.md` now state the built model (`<slug>.bukalaris.id`, checkout on the store host; T-102/T-103) instead of the single-root hosts under a direction note.
 - #29 T-115 status-sheet follow-up squash-merged as `c4ca751`; CI run 45597138059: DB 86 files / 1585 tests, E2E 309 passed / 6 skipped, image ok. T-115 is Done.
 
+## T-108 affiliate membership + commission as a seller obligation (task/t108-affiliate-membership, 2026-11-25)
+
+- Migration `0028_t108_affiliate_membership`: `affiliate_membership` and `affiliate_commission` (store policy, FORCE RLS), `affiliate_seller_policy.auto_approve`; bounds 100–5000 bps; definer `affiliate_apply`, `affiliate_own_memberships`, `affiliate_own_commissions`; guards for membership and obligation; resolver, code check, attribution writer, attribution guard and the deferred financial check replaced (active membership required, no test order, no deduction from the sale in either money mode); order-status trigger stamps delivery and voids before delivery; T-112 grant trigger moved onto the obligation; demo reset extended. Decisions not settled by ADR-0015 in D-38.
+- Services `affiliate/membership.ts` (apply with RL-AFF-STORE-APPLY, review, C-A4 projection, own reads), JOB-38 `affiliate.commission.release`, checkout plan without deduction, C-A3 registration; registry +2 tables / +6 definer functions, T-59 GRANT block +2 lines.
+- Evidence and verification: `docs/tracks/t108-affiliate-membership.md`.
+- Review follow-up (2026-11-25, rebased on `origin/main` `ebbf546`): owner-delegated D-38 A to D — no void after delivery (T-112 grant trigger dropped, guard refuses it), the store default applies to every product (an offer is the override or an exclusion; `affiliate_line_rate` redefined, `effectiveOfferRate` mirrored, SQL/TS parity test), affiliate accounts only after e-mail verification and `active` (column default `active`), legacy deducted attributions recorded as a ceiling; `system:` reviewer reserved to auto-approval; suspension-vs-checkout race test on two connections; deduction helper deleted. Mutations MA, MB; populated-copy proof redone from a `0027` database. Details and counts in the track report.
+
 ## T-123: checkout2 rate-limit intermittent explained (task/t123-rate-window, 2026-11-25)
 
 - `checkout2.spec.ts:150` failed when its six submits crossed a clock-minute boundary of the fixed 60 s `orderCart` window, letting the sixth place an order (CI run 45610573281). Reproduced by forcing the burst to start at second 59.3; fixed in the spec by starting the burst inside one window; the forced start then passes on desktop and mobile-320. No application change.
+
+## Merge of 2026-11-25 (T-108)
+
+- #31 T-108 affiliate membership per store and the seller's commission obligation, squash-merged as `f3ab89c`: migration `0028` (`affiliate_membership`, `affiliate_commission`, per-store auto-approve, attribution only with an active membership, no deduction from the seller's sale in either money mode, JOB-38 payable release, no void after delivery, store default rate on every published product with offers as override or exclusion, affiliate accounts only after e-mail verification, offer-insert lock). Two independent reviews (CHANGES REQUIRED → fixed; confirmation APPROVE → remaining items fixed); mutations M1–M3b, MA–ME each failed a named test; populated-copy proof of `0028`. CI run 45610573281: the first attempt failed only `checkout2.spec.ts:150` (explained below as T-123), the re-run was green: DB 87 files / 1606 tests, E2E 309 passed / 6 skipped, image ok.
+

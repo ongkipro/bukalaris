@@ -33,8 +33,10 @@ GRANT SELECT ON "affiliate_block" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT, INSERT, UPDATE, DELETE ON "affiliate_catalog" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "affiliate_click" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "affiliate_code" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT, UPDATE ON "affiliate_commission" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "affiliate_counter" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "affiliate_link" TO bukalaris_platform;--> statement-breakpoint
+GRANT SELECT ON "affiliate_membership" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "affiliate_offer" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "affiliate_policy" TO bukalaris_platform;--> statement-breakpoint
 GRANT SELECT ON "affiliate_seller_policy" TO bukalaris_platform;--> statement-breakpoint

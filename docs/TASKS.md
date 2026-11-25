@@ -14,7 +14,7 @@ A reading aid. Each task block below owns its own status and text; when the two 
 |---|---|---|---|
 | 1 | T-101 | Align the specification pack with D-27 to D-33 | Partial; the rest is done by each building task |
 | 2 | T-114 | Tidy repository and documentation structure | Partial; structure done 2026-11-15, final search for superseded text left |
-| 14 | T-108, T-109, T-110 | Seller-run affiliate programme | Planned |
+| 14 | T-109, T-110 | Seller-run affiliate programme (T-108 Done 2026-11-25) | T-109 built, in review; T-110 Planned |
 
 **2. Open tasks from before the direction change** (each carries a dated direction note where the change touches it)
 
@@ -1653,7 +1653,7 @@ Source: [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md), 
   - Open: seller shipping screen still labels `cod_fee_bearer` "Disimpan, belum diterapkan" (SC-22, outside the Allowed Paths); COD rate, minimum and VAT UNVERIFIED (Ceiling T-107-1); buyer e-mails and the buyer portal do not show the COD fee or recorded refunds yet; buyer timeline text for own-account stores; legacy platform-held balance of a converted store stays frozen (Ceiling T-107-1).
 
 ### T-108 — Affiliate membership per store and commission as a seller obligation
-- Status: Planned
+- Status: Done (2026-11-25; squash-merged to `main` as `f3ab89c` through pull request #31; CI run 45610573281 green on re-run: DB 87 files / 1606 tests, E2E 309 passed / 6 skipped, image ok; two independent reviews, every finding fixed; owner-delegated decisions D-38 A to D; track report [`docs/tracks/t108-affiliate-membership.md`](tracks/t108-affiliate-membership.md)). Local only
 - Primary requirement: PR-28
 - Constraints: ADR-0015 decisions 1 to 4; T-52 attribution rules unchanged; PRIV-2, PRIV-7; rate bounds 100 to 5000 bps and window 7 days, both Owner-configurable (D-31); RL-AFF-STORE-APPLY and RL-CLICK on the store host (doc 16, D-33)
 - Dependencies: T-107

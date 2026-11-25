@@ -10,7 +10,7 @@ import { verifyLedger } from "../src/ledger/verify.ts";
 import { bookCodSale } from "../src/ledger/ledger.ts";
 import { saveVoucher } from "../src/promotions/manage.ts";
 import { usableTypedCode } from "../src/affiliate/referral.ts";
-import { affiliateAttribution } from "../src/affiliate/schema-affiliate.ts";
+import { affiliateAttribution, affiliateCommission } from "../src/affiliate/schema-affiliate.ts";
 import { blockAffiliate, setOfferRate, setOfferStatus, optInProduct, saveAffiliatePolicy } from "../src/affiliate/seller.ts";
 import { calculateAffiliateCommission } from "../src/affiliate/commission.ts";
 import { ledgerEntry, order, orderFinancials } from "../src/schema.ts";
@@ -18,10 +18,11 @@ import { placeOrder } from "../src/seller/commerce/checkout.ts";
 import { withStore } from "../src/platform/tenant.ts";
 import { admin, buyer, db, makeStore, platform } from "./helpers.ts";
 import { billingTestSetup } from "./t50-fixtures.ts";
-import { addProduct, attributionOf, attributions, buy, cartOf, click, code, counter, errCode, fin, finLines, freshPhone, link, makeAffiliate, openStore, optIn, plantClick, resetFixtures, setAccountStatus, stockOf } from "./t52-fixtures.ts";
+import { addProduct, attributionOf, attributions, buy, cartOf, click, code, counter, errCode, fin, finLines, freshPhone, link, makeAffiliate, member, openStore, optIn, plantClick, resetFixtures, setAccountStatus, stockOf } from "./t52-fixtures.ts";
 
 // T-52 slices 2 and 3 against real PostgreSQL under the real application role: who an order is attributed to, the single-floor commission frozen from the
-// BILL-4 allocation, the deduction from the seller's sale, and everything that must never happen (a failed order, a second commission, a repriced old order).
+// BILL-4 allocation, and everything that must never happen (a failed order, a second commission, a repriced old order). T-108 (ADR-0015): every affiliate here
+// holds an active membership of the store, and the commission is the seller's obligation (`affiliate_commission`), no longer deducted from the sale.
 billingTestSetup();
 beforeEach(resetFixtures);
 
@@ -32,6 +33,7 @@ async function world(slug = "toko-a", rateBps = 1_000) {
   await openStore(s, rateBps);
   const offerId = await optIn(s);
   const a = await makeAffiliate();
+  await member(a, s);
   const c = await code(a, "HEMAT10");
   const l = await link(a, s);
   return { s, a, offerId, code: c.code, token: l.token, linkId: l.id };
@@ -56,9 +58,9 @@ describe("T-52 slice 2: one server-side resolver, typed code before captured cli
     expect(f.payableIdr).toBe(control.payableIdr);
     expect(f.shippingChargedIdr).toBe(control.shippingChargedIdr);
     expect(f.goodsProceedsIdr).toBe(control.goodsProceedsIdr);
-    expect(f.affiliateCommissionIdr).toBe(10_000);
-    expect(f.saleAmountIdr).toBe(control.saleAmountIdr - 10_000);
-    expect(f.affiliateId).toBe(a.affiliateId);
+    expect(f.affiliateCommissionIdr).toBe(0); // T-108: never deducted from the sale
+    expect(f.saleAmountIdr).toBe(control.saleAmountIdr);
+    expect(f.affiliateId).toBeNull();
     const at = (await attributionOf(o.orderId))!;
     expect(at).toMatchObject({ affiliateId: a.affiliateId, storeId: s.storeId, source: "bukalaris", method: "link", clickId, codeId: null, commissionIdr: 10_000, commissionBaseIdr: 100_000, status: "pending", windowDays: 7, holdDays: 3 });
     expect((await finLines(o.orderId)).map((l) => l.commissionRateBps)).toEqual([1_000]);
@@ -83,6 +85,7 @@ describe("T-52 slice 2: one server-side resolver, typed code before captured cli
   it("precedence: a valid typed code beats a later click of another affiliate; an invalid code falls back to the click; no valid selector earns nothing and never fails the order", async () => {
     const { s, a } = await world();
     const b = await makeAffiliate({ name: "Afiliasi Dua" });
+    await member(b, s);
     const bLink = await link(b, s);
     const bClick = await click(bLink.token);
     const typed = await buy(s, { code: "HEMAT10", clicks: [bClick] });
@@ -96,6 +99,7 @@ describe("T-52 slice 2: one server-side resolver, typed code before captured cli
   it("the LAST eligible click wins; equal capture times fall to the larger click id; only this store's clicks count", async () => {
     const { s, a, linkId } = await world();
     const b = await makeAffiliate({ name: "Afiliasi Dua" });
+    await member(b, s);
     const bLink = await link(b, s);
     const first = await click(bLink.token); // B first
     const second = await click((await link(a, s)).token); // A last
@@ -119,6 +123,7 @@ describe("T-52 slice 2: one server-side resolver, typed code before captured cli
     const other = await makeStore("toko-b", { price: 100_000, stock: 50 });
     await openStore(other, 1_000);
     await optIn(other);
+    await member(a, other);
     const bClick = await click((await link(a, other)).token); // a genuine click, but for store B
     const o = await buy(s, { clicks: [bClick] });
     await expectNoAttribution(o.orderId);
@@ -189,6 +194,7 @@ describe("T-52 slice 2: one server-side resolver, typed code before captured cli
     const other = await makeStore("toko-b", { price: 100_000, stock: 50 });
     await openStore(other, 1_000);
     await optIn(other);
+    await member(a, other);
     const earned = await buy(s, { code: "HEMAT10" });
     await blockAffiliate(s.owner, { affiliateId: a.affiliateId, reason: "uji blokir" });
     const c1 = await click((await link(a, other)).token);
@@ -243,6 +249,7 @@ describe("T-52 canonical-phone self-referral earns nothing and never falls back"
     await openStore(s);
     await optIn(s);
     const a = await makeAffiliate({ phone: own });
+    await member(a, s);
     await code(a, "SELFCODE");
     let n = 0;
     for (const spelling of [own, "+6281299900011", "6281299900011", "006281299900011", "62081299900011"]) {
@@ -259,8 +266,10 @@ describe("T-52 canonical-phone self-referral earns nothing and never falls back"
     await openStore(s);
     await optIn(s);
     const me = await makeAffiliate({ phone: "081299900022" });
+    await member(me, s);
     await code(me, "MYSELF99");
     const other = await makeAffiliate({ name: "Orang Lain" });
+    await member(other, s);
     const otherClick = await click((await link(other, s)).token);
     await expectNoAttribution((await buy(s, { code: "MYSELF99", clicks: [otherClick], phone: "081299900022" })).orderId);
     const myClick = await click((await link(me, s)).token); // newer than the other's
@@ -275,7 +284,9 @@ describe("T-52 canonical-phone self-referral earns nothing and never falls back"
     const s = await makeStore("toko-a", { price: 100_000, stock: 400 });
     await openStore(s);
     await optIn(s);
-    await code(await makeAffiliate({ phone: own }), "PARITY77");
+    const self = await makeAffiliate({ phone: own });
+    await member(self, s);
+    await code(self, "PARITY77");
     const spellings = [own, "+081299900033", "81299900033", "+6281299900033", "6281299900033", "006281299900033", "62081299900033", "+62081299900033", "081299900034", "08129990003", "0812999000333", "+81299900033", "0812999000330", "6281299900034"];
     for (const spelling of spellings) {
       const o = await buy(s, { code: "PARITY77", phone: spelling });
@@ -285,7 +296,7 @@ describe("T-52 canonical-phone self-referral earns nothing and never falls back"
   });
 });
 
-describe("T-52 slice 3: the commission is frozen from the canonical allocation, deducted from the seller's sale, never repriced", () => {
+describe("T-52 slice 3: the commission is frozen from the canonical allocation, never deducted from the seller's sale (T-108), never repriced", () => {
   it("mixed rates and a store-funded discount: each product keeps its own rate on its own discounted base, one floor over the sum", async () => {
     const s = await makeStore("toko-a", { price: 100_000, stock: 200 });
     await openStore(s, 1_000);
@@ -293,6 +304,7 @@ describe("T-52 slice 3: the commission is frozen from the canonical allocation, 
     const p2 = await addProduct(s, 50_000);
     await optIn(s, p2.productId, null); // store default 10 %
     const a = await makeAffiliate();
+    await member(a, s);
     await code(a, "MIXED10");
     const v = await saveVoucher(s.owner, { kind: "percent", scope: "all", value: 1_000, ...window() });
     const cartId = await cartOf(s);
@@ -303,23 +315,25 @@ describe("T-52 slice 3: the commission is frozen from the canonical allocation, 
     const expected = calculateAffiliateCommission(lines.map((l) => ({ commissionBase: l.commissionBaseIdr, rateBps: l.commissionRateBps! })));
     expect(expected).toBe(18_000);
     const f = await fin(o.orderId);
-    expect(f.affiliateCommissionIdr).toBe(18_000);
-    expect(f.saleAmountIdr).toBe(f.goodsProceedsIdr - 18_000);
+    expect(f.affiliateCommissionIdr).toBe(0);
+    expect(f.saleAmountIdr).toBe(f.goodsProceedsIdr);
     expect((await attributionOf(o.orderId))).toMatchObject({ commissionBaseIdr: 135_000, commissionIdr: 18_000 });
   });
 
-  it("a line that is not opted in earns exactly zero; a cart with no opted-in line earns no attribution at all", async () => {
+  it("an excluded line earns exactly zero; a cart with only excluded lines earns no attribution at all (T-108, D-38 B: without an offer row a product earns the default; a withdrawn offer excludes it)", async () => {
     const s = await makeStore("toko-a", { price: 100_000, stock: 200 });
     await openStore(s, 1_000);
     await optIn(s);
-    const plain = await addProduct(s, 80_000, "Kaos Biasa"); // never opted in
+    const plain = await addProduct(s, 80_000, "Kaos Biasa");
+    await setOfferStatus(s.owner, { offerId: await optIn(s, plain.productId), status: "withdrawn" }); // excluded
     const a = await makeAffiliate();
+    await member(a, s);
     await code(a, "ZEROLINE");
     const mixed = await cartOf(s);
     await setCartLine(s.sf, mixed, { variantId: plain.variantId, quantity: 2 }, "add");
     const o = await buy(s, { cart: mixed, code: "ZEROLINE" });
     expect((await finLines(o.orderId)).map((l) => [l.commissionBaseIdr, l.commissionRateBps])).toEqual([[100_000, 1_000], [160_000, 0]]);
-    expect((await fin(o.orderId)).affiliateCommissionIdr).toBe(10_000); // 10 % of the opted-in 100.000 only
+    expect((await attributionOf(o.orderId))!.commissionIdr).toBe(10_000); // 10 % of the opted-in 100.000 only
     expect((await attributionOf(o.orderId))!.commissionBaseIdr).toBe(100_000); // the base column is the sum of the bases of the lines that earn
     const none = await buy(s, { variantId: plain.variantId, code: "ZEROLINE" });
     await expectNoAttribution(none.orderId);
@@ -331,12 +345,14 @@ describe("T-52 slice 3: the commission is frozen from the canonical allocation, 
     await optIn(s);
     const second = await addProduct(s, 7, "Gantungan");
     await optIn(s, second.productId);
-    await code(await makeAffiliate(), "ONEFLOOR");
+    const a = await makeAffiliate();
+    await member(a, s);
+    await code(a, "ONEFLOOR");
     const cartId = await cartOf(s);
     await setCartLine(s.sf, cartId, { variantId: second.variantId, quantity: 1 }, "add");
     const o = await buy(s, { cart: cartId, code: "ONEFLOOR" });
     expect((await finLines(o.orderId)).map((l) => [l.commissionBaseIdr, l.commissionRateBps])).toEqual([[7, 1_100], [7, 1_100]]);
-    expect((await fin(o.orderId)).affiliateCommissionIdr).toBe(1); // floor(14 * 1100 / 10000) = floor(1.54); each line alone would be floor(0.77) = 0
+    expect((await attributionOf(o.orderId))!.commissionIdr).toBe(1); // floor(14 * 1100 / 10000) = floor(1.54); each line alone would be floor(0.77) = 0
     expect(await attributionOf(o.orderId)).toMatchObject({ commissionIdr: 1, commissionBaseIdr: 14 });
   });
 
@@ -344,7 +360,9 @@ describe("T-52 slice 3: the commission is frozen from the canonical allocation, 
     const s = await makeStore("toko-a", { price: 0, stock: 20 });
     await openStore(s);
     await optIn(s);
-    await code(await makeAffiliate(), "FREEITEM");
+    const a = await makeAffiliate();
+    await member(a, s);
+    await code(a, "FREEITEM");
     await expectNoAttribution((await buy(s, { code: "FREEITEM" })).orderId);
     expect(await attributions()).toHaveLength(0);
   });
@@ -353,12 +371,12 @@ describe("T-52 slice 3: the commission is frozen from the canonical allocation, 
     const { s } = await world();
     const results: number[] = [];
     for (const over of [{ paymentMethod: "cod" }, { paymentMethod: "manual_transfer", paymentChannel: "VABCA" }]) {
-      results.push((await fin((await buy(s, { code: "HEMAT10", over })).orderId)).affiliateCommissionIdr);
+      results.push((await attributionOf((await buy(s, { code: "HEMAT10", over })).orderId))!.commissionIdr);
     }
     const free = await saveVoucher(s.owner, { kind: "free_shipping", scope: "all", value: 0, ...window() });
     const o = await buy(s, { code: "HEMAT10", over: { voucherCode: free.code } });
     expect((await fin(o.orderId)).shippingDiscountIdr).toBeGreaterThan(0);
-    results.push((await fin(o.orderId)).affiliateCommissionIdr);
+    results.push((await attributionOf(o.orderId))!.commissionIdr);
     expect(results).toEqual([10_000, 10_000, 10_000]);
   });
 
@@ -392,7 +410,7 @@ describe("T-52 slice 3: the commission is frozen from the canonical allocation, 
     await expectNoAttribution((await buy(s, { code: "HEMAT10" })).orderId); // 10 % is now above the programme maximum
   });
 
-  it("a commission that would leave the seller less than the shipping discount they fund is not earned, and the order still places", async () => {
+  it("T-108: a store-funded shipping discount no longer limits the commission (nothing comes out of the sale any more), and the sale stays whole", async () => {
     const probe = await makeStore("toko-probe", { price: 100_000, stock: 5 });
     const free = await saveVoucher(probe.owner, { kind: "free_shipping", scope: "all", value: 0, ...window() });
     const shippingDiscount = (await fin((await buy(probe, { over: { voucherCode: free.code } })).orderId)).shippingDiscountIdr;
@@ -400,16 +418,18 @@ describe("T-52 slice 3: the commission is frozen from the canonical allocation, 
     const s = await makeStore("toko-a", { price: shippingDiscount + 1, stock: 20 });
     await openStore(s, 2_000);
     await optIn(s);
-    await code(await makeAffiliate(), "TIGHTONE");
+    const a = await makeAffiliate();
+    await member(a, s);
+    await code(a, "TIGHTONE");
     const v = await saveVoucher(s.owner, { kind: "free_shipping", scope: "all", value: 0, ...window() });
     const o = await buy(s, { code: "TIGHTONE", over: { voucherCode: v.code } });
-    expect((await fin(o.orderId)).shippingDiscountIdr).toBe(shippingDiscount);
-    await expectNoAttribution(o.orderId);
-    const ok = await buy(s, { code: "TIGHTONE" }); // without the funded shipping discount it earns
-    expect((await attributionOf(ok.orderId))!.commissionIdr).toBeGreaterThan(0);
+    const f = await fin(o.orderId);
+    expect(f.shippingDiscountIdr).toBe(shippingDiscount);
+    expect((await attributionOf(o.orderId))!.commissionIdr).toBe(Math.floor((shippingDiscount + 1) * 2_000 / 10_000));
+    expect(f.saleAmountIdr).toBe(f.goodsProceedsIdr); // the seller's sale is untouched
   });
 
-  it("the deduction reaches the seller's ledger: the sale entry is the net of the commission, and the ledger verification finds nothing wrong", async () => {
+  it("T-108: the commission never reaches the seller's ledger: the sale entry is the whole sale, and the ledger verification finds nothing wrong", async () => {
     const { s } = await world();
     const o = await buy(s, { code: "HEMAT10" });
     const f = await fin(o.orderId);
@@ -418,13 +438,14 @@ describe("T-52 slice 3: the commission is frozen from the canonical allocation, 
     await platform.transaction((tx) => bookCodSale(tx, s.storeId, o.orderId));
     const sales = await platform.select().from(ledgerEntry).where(eq(ledgerEntry.orderId, o.orderId));
     expect(sales.filter((e) => e.kind === "sale").map((e) => e.amountIdr)).toEqual([f.saleAmountIdr]);
-    expect(f.saleAmountIdr).toBe(90_000);
+    expect(f.saleAmountIdr).toBe(100_000);
+    expect((await attributionOf(o.orderId))!.commissionIdr).toBe(10_000);
     const v = await verifyLedger(platform);
     expect(v.violations).toEqual([]);
   });
 });
 
-describe("T-52 exactly one attribution and deduction: rollback, replay, concurrency, direct duplicates", () => {
+describe("T-52 exactly one attribution and obligation: rollback, replay, concurrency, direct duplicates", () => {
   it("a failed order transaction leaves no order, no commission, no attribution, no counter and the stock where it was", async () => {
     const { s } = await world();
     await admin.execute(sql`create function t52_boom() returns trigger language plpgsql as $$ begin raise exception 'boom after the attribution'; end $$`);
@@ -444,7 +465,7 @@ describe("T-52 exactly one attribution and deduction: rollback, replay, concurre
     expect((await attributionOf((await buy(s, { code: "HEMAT10" })).orderId))!.commissionIdr).toBe(10_000); // and the same checkout works afterwards
   });
 
-  it("a duplicate submit replays the first order: one attribution, one deduction", async () => {
+  it("a duplicate submit replays the first order: one attribution, one obligation", async () => {
     const { s } = await world();
     const cartId = await cartOf(s);
     const input = buyer({ buyerPhone: freshPhone(), affiliateCode: "HEMAT10" });
@@ -452,10 +473,10 @@ describe("T-52 exactly one attribution and deduction: rollback, replay, concurre
     const second = await placeOrder(db, cartId, input, undefined, { referral: { clickIds: [] } });
     expect(second).toEqual({ orderId: first.orderId, replayed: true });
     expect(await attributions()).toHaveLength(1);
-    expect((await fin(first.orderId)).affiliateCommissionIdr).toBe(10_000);
+    expect((await platform.select().from(affiliateCommission)).map((c) => [c.orderId, c.commissionIdr])).toEqual([[first.orderId, 10_000]]);
   });
 
-  it("eight concurrent submits of the same checkout yield one order, one immutable attribution and one deduction", async () => {
+  it("eight concurrent submits of the same checkout yield one order, one immutable attribution and one obligation", async () => {
     const { s } = await world();
     const cartId = await cartOf(s);
     const input = buyer({ buyerPhone: freshPhone(), affiliateCode: "HEMAT10" });
@@ -465,7 +486,8 @@ describe("T-52 exactly one attribution and deduction: rollback, replay, concurre
     expect(new Set(ok).size).toBe(1);
     expect(await platform.select().from(order)).toHaveLength(1);
     expect(await attributions()).toHaveLength(1);
-    expect(await platform.select().from(orderFinancials).where(eq(orderFinancials.affiliateCommissionIdr, 10_000))).toHaveLength(1);
+    expect(await platform.select().from(affiliateCommission)).toHaveLength(1);
+    expect(await platform.select().from(orderFinancials).where(eq(orderFinancials.affiliateCommissionIdr, 0))).toHaveLength(1);
   });
 
   it("concurrent submits with DIFFERENT idempotency keys on one cart still yield exactly one attribution", async () => {
@@ -492,7 +514,9 @@ describe("T-52 exactly one attribution and deduction: rollback, replay, concurre
     const s = await makeStore("toko-a", { price: 100_000, stock: 8 });
     await openStore(s, 1_000);
     const offerId = await optIn(s);
-    await code(await makeAffiliate(), "RACE0001");
+    const racer = await makeAffiliate();
+    await member(racer, s);
+    await code(racer, "RACE0001");
     const carts = await Promise.all(Array.from({ length: 8 }, () => cartOf(s)));
     const work = [
       ...carts.map((cart) => buy(s, { cart, code: "RACE0001" })),
@@ -519,14 +543,14 @@ describe("T-52 exactly one attribution and deduction: rollback, replay, concurre
     expect(await errCode(platform.insert(affiliateAttribution).values(copy))).toBe("42501");
   });
 
-  it("an order cannot commit a deduction without its obligation (deferred check), nor an obligation that differs from the frozen snapshot (insert guard)", async () => {
+  it("an order cannot commit an attribution without its obligation, nor an attribution that differs from the frozen line snapshot (insert guard)", async () => {
     const { s } = await world();
     const done = await buy(s, { code: "HEMAT10" });
-    // 1. the attribution insert is swallowed by a rogue trigger: the snapshot would deduct 10.000 with no obligation behind it, and the COMMIT refuses
+    // 1. the attribution insert is swallowed by a rogue trigger: the obligation then has no attribution to reference and the order fails as a whole
     await admin.execute(sql`create function t52_skip() returns trigger language plpgsql as $$ begin return null; end $$`);
     await admin.execute(sql`create trigger t52_skip before insert on affiliate_attribution for each row execute function t52_skip()`);
     try {
-      await expect(buy(s, { code: "HEMAT10" })).rejects.toThrow(/without its attribution/);
+      await expect(buy(s, { code: "HEMAT10" })).rejects.toThrow();
     } finally {
       await admin.execute(sql`drop trigger t52_skip on affiliate_attribution`);
       await admin.execute(sql`drop function t52_skip()`);
@@ -536,7 +560,7 @@ describe("T-52 exactly one attribution and deduction: rollback, replay, concurre
     // 2. an attribution that disagrees with the snapshot of its order is refused at insert
     const orphan = await buy(s);
     const { id: _id, createdAt: _c, orderId: _o, ...rest } = (await attributionOf(done.orderId))!;
-    expect(await errCode(admin.insert(affiliateAttribution).values({ ...rest, orderId: orphan.orderId }))).toBe("23514"); // that order's snapshot names no affiliate and no commission
+    expect(await errCode(admin.insert(affiliateAttribution).values({ ...rest, orderId: orphan.orderId }))).toBe("23514"); // that order's lines froze no rate
     expect(await errCode(admin.insert(affiliateAttribution).values({ ...rest, orderId: orphan.orderId, commissionIdr: 10_001 }))).toBe("23514");
   });
 });

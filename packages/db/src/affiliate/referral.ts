@@ -1,15 +1,17 @@
 import { sql } from "drizzle-orm";
 import type { Executor } from "../client.ts";
-import { withAffiliateCommission, type OrderFinance } from "../ledger/finance.ts";
+import type { OrderFinance } from "../ledger/finance.ts";
 import { hit, peekHits } from "../platform/rate-limit.ts";
 import { withStore } from "../platform/tenant.ts";
 import { normalizeAffiliateCode } from "./code.ts";
 import { calculateAffiliateCommission } from "./commission.ts";
 import { RL_CODE } from "./settings.ts";
 
-// The checkout side of the affiliate programme (T-52 slices 2 and 3): one resolver shared by every checkout entry (hosted checkout, landing page order form,
-// API handoff all end in `placeOrder`), the commission plan and the attribution record. All decisions are made by the database functions of migration 0016
-// inside the order transaction; this module only calls them in order and does the integer arithmetic once, through the one BILL-4 allocation.
+// The checkout side of the affiliate programme (T-52 slices 2 and 3, T-108): one resolver shared by every checkout entry (hosted checkout, landing page order form,
+// API handoff all end in `placeOrder`), the commission plan and the attribution record. All decisions are made by the database functions of migrations 0016 and
+// 0028 inside the order transaction; this module only calls them in order and does the integer arithmetic once, on the one BILL-4 allocation.
+// T-108 (ADR-0015 decision 4): the commission is the seller's obligation (`affiliate_commission`), never deducted from the seller's sale: the order's financial
+// snapshot is the same with and without an affiliate, apart from the rate frozen on each line.
 
 /** What the buyer's request may carry: a typed code and the click ids of the continuity cookie. Both are selectors, never authority. */
 export type ReferralInput = { code?: string | null | undefined; clickIds?: readonly string[] | undefined };
@@ -17,8 +19,6 @@ export type ReferralInput = { code?: string | null | undefined; clickIds?: reado
 export type CommissionPlan = {
   affiliateId: number;
   method: "code" | "link";
-  /** The finance with the commission deducted from the seller's proceeds (`order_financials.sale_amount_idr`). */
-  finance: OrderFinance;
   /** Rate frozen on each cart line, in line order; 0 for a line whose product is not opted in. */
   ratesBps: number[];
   commissionIdr: number;
@@ -46,10 +46,10 @@ export async function usableTypedCode(exec: Executor, storeId: number, cartId: s
 
 /**
  * Slice 2 and 3, inside the order transaction after the order row, its lines and its stock are written: resolve the affiliate (code wins, else the latest
- * eligible click of this store inside its window; a self-referral earns nothing and nothing else is tried), read each line's rate from the live offer rules
- * (the same database function the attribution guard re-checks with), and compute the single-floor commission from the frozen line bases. Returns null when no
- * affiliate earns anything: no selector, an ineligible one, a self-referral, no opted-in line, a zero base, or a commission that would leave the seller less than
- * the shipping discount the seller funds. Never throws for a bad selector.
+ * eligible click of this store inside its window; only an affiliate with an ACTIVE membership of the store is eligible (T-108); a self-referral earns nothing
+ * and nothing else is tried; a sandbox test order earns nothing), read each line's rate from the live offer rules (the same database function the attribution
+ * guard re-checks with), and compute the single-floor commission from the frozen line bases. Returns null when no affiliate earns anything: no selector, an
+ * ineligible one, a self-referral, no opted-in line or a zero base. Never throws for a bad selector. The finance is not changed (no deduction since T-108).
  */
 export async function planAffiliateCommission(
   tx: Executor,
@@ -69,12 +69,10 @@ export async function planAffiliateCommission(
   const ratesBps = input.productIds.map((p) => rates.get(p)!);
   const commissionIdr = calculateAffiliateCommission(input.finance.lines.map((l, i) => ({ commissionBase: l.commissionBase, rateBps: ratesBps[i]! })));
   if (commissionIdr <= 0) return null;
-  // The seller funds a shipping discount out of the sale: a commission that would take the sale below it is not earned (an order never fails for it).
-  if (input.finance.saleAmount - commissionIdr < input.finance.shippingDiscount) return null;
-  return { affiliateId: Number(r.r_affiliate_id), method: r.r_method as "code" | "link", finance: withAffiliateCommission(input.finance, commissionIdr), ratesBps, commissionIdr };
+  return { affiliateId: Number(r.r_affiliate_id), method: r.r_method as "code" | "link", ratesBps, commissionIdr };
 }
 
-/** After `writeOrderFinancials` carried the affiliate and the line rates: the one writer of the attribution (it re-runs the selection and re-derives every rate itself). */
+/** After `writeOrderFinancials` froze the line rates: the one writer of the attribution and its obligation (it re-runs the selection and re-derives every rate itself). */
 export async function recordAffiliateAttribution(tx: Executor, input: { storeId: number; orderId: number; referral: ReferralInput }): Promise<number> {
   const rows = (await tx.execute(sql`select public.affiliate_record_attribution(${input.storeId}::bigint, ${input.orderId}::bigint, ${input.referral.code ?? null}::text, ${textArray(input.referral.clickIds ?? [])}) as id`)) as unknown as { id: string }[];
   return Number(rows[0]!.id);

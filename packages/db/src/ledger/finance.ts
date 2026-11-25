@@ -3,7 +3,7 @@ import { DomainError } from "../platform/scoped.ts";
 // Order financial allocation (BILL-4 "Per-line allocation and rounding", ADR-0006 decision 2). One pure, integer-only engine: checkout
 // freezes its result in `order_financials` / `order_line_financials`; later setting edits never change an order. All arithmetic is
 // BigInt, so a product can never lose precision and no `Math.round` appears anywhere. Rounding is named per component:
-// discount = exact largest remainder, included tax = floor, added tax = half up, COD fee and affiliate commission are inputs here.
+// discount = exact largest remainder, included tax = floor, added tax = half up, COD fee is an input here; the affiliate commission is never part of the sale (T-108, ADR-0015: the seller's obligation, `affiliate_commission`).
 
 const big = (n: number) => BigInt(n);
 const num = (n: bigint): number => {
@@ -57,8 +57,6 @@ export type FinanceInput = {
   shippingDiscount?: number;
   codFee?: number;
   codFeeVat?: number;
-  /** Frozen affiliate commission of the order (BILL-8); `0` until the affiliate programme exists. */
-  affiliateCommission?: number;
 };
 export type FinanceLine = {
   lineNo: number;
@@ -82,7 +80,6 @@ export type OrderFinance = {
   shippingCharged: number;
   codFee: number;
   codFeeVat: number;
-  affiliateCommission: number;
   /** `order.total`; the gateway admin fee is separate (`buyer_payable = payable + admin_fee`). */
   payable: number;
   /** What the `sale` ledger entry credits the store. */
@@ -140,12 +137,9 @@ export function calculateOrderFinance(input: FinanceInput): OrderFinance {
   out.forEach((l, i) => { l.shippingDiscountAlloc = shippingAlloc[i]!; });
   const codFee = input.codFee ?? 0;
   const codFeeVat = input.codFeeVat ?? 0;
-  const affiliateCommission = input.affiliateCommission ?? 0;
   nonNegInt(codFee, "Biaya COD");
   nonNegInt(codFeeVat, "PPN biaya COD");
-  nonNegInt(affiliateCommission, "Komisi afiliasi");
   const goodsSide = goodsProceeds + includedSalesTax + addedSalesTax;
-  if (affiliateCommission > goodsSide) throw new DomainError("commission_exceeds", "Komisi melebihi hasil penjualan barang.");
   return {
     lines: out,
     subtotal,
@@ -157,20 +151,7 @@ export function calculateOrderFinance(input: FinanceInput): OrderFinance {
     shippingCharged,
     codFee,
     codFeeVat,
-    affiliateCommission,
     payable: goodsSide + shippingCharged + codFee + codFeeVat,
-    saleAmount: goodsSide - affiliateCommission,
+    saleAmount: goodsSide,
   };
-}
-
-/**
- * The same finance with the affiliate commission deducted from the seller's goods proceeds (BILL-8, T-52): `saleAmount` falls by the commission,
- * the buyer's `payable` and every allocation line are untouched (shipping, tax, COD and gateway amounts are never in the commission). The commission
- * is computed from this finance's own `lines[].commissionBase` by the caller; it can never exceed the goods side.
- */
-export function withAffiliateCommission(finance: OrderFinance, commission: number): OrderFinance {
-  nonNegInt(commission, "Komisi afiliasi");
-  const goodsSide = finance.goodsProceeds + finance.includedSalesTax + finance.addedSalesTax;
-  if (commission > goodsSide) throw new DomainError("commission_exceeds", "Komisi melebihi hasil penjualan barang.");
-  return { ...finance, affiliateCommission: commission, saleAmount: goodsSide - commission };
 }

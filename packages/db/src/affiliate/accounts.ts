@@ -4,28 +4,31 @@ import { z } from "zod";
 import type { Executor } from "../client.ts";
 import { normalizePhone } from "../buyer/normalize.ts";
 import { pgCode, requireNonStaffTarget, requirePlatformCap } from "../ops/capabilities.ts";
-import { auditLog } from "../schema.ts";
+import { auditLog, user } from "../schema.ts";
 import { DomainError, type OperatorScope } from "../platform/scoped.ts";
 import { withAffiliate } from "../platform/tenant.ts";
 import { normalizeAffiliateCode } from "./code.ts";
 import { affiliate, affiliateCode, affiliateLink, AFFILIATE_STATUSES, AFFILIATE_SOURCE } from "./schema-affiliate.ts";
 
-// Platform affiliate identity (T-52 slice 1; IAM-13, ADR-0009 section 1 and 3): a separate account type, registered pending, reviewed in the Owner console, never a seller
-// membership and never owned by a store. The portal, its login and the review screens are T-54; these are the services they call. The state machine itself lives
+// Platform affiliate identity (T-52 slice 1; IAM-13, ADR-0009 section 1 and 3): a separate account type, never a seller membership and never owned by a store.
+// T-108 (ADR-0015 C-A3, D-38 C): an account is created only for a verified e-mail and is then active; earning needs an active membership of a store (membership.ts). The portal, its login and the review screens are T-54; these are the services they call. The state machine itself lives
 // in the database (`affiliate_status_guard`), so no caller can skip a step.
 
 export type AffiliateStatus = (typeof AFFILIATE_STATUSES)[number];
 
 /**
  * Register an affiliate account for an authenticated affiliate-surface user. `exec` is the platform pool (the app role holds no INSERT on `affiliate`). The phone is the
- * canonical Indonesian mobile of the T-57 normalisation, kept protected: it is only ever compared server-side for the self-referral guard.
+ * canonical Indonesian mobile of the T-57 normalisation, kept protected: it is only ever compared server-side for the self-referral guard. C-A3 (D-38 C): only a
+ * user whose e-mail is verified can register, and the account is `active` at once (no platform application step); the database refuses anything else.
  */
 export async function registerAffiliate(exec: Executor, input: { userId: string; displayName: string; phone: string }): Promise<number> {
   const parsed = z.strictObject({ userId: z.string().min(1).max(128), displayName: z.string().trim().min(2).max(80), phone: z.string().max(40) }).parse(input);
   const phone = normalizePhone(parsed.phone);
   if (!phone) throw new DomainError("bad_phone", "Isi nomor HP/WhatsApp Indonesia yang valid.");
+  const [u] = await exec.select({ verified: user.emailVerified }).from(user).where(eq(user.id, parsed.userId));
+  if (!u?.verified) throw new DomainError("email_unverified", "Verifikasi alamat email Anda dulu sebelum mendaftar sebagai afiliasi.");
   try {
-    const [row] = await exec.insert(affiliate).values({ userId: parsed.userId, displayName: parsed.displayName, contactPhone: phone }).returning({ id: affiliate.id });
+    const [row] = await exec.insert(affiliate).values({ userId: parsed.userId, displayName: parsed.displayName, contactPhone: phone, status: "active" }).returning({ id: affiliate.id });
     return row!.id;
   } catch (err) {
     if (pgCode(err) === "23505") throw new DomainError("conflict", "Akun ini sudah terdaftar sebagai afiliasi.");
