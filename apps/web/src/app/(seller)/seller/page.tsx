@@ -1,3 +1,4 @@
+import { log } from "@/lib/log";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { buttonVariants } from "@/components/ui/button";
@@ -25,7 +26,11 @@ export default async function SellerHome({ searchParams }: PageProps<"/seller">)
   const sp = await searchParams;
   const period = isPeriod(sp.period) ? sp.period : "today";
   // T-117 (SC-01): only the owner sees the setup checklist (staff see nothing of it); it is fetched only for them.
-  const [d, checklist] = await Promise.all([sellerDashboard(ctx.scope, period), can(ctx.scope, "integrations.manage") && ctx.scope.billing.writable ? sellerSetupChecklist(ctx.scope) : null]);
+  const [d, checklist] = await Promise.all([sellerDashboard(ctx.scope, period), can(ctx.scope, "integrations.manage") && ctx.scope.billing.writable
+      ? // A checklist failure must not take the whole overview down: the card is then left out and the error logged.
+        sellerSetupChecklist(ctx.scope).catch((err: unknown) => (void log("error", err, { module: "seller.dashboard", operation: "setup_checklist" }), null))
+      : null,
+  ]);
   const { kpi, funnel } = d;
   // `to` is exclusive (tomorrow 00:00 WIB): the last day shown is the day before it.
   const lastDay = new Date(d.range.to.getTime() - 1);

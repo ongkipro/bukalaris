@@ -1,9 +1,9 @@
-// T-117 (PR-27, ADR-0013 decisions 12 to 14 and 36, ADR-0016 decision 21): the seller setup checklist. It reads the readiness
+// T-117 (PR-27, ADR-0013 decisions 12 to 14 and 36, ADR-0016 decision 21, D-37): the seller setup checklist. It reads the readiness
 // functions of T-104/T-113/T-115/T-116 and keeps no state of its own; a step never shows or asks for a key — it links to the
-// screen that owns the form (SC-34, SC-31/SC-32, the T-116 terms section).
+// screen that owns the form (SC-32 `/seller/payments` with the T-116 terms section, SC-34 `/seller/shipping/account`, SC-22 `/seller/shipping`).
 
 import { eq } from "drizzle-orm";
-import { storeMoneyMode, type MoneyMode } from "../ledger/boundary.ts";
+import { digitalPrepaidReady, physicalActivationAllowed, storeMoneyMode, type MoneyMode } from "../ledger/boundary.ts";
 import { sellerTermsStatus } from "../platform/terms.ts";
 import { requireCap, type SellerScope } from "../platform/scoped.ts";
 import { inStore } from "../platform/tenant.ts";
@@ -20,11 +20,16 @@ export interface SetupStep {
   /** "disarankan" steps (the webhook) block nothing and never gate the checklist away. */
   recommended: boolean;
   href: string;
+  /** What stays blocked while this step is open AND nothing else has unlocked it already (never a lock the footer lists as activatable). */
   blocks: SetupLock[];
 }
 export interface SetupChecklist {
   steps: SetupStep[];
   can: { physical: boolean; digital: boolean; cod: boolean; qrisVa: boolean; bankTransfer: boolean };
+  /** Every required step done: the card leaves (an open webhook keeps one small note). */
+  complete: boolean;
+  /** A pre-0027 store still on the platform model (D-37): saving its own key or bank account moves it to its own accounts for good. */
+  legacyPlatformModel: boolean;
 }
 export interface SetupChecklistInput {
   shipping: Readiness;
@@ -38,30 +43,41 @@ export interface SetupChecklistInput {
 
 const has = (r: Readiness, ...gaps: ReadinessGap[]) => !gaps.some((g) => r.missing.includes(g));
 
-/** The pure rule: steps in checklist order, then what each state unlocks. `physical`/`cod` use the same rule as the T-117 activation gate. */
+/** The pure rule: steps in checklist order, then what each state unlocks. `can` uses the same predicates as the catalog activation gate. */
 export function setupChecklist(input: SetupChecklistInput): SetupChecklist {
-  const shippingReady = input.shipping.ready || (input.legacyPlatformShipping && input.moneyMode === "platform_held");
-  const steps: SetupStep[] = [
-    { id: "terms", done: input.termsAccepted, recommended: false, href: "/seller/payments#syarat-penjual", blocks: ["keys", "bankTransfer"] },
-    { id: "mengantar_account", done: has(input.shipping, "key", "check", "dedicated"), recommended: false, href: "/seller/shipping/account", blocks: ["physical", "cod"] },
-    { id: "pickup", done: has(input.shipping, "pickup_area", "pickup_registered"), recommended: false, href: "/seller/shipping", blocks: ["physical", "cod"] },
-    { id: "webhook", done: input.webhookSecretSet, recommended: true, href: "/seller/shipping/account", blocks: [] },
-    { id: "autolaris", done: input.qrisVa.ready, recommended: false, href: "/seller/payments", blocks: ["qrisVa", "digital"] },
-    { id: "bank_account", done: input.bankTransfer, recommended: false, href: "/seller/payments", blocks: ["bankTransfer", "digital"] },
+  const physical = physicalActivationAllowed({ moneyMode: input.moneyMode, legacyPlatformShipping: input.legacyPlatformShipping, shippingReady: input.shipping.ready });
+  const can = {
+    physical,
+    digital: digitalPrepaidReady({ qrisVaReady: input.qrisVa.ready, bankTransferReady: input.bankTransfer }),
+    cod: physical,
+    qrisVa: input.qrisVa.ready,
+    bankTransfer: input.bankTransfer,
+  };
+  const step = (id: SetupStepId, done: boolean, href: string, blocks: SetupLock[], recommended = false): SetupStep => ({
+    id,
+    done,
+    recommended,
+    href,
+    blocks: done ? [] : blocks.filter((l) => l === "keys" || !can[l]),
+  });
+  const steps = [
+    step("terms", input.termsAccepted, "/seller/payments#syarat-penjual", ["keys", "bankTransfer"]),
+    // Without a key the account screen only points back to the key form, so the step links straight to it.
+    step("mengantar_account", has(input.shipping, "key", "check", "dedicated"), has(input.shipping, "key") ? "/seller/shipping/account" : "/seller/payments", ["physical", "cod"]),
+    step("pickup", has(input.shipping, "pickup_area", "pickup_registered"), "/seller/shipping", ["physical", "cod"]),
+    step("webhook", input.webhookSecretSet, "/seller/shipping/account", [], true),
+    step("autolaris", input.qrisVa.ready, "/seller/payments", ["qrisVa", "digital"]),
+    step("bank_account", input.bankTransfer, "/seller/payments", ["bankTransfer", "digital"]),
   ];
   return {
     steps,
-    can: {
-      physical: shippingReady,
-      digital: input.qrisVa.ready || input.bankTransfer,
-      cod: shippingReady,
-      qrisVa: input.qrisVa.ready,
-      bankTransfer: input.bankTransfer,
-    },
+    can,
+    complete: steps.every((st) => st.recommended || st.done),
+    legacyPlatformModel: input.legacyPlatformShipping && input.moneyMode === "platform_held",
   };
 }
 
-/** SC-01 "Persiapan toko" (owner only): the checklist of one store. Never a key, a hint, a fingerprint or a webhook secret. */
+/** SC-01 "Persiapan toko" (owner only): the checklist of one store. Never a key, a hint, a fingerprint or a webhook secret. Needs `integrations.manage` (and `shipping.manage`, read through `shippingSync`). */
 export async function sellerSetupChecklist(scope: SellerScope): Promise<SetupChecklist> {
   requireCap(scope, "integrations.manage");
   const [accounts, sync, terms, [s], moneyMode] = await Promise.all([

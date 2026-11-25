@@ -13,9 +13,7 @@ const TITLE: Record<SetupStepId, string> = {
   autolaris: "Minta profil payment-only AutoLaris ke Bukalaris, lalu masukkan kunci yang diterima",
   bank_account: "Daftarkan rekening bank untuk transfer bank",
 };
-const NOTE: Partial<Record<SetupStepId, string>> = {
-  webhook: "Disarankan: tanpa webhook, status paket hanya diperbarui lewat pembacaan terjadwal (lebih lambat).",
-};
+const WEBHOOK_NOTE = "Tanpa webhook, status paket hanya diperbarui lewat pembacaan terjadwal (lebih lambat).";
 const LOCK_LABEL: Record<SetupLock, string> = {
   keys: "memasukkan kunci akun dan rekening bank",
   physical: "produk fisik",
@@ -27,14 +25,13 @@ const LOCK_LABEL: Record<SetupLock, string> = {
 const CAN_LABEL = { physical: "produk fisik", digital: "produk digital", cod: "COD", qrisVa: "QRIS/VA", bankTransfer: "transfer bank" } as const;
 
 export function SetupChecklistCard({ checklist }: { checklist: SetupChecklist }) {
-  const requiredOpen = checklist.steps.filter((s) => !s.recommended && !s.done);
   const webhookStep = checklist.steps.find((s) => s.id === "webhook")!;
-  if (requiredOpen.length === 0) {
+  if (checklist.complete) {
     // Everything required is done; the card leaves, but an open webhook still deserves one small note.
     if (webhookStep.done) return null;
     return (
       <p role="note" className="rounded-lg border bg-muted/30 p-3 text-sm text-muted-foreground" data-testid="setup-webhook-note">
-        {NOTE.webhook}{" "}
+        Disarankan: {WEBHOOK_NOTE.charAt(0).toLowerCase() + WEBHOOK_NOTE.slice(1)}{" "}
         <Link href={webhookStep.href} className="inline-flex min-h-6 items-center font-medium text-foreground underline underline-offset-4">
           Atur webhook
         </Link>
@@ -50,6 +47,13 @@ export function SetupChecklistCard({ checklist }: { checklist: SetupChecklist })
         </h2>
         <p className="text-muted-foreground">Selesaikan langkah berikut agar semua jenis produk dan pembayaran bisa diaktifkan.</p>
       </div>
+      {checklist.legacyPlatformModel && (
+        <p role="note" className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-sm" data-testid="setup-legacy-warning">
+          Toko ini masih memakai pengiriman dan pembayaran Bukalaris. Begitu Anda menyimpan kunci akun Mengantar atau AutoLaris sendiri atau
+          mendaftarkan rekening bank, toko pindah ke akun sendiri dan perpindahan ini tidak bisa dibatalkan: produk fisik baru bisa diaktifkan
+          lagi setelah akun Mengantar toko sendiri siap.
+        </p>
+      )}
       <ul className="grid gap-3">
         {checklist.steps.map((s) => (
           <li key={s.id} className="grid gap-1 border-t pt-3 first:border-t-0 first:pt-0" data-testid={`setup-step-${s.id}`}>
@@ -62,12 +66,12 @@ export function SetupChecklistCard({ checklist }: { checklist: SetupChecklist })
               />
             </div>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
-              {NOTE[s.id] && <span>{NOTE[s.id]}</span>}
-              <Link href={s.href} className="inline-flex min-h-6 items-center font-medium text-foreground underline underline-offset-4" data-testid={`setup-step-${s.id}-link`}>
+              {s.id === "webhook" && <span>{WEBHOOK_NOTE}</span>}
+              <Link href={s.href} aria-label={`Buka pengaturan: ${TITLE[s.id]}`} className="inline-flex min-h-6 items-center font-medium text-foreground underline underline-offset-4" data-testid={`setup-step-${s.id}-link`}>
                 Buka pengaturan
               </Link>
             </div>
-            {!s.done && s.blocks.length > 0 && (
+            {s.blocks.length > 0 && (
               <p className="text-xs text-muted-foreground" data-testid={`setup-step-${s.id}-locks`}>
                 Yang masih terkunci: {s.blocks.map((b) => LOCK_LABEL[b]).join(", ")}.
               </p>

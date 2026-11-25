@@ -22,6 +22,15 @@ export async function storeMoneyMode(exec: Executor, storeId: number): Promise<M
   return row?.own ? "seller_owned" : "platform_held";
 }
 
+/**
+ * T-117 (D-37, ADR-0013 decision 14, ADR-0016 decision 21): the one activation rule. The catalog gate (`assertCanActivate`) and the setup
+ * checklist both call these, so the checklist can never promise what the gate refuses. A physical product needs the store's own ready
+ * Mengantar account, except on a pre-0027 (legacy) store whose money is still platform-held; a digital product needs one ready prepaid method.
+ */
+export const physicalActivationAllowed = (i: { moneyMode: MoneyMode; legacyPlatformShipping: boolean; shippingReady: boolean }): boolean =>
+  i.shippingReady || (i.legacyPlatformShipping && i.moneyMode === "platform_held");
+export const digitalPrepaidReady = (i: { qrisVaReady: boolean; bankTransferReady: boolean }): boolean => i.qrisVaReady || i.bankTransferReady;
+
 /** The mode an order froze at submit (`platform_held` for an order without a snapshot, which no money path accepts anyway). */
 export async function orderMoneyMode(exec: Executor, storeId: number, orderId: number): Promise<MoneyMode> {
   const [f] = await exec.select({ mode: orderFinancials.moneyMode }).from(orderFinancials).where(and(eq(orderFinancials.storeId, storeId), eq(orderFinancials.orderId, orderId)));

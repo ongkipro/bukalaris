@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, min, sql, sum } from "drizzle-orm";
 import { z } from "zod";
 import type { Executor } from "../../client.ts";
-import { storeMoneyMode } from "../../ledger/boundary.ts";
+import { digitalPrepaidReady, physicalActivationAllowed, storeMoneyMode } from "../../ledger/boundary.ts";
 import { catalogAudit, orderLine, product, PRODUCT_KINDS, productSlugAlias, store, user, variant, type CatalogAuditAction, type CatalogSnapshot, type ProductKind } from "../../schema.ts";
 import { DomainError, requireCap, type SellerScope } from "../../platform/scoped.ts";
 import { inStore } from "../../platform/tenant.ts";
@@ -65,7 +65,7 @@ function normalizeVariantForKind(productKind: ProductKind, raw: { weightGrams?: 
   return { weightGrams: physicalWeightCheck.parse({ weightGrams: raw.weightGrams }).weightGrams, trackStock: true, stock: raw.stock ?? 0 };
 }
 
-/** ADR-0016 decision 21 & decision 3: a digital product activates only when a prepaid method is ready AND it has delivery content; a physical product on a seller-owned store only when shipping is ready. */
+/** ADR-0016 decisions 3 and 21, D-37: a digital product activates only when a prepaid method is ready AND it has delivery content; a physical product only under `physicalActivationAllowed` (its own ready Mengantar account, unless the store is legacy and still platform-held). */
 async function assertCanActivate(tx: Executor, scope: SellerScope, productKind: ProductKind, productId: number | null): Promise<void> {
   if (productKind === "digital") {
     const [{ paymentReadiness }, { bankTransferReady }, { hasDigitalDeliveryContent }] = await Promise.all([
@@ -75,7 +75,7 @@ async function assertCanActivate(tx: Executor, scope: SellerScope, productKind: 
     ]);
     const pay = await paymentReadiness({ exec: tx, storeId: scope.storeId });
     const bank = await bankTransferReady(tx, scope.storeId);
-    if (!pay.ready && !bank) {
+    if (!digitalPrepaidReady({ qrisVaReady: pay.ready, bankTransferReady: bank })) {
       throw new DomainError("prepaid_not_ready", "Produk digital hanya bisa diaktifkan setelah metode pembayaran prabayar (QRIS/VA atau transfer bank) siap.");
     }
     if (productId === null || !(await hasDigitalDeliveryContent(tx, scope.storeId, productId))) {
@@ -83,15 +83,14 @@ async function assertCanActivate(tx: Executor, scope: SellerScope, productKind: 
     }
     return;
   }
-  // T-117 (D-37): a store that held money or shipping accounts when migration 0027 ran keeps the platform model until T-118; every newer store
-  // needs its own ready Mengantar account even while its money is still platform-held.
+  // T-117 (D-37): every store marked legacy by migration 0027 keeps the platform model while its money is platform-held (until T-118); every
+  // newer store, and every store that moved to its own accounts, needs its own ready Mengantar account. The rule lives in `physicalActivationAllowed`.
   const [s] = await tx.select({ legacy: store.legacyPlatformShipping }).from(store).where(eq(store.id, scope.storeId));
-  if ((await storeMoneyMode(tx, scope.storeId)) === "seller_owned" || !s?.legacy) {
-    const { shippingReadiness } = await import("../../payments/provider-accounts.ts");
-    const ship = await shippingReadiness({ exec: tx, storeId: scope.storeId });
-    if (!ship.ready) {
-      throw new DomainError("shipping_not_ready", "Produk fisik hanya bisa diaktifkan setelah pengiriman toko siap.");
-    }
+  const rule = { moneyMode: await storeMoneyMode(tx, scope.storeId), legacyPlatformShipping: s?.legacy ?? false };
+  if (physicalActivationAllowed({ ...rule, shippingReady: false })) return;
+  const { shippingReadiness } = await import("../../payments/provider-accounts.ts");
+  if (!physicalActivationAllowed({ ...rule, shippingReady: (await shippingReadiness({ exec: tx, storeId: scope.storeId })).ready })) {
+    throw new DomainError("shipping_not_ready", "Produk fisik hanya bisa diaktifkan setelah pengiriman toko siap.");
   }
 }
 

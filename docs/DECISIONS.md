@@ -604,3 +604,7 @@ Decision:
 3. The flag is set by the migration and by the platform role only: it is deliberately absent from the app role's `appColumns` of `store` in the isolation registry, so a seller can never flip it; no exported production service writes it. Fixtures (test helpers, dev and demo seeds) set it through the platform executor to model the pre-0027 stores.
 
 Consequence: a store created after 0027 cannot sell a physical product until it opens its own Mengantar account — the intended first-release model; legacy stores keep the platform model until T-118 decides their removal.
+
+4. Review follow-up (2026-11-25): one predicate, `physicalActivationAllowed` (`ledger/boundary.ts`), is called by both the activation gate and the setup checklist, so the checklist cannot promise what the gate refuses. A legacy store moves to the seller-owned model for good as soon as it saves its own provider key or lists a bank account (`storeMoneyMode`, T-107/T-113; removed rows still count); from then on physical activation needs its own ready Mengantar account. The setup checklist therefore warns a legacy, still platform-held store before that move instead of hiding the steps (working default taken without an owner answer; nothing is deployed, so only local and demo stores are legacy today).
+
+Revisit when: T-118 decides the removal of the platform model, or a production database holds stores created before 0027.

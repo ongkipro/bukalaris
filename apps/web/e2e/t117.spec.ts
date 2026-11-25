@@ -92,6 +92,8 @@ test("setup checklist: an empty new store is gated, then terms + bank account un
   await expect(page.getByTestId("setup-step-autolaris-status")).toHaveText("Belum");
   await expect(page.getByTestId("setup-unlocked")).toContainText("produk digital");
   await expect(page.getByTestId("setup-unlocked")).toContainText("transfer bank");
+  // Review finding 1: an open step never calls locked what is already activatable.
+  await expect(page.getByTestId("setup-step-autolaris-locks")).toHaveText("Yang masih terkunci: QRIS/VA.");
   await evidence(page, info, "t117-checklist-partial");
 
   // A digital product with an access link activates through the UI.
@@ -109,4 +111,12 @@ test("setup checklist: an empty new store is gated, then terms + bank account un
   await expect(page.getByRole("main")).toContainText("Aktif");
   await expect(page.getByTestId("product-url")).not.toContainText("belum aktif");
   await evidence(page, info, "t117-digital-activated");
+});
+
+test("setup checklist: staff never see the card", async ({ page }) => {
+  await login(page, "staff-a@bukalaris.local", "/seller");
+  await page.goto("/seller");
+  await expect(page.getByRole("heading", { name: "Ringkasan" })).toBeVisible();
+  await expect(page.getByTestId("setup-checklist")).toHaveCount(0);
+  await expect(page.getByTestId("setup-webhook-note")).toHaveCount(0);
 });
