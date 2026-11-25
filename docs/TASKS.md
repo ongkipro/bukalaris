@@ -14,7 +14,7 @@ A reading aid. Each task block below owns its own status and text; when the two 
 |---|---|---|---|
 | 1 | T-101 | Align the specification pack with D-27 to D-33 | Partial; the rest is done by each building task |
 | 2 | T-114 | Tidy repository and documentation structure | Partial; structure done 2026-11-15, final search for superseded text left |
-| 14 | T-108, T-109, T-110 | Seller-run affiliate programme | Planned |
+| 14 | T-109, T-110 | Seller-run affiliate programme (T-108 Done 2026-11-25) | T-109 built, in review; T-110 Planned |
 
 **2. Open tasks from before the direction change** (each carries a dated direction note where the change touches it)
 
@@ -1653,7 +1653,7 @@ Source: [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md), 
   - Open: seller shipping screen still labels `cod_fee_bearer` "Disimpan, belum diterapkan" (SC-22, outside the Allowed Paths); COD rate, minimum and VAT UNVERIFIED (Ceiling T-107-1); buyer e-mails and the buyer portal do not show the COD fee or recorded refunds yet; buyer timeline text for own-account stores; legacy platform-held balance of a converted store stays frozen (Ceiling T-107-1).
 
 ### T-108 — Affiliate membership per store and commission as a seller obligation
-- Status: Built 2026-11-25 on branch `task/t108-affiliate-membership` (on `origin/main` `ebbf546`; migration `0028`); independent review CHANGES REQUIRED handled in a follow-up commit (owner-delegated decisions D-38 A to D); re-review and CI pending. Evidence, decisions (D-38), mutations M1–M3 and the populated-copy proof in [`docs/tracks/t108-affiliate-membership.md`](tracks/t108-affiliate-membership.md)
+- Status: Done (2026-11-25; squash-merged to `main` as `f3ab89c` through pull request #31; CI run 45610573281 green on re-run: DB 87 files / 1606 tests, E2E 309 passed / 6 skipped, image ok; two independent reviews, every finding fixed; owner-delegated decisions D-38 A to D; track report [`docs/tracks/t108-affiliate-membership.md`](tracks/t108-affiliate-membership.md)). Local only
 - Primary requirement: PR-28
 - Constraints: ADR-0015 decisions 1 to 4; T-52 attribution rules unchanged; PRIV-2, PRIV-7; rate bounds 100 to 5000 bps and window 7 days, both Owner-configurable (D-31); RL-AFF-STORE-APPLY and RL-CLICK on the store host (doc 16, D-33)
 - Dependencies: T-107
@@ -1841,6 +1841,7 @@ Source: [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md), 
   - Deviation: `host-mode.spec.ts` and `host-mode-two-root.spec.ts` are outside this task's Allowed Paths; changed for the same root cause.
   - Verification (worktree, CI placeholder env from `.github/workflows/ci.yml`, own databases `bukalaris_t123b*`, `E2E_PORT=4200`, all under `heavy-run --lock bukalaris-env`): `pnpm install --frozen-lockfile`, `pnpm lint` (exit 0), `pnpm typecheck` (exit 0), `pnpm build` (exit 0); `pnpm --filter @bukalaris/web e2e e2e/auth-csrf.spec.ts --project mobile-320 --project desktop --repeat-each 5`: 110 passed (11 tests x 2 projects x 5); `... e2e/host-mode.spec.ts e2e/host-mode-two-root.spec.ts --project host-mode --repeat-each 3`: 84 passed; the temporary reproduction spec above: 8 passed (4 hangs shown, 4 fixed-path submits), then deleted. No retry and no flaky label added.
 
+- Outcome 2026-11-25 (`checkout2.spec.ts:150`, "order submission is rate limited per cart", the "form reset under load" intermittent recorded by T-106 and T-107): root cause proven, test harness only. `LIMITS.orderCart` is 5 per fixed 60 s window aligned to the clock minute (`platform/rate-limit.ts`, `floor(epoch / 60)`); the test sends six submits in up to ~8 s, so a burst that crosses a minute boundary puts the sixth submit in a fresh window and the order is placed (CI run 45610573281 on pull request #31: test 12:37:58 → 12:38:05, the field held "Budi Santoso" and then the page left the form). Reproduced deterministically by starting the burst at second 59.3: same error at the sixth submit; with the fix (wait for the next window when fewer than 25 s are left) the same forced start passes at desktop and mobile-320. The application behaves as specified. Fix on `task/t123-rate-window`.
 ### T-124 — Check whether `BETTER_AUTH_SECRETS` can override the per-surface auth secrets
 - Status: Done (2026-11-16; merged to `main` through pull request #5, CI green): risk confirmed from the library source, guard added and proven by mutation
 - Primary requirement: PR-14
