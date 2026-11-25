@@ -61,7 +61,6 @@ export async function writeOrderFinancials(tx: Executor, input: {
     addedSalesTaxIdr: f.addedSalesTax,
     goodsProceedsIdr: f.goodsProceeds,
     shippingChargedIdr: f.shippingCharged,
-    affiliateCommissionIdr: f.affiliateCommission,
     codFeeIdr: f.codFee,
     codFeeVatIdr: f.codFeeVat,
     payableIdr: f.payable,

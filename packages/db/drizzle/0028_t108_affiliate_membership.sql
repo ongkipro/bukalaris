@@ -38,6 +38,7 @@ CREATE TABLE "affiliate_membership" (
 	CONSTRAINT "affiliate_membership_application_chk" CHECK (char_length(btrim("affiliate_membership"."display_name")) between 2 and 80 and cardinality("affiliate_membership"."channels") <= 5 and ("affiliate_membership"."application_note" is null or char_length("affiliate_membership"."application_note") <= 500))
 );
 --> statement-breakpoint
+ALTER TABLE "affiliate" ALTER COLUMN "status" SET DEFAULT 'active';--> statement-breakpoint
 ALTER TABLE "affiliate_seller_policy" ADD COLUMN "auto_approve" boolean DEFAULT false NOT NULL;--> statement-breakpoint
 ALTER TABLE "affiliate_commission" ADD CONSTRAINT "affiliate_commission_affiliate_id_affiliate_id_fk" FOREIGN KEY ("affiliate_id") REFERENCES "public"."affiliate"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "affiliate_commission" ADD CONSTRAINT "affiliate_commission_order_fk" FOREIGN KEY ("store_id","order_id") REFERENCES "public"."order_financials"("store_id","order_id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
@@ -75,17 +76,17 @@ GRANT SELECT, UPDATE ON public.affiliate_commission TO bukalaris_platform;--> st
 UPDATE public.affiliate_policy SET max_rate_bps = 5000, updated_by = 'system:migration:t108' WHERE id = 1 AND max_rate_bps = 2000;--> statement-breakpoint
 INSERT INTO public.platform_job_kind (kind) VALUES ('affiliate.commission.release') ON CONFLICT (kind) DO NOTHING;--> statement-breakpoint
 
--- 3. C-A3: an affiliate account is active on registration once its e-mail is verified (no platform application step); `pending` stays possible for an
---    unverified registration and the Owner console review of T-52 is unchanged. Body otherwise identical to 0016.
+-- 3. C-A3 (D-38 C, owner-delegated): an affiliate account is created only for a verified e-mail and is then `active`; there is no platform application
+--    step, so no new account starts `pending` (the column default is now `active`). Accounts written before 0028 keep their state, and the update
+--    transitions (the Owner console's suspension and closure, the T-52 review of a legacy `pending` row) are unchanged. Body otherwise identical to 0016.
 CREATE OR REPLACE FUNCTION public.affiliate_status_guard() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   IF TG_OP = 'INSERT' THEN
-    IF NEW.status = 'active' THEN
-      IF NOT EXISTS (SELECT 1 FROM public."user" u WHERE u.id = NEW.user_id AND u.email_verified) THEN
-        RAISE EXCEPTION 'an affiliate account starts active only with a verified e-mail' USING ERRCODE = 'check_violation';
-      END IF;
-    ELSIF NEW.status <> 'pending' THEN
-      RAISE EXCEPTION 'an affiliate account starts pending, or active with a verified e-mail' USING ERRCODE = 'check_violation';
+    IF NEW.status <> 'active' THEN
+      RAISE EXCEPTION 'an affiliate account starts active' USING ERRCODE = 'check_violation';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public."user" u WHERE u.id = NEW.user_id AND u.email_verified) THEN
+      RAISE EXCEPTION 'an affiliate account needs a verified e-mail' USING ERRCODE = 'check_violation';
     END IF;
     NEW.revision := 1;
     RETURN NEW;
@@ -104,7 +105,8 @@ BEGIN
 END $$;--> statement-breakpoint
 
 -- 4. Membership state machine (ADR-0015 decision 1). pending -> active | rejected (seller); active -> suspended -> active (seller); rejected -> pending (the
---    affiliate applies again: a fresh, unreviewed application). The application fields change only with a new application; a review names its reviewer.
+--    affiliate applies again: a fresh, unreviewed application). The application fields change only with a new application; a review names its reviewer,
+--    and a `system:` reviewer is written only on INSERT, which only the owner-side definer path can do (auto-approval): a seller's review never claims it.
 CREATE FUNCTION public.affiliate_membership_guard() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN
@@ -113,7 +115,7 @@ BEGIN
   END IF;
   IF TG_OP = 'INSERT' THEN
     IF NOT ((NEW.status = 'pending' AND NEW.reviewed_by IS NULL AND NEW.reviewed_at IS NULL AND NEW.status_reason IS NULL)
-         OR (NEW.status = 'active' AND NEW.reviewed_by IS NOT NULL AND NEW.reviewed_at IS NOT NULL AND NEW.status_reason IS NULL)) THEN
+         OR (NEW.status = 'active' AND NEW.reviewed_by = 'system:auto_approve' AND NEW.reviewed_at IS NOT NULL AND NEW.status_reason IS NULL)) THEN
       RAISE EXCEPTION 'a membership starts pending, or active when the store approves automatically' USING ERRCODE = 'check_violation';
     END IF;
     NEW.revision := 1;
@@ -146,6 +148,7 @@ BEGIN
       RAISE EXCEPTION 'the application changes only with a new application' USING ERRCODE = 'check_violation';
     END IF;
     IF NEW.reviewed_by IS NULL OR pg_catalog.btrim(NEW.reviewed_by) = '' THEN RAISE EXCEPTION 'a membership review names its reviewer' USING ERRCODE = 'check_violation'; END IF;
+    IF NEW.reviewed_by LIKE 'system:%' THEN RAISE EXCEPTION 'a system reviewer is written only by automatic approval' USING ERRCODE = 'check_violation'; END IF;
     NEW.reviewed_at := pg_catalog.now();
   END IF;
   NEW.revision := OLD.revision + 1;
@@ -276,6 +279,31 @@ BEGIN
        AND NOT EXISTS (SELECT 1 FROM public.affiliate_block b WHERE b.store_id = p_store AND b.affiliate_id = a.id));
 END $$;--> statement-breakpoint
 
+-- 7b. The rate of one product (D-38 B, owner-delegated; ADR-0015 decision 2 read literally): while the store's programme is open with a default rate, EVERY
+--     published product of the active store earns the default; an `affiliate_offer` row is the per-product override (its `rate_bps`, else the default) or
+--     an exclusion (`paused` / `withdrawn` earn 0). Rates outside the programme bounds earn 0. Lock order as before: the store policy, then the offer.
+--     The TypeScript mirror is `effectiveOfferRate` (affiliate/catalog.ts); a parity test runs one corpus through both. 0016's definition is replaced, not edited.
+CREATE OR REPLACE FUNCTION public.affiliate_line_rate(p_store bigint, p_product bigint) RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+DECLARE v_default integer; v_min integer; v_max integer; v_status text; v_override integer; v_rate integer;
+BEGIN
+  IF p_store IS NULL OR p_store IS DISTINCT FROM public.app_store_id() THEN RAISE EXCEPTION 'affiliate: the store does not match the transaction context' USING ERRCODE = 'insufficient_privilege'; END IF;
+  SELECT s.default_rate_bps, g.min_rate_bps, g.max_rate_bps INTO v_default, v_min, v_max
+    FROM public.affiliate_seller_policy s
+    JOIN public.store st ON st.id = s.store_id AND st.status = 'active'
+    JOIN public.product pr ON pr.store_id = s.store_id AND pr.id = p_product AND pr.status = 'active'
+    CROSS JOIN public.affiliate_policy g
+   WHERE s.store_id = p_store AND s.participation = 'open'
+     FOR SHARE OF s;
+  IF NOT FOUND THEN RETURN 0; END IF;
+  SELECT o.status, o.rate_bps INTO v_status, v_override
+    FROM public.affiliate_offer o WHERE o.store_id = p_store AND o.source = 'bukalaris' AND o.product_id = p_product
+     FOR SHARE OF o;
+  IF FOUND AND v_status <> 'active' THEN RETURN 0; END IF;
+  v_rate := COALESCE(v_override, v_default);
+  IF v_rate IS NULL OR v_rate < v_min OR v_rate > v_max THEN RETURN 0; END IF;
+  RETURN v_rate;
+END $$;--> statement-breakpoint
+
 -- 8. The only writer of an attribution and of its obligation (ADR-0015 decision 4, C-A6). It re-runs the selection and re-derives every line rate from the live
 --    offer rules; the base and the single-floor commission come from the frozen line snapshot (the attribution guard re-proves both). The seller's sale is
 --    never reduced: the order's financial snapshot carries no affiliate and no commission (affiliate_financial_check). The obligation is written in the same
@@ -381,9 +409,9 @@ BEGIN
 END $$;--> statement-breakpoint
 
 -- 11. Obligation guard (ADR-0015 decision 4). Insert: pending, equal to the attribution of its order. Afterwards the amounts never move; delivery is stamped
---     once, on a completed order, with `payable_at` = delivery + the snapshotted hold; the transitions are pending -> void (before delivery, or inside the
---     hold of a digital-only order whose access was revoked: strictly before `payable_at`), pending -> payable (from `payable_at` on), and the T-109 states
---     payable -> paid -> confirmed | disputed. Never deleted (the owner-side demo reset aside).
+--     once, on a completed order, with `payable_at` = delivery + the snapshotted hold; the transitions are pending -> void ONLY before delivery (the order
+--     cancelled or returned; D-38 A: nothing after delivery voids, a mistake is a manual correction of T-109), pending -> payable (from `payable_at` on), and
+--     the T-109 states payable -> paid -> confirmed | disputed. Never deleted (the owner-side demo reset aside).
 CREATE FUNCTION public.affiliate_commission_guard() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
 DECLARE t public.affiliate_attribution%ROWTYPE; v_status text;
 BEGIN
@@ -415,7 +443,7 @@ BEGIN
     END IF;
   END IF;
   IF NEW.status <> OLD.status THEN
-    IF NOT ((OLD.status = 'pending' AND NEW.status = 'void' AND (NEW.delivered_at IS NULL OR pg_catalog.now() < NEW.payable_at))
+    IF NOT ((OLD.status = 'pending' AND NEW.status = 'void' AND OLD.delivered_at IS NULL AND NEW.delivered_at IS NULL)
          OR (OLD.status = 'pending' AND NEW.status = 'payable' AND NEW.payable_at IS NOT NULL AND NEW.payable_at <= pg_catalog.now())
          OR (OLD.status = 'payable' AND NEW.status = 'paid')
          OR (OLD.status = 'paid' AND NEW.status IN ('confirmed', 'disputed'))) THEN
@@ -451,21 +479,12 @@ REVOKE ALL ON FUNCTION public.affiliate_commission_order_sync() FROM PUBLIC, buk
 CREATE TRIGGER affiliate_commission_order_sync AFTER UPDATE OF status ON public."order" FOR EACH ROW
   WHEN (OLD.status IS DISTINCT FROM NEW.status AND NEW.status IN ('completed', 'cancelled', 'returned')) EXECUTE FUNCTION public.affiliate_commission_order_sync();--> statement-breakpoint
 
--- 13. T-112's digital hook, moved onto the obligation: the hold of a digital-only order starts at completion (stamped above, in the transaction that issues
---     the grants), so the insert branch has nothing left to do; revoking the last active grant strictly inside the hold voids the pending obligation. The
---     T-52 attribution state columns are no longer written (C-A6).
-CREATE OR REPLACE FUNCTION public.digital_grant_affiliate_sync() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
-BEGIN
-  IF TG_OP = 'UPDATE' AND OLD.state = 'active' AND NEW.state = 'revoked'
-     AND NOT EXISTS (SELECT 1 FROM public.digital_grant g WHERE g.store_id = NEW.store_id AND g.order_id = NEW.order_id AND g.state = 'active') THEN
-    UPDATE public.affiliate_commission c
-       SET status = 'void', void_reason = pg_catalog.left('digital_grant_revoked: ' || COALESCE(NEW.revoked_reason, 'revoked'), 200)
-      FROM public."order" o
-     WHERE c.store_id = NEW.store_id AND c.order_id = NEW.order_id AND c.status = 'pending' AND (c.payable_at IS NULL OR pg_catalog.now() < c.payable_at)
-       AND o.store_id = c.store_id AND o.id = c.order_id AND NOT o.has_physical;
-  END IF;
-  RETURN NULL;
-END $$;--> statement-breakpoint
+-- 13. T-112's digital hook is removed (D-38 A, owner-delegated; review M-1): it voided a commission after delivery when the last access grant was revoked,
+--     against ADR-0015 decision 4 (`void` only for a cancel or return before delivery, by the order status writer). The hold of a digital-only order starts
+--     at its completion (stamped above, in the transaction that issues the grants); a grant revocation, a recorded refund or a privacy redaction never voids
+--     a commission. Attribution rows were never written by it after 0028 either.
+DROP TRIGGER digital_grant_affiliate_sync ON public.digital_grant;--> statement-breakpoint
+DROP FUNCTION public.digital_grant_affiliate_sync();--> statement-breakpoint
 
 -- 14. Local demo reset: memberships and obligations of demo stores go first (obligations reference attributions). Owner connection only, as before.
 CREATE OR REPLACE FUNCTION public.reset_demo_affiliate(p_store_ids bigint[]) RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$

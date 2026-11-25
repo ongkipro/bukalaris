@@ -10,7 +10,7 @@ import { withAffiliate, withStore } from "../src/platform/tenant.ts";
 import { orderFinancials, orderLineFinancials, product } from "../src/schema.ts";
 import { admin, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
 import { billingTestSetup, operatorWith, sellerAs } from "./t50-fixtures.ts";
-import { addProduct, attributionOf, buy, click, code, errCode, link, makeAffiliate, member, openStore, optIn, resetFixtures, setAccountStatus, freshPhone, type A } from "./t52-fixtures.ts";
+import { addProduct, attributionOf, buy, click, code, errCode, legacyPending, link, makeAffiliate, member, verifiedUser, openStore, optIn, resetFixtures, setAccountStatus, freshPhone, type A } from "./t52-fixtures.ts";
 
 // T-52 slice 1: the DATA-11 schema as the database enforces it (state machines, uniqueness, matching-store and matching-affiliate foreign keys, immutability), the named
 // defaults, the seller services and the isolation of every table under the real application role. Mutation checks are recorded in docs/tracks/t52.md.
@@ -28,7 +28,8 @@ describe("T-52 the affiliate account state machine is the database's (ADR-0009 s
   it("every one of the 25 moves is accepted exactly when it is on the legal list (closed is final)", async () => {
     for (const from of STATES) {
       for (const to of STATES) {
-        const id = await registerAffiliate(platform, { userId: await makeUser("aff"), displayName: "Uji Status", phone: freshPhone() });
+        const id = await registerAffiliate(platform, { userId: await verifiedUser("aff"), displayName: "Uji Status", phone: freshPhone() });
+        await legacyPending(id); // T-108: the T-52 machine is walked from a pre-0028 pending row; new accounts start active
         for (const step of reach(from)) await admin.execute(sql`update affiliate set status = ${step}, status_reason = 'path' where id = ${id}`);
         const outcome = await throws(admin.execute(sql`update affiliate set status = ${to}, status_reason = 'uji' where id = ${id}`));
         expect(outcome, `${from} -> ${to}`).toBe(from === to || LEGAL.has(`${from}>${to}`) ? "ok" : "23514");
@@ -36,15 +37,20 @@ describe("T-52 the affiliate account state machine is the database's (ADR-0009 s
     }
   });
 
-  it("an account starts pending only, keeps its identity, and a refusal, suspension or closure carries a reason", async () => {
-    const userId = await makeUser("aff");
-    expect(await throws(admin.execute(sql`insert into affiliate (user_id, display_name, contact_phone, status) values (${userId}, 'Langsung Aktif', '6281200000001', 'active')`))).toBe("23514");
+  it("T-108 (C-A3, D-38 C): an account is created only for a verified e-mail and starts active, keeps its identity, and a refusal, suspension or closure carries a reason", async () => {
+    const unverified = await makeUser("aff");
+    expect(await errCode(registerAffiliate(platform, { userId: unverified, displayName: "Belum Verifikasi", phone: freshPhone() }))).toBe("email_unverified");
+    expect(await throws(admin.execute(sql`insert into affiliate (user_id, display_name, contact_phone, status) values (${unverified}, 'Langsung Aktif', '6281200000001', 'active')`))).toBe("23514"); // the database refuses it too
+    const userId = await verifiedUser("aff");
+    expect(await throws(admin.execute(sql`insert into affiliate (user_id, display_name, contact_phone, status) values (${userId}, 'Menunggu', '6281200000001', 'pending')`))).toBe("23514"); // no new pending account
     const id = await registerAffiliate(platform, { userId, displayName: "Satu Akun", phone: freshPhone() });
+    expect((await platform.select({ s: affiliate.status }).from(affiliate).where(eq(affiliate.id, id)))[0]!.s).toBe("active");
+    await legacyPending(id); // the reason rules below are checked from a pre-0028 pending row
     expect(await errCode(registerAffiliate(platform, { userId, displayName: "Akun Ganda", phone: freshPhone() }))).toBe("conflict"); // one account, one affiliate
     expect(await throws(admin.execute(sql`update affiliate set user_id = ${await makeUser("aff")} where id = ${id}`))).toBe("23514");
     expect(await throws(admin.execute(sql`update affiliate set status = 'rejected' where id = ${id}`))).toBe("23514"); // no reason
     expect(await throws(admin.execute(sql`update affiliate set status = 'rejected', status_reason = '   ' where id = ${id}`))).toBe("23514");
-    expect(await errCode(registerAffiliate(platform, { userId: await makeUser("aff"), displayName: "Nomor Salah", phone: "021 5551234" }))).toBe("bad_phone"); // a landline has no canonical identity
+    expect(await errCode(registerAffiliate(platform, { userId: await verifiedUser("aff"), displayName: "Nomor Salah", phone: "021 5551234" }))).toBe("bad_phone"); // a landline has no canonical identity
     expect(await throws(admin.execute(sql`insert into affiliate (user_id, display_name, contact_phone) values (${await makeUser("aff")}, 'Nomor Mentah', '081200000009')`))).toBe("23514"); // only the canonical form is stored
   });
 

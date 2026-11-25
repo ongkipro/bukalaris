@@ -72,11 +72,10 @@ describe("order finance engine (BILL-4)", () => {
         shippingDiscount: Math.floor(rng() * (shipping + 1)),
         codFee: Math.floor(rng() * 9_000),
         codFeeVat: Math.floor(rng() * 1_000),
-        affiliateCommission: 0,
       });
       expect(f.payable).toBe(f.goodsProceeds + f.includedSalesTax + f.addedSalesTax + f.shippingCharged + f.codFee + f.codFeeVat);
-      expect(f.saleAmount).toBe(f.goodsProceeds + f.includedSalesTax + f.addedSalesTax - f.affiliateCommission);
-      expect(f.payable).toBe(f.saleAmount + f.affiliateCommission + f.shippingCharged + f.codFee + f.codFeeVat);
+      expect(f.saleAmount).toBe(f.goodsProceeds + f.includedSalesTax + f.addedSalesTax); // T-108: no commission is ever deducted from the sale
+      expect(f.payable).toBe(f.saleAmount + f.shippingCharged + f.codFee + f.codFeeVat);
       expect(f.lines.reduce((s, l) => s + l.discountAlloc, 0)).toBe(f.goodsDiscount);
       for (const l of f.lines) {
         expect(l.netGoods).toBe(l.lineGross - l.discountAlloc);
@@ -112,11 +111,10 @@ describe("order finance engine (BILL-4)", () => {
     expect(all).toMatchObject({ goodsProceeds: 0, saleAmount: 0, payable: 0 });
   });
 
-  it("refuses what it cannot allocate: no lines, a negative or fractional amount, a commission above the goods side, a rate above 100%", () => {
+  it("refuses what it cannot allocate: no lines, a negative or fractional amount, a rate above 100%", () => {
     expect(() => calculateOrderFinance({ lines: [], checkoutShipping: 0 })).toThrow();
     expect(() => calculateOrderFinance({ ...base, checkoutShipping: -1 })).toThrow();
     expect(() => calculateOrderFinance({ ...base, checkoutShipping: 1.5 })).toThrow();
-    expect(() => calculateOrderFinance({ ...base, affiliateCommission: 255_001 })).toThrow(/Komisi/);
     expect(() => calculateOrderFinance({ ...base, priceMode: "tax_added", salesTaxRateBps: 10_001 })).toThrow(/basis poin/);
     expect(() => calculateOrderFinance({ ...base, shippingDiscount: 15_001 })).toThrow(/Diskon ongkir/);
   });

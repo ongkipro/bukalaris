@@ -5,7 +5,8 @@ import { registerAffiliate } from "../src/affiliate/accounts.ts";
 import { releasePayableCommissions } from "../src/affiliate/jobs.ts";
 import { applyToStore, listMemberships, listOwnCommissions, listOwnMemberships, listStoreCommissions, reviewMembership } from "../src/affiliate/membership.ts";
 import { affiliate, affiliateAttribution, affiliateCommission, affiliateMembership } from "../src/affiliate/schema-affiliate.ts";
-import { affiliateSettings, blockAffiliate, saveAffiliatePolicy } from "../src/affiliate/seller.ts";
+import { affiliateSettings, blockAffiliate, optInProduct, saveAffiliatePolicy, setOfferStatus } from "../src/affiliate/seller.ts";
+import { effectiveOfferRate } from "../src/affiliate/catalog.ts";
 import { RL_AFF_STORE_APPLY } from "../src/affiliate/settings.ts";
 import { issueSellerStepUp } from "../src/ledger/stepup.ts";
 import { verifyLedger } from "../src/ledger/verify.ts";
@@ -20,13 +21,14 @@ import { digitalGrant, order, orderFinancials, user, variant } from "../src/sche
 import { createProduct, updateProduct } from "../src/seller/commerce/catalog.ts";
 import { placeOrder } from "../src/seller/commerce/checkout.ts";
 import { addAccessLink, revokeDigitalGrant } from "../src/seller/commerce/digital.ts";
-import { applyProviderTransition, transitionOrder } from "../src/seller/commerce/orders.ts";
+import { applyProviderTransition, recordSellerRefund, transitionOrder } from "../src/seller/commerce/orders.ts";
+import { redactOrders } from "../src/seller/commerce/privacy.ts";
 import { setCartLine } from "../src/storefront/storefront.ts";
 import { deliver } from "./deliver.ts";
 import { admin, buyer, db, makeStore, makeUser, platform } from "./helpers.ts";
 import { billingTestSetup } from "./t50-fixtures.ts";
 import { sessionOf } from "./t37-fixtures.ts";
-import { attributionOf, buy, cartOf, click, code, errCode, fin, finLines, freshPhone, link, makeAffiliate, member, openStore, optIn, resetFixtures, setAccountStatus, type A, type S } from "./t52-fixtures.ts";
+import { addProduct, attributionOf, buy, cartOf, click, code, errCode, fin, finLines, freshPhone, link, makeAffiliate, member, openStore, optIn, resetFixtures, setAccountStatus, type A, type S } from "./t52-fixtures.ts";
 
 // T-108 (ADR-0015 decisions 1 to 4; D-29, D-31, D-32 C-A3/C-A4/C-A6; D-38) against real PostgreSQL under the real roles: store membership, attribution only
 // through an ACTIVE membership, the commission as the seller's obligation (never a deduction from the sale), its pending / void / payable life and the
@@ -160,6 +162,17 @@ describe("T-108 membership: apply, review, auto-approval and the C-A4 projection
     expect((await platform.select().from(affiliateMembership))[0]).toMatchObject({ status: "active", reviewedBy: "system:auto_approve" });
     await saveAffiliatePolicy(s.owner, { participation: "open", defaultRateBps: 900 }); // omitted: the switch stays as it is
     expect((await affiliateSettings(s.owner)).autoApprove).toBe(true);
+    // a rejected applicant who applies again while auto-approval is on is reviewed again: pending, never active at once (D-38 item 4)
+    const b = await makeAffiliate({ name: "Afiliasi Dua" });
+    await saveAffiliatePolicy(s.owner, { participation: "open", defaultRateBps: 900, autoApprove: false });
+    const rb = await applyToStore(db, b.affiliateId, { storeId: s.storeId });
+    await reviewMembership(s.owner, { membershipId: rb.membershipId, to: "rejected", reason: "Belum cocok" });
+    await saveAffiliatePolicy(s.owner, { participation: "open", defaultRateBps: 900, autoApprove: true });
+    expect(await applyToStore(db, b.affiliateId, { storeId: s.storeId, note: "Coba lagi" })).toEqual({ membershipId: rb.membershipId, status: "pending" });
+    // the `system:` reviewer belongs to automatic approval only: a seller's review (any UPDATE) cannot claim it
+    expect(await errCode(withStore(db, s.storeId, (tx) => tx.update(affiliateMembership).set({ status: "active", reviewedBy: "system:auto_approve", reviewedAt: new Date() }).where(eq(affiliateMembership.id, rb.membershipId))))).toBe("23514");
+    await reviewMembership(s.owner, { membershipId: rb.membershipId, to: "active" });
+    expect((await platform.select().from(affiliateMembership).where(eq(affiliateMembership.id, rb.membershipId)))[0]).toMatchObject({ status: "active", reviewedBy: s.ownerId });
   });
 
   it("RL-AFF-STORE-APPLY: 20 applications a day per affiliate, the 21st is refused before the database is asked; another affiliate is unaffected", async () => {
@@ -170,14 +183,17 @@ describe("T-108 membership: apply, review, auto-approval and the C-A4 projection
     expect(await applyToStore(db, b.affiliateId, { storeId: s.storeId })).toMatchObject({ status: "pending" });
   });
 
-  it("C-A3: a user with a verified e-mail registers active, an unverified one pending; the database refuses an active account for an unverified e-mail", async () => {
+  it("C-A3 (D-38 C): only a verified e-mail registers, and the account is active at once; an unverified user is refused; no pending account is created, by the service or by the database", async () => {
     const verified = await makeUser("aff-ok");
     await platform.update(user).set({ emailVerified: true }).where(eq(user.id, verified));
     const okId = await registerAffiliate(platform, { userId: verified, displayName: "Sudah Verifikasi", phone: freshPhone() });
-    const waitId = await registerAffiliate(platform, { userId: await makeUser("aff-wait"), displayName: "Belum Verifikasi", phone: freshPhone() });
-    const rows = await platform.select({ id: affiliate.id, status: affiliate.status }).from(affiliate).orderBy(affiliate.id);
-    expect(rows).toEqual([{ id: okId, status: "active" }, { id: waitId, status: "pending" }]);
-    expect(await errCode(admin.execute(sql`insert into affiliate (user_id, display_name, contact_phone, status) values (${await makeUser("aff-x")}, 'Langsung Aktif', '6281200000001', 'active')`))).toBe("23514");
+    const unverified = await makeUser("aff-wait");
+    expect(await errCode(registerAffiliate(platform, { userId: unverified, displayName: "Belum Verifikasi", phone: freshPhone() }))).toBe("email_unverified");
+    expect(await platform.select({ id: affiliate.id, status: affiliate.status }).from(affiliate)).toEqual([{ id: okId, status: "active" }]);
+    expect(await errCode(admin.execute(sql`insert into affiliate (user_id, display_name, contact_phone) values (${unverified}, 'Langsung Aktif', '6281200000001')`))).toBe("23514");
+    const other = await makeUser("aff-x");
+    await platform.update(user).set({ emailVerified: true }).where(eq(user.id, other));
+    expect(await errCode(admin.execute(sql`insert into affiliate (user_id, display_name, contact_phone, status) values (${other}, 'Menunggu', '6281200000002', 'pending')`))).toBe("23514");
   });
 });
 
@@ -198,6 +214,28 @@ describe("T-108 attribution requires an active membership", () => {
     await reviewMembership(s.owner, { membershipId: mid, to: "suspended", reason: "uji" });
     await nothingEarned((await buy(s, { code: "HEMAT10", clicks: [c1] })).orderId);
     expect(await commissionOf(earned.orderId)).toMatchObject({ status: "pending", commissionIdr: 10_000 }); // nothing earned is rewritten
+  });
+
+  it("a suspension committed while a checkout waits on the membership row wins: the in-flight order is placed without attribution (two real connections)", async () => {
+    const { s, a } = await world();
+    const mid = await member(a, s);
+    const cartId = await cartOf(s);
+    let placed: Promise<{ orderId: number }> | undefined;
+    await admin.transaction(async (tx) => {
+      await tx.execute(sql`update affiliate_membership set status = 'suspended', status_reason = 'uji balapan', reviewed_by = ${s.ownerId} where id = ${mid}`); // row lock held, not committed
+      placed = placeOrder(db, cartId, buyer({ buyerPhone: freshPhone(), affiliateCode: "HEMAT10" }), undefined, { referral: { clickIds: [] } });
+      // wait until the checkout's share lock on the membership row is actually blocked by this transaction
+      for (let i = 0; ; i++) {
+        const [w] = (await platform.execute(sql`select count(*)::int as n from pg_locks l join pg_class c on c.oid = l.relation where not l.granted and c.relname = 'affiliate_membership'`)) as unknown as { n: number }[];
+        const [t] = (await platform.execute(sql`select count(*)::int as n from pg_locks where not granted and locktype = 'transactionid'`)) as unknown as { n: number }[];
+        if (w!.n + t!.n > 0) break;
+        if (i > 200) throw new Error("the checkout never waited on the membership row");
+        await new Promise((r) => setTimeout(r, 25));
+      }
+    }); // COMMIT: the waiting checkout re-reads the row, finds it suspended, and selects nobody
+    const { orderId } = await placed!;
+    await nothingEarned(orderId);
+    expect(await platform.select().from(order)).toHaveLength(1);
   });
 
   it("an ineligible code falls back to an eligible click of a member; the RL-CODE validity check counts a non-member's code as unusable here", async () => {
@@ -222,6 +260,58 @@ describe("T-108 attribution requires an active membership", () => {
     expect(await resolve(plain.orderId)).toBe("none");
     const { id: _i, createdAt: _c, orderId: _o, ...rest } = (await attributionOf(earned.orderId))!;
     expect(await pg(admin.insert(affiliateAttribution).values({ ...rest, orderId: plain.orderId }))).toMatch(/^23514: .*no active membership/);
+  });
+});
+
+describe("T-108 the store default applies to every product (D-38 B, ADR-0015 decision 2)", () => {
+  it("every published product earns the store default without an offer row; an offer is the per-product override or, paused or withdrawn, an exclusion", async () => {
+    const s = await makeStore("toko-a", { price: 100_000, stock: 200 });
+    await openStore(s, 1_000); // no product opted in at all
+    const a = await makeAffiliate();
+    await code(a, "HEMAT10");
+    await member(a, s);
+    const hat = await addProduct(s, 50_000, "Topi");
+    const both = await cartOf(s);
+    await setCartLine(s.sf, both, { variantId: hat.variantId, quantity: 1 }, "add");
+    const o = (await buy(s, { cart: both, code: "HEMAT10" })).orderId;
+    expect((await finLines(o)).map((l) => l.commissionRateBps)).toEqual([1_000, 1_000]);
+    expect(await commissionOf(o)).toMatchObject({ commissionIdr: 15_000, commissionBaseIdr: 150_000 });
+    const offerId = await optInProduct(s.owner, { productId: hat.productId, rateBps: 2_500 }); // override
+    const o2 = await buy(s, { variantId: hat.variantId, code: "HEMAT10" });
+    expect(await commissionOf(o2.orderId)).toMatchObject({ commissionIdr: 12_500 });
+    await setOfferStatus(s.owner, { offerId, status: "paused" }); // exclusion
+    await nothingEarned((await buy(s, { variantId: hat.variantId, code: "HEMAT10" })).orderId);
+    expect(await commissionOf((await buy(s, { code: "HEMAT10" })).orderId)).toMatchObject({ commissionIdr: 10_000 }); // the other product still earns the default
+    await saveAffiliatePolicy(s.owner, { participation: "open", defaultRateBps: null }); // open without a default: only an override earns
+    await nothingEarned((await buy(s, { code: "HEMAT10" })).orderId);
+  });
+
+  it("affiliate_line_rate (SQL) and effectiveOfferRate (TypeScript) give the same rate over one corpus of facts", async () => {
+    const s = await makeStore("toko-a", { price: 100_000, stock: 20 });
+    const p2 = await addProduct(s, 50_000, "Topi");
+    const rate = (productId: number) => withStore(admin, s.storeId, async (t) => Number(((await t.execute(sql`select public.affiliate_line_rate(${s.storeId}::bigint, ${productId}::bigint) as r`)) as unknown as { r: number }[])[0]!.r));
+    type Case = { participation: "open" | "closed" | null; defaultRateBps: number | null; offer: null | { status: "active" | "paused" | "withdrawn"; rateBps: number | null }; productStatus: "active" | "draft"; maxRateBps: number };
+    const corpus: Case[] = [];
+    for (const participation of ["open", "closed", null] as const)
+      for (const defaultRateBps of [1_000, null, 6_000])
+        for (const offer of [null, { status: "active", rateBps: null }, { status: "active", rateBps: 2_500 }, { status: "active", rateBps: 50 }, { status: "paused", rateBps: 2_500 }, { status: "withdrawn", rateBps: null }] as const)
+          for (const productStatus of ["active", "draft"] as const) corpus.push({ participation, defaultRateBps: participation === null ? null : defaultRateBps, offer, productStatus, maxRateBps: 5_000 });
+    let n = 0;
+    for (const c of corpus) {
+      await admin.execute(sql`alter table affiliate_seller_policy disable trigger affiliate_seller_policy_guard; alter table affiliate_offer disable trigger affiliate_offer_guard`);
+      try {
+        await admin.execute(sql`delete from affiliate_offer; delete from affiliate_seller_policy`);
+        if (c.participation) await admin.execute(sql`insert into affiliate_seller_policy (store_id, participation, default_rate_bps, updated_by) values (${s.storeId}, ${c.participation}, ${c.defaultRateBps}, 'parity')`);
+        if (c.offer) await admin.execute(sql`insert into affiliate_offer (store_id, product_id, status, rate_bps, updated_by) values (${s.storeId}, ${p2.productId}, ${c.offer.status}, ${c.offer.rateBps}, 'parity')`);
+      } finally {
+        await admin.execute(sql`alter table affiliate_seller_policy enable trigger affiliate_seller_policy_guard; alter table affiliate_offer enable trigger affiliate_offer_guard`);
+      }
+      await admin.execute(sql`update product set status = ${c.productStatus} where id = ${p2.productId}`);
+      const ts = effectiveOfferRate({ offerStatus: c.offer?.status ?? null, participation: c.participation, productStatus: c.productStatus, storeStatus: "active", offerRateBps: c.offer?.rateBps ?? null, defaultRateBps: c.defaultRateBps, minRateBps: 100, maxRateBps: c.maxRateBps });
+      expect(await rate(p2.productId), JSON.stringify(c)).toBe(ts);
+      n++;
+    }
+    expect(n).toBe(108);
   });
 });
 
@@ -280,7 +370,7 @@ describe("T-108 the commission is the seller's obligation, never a deduction fro
     expect(await errCode(admin.execute(sql`delete from affiliate_commission`))).toBe("42501");
   });
 
-  it("one obligation per order under concurrent submits (same request, and different idempotency keys on one cart)", async () => {
+  it("one obligation per order under concurrent submits: eight identical and six differently keyed submits of one cart each yield one order, and each order exactly one attribution and one obligation (UNIQUE(order_id), written in the order's own transaction)", async () => {
     const { s, a } = await world();
     await member(a, s);
     const cartId = await cartOf(s);
@@ -338,7 +428,7 @@ describe("T-108 obligation life: void before delivery, payable after the hold", 
     expect(await errCode(admin.execute(sql`update affiliate_commission set delivered_at = now(), payable_at = now() + interval '3 days' where order_id = ${(await buy(s, { code: "HEMAT10" })).orderId}`))).toBe("23514"); // not completed
   });
 
-  it("void and payable transitions exactly at the boundary: at payable_at the obligation is payable and no longer voidable; one microsecond before it is still voidable and not released", async () => {
+  it("void and payable transitions exactly at the boundary: at payable_at the obligation is payable; one microsecond before it is not released; after delivery it is never voidable; before delivery it is", async () => {
     const { s, a } = await world();
     await member(a, s);
     const atBoundary = await shipped(s, { code: "HEMAT10" });
@@ -357,37 +447,43 @@ describe("T-108 obligation life: void before delivery, payable after the hold", 
       expect(await attempt(sql`update affiliate_commission set status = 'void', void_reason = 'uji' where order_id = ${atBoundary}`)).toBe("23514");
       expect(await attempt(sql`update affiliate_commission set status = 'payable' where order_id = ${before}`)).toBe("23514");
       expect(await attempt(sql`update affiliate_commission set status = 'payable' where order_id = ${undelivered}`)).toBe("23514"); // release before delivery: refused
+      expect(await attempt(sql`update affiliate_commission set status = 'void', void_reason = 'akses dicabut' where order_id = ${before}`)).toBe("23514"); // delivered, inside the hold: never voided (D-38 A)
       expect(await releasePayableCommissions(tx)).toBe(1);
-      expect(await attempt(sql`update affiliate_commission set status = 'void', void_reason = 'akses dicabut' where order_id = ${before}`)).toBe("ok");
     });
-    expect([await status(atBoundary), await status(before), await status(undelivered)]).toEqual(["payable", "void", "pending"]);
+    expect([await status(atBoundary), await status(before), await status(undelivered)]).toEqual(["payable", "pending", "pending"]);
+    expect(await errCode(admin.execute(sql`update affiliate_commission set status = 'void', void_reason = 'sebelum terkirim' where order_id = ${undelivered}`))).toBe("ok"); // before delivery the void is legal
     expect(await errCode(admin.execute(sql`update affiliate_commission set status = 'void', void_reason = 'x' where order_id = ${atBoundary}`))).toBe("23514"); // payable is never voided automatically
+    expect(await releasePayableCommissions(platform)).toBe(1); // the next run, once its time has come, releases the one that was 1 µs short
     expect(await releasePayableCommissions(platform)).toBe(0); // replay-safe: nothing left to move
   });
 
-  it("a digital-only order is delivered when paid; revoking its last grant inside the hold voids the obligation, after the hold it does not", async () => {
+  it("post-delivery events never void: a partial and a full refund, a grant revocation and a privacy redaction on completed digital orders each leave the obligation pending, then payable after the hold (D-38 A)", async () => {
     const d = await digitalStore("toko-digital");
     const a = await makeAffiliate();
     await code(a, "HEMAT10");
     await member(a, d);
-    const inside = await buyDigital(d, { code: "HEMAT10" });
-    const after = await buyDigital(d, { code: "HEMAT10" });
-    for (const o of [inside, after]) await confirmBankTransfer(d.me, { orderId: o, reason: "Mutasi BCA cocok" });
-    const c = (await commissionOf(inside))!;
+    const orders = [await buyDigital(d, { code: "HEMAT10" }), await buyDigital(d, { code: "HEMAT10" }), await buyDigital(d, { code: "HEMAT10" }), await buyDigital(d, { code: "HEMAT10" })];
+    for (const o of orders) await confirmBankTransfer(d.me, { orderId: o, reason: "Mutasi BCA cocok" });
+    const [partial, full, revoked, redacted] = orders as [number, number, number, number];
+    const c = (await commissionOf(partial))!;
     expect(c).toMatchObject({ status: "pending" });
-    expect(c.payableAt!.getTime() - c.deliveredAt!.getTime()).toBe(3 * 86_400_000); // the hold starts at completion = grant issuance (ADR-0016 decision 20)
-    const grantOf = async (orderId: number) => (await admin.select({ id: digitalGrant.id }).from(digitalGrant).where(eq(digitalGrant.orderId, orderId)))[0]!.id;
-    await revokeDigitalGrant(d.me, await grantOf(inside), { reason: "Pembeli minta batal" });
-    expect(await commissionOf(inside)).toMatchObject({ status: "void", voidReason: "digital_grant_revoked: Pembeli minta batal" });
+    expect(c.payableAt!.getTime() - c.deliveredAt!.getTime()).toBe(3 * 86_400_000); // the hold starts at completion = payment = grant issuance (ADR-0016 decision 20)
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta" }).format(new Date());
+    await recordSellerRefund(d.me, partial, { amountIdr: 10_000, refundedOn: today, method: "bank_transfer", reason: "Refund sebagian pembeli" });
+    await recordSellerRefund(d.me, full, { amountIdr: 100_000, refundedOn: today, method: "bank_transfer", reason: "Refund penuh pembeli" });
+    const grantOf = async (orderId: number) => (await admin.select({ id: digitalGrant.id, state: digitalGrant.state }).from(digitalGrant).where(eq(digitalGrant.orderId, orderId)))[0]!;
+    await revokeDigitalGrant(d.me, (await grantOf(revoked)).id, { reason: "Pembeli minta batal" });
+    await redactOrders(d.me, { orderIds: [redacted] });
+    expect((await Promise.all([full, revoked, redacted].map(grantOf))).map((g) => g.state)).toEqual(["revoked", "revoked", "revoked"]); // the events really revoked access
+    for (const o of orders) expect(await commissionOf(o), `order ${o}`).toMatchObject({ status: "pending", voidReason: null });
+    // after the hold every one of them becomes payable; a mistake after delivery is a manual correction (T-109), never a void
     await admin.transaction(async (tx) => {
       await tx.execute(sql`alter table affiliate_commission disable trigger affiliate_commission_guard`);
-      await tx.execute(sql`update affiliate_commission set delivered_at = now() - interval '3 days', payable_at = now() where order_id = ${after}`);
+      await tx.execute(sql`update affiliate_commission set delivered_at = now() - interval '3 days', payable_at = now() where store_id = ${d.storeId}`);
       await tx.execute(sql`alter table affiliate_commission enable trigger affiliate_commission_guard`);
     });
-    await revokeDigitalGrant(d.me, await grantOf(after), { reason: "Dicabut setelah masa tahan" });
-    expect(await commissionOf(after)).toMatchObject({ status: "pending" });
-    expect(await releasePayableCommissions(platform)).toBe(1);
-    expect(await commissionOf(after)).toMatchObject({ status: "payable" });
+    expect(await releasePayableCommissions(platform)).toBe(4);
+    for (const o of orders) expect((await commissionOf(o))!.status).toBe("payable");
   });
 });
 

@@ -381,10 +381,9 @@ export const DEFINER_FUNCTIONS: Record<string, DefinerFunction> = {
   // T-111: product kind immutability after sale and variant weight/stock-tracking rules per product kind.
   "product_kind_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
   "variant_kind_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
-  // T-112: digital access item kind/cap guard and digital grant paid-only/no-delete guard + affiliate hold/void trigger.
+  // T-112: digital access item kind/cap guard and digital grant paid-only/no-delete guard (its affiliate hold/void trigger was dropped by T-108, D-38 A).
   "product_access_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
   "digital_grant_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
-  "digital_grant_affiliate_sync()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
   "order_seller_refund_guard()": { owner: "bukalaris_owner", kind: "guard", execute: [] },
   // T-50: the signed callback reference of a subscription attempt resolves to its store (app pool); the effective vat_output policies (public tax configuration) are
   // readable by the seller Pay path. The triggers below pin what an invoice or attempt may start as and write the creation events; the bootstrap row-creates a trial

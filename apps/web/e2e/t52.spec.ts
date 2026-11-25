@@ -41,7 +41,7 @@ async function makeAffiliate(info: TestInfo, phone = testPhone()) {
   const [sb] = await sql`select id from store where slug = 'toko-b'`;
   await sql`insert into affiliate_link (affiliate_id, token, store_id) values (${a!.id}, ${tokenA}, ${sa!.id}), (${a!.id}, ${tokenB}, ${sb!.id})`;
   // T-108: attribution needs an active membership of the store (toko-a only; toko-b's clicks never earn at toko-a anyway)
-  await sql`insert into affiliate_membership (store_id, affiliate_id, status, display_name, reviewed_by, reviewed_at) values (${sa!.id}, ${a!.id}, 'active', 'Afiliasi Uji', 't52-e2e', now())`;
+  await sql`insert into affiliate_membership (store_id, affiliate_id, status, display_name, reviewed_by, reviewed_at) values (${sa!.id}, ${a!.id}, 'active', 'Afiliasi Uji', 'system:auto_approve', now())`; // an auto-approved membership: the only active INSERT the guard admits
   return { id: Number(a!.id), phone, code, tokenA, tokenB };
 }
 

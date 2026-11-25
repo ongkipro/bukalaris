@@ -45,7 +45,7 @@ export const affiliate = pgTable(
     displayName: text("display_name").notNull(),
     /** Canonical Indonesian mobile (`628…`, the T-57 normalisation): the self-referral comparison value. Protected: no public projection carries it. */
     contactPhone: text("contact_phone").notNull(),
-    status: text("status", { enum: AFFILIATE_STATUSES }).notNull().default("pending"),
+    status: text("status", { enum: AFFILIATE_STATUSES }).notNull().default("active"),
     statusReason: text("status_reason"),
     reviewedBy: text("reviewed_by"),
     reviewedAt: timestamptz("reviewed_at"),

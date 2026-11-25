@@ -1,5 +1,5 @@
 {
-  "id": "6415de9b-25fc-42e1-8b00-b0a66e7042d1",
+  "id": "ddddb390-f41d-4029-94c6-b269aaa465e3",
   "prevId": "18477035-9f49-41c7-b2c8-0f1c9cfd0d85",
   "version": "7",
   "dialect": "postgresql",
@@ -19931,7 +19931,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'pending'"
+          "default": "'active'"
         },
         "status_reason": {
           "name": "status_reason",

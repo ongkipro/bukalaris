@@ -9,7 +9,8 @@ import { affiliateCatalog, affiliateOffer, affiliatePolicy, affiliateSellerPolic
 // the live offer, policy, product, account and block (`affiliate_line_rate`, `affiliate_resolve`), so a stale row can neither sell nor attribute.
 
 export type OfferRateFacts = {
-  offerStatus: string;
+  /** The product's offer row, if any; null = no row (T-108: the product earns the store default). */
+  offerStatus: string | null;
   participation: string | null;
   productStatus: string;
   storeStatus: string;
@@ -20,12 +21,13 @@ export type OfferRateFacts = {
 };
 
 /**
- * The commission rate an offer earns right now, in basis points; 0 when anything makes it ineligible. The single rule, also written in SQL as `affiliate_line_rate`
- * (checkout and the attribution guard): override else store default, only while the store policy is open, the offer active, the product published, the store active
- * and the rate inside the programme's bounds. A parity test runs one corpus through both.
+ * The commission rate a product earns right now, in basis points; 0 when anything makes it ineligible. The single rule, also written in SQL as `affiliate_line_rate`
+ * (checkout and the attribution guard). T-108 (D-38 B, ADR-0015 decision 2): every published product of an active store whose programme is open earns the store
+ * default; an offer row is the per-product override, or an exclusion when it is paused or withdrawn; a rate outside the programme's bounds earns 0. A parity test
+ * (t108-membership.test.ts) runs one corpus through both. The discovery projection still lists offer rows only (cross-store discovery is deferred).
  */
 export function effectiveOfferRate(f: OfferRateFacts): number {
-  if (f.offerStatus !== "active" || f.participation !== "open" || f.productStatus !== "active" || f.storeStatus !== "active") return 0;
+  if ((f.offerStatus !== null && f.offerStatus !== "active") || f.participation !== "open" || f.productStatus !== "active" || f.storeStatus !== "active") return 0;
   const rate = f.offerRateBps ?? f.defaultRateBps;
   if (rate === null || rate < f.minRateBps || rate > f.maxRateBps) return 0;
   return rate;

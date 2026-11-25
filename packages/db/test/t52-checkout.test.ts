@@ -320,11 +320,12 @@ describe("T-52 slice 3: the commission is frozen from the canonical allocation, 
     expect((await attributionOf(o.orderId))).toMatchObject({ commissionBaseIdr: 135_000, commissionIdr: 18_000 });
   });
 
-  it("a line that is not opted in earns exactly zero; a cart with no opted-in line earns no attribution at all", async () => {
+  it("an excluded line earns exactly zero; a cart with only excluded lines earns no attribution at all (T-108, D-38 B: without an offer row a product earns the default; a withdrawn offer excludes it)", async () => {
     const s = await makeStore("toko-a", { price: 100_000, stock: 200 });
     await openStore(s, 1_000);
     await optIn(s);
-    const plain = await addProduct(s, 80_000, "Kaos Biasa"); // never opted in
+    const plain = await addProduct(s, 80_000, "Kaos Biasa");
+    await setOfferStatus(s.owner, { offerId: await optIn(s, plain.productId), status: "withdrawn" }); // excluded
     const a = await makeAffiliate();
     await member(a, s);
     await code(a, "ZEROLINE");

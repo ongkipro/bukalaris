@@ -8,7 +8,7 @@ import { optInProduct, saveAffiliatePolicy } from "../src/affiliate/seller.ts";
 import { placeOrder, type ClientContext } from "../src/seller/commerce/checkout.ts";
 import { createProduct } from "../src/seller/commerce/catalog.ts";
 import { setCartLine } from "../src/storefront/storefront.ts";
-import { orderFinancials, orderLineFinancials, variant } from "../src/schema.ts";
+import { orderFinancials, orderLineFinancials, user, variant } from "../src/schema.ts";
 import { admin, buyer, db, makeUser, platform, type makeStore } from "./helpers.ts";
 import "../src/affiliate/jobs.ts";
 
@@ -23,14 +23,32 @@ export const resetFixtures = () => {
 };
 
 type AccountStatus = "pending" | "active" | "rejected" | "suspended" | "closed";
-/** Move an account along its legal path with the superuser connection (the state machine trigger still runs). */
+/** A user whose e-mail is verified: the only kind that can register an affiliate account (C-A3, D-38 C). */
+export async function verifiedUser(name = "aff") {
+  const userId = await makeUser(name);
+  await platform.update(user).set({ emailVerified: true }).where(eq(user.id, userId));
+  return userId;
+}
+/**
+ * T-108 (D-38 C): no account starts `pending` any more; a `pending` account exists only as a row written before migration 0028. The fixture models one by
+ * setting the state with the account guard off for that one statement (superuser, one transaction).
+ */
+export async function legacyPending(affiliateId: number) {
+  await admin.transaction(async (tx) => {
+    await tx.execute(sql`alter table affiliate disable trigger affiliate_status_guard`);
+    await tx.execute(sql`update affiliate set status = 'pending', status_reason = null where id = ${affiliateId}`);
+    await tx.execute(sql`alter table affiliate enable trigger affiliate_status_guard`);
+  });
+}
+/** Move an account along its legal path with the superuser connection (the state machine trigger still runs); `pending` and `rejected` start from a legacy pending row. */
 export async function setAccountStatus(affiliateId: number, status: AccountStatus) {
+  if (status === "pending" || status === "rejected") await legacyPending(affiliateId);
   const path: Record<AccountStatus, AccountStatus[]> = { pending: [], active: ["active"], rejected: ["rejected"], suspended: ["active", "suspended"], closed: ["active", "closed"] };
   for (const step of path[status]) await admin.execute(sql`update affiliate set status = ${step}, status_reason = ${["rejected", "suspended", "closed"].includes(step) ? "test fixture" : null} where id = ${affiliateId}`);
 }
 
 export async function makeAffiliate(over: { phone?: string; status?: AccountStatus; name?: string } = {}) {
-  const userId = await makeUser("aff");
+  const userId = await verifiedUser("aff");
   const phone = over.phone ?? freshPhone();
   const affiliateId = await registerAffiliate(platform, { userId, displayName: over.name ?? "Afiliasi Satu", phone });
   await setAccountStatus(affiliateId, over.status ?? "active");
