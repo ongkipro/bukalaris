@@ -10,8 +10,10 @@ import type { ShipmentStatus } from "./schema-fulfillment.ts";
 // PENDING PICKUP, PICKED UP, ON DELIVERY, DELIVERED, UNDELIVERED, PICKUP FAILED, RTS, the two Mengantar values ACTIVE/WAITING NEXT PROCESS
 // and ERROR, and both spellings CANCELED / CANCELLED; the create-order example answers `statusCategory: "active"`; the simulation table
 // stores `DELIVERY COURIER` as the ON DELIVERY category of SiCepat, AnterAja and Pos; the delete rule names `PICKUP_FAILED_API`.
-// UNVERIFIED: the per-courier Order Status Reference Sheet was not read, so no category is mapped to `in_transit` (between pickup and the
-// last mile) or to `returning` (a return on its way back) yet. Those categories arrive raw until a row is added here.
+// Order Status Reference Sheet (the per-courier list the webhook section links, read 2026-11-25; snapshot in docs/tracks/t115-mengantar-lock.md):
+// the middle-mile categories of each courier map to `in_transit` and the return-on-its-way categories to `returning`. Problem categories
+// (ON HOLD, SHIPPING/DELIVERY/SHIPMENT PROBLEM, SHIPMENT ISSUE/DAMAGE/BREACH, IRREGULARITY, MISSING, CLAIM PROCESS, RETURN FAILED, REDELIVERY,
+// TAKE SELF, HANDOVER COURIER, CLOSE BY SYSTEM) stay unmapped on purpose: they arrive raw so the seller reads the courier's own word.
 
 export const PARCEL_STATES = ["created", "waiting_pickup", "pickup_failed", "picked_up", "in_transit", "out_for_delivery", "delivered", "returning", "returned", "cancelled", "error"] as const;
 export type ParcelState = (typeof PARCEL_STATES)[number];
@@ -54,11 +56,27 @@ export const PARCEL_STATE_MAP: Readonly<Record<string, Row>> = {
   "PICKUP FAILED": { parcel: "pickup_failed" },
   PICKUP_FAILED_API: { parcel: "pickup_failed" },
   "PICKED UP": { parcel: "picked_up" },
+  PICKED: { parcel: "picked_up" }, // SiCepat
+  // Between pickup and the last mile (sheet, per courier): JNE ORIGIN GATEWAY / GATEWAY PROCESS / INBOUND PROCESS, SiCepat ON PROCESS,
+  // SAP / iDexpress / J&T / Lion / AnterAja / Pos / SPX OUTGOING and INCOMING, AnterAja / SPX ON TRANSIT, J&T IN WAREHOUSE.
+  "ORIGIN GATEWAY": { parcel: "in_transit" },
+  "GATEWAY PROCESS": { parcel: "in_transit" },
+  "INBOUND PROCESS": { parcel: "in_transit" },
+  "ON PROCESS": { parcel: "in_transit" },
+  OUTGOING: { parcel: "in_transit" },
+  INCOMING: { parcel: "in_transit" },
+  "ON TRANSIT": { parcel: "in_transit" },
+  "IN WAREHOUSE": { parcel: "in_transit" },
   "ON DELIVERY": { parcel: "out_for_delivery" },
   "DELIVERY COURIER": { parcel: "out_for_delivery" },
   // A delivery attempt failed and the courier tries again: still on its way (its own label, no state of its own in decision 42).
   UNDELIVERED: { parcel: "in_transit", label: "Gagal diantar, kurir akan mencoba lagi", status: "problem" },
   DELIVERED: { parcel: "delivered" },
+  // A return on its way back (sheet): iDexpress / AnterAja / SPX RETURN IN PROGRESS, Lion PREPARING FOR RTS, SAP / J&T DELIVERY RETURN
+  // (listed beside RTS; read as the return leg, the one inference in this table). RTS itself is the final "returned".
+  "RETURN IN PROGRESS": { parcel: "returning" },
+  "PREPARING FOR RTS": { parcel: "returning" },
+  "DELIVERY RETURN": { parcel: "returning" },
   RTS: { parcel: "returned" },
   CANCELED: { parcel: "cancelled", label: "Dibatalkan di Bukalaris Kirim" },
   CANCELLED: { parcel: "cancelled", label: "Dibatalkan di Bukalaris Kirim" },

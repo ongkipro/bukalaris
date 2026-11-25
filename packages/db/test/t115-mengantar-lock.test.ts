@@ -399,10 +399,22 @@ describe("T-115 decision 42: the whole parcel life through one mapping table", (
       "PICKUP FAILED": "pickup_failed",
       PICKUP_FAILED_API: "pickup_failed",
       "PICKED UP": "picked_up",
+      PICKED: "picked_up",
+      "ORIGIN GATEWAY": "in_transit",
+      "GATEWAY PROCESS": "in_transit",
+      "INBOUND PROCESS": "in_transit",
+      "ON PROCESS": "in_transit",
+      OUTGOING: "in_transit",
+      INCOMING: "in_transit",
+      "ON TRANSIT": "in_transit",
+      "IN WAREHOUSE": "in_transit",
       UNDELIVERED: "in_transit",
       "ON DELIVERY": "out_for_delivery",
       "DELIVERY COURIER": "out_for_delivery",
       DELIVERED: "delivered",
+      "RETURN IN PROGRESS": "returning",
+      "PREPARING FOR RTS": "returning",
+      "DELIVERY RETURN": "returning",
       RTS: "returned",
       CANCELED: "cancelled",
       CANCELLED: "cancelled",
@@ -413,8 +425,12 @@ describe("T-115 decision 42: the whole parcel life through one mapping table", (
     // Every state of decision 42 exists and drives a shipment status; "returning" (return in progress) keeps the parcel moving, not final.
     expect([...PARCEL_STATES]).toEqual(["created", "waiting_pickup", "pickup_failed", "picked_up", "in_transit", "out_for_delivery", "delivered", "returning", "returned", "cancelled", "error"]);
     expect(PARCEL_SHIPMENT_STATUS).toMatchObject({ returning: "in_transit", returned: "returned", pickup_failed: "problem", cancelled: "cancelled", delivered: "delivered" });
-    // UNVERIFIED (no Order Status Reference Sheet read): no documented category maps to `returning` or a generic `in_transit` yet; they arrive raw.
-    expect(Object.values(PARCEL_STATE_MAP).some((r) => r.parcel === "returning")).toBe(false);
+    // Order Status Reference Sheet (2026-11-25): middle-mile categories are in transit, a return on its way is returning (non-final), and the
+    // problem categories stay raw for the seller to read.
+    expect(mapProviderStatus("OUTGOING")).toMatchObject({ status: "in_transit" });
+    expect(mapProviderStatus("return in progress")).toMatchObject({ status: "in_transit" });
+    expect(categoryLabel("RETURN IN PROGRESS")).toBe("Sedang dikembalikan ke pengirim");
+    for (const raw of ["ON HOLD", "SHIPPING PROBLEM", "DELIVERY PROBLEM", "SHIPMENT ISSUE", "RETURN FAILED", "REDELIVERY", "MISSING", "CLAIM PROCESS"]) expect(parcelStateOf(raw), raw).toBeNull();
     expect(mapProviderStatus(" cancelled ")).toMatchObject({ status: "cancelled" });
     expect(mapProviderStatus("UNDELIVERED")).toMatchObject({ status: "problem" });
     expect(categoryLabel("RTS")).toBe("Dikembalikan ke pengirim (RTS)");
