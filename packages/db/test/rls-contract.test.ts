@@ -45,7 +45,7 @@ import { transitionOrder } from "../src/seller/commerce/orders.ts";
 import { getMarginRule, setMarginRule, setPickupArea } from "../src/shipping/shipping.ts";
 import { requestMarginRule } from "../src/shipping/policy.ts";
 import { bookShipment, setBookingAdapter, type BookingAdapter } from "../src/shipping/fulfillment.ts";
-import { operatorGrant, order, platformOperator, session, shipment, user, variant } from "../src/schema.ts";
+import { operatorGrant, order, platformOperator, session, shipment, store, user, variant } from "../src/schema.ts";
 import { purgeSignalContext, saveDestination } from "../src/storefront/signals.ts";
 import { setCartLine } from "../src/storefront/storefront.ts";
 import { withStore } from "../src/platform/tenant.ts";
@@ -141,6 +141,7 @@ describe("contract step: the production access paths still work through the narr
     const op = (await operatorScope(platform, opId))!;
     expect(op).not.toBeNull();
     const storeId = await createStore(op, { slug: "toko-c", name: "Toko C", ownerUserId: ownerId });
+    await admin.update(store).set({ legacyPlatformShipping: true }).where(eq(store.id, storeId)); // T-117 (D-37): the probe store models a pre-0027 store
     expect((await listStores(op)).map((s) => s.id)).toEqual([storeId]);
     await setStoreStatus(op, storeId, { status: "suspended", reason: "contract probe" });
     expect(await storefrontScope(app, "toko-c")).toBeNull(); // resolver on the app pool: suspended

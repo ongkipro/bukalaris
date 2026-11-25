@@ -34,6 +34,14 @@ export default async function SettingsPage({ searchParams }: PageProps<"/seller/
         }
       />
       <Notice error={error} saved={saved} />
+      {owner && (
+        <p className="text-sm text-muted-foreground">
+          <Link href="/seller" className="inline-flex min-h-6 items-center font-medium text-foreground underline underline-offset-4" data-testid="settings-checklist-link">
+            Lihat daftar persiapan toko
+          </Link>{" "}
+          di Ringkasan untuk langkah aktivasi produk dan pembayaran.
+        </p>
+      )}
       <form action={updateSettingsAction} className="grid gap-6">
         <CsrfField />
         <fieldset disabled={!owner} className="grid gap-4">

@@ -275,6 +275,8 @@ export async function seedDemo(db: Db, opts: SeedDemoOptions = {}): Promise<Seed
     const ownerId = await makeUser(s.owner.email, s.owner.name);
     const staffId = await makeUser(s.staff.email, s.staff.name);
     const storeId = await createStore(op, { slug: s.slug, name: s.name, ownerUserId: ownerId });
+    // T-117 (D-37): the demo stores model the pre-0027 platform-shipping stores.
+    await db.update(store).set({ legacyPlatformShipping: true }).where(eq(store.id, storeId));
     await db.insert(membership).values({ storeId, userId: staffId, role: "staff" }); // invitations are an e-mail flow; seed.ts does the same
     const owner = await scopeOf(ownerId, storeId);
     const staff = await scopeOf(staffId, storeId);

@@ -591,3 +591,20 @@ Accepted cost: an order whose proof is never decided stays awaiting payment unti
 Upgrade path: an object store with the same keys (T-79); an orphan-file sweep comparing the directory with `payment_proof` rows; a closing timestamp on the order if retention needs to be exact to the day.
 
 Revisit when: the hosting work picks the production file store, or the pilot shows undecided proofs piling up.
+
+
+## D-37 — New stores ship only on their own Mengantar account; existing stores keep the platform model (2026-11-23, T-117, owner decision)
+
+Context: ADR-0013 decision 14 gates physical-product activation on shipping readiness, but only while the store's money mode is `seller_owned`. The store-insert trigger gives every store an active `platform_master` shipping row, so the data cannot tell a store that existed before this task from a store created after it — and a brand-new store could otherwise activate physical products on the platform account the rule was meant to retire.
+
+Decision:
+
+1. `store.legacy_platform_shipping boolean NOT NULL DEFAULT false` (migration `0027_t117_setup_gate`) marks the stores that existed when the migration ran: the backfill sets it `true` for every pre-existing row; every store created after it is `false` — fail closed.
+2. The activation gate (`assertCanActivate`, `seller/commerce/catalog.ts`) requires a ready own Mengantar account when `money_mode = 'seller_owned'` OR the store is not legacy. The digital rule is unchanged (a ready prepaid method plus delivery content).
+3. The flag is set by the migration and by the platform role only: it is deliberately absent from the app role's `appColumns` of `store` in the isolation registry, so a seller can never flip it; no exported production service writes it. Fixtures (test helpers, dev and demo seeds) set it through the platform executor to model the pre-0027 stores.
+
+Consequence: a store created after 0027 cannot sell a physical product until it opens its own Mengantar account — the intended first-release model; legacy stores keep the platform model until T-118 decides their removal.
+
+4. Review follow-up (2026-11-25): one predicate, `physicalActivationAllowed` (`ledger/boundary.ts`), is called by both the activation gate and the setup checklist, so the checklist cannot promise what the gate refuses. A legacy store moves to the seller-owned model for good as soon as it saves its own provider key or lists a bank account (`storeMoneyMode`, T-107/T-113; removed rows still count); from then on physical activation needs its own ready Mengantar account. The setup checklist therefore warns a legacy, still platform-held store before that move instead of hiding the steps (working default taken without an owner answer; nothing is deployed, so only local and demo stores are legacy today).
+
+Revisit when: T-118 decides the removal of the platform model, or a production database holds stores created before 0027.

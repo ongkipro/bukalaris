@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeEach, vi } from "vitest";
+import { eq } from "drizzle-orm";
 import { createDb, platformDb } from "../src/client.ts";
 import { addVariant, createProduct } from "../src/seller/commerce/catalog.ts";
 import { localRoleUrl } from "../src/local-roles.ts";
 import { createStore } from "../src/platform/platform.ts";
-import { platformOperator, user } from "../src/schema.ts";
+import { platformOperator, store, user } from "../src/schema.ts";
 import { operatorScope, sellerContext, storefrontScope, type SellerScope } from "../src/platform/scoped.ts";
 import { setPickupArea } from "../src/shipping/shipping.ts";
 import { grantAsSystem } from "../src/ops/capabilities-grants.ts";
@@ -76,14 +77,17 @@ export const PICKUP_AREA = { areaId: "a1a1a1a1a1a1a1a1a1a1a1a1", areaLabel: "Bra
 export const DESTINATION = { destinationAreaId: "b1b1b1b1b1b1b1b1b1b1b1b1", destinationAreaLabel: "Menteng, Menteng, Jakarta Pusat, DKI Jakarta 10310" };
 
 /** A store with an owner, one active product (one variant) and a pickup area so checkout can quote shipping. */
-export async function makeStore(slug: string, opts: { price?: number; stock?: number; pickupArea?: boolean } = {}) {
+export async function makeStore(slug: string, opts: { price?: number; stock?: number; pickupArea?: boolean; legacy?: boolean } = {}) {
   const op = await makeOperator();
   const ownerId = await makeUser(`${slug}-owner`);
   const storeId = await createStore(op, { slug, name: `Toko ${slug}`, ownerUserId: ownerId });
+  // T-117 (D-37): test stores model the pre-0027 platform-shipping stores unless one asks for a new (fail-closed) store.
+  if (opts.legacy !== false) await platform.update(store).set({ legacyPlatformShipping: true }).where(eq(store.id, storeId));
   const owner = await seller(ownerId);
   const productId = await createProduct(owner, {
     title: `Kaos ${slug}`,
-    status: "active",
+    // A new (non-legacy) store cannot activate a physical product before its own Mengantar account is ready (D-37): the fixture keeps it a draft.
+    status: opts.legacy === false ? "draft" : "active",
     variant: { title: "M", price: opts.price ?? 100_000, stock: opts.stock ?? 10, weightGrams: 1000 },
   });
   const variantId = (await platform.query.variant.findFirst({ where: (v, { eq }) => eq(v.productId, productId) }))!.id;

@@ -321,6 +321,34 @@ reads from the provider statement, and JOB-33 stays off.
   tracking status, or by a SQL update; confirm your own batch; reuse one statement
   for two batches.
 
+## AutoLaris payment-only profile request (T-117)
+
+A store that wants QRIS/VA needs an AutoLaris account limited to payments (the
+payment-only profile, ADR-0013 decision 13 and D-31 owner answer 4). It is not
+required to open a store: one ready prepaid method is enough (decision 14), and
+a listed bank account for bank transfer qualifies on its own (decision 36).
+There is no self-serve form: the profile is requested by hand per seller.
+
+- **Who asks.** The seller asks Bukalaris; Seller Admin has no contact or
+  ticket screen yet, so the request arrives outside the product (whatever
+  channel the seller used). An operator with Owner-console access files it as a
+  console issue (SA-50 `/admin/issues`, capability `ops.issues.report`) and
+  contacts AutoLaris on the seller's behalf.
+- **What is sent to AutoLaris.** The store name, the store slug, the seller's
+  legal name, and the e-mail of the seller's OWN AutoLaris account — plus the
+  request itself: a payment-only profile for that store. Never any key,
+  password or buyer data.
+- **How the key reaches the seller.** AutoLaris issues the API key to the
+  seller inside the seller's own AutoLaris dashboard. The key never passes
+  through Bukalaris staff, chat or e-mail in clear text: the operator never
+  sees or forwards it.
+- **Where it is entered.** The seller enters the key on `/seller/payments`
+  (SC-32, owner, step-up) and ticks the payment-only confirmation
+  (`payment_only_confirmed_at`).
+- **Recording.** The console issue is the record: date, store slug, requesting
+  user, AutoLaris reference number and outcome go in its text and transitions.
+  It carries no key and no buyer data.
+
 ## Reading logs
 
 - Dev server: the terminal running `pnpm dev`.
