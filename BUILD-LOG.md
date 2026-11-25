@@ -913,6 +913,16 @@ dummy content.
 - Fixtures set the flag through the platform executor (makeStore `{legacy}`, seed, seed-demo, e2e `seedFixtureStore`); rls-contract probe store flagged. No exported service writes it.
 - Evidence: `packages/db/test/t117-setup-checklist.test.ts` (832-case table + walk + gate + hygiene), `apps/web/e2e/t117.spec.ts`, `docs/evidence/m1/{mobile-320,desktop}-t117-*.png`, `docs/tracks/t117-setup-checklist.md`. Mutations M1–M3 each failed a named test. Independent review (2026-11-25, CHANGES REQUIRED) fixed: lock lines filtered by what is already activatable, one shared activation predicate for gate and checklist, legacy-store warning, staff/moved-store/app-role tests, full 32-subset table, RUNBOOK decision numbers; mutations MA–MC each failed a named test; populated-copy proof redone on a pre-0027 copy of the dev database (22 → 28 migrations, 6/6 stores legacy, 55 products unchanged, 0 unvalidated constraints).
 
+## T-115 status-sheet follow-up (task/t115-status-sheet, 2026-11-25)
+
+- Read the official Order Status Reference Sheet (linked from the Mengantar webhook page) and mapped its middle-mile categories to `in_transit` and its return-leg categories to `returning` in `shipping/parcel-state.ts`; problem categories stay raw on purpose. Closes the last open Done-when item of T-115. Test 21/21, DB suite 86 files / 1585 passed, one mutation failed the named test. Snapshot table in `docs/tracks/t115-mengantar-lock.md`.
+
+## Merge of 2026-11-25 (T-117 and the T-115 follow-up)
+
+- #28 T-117 seller setup checklist and the new-store shipping gate, squash-merged as `ebbf546` (the first branch was rebased onto `main` and pushed as `task/t117-setup-checklist-r2`; no force push): migration `0027` (`store.legacy_platform_shipping`), one activation predicate for the catalog gate and the checklist, the owner-only "Persiapan toko" card with lock lines limited to what is still closed and a warning for legacy platform-held stores, RUNBOOK AutoLaris profile request. CI run 45584640216: system map ok (109 route files, 132 rows), DB 86 files / 1585 tests, E2E 309 passed / 6 skipped, image ok.
+- Docs: the Seller Storefront and Checkout rows of the platform host table in `docs/04-SYSTEM-ARCHITECTURE.md` now state the built model (`<slug>.bukalaris.id`, checkout on the store host; T-102/T-103) instead of the single-root hosts under a direction note.
+- #29 T-115 status-sheet follow-up squash-merged as `c4ca751`; CI run 45597138059: DB 86 files / 1585 tests, E2E 309 passed / 6 skipped, image ok. T-115 is Done.
+
 ## T-108 affiliate membership + commission as a seller obligation (task/t108-affiliate-membership, 2026-11-25)
 
 - Migration `0028_t108_affiliate_membership`: `affiliate_membership` and `affiliate_commission` (store policy, FORCE RLS), `affiliate_seller_policy.auto_approve`; bounds 100–5000 bps; definer `affiliate_apply`, `affiliate_own_memberships`, `affiliate_own_commissions`; guards for membership and obligation; resolver, code check, attribution writer, attribution guard and the deferred financial check replaced (active membership required, no test order, no deduction from the sale in either money mode); order-status trigger stamps delivery and voids before delivery; T-112 grant trigger moved onto the obligation; demo reset extended. Decisions not settled by ADR-0015 in D-38.

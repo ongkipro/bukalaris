@@ -163,3 +163,27 @@ Rendered evidence (opened; the `evidence()` helper also asserts no horizontal ov
 - Starting values RL-ACCOUNT-SCAN and RL-PARCEL-SWEEP are proposals, not owner decisions.
 - The opt-in sandbox run (`t115-sandbox.spec.ts`) needs owner approval, a `secrets-env` test key and Webhook Secret, and a tunnel so the sandbox can reach the local webhook address.
 - Integration settled: migration `0021`, ARCH-5 `SC-34` (T-106 took `SC-33`), `JOB-37` and `D-35` free.
+
+## Order Status Reference Sheet (read 2026-11-25, follow-up branch `task/t115-status-sheet`)
+
+Source: the sheet the official webhook page links for `status_category` ("For the complete per-courier list, refer to the Order Status Reference Sheet"; `https://sandbox.mengantar.com/docs/en/webhook.md`, read 2026-11-25), exported as CSV the same day. The webhook page also states the list is open-ended (keep a default branch) and that `ACTIVE/WAITING NEXT PROCESS` and `ERROR` come from Mengantar and are not in the sheet.
+
+Categories per courier (category ← the courier statuses it groups), abbreviated to what the mapping uses:
+
+| Courier | Middle mile → `in_transit` | Return on its way → `returning` | Left raw (problem or unclear) |
+|---|---|---|---|
+| JNE | ORIGIN GATEWAY, GATEWAY PROCESS, INBOUND PROCESS | — (RETURN PROCESS and SHIPMENT RETURN are statuses inside category RTS) | SHIPMENT BREACH, ON HOLD, SHIPPING PROBLEM, DELIVERY PROBLEM, CLOSE BY SYSTEM |
+| SiCepat | ON PROCESS (also PICKED → `picked_up`) | — | REDELIVERY, ON HOLD |
+| SAP | OUTGOING, INCOMING | DELIVERY RETURN | HANDOVER COURIER, REDELIVERY, SHIPMENT DAMAGE, IRREGULARITY, SHIPMENT PROBLEM |
+| iDexpress | OUTGOING, INCOMING | RETURN IN PROGRESS | ON HOLD |
+| J&T | OUTGOING, INCOMING, IN WAREHOUSE | DELIVERY RETURN | SHIPMENT ISSUE, TAKE SELF |
+| Lion | OUTGOING, INCOMING | PREPARING FOR RTS | SHIPPING PROBLEM, MISSING, SHIPMENT DAMAGE, CLAIM PROCESS, DELIVERY PROBLEM |
+| AnterAja | OUTGOING, INCOMING, ON TRANSIT | RETURN IN PROGRESS | DELIVERY PROBLEM, RETURN FAILED |
+| Pos | OUTGOING, INCOMING | — | — |
+| SPX | OUTGOING, INCOMING, ON TRANSIT | RETURN IN PROGRESS | SHIPPING PROBLEM, RETURN FAILED |
+
+Every courier also has `active`, PENDING PICKUP or PICKED UP, ON DELIVERY or DELIVERY COURIER, DELIVERED, UNDELIVERED, RTS and a cancel category, all already mapped. One inference: SAP and J&T `DELIVERY RETURN` is read as the return leg (it sits beside RTS and the sheet gives no description). Problem categories stay unmapped on purpose so the seller sees the courier's own word; a shipment with one keeps its state (default branch).
+
+Effect: the Done-when item "in transit and returning to sender" is now backed by the documented categories (`packages/db/src/shipping/parcel-state.ts`, test "each state of decision 42 …" in `test/t115-mengantar-lock.test.ts`). Still UNVERIFIED and unchanged: `lastStatusChange`/`statusCategory` on the single-order read, whether the `?h=` query string is kept, purge of webhook events, re-seal of Webhook Secrets, sandbox origin.
+
+Verification (2026-11-25, local PG 18): `test/t115-mengantar-lock.test.ts` 21 passed; full DB suite 86 files / 1585 passed; lint and typecheck clean. Mutation: `RETURN IN PROGRESS` mapped to the final `returned` (the dangerous mistake: it would fire the returned-order effects while the parcel is still on its way) → "each state of decision 42 …" FAILED; file restored and compared byte for byte.
