@@ -151,6 +151,11 @@ test("order submission is rate limited per cart with a retryable message (T-30)"
   const phone = `0813${info.project.name === "desktop" ? "8" : "5"}5550000`; // per project: the per-phone window (10 / 10 min) spans both projects
   await cartWithKaos(page);
   await chooseDestination(page);
+  // T-123: `orderCart` is a fixed 60 s window aligned to the clock minute (platform/rate-limit.ts). Six submits take up to ~8 s; started
+  // close to a minute boundary, the sixth lands in a fresh window and places the order (CI run 45610573281: 12:37:58 → 12:38:05).
+  // Start the burst inside one window; the web server and this runner share the clock.
+  const left = 60 - new Date().getUTCSeconds();
+  if (left < 25) await page.waitForTimeout(left * 1000 + 500);
   // Five refused attempts (COD on a courier that refuses it) count; the sixth is stopped by the limiter before quoting.
   for (let i = 0; i < 5; i++) {
     await page.getByRole("radio", { name: /SiCepat/ }).check();

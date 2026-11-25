@@ -922,3 +922,7 @@ dummy content.
 - #28 T-117 seller setup checklist and the new-store shipping gate, squash-merged as `ebbf546` (the first branch was rebased onto `main` and pushed as `task/t117-setup-checklist-r2`; no force push): migration `0027` (`store.legacy_platform_shipping`), one activation predicate for the catalog gate and the checklist, the owner-only "Persiapan toko" card with lock lines limited to what is still closed and a warning for legacy platform-held stores, RUNBOOK AutoLaris profile request. CI run 45584640216: system map ok (109 route files, 132 rows), DB 86 files / 1585 tests, E2E 309 passed / 6 skipped, image ok.
 - Docs: the Seller Storefront and Checkout rows of the platform host table in `docs/04-SYSTEM-ARCHITECTURE.md` now state the built model (`<slug>.bukalaris.id`, checkout on the store host; T-102/T-103) instead of the single-root hosts under a direction note.
 - #29 T-115 status-sheet follow-up squash-merged as `c4ca751`; CI run 45597138059: DB 86 files / 1585 tests, E2E 309 passed / 6 skipped, image ok. T-115 is Done.
+
+## T-123: checkout2 rate-limit intermittent explained (task/t123-rate-window, 2026-11-25)
+
+- `checkout2.spec.ts:150` failed when its six submits crossed a clock-minute boundary of the fixed 60 s `orderCart` window, letting the sixth place an order (CI run 45610573281). Reproduced by forcing the burst to start at second 59.3; fixed in the spec by starting the burst inside one window; the forced start then passes on desktop and mobile-320. No application change.
