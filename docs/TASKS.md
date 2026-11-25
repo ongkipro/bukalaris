@@ -1653,7 +1653,7 @@ Source: [ADR-0013](adr/ADR-0013-seller-owned-shipping-and-payment-accounts.md), 
   - Open: seller shipping screen still labels `cod_fee_bearer` "Disimpan, belum diterapkan" (SC-22, outside the Allowed Paths); COD rate, minimum and VAT UNVERIFIED (Ceiling T-107-1); buyer e-mails and the buyer portal do not show the COD fee or recorded refunds yet; buyer timeline text for own-account stores; legacy platform-held balance of a converted store stays frozen (Ceiling T-107-1).
 
 ### T-108 — Affiliate membership per store and commission as a seller obligation
-- Status: Planned
+- Status: Built 2026-11-25 on branch `task/t108-affiliate-membership` (on `origin/main` `ebbf546`; migration `0028`); independent review CHANGES REQUIRED handled in a follow-up commit (owner-delegated decisions D-38 A to D); re-review and CI pending. Evidence, decisions (D-38), mutations M1–M3 and the populated-copy proof in [`docs/tracks/t108-affiliate-membership.md`](tracks/t108-affiliate-membership.md)
 - Primary requirement: PR-28
 - Constraints: ADR-0015 decisions 1 to 4; T-52 attribution rules unchanged; PRIV-2, PRIV-7; rate bounds 100 to 5000 bps and window 7 days, both Owner-configurable (D-31); RL-AFF-STORE-APPLY and RL-CLICK on the store host (doc 16, D-33)
 - Dependencies: T-107

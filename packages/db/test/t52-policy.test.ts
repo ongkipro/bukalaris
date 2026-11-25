@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateOrderFinance, withAffiliateCommission } from "../src/ledger/finance.ts";
+import { calculateOrderFinance } from "../src/ledger/finance.ts";
 import { calculateAffiliateCommission } from "../src/affiliate/commission.ts";
 import { addReferralClick, classifyClickRequest, normalizeAffiliateCode, parseReferralCookie } from "../src/affiliate/code.ts";
 import { effectiveOfferRate, type OfferRateFacts } from "../src/affiliate/catalog.ts";
@@ -59,37 +59,10 @@ describe("T-52 commission: one final floor over the whole sum, integer IDR and b
 });
 
 describe("T-52 the commission reads the ONE canonical allocation of BILL-4 and never re-allocates (T-46 reuse)", () => {
-  const lines = [
-    { lineNo: 1, unitPrice: 33_333, quantity: 3 },
-    { lineNo: 2, unitPrice: 12_501, quantity: 1 },
-    { lineNo: 3, unitPrice: 70_000, quantity: 2 },
-  ];
-  it("withAffiliateCommission equals the engine's own `affiliateCommission` input, for discounts, shipping discount and added or included tax", () => {
-    for (const input of [
-      { lines, checkoutShipping: 24_000 },
-      { lines, goodsDiscount: 17_777, checkoutShipping: 24_000, shippingDiscount: 9_000 },
-      { lines, goodsDiscounts: [{ amount: 5_000, lineNos: [1, 3] }, { amount: 999, lineNos: [2] }], priceMode: "tax_included" as const, salesTaxRateBps: 1_100, checkoutShipping: 0 },
-      { lines, goodsDiscount: 3, priceMode: "tax_added" as const, salesTaxRateBps: 500, checkoutShipping: 10_000, codFee: 4_000 },
-    ]) {
-      const base = calculateOrderFinance(input);
-      const rates = base.lines.map((_, i) => [0, 1_000, 1_750][i]!);
-      const commission = calculateAffiliateCommission(base.lines.map((l, i) => ({ commissionBase: l.commissionBase, rateBps: rates[i]! })));
-      expect(withAffiliateCommission(base, commission)).toEqual(calculateOrderFinance({ ...input, affiliateCommission: commission }));
-      expect(withAffiliateCommission(base, commission).payable).toBe(base.payable); // the buyer's total never moves
-      expect(withAffiliateCommission(base, commission).saleAmount).toBe(base.saleAmount - commission);
-    }
-  });
-
   it("the base excludes shipping, COD fee and added tax: they are not in `commissionBase`", () => {
     const f = calculateOrderFinance({ lines: [{ lineNo: 1, unitPrice: 100_000, quantity: 1 }], checkoutShipping: 50_000, codFee: 7_000, priceMode: "tax_added", salesTaxRateBps: 1_100 });
     expect(f.lines[0]!.commissionBase).toBe(100_000);
     expect(calculateAffiliateCommission([{ commissionBase: f.lines[0]!.commissionBase, rateBps: 1_000 }])).toBe(10_000);
-  });
-
-  it("refuses a commission above the seller's goods side", () => {
-    const f = calculateOrderFinance({ lines: [{ lineNo: 1, unitPrice: 1_000, quantity: 1 }], checkoutShipping: 0 });
-    expect(() => withAffiliateCommission(f, 1_001)).toThrow();
-    expect(withAffiliateCommission(f, 1_000).saleAmount).toBe(0);
   });
 });
 
@@ -157,8 +130,10 @@ describe("T-52 SEC-20: a click only for a top-level navigation (cookie stuffing)
 
 describe("T-52 the effective offer rate: one rule, zero when anything makes the offer ineligible", () => {
   const ok: OfferRateFacts = { offerStatus: "active", participation: "open", productStatus: "active", storeStatus: "active", offerRateBps: null, defaultRateBps: 1_000, minRateBps: 100, maxRateBps: 2_000 };
-  it("override beats the store default; the default applies without one", () => {
+  it("override beats the store default; the default applies without one, and (T-108, D-38 B) to a product with no offer row at all", () => {
     expect(effectiveOfferRate(ok)).toBe(1_000);
+    expect(effectiveOfferRate({ ...ok, offerStatus: null })).toBe(1_000);
+    expect(effectiveOfferRate({ ...ok, offerStatus: null, defaultRateBps: null })).toBe(0);
     expect(effectiveOfferRate({ ...ok, offerRateBps: 1_500 })).toBe(1_500);
     expect(effectiveOfferRate({ ...ok, defaultRateBps: null, offerRateBps: 700 })).toBe(700);
   });

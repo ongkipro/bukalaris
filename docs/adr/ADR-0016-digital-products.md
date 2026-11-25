@@ -63,7 +63,7 @@ Owner refinement (same day): Bukalaris does **not** host the content. The seller
 
 ### 6. Other rules
 
-20. **Affiliate commission** on a digital line becomes `payable` after the grant plus `affiliate_hold_days`; a revoked grant inside the hold voids it (ADR-0015 decision 4).
+20. **Affiliate commission** on a digital line becomes `payable` after the grant plus `affiliate_hold_days`; a revoked grant inside the hold voids it (ADR-0015 decision 4). *Superseded in part on 2026-11-25 by D-38 A (T-108): a commission is voided only when the order is cancelled or returned before delivery; a grant revoked after the order completed no longer voids it, and a post-delivery mistake is a manual correction (T-109).*
 21. **Store readiness:** a store needs one ready payment method to open. A physical product can be activated only when shipping is ready; a digital product only when a prepaid method is ready. This refines ADR-0013 decision 14.
 22. **Catalog feeds** (T-40) exclude digital products.
 23. **Content rules:** the seller accepts terms that they hold the right to sell the content. The existing public report intake covers digital listings. In the first release abuse is handled by that intake and by suspending the store; while a store is suspended its access links are not shown. Per-product takedown and a `suspended` grant state belong to the Phase 2 moderation work (C-G1, D-32).

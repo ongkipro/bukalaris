@@ -14,7 +14,7 @@ import { registeredKinds, runOnce } from "../src/ops/jobs/jobs.ts";
 import { registeredSchedules } from "../src/ops/jobs/scheduler.ts";
 import { admin, db, makeStore, platform } from "./helpers.ts";
 import { billingTestSetup, operatorWith } from "./t50-fixtures.ts";
-import { attributionOf, buy, click, code, counter, errCode, fin, link, makeAffiliate, openStore, optIn, plantClick, resetFixtures, setAccountStatus, type A } from "./t52-fixtures.ts";
+import { attributionOf, buy, click, code, counter, errCode, fin, link, makeAffiliate, member, openStore, optIn, plantClick, resetFixtures, setAccountStatus, type A } from "./t52-fixtures.ts";
 
 // T-52 HTTP-27 / SEC-20 click capture (service level; the route handler is a thin wrapper proved by e2e/t52.spec.ts), the cookie-stuffing and rate-limit rules,
 // the retention job JOB-27 (OFF until a period is recorded) and the phase-1 fraud counters.
@@ -30,6 +30,7 @@ async function world() {
   await openStore(s, 1_000);
   const offerId = await optIn(s);
   const a = await makeAffiliate();
+  await member(a, s); // T-108: attribution needs an active membership
   const l = await link(a, s);
   return { s, a, offerId, ...l };
 }
@@ -238,6 +239,7 @@ describe("T-52 SA-18 phase-1 fraud counters: the read side the risk queue needs 
     await optIn(s);
     const a = await makeAffiliate({ phone: "081277700001", name: "Afiliasi Satu" });
     const b = await makeAffiliate({ name: "Afiliasi Dua" });
+    for (const x of [a, b]) await member(x, s); // T-108
     const la = await link(a, s);
     await code(a, "COUNT001");
     const lb = await link(b, s);

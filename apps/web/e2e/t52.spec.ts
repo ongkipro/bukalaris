@@ -40,6 +40,8 @@ async function makeAffiliate(info: TestInfo, phone = testPhone()) {
   const [sa] = await sql`select id from store where slug = 'toko-a'`;
   const [sb] = await sql`select id from store where slug = 'toko-b'`;
   await sql`insert into affiliate_link (affiliate_id, token, store_id) values (${a!.id}, ${tokenA}, ${sa!.id}), (${a!.id}, ${tokenB}, ${sb!.id})`;
+  // T-108: attribution needs an active membership of the store (toko-a only; toko-b's clicks never earn at toko-a anyway)
+  await sql`insert into affiliate_membership (store_id, affiliate_id, status, display_name, reviewed_by, reviewed_at) values (${sa!.id}, ${a!.id}, 'active', 'Afiliasi Uji', 'system:auto_approve', now())`; // an auto-approved membership: the only active INSERT the guard admits
   return { id: Number(a!.id), phone, code, tokenA, tokenB };
 }
 
@@ -64,6 +66,8 @@ async function finishCheckout(page: Page, o: { phone: string; code?: string; dou
   return Number((await page.getByTestId("order-id").textContent())!.replace("#", ""));
 }
 const attribution = async (orderId: number) => (await sql`select a.method, a.click_id, a.commission_idr, a.commission_base_idr, a.status, a.store_id, a.affiliate_id from affiliate_attribution a where a.order_id = ${orderId}`)[0];
+/** T-108: the seller's obligation for the order (ADR-0015 decision 4). */
+const obligation = async (orderId: number) => (await sql`select commission_idr, status from affiliate_commission where order_id = ${orderId}`)[0];
 const financials = async (orderId: number) => (await sql`select goods_proceeds_idr, affiliate_commission_idr, sale_amount_idr, payable_idr, affiliate_id from order_financials where order_id = ${orderId}`)[0]!;
 // The suite runs the production build: the continuity cookie carries the `__Host-` prefix there (Secure, Path=/, no Domain), plain `bl_click` in development.
 const COOKIE = "__Host-bl_click";
@@ -90,10 +94,13 @@ test("a referral link captures one click on a navigation, and the guest checkout
   const orderId = await buy(page, { phone });
   await evidence(page, info, "t52-link-confirmation");
   const f = await financials(orderId);
-  expect(Number(f.affiliate_commission_idr)).toBe(Math.floor((Number(f.goods_proceeds_idr) * 1000) / 10_000));
-  expect(Number(f.sale_amount_idr)).toBe(Number(f.goods_proceeds_idr) - Number(f.affiliate_commission_idr));
-  expect(Number(f.affiliate_id)).toBe(a.id);
-  expect(await attribution(orderId)).toMatchObject({ method: "link", click_id: cookie.value, status: "pending", affiliate_id: String(a.id) });
+  const commission = Math.floor((Number(f.goods_proceeds_idr) * 1000) / 10_000);
+  // T-108: the seller's sale stays whole; the commission is the seller's obligation, frozen on the attribution
+  expect(Number(f.affiliate_commission_idr)).toBe(0);
+  expect(Number(f.sale_amount_idr)).toBe(Number(f.goods_proceeds_idr));
+  expect(f.affiliate_id).toBeNull();
+  expect(await attribution(orderId)).toMatchObject({ method: "link", click_id: cookie.value, status: "pending", affiliate_id: String(a.id), commission_idr: String(commission) });
+  expect(await obligation(orderId)).toMatchObject({ commission_idr: String(commission), status: "pending" });
   // the buyer's page shows what it always showed: no commission, no affiliate, no rate
   const text = await page.getByRole("main").innerText();
   expect(text).not.toMatch(/komisi|afiliasi|commission|affiliate/i);
@@ -105,7 +112,7 @@ test("a typed code earns without any click, and every spelling of it works", asy
   await page.context().clearCookies();
   const orderId = await buy(page, { phone: testPhone(), code: ` ${a.code.slice(0, 4).toLowerCase()}-${a.code.slice(4).toLowerCase()} ` });
   expect(await attribution(orderId)).toMatchObject({ method: "code", click_id: null, affiliate_id: String(a.id) });
-  expect(Number((await financials(orderId)).affiliate_commission_idr)).toBeGreaterThan(0);
+  expect(Number((await obligation(orderId))!.commission_idr)).toBeGreaterThan(0);
   await evidence(page, info, "t52-code-confirmation");
 });
 
@@ -187,7 +194,7 @@ test("a forged or cross-store click cannot change checkout authority: the order 
   expect(await attribution(forged)).toBeUndefined();
 });
 
-test("a duplicate submit yields one order, one attribution and one deduction", async ({ page }, info) => {
+test("a duplicate submit yields one order, one attribution and one obligation", async ({ page }, info) => {
   await openStoreA();
   const a = await makeAffiliate(info);
   await page.context().clearCookies();
@@ -197,7 +204,7 @@ test("a duplicate submit yields one order, one attribution and one deduction", a
   expect((await sql`select count(*)::int as n from "order" where buyer_phone = ${phone}`)[0]!.n).toBe(1);
   expect((await sql`select count(*)::int as n from affiliate_attribution where affiliate_id = ${a.id}`)[0]!.n).toBe(1);
   expect(await attribution(first)).toMatchObject({ method: "code" });
-  expect((await sql`select count(*)::int as n from order_financials where affiliate_id = ${a.id} and affiliate_commission_idr > 0`)[0]!.n).toBe(1);
+  expect((await sql`select count(*)::int as n from affiliate_commission where affiliate_id = ${a.id}`)[0]!.n).toBe(1);
 });
 
 test("the existing landing-page handoff keeps the seller and the attribution", async ({ page }, info) => {

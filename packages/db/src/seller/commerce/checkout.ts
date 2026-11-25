@@ -485,11 +485,11 @@ export async function placeOrder(
         })),
       );
       // T-46 / BILL-4: the one allocation engine freezes goods and shipping discounts separately, including each line's exact share.
-      // T-52 / BILL-8: attribute the order (typed code, else the latest eligible click of this store) and deduct the single-floor commission from the seller's sale. The
-      // buyer's payable and every allocation line are untouched; a bad or ineligible selector earns nothing and never fails the order.
+      // T-52 / T-108 (ADR-0015 decisions 3 and 4): attribute the order (typed code, else the latest eligible click of this store; an active membership of the store
+      // is required) and record the single-floor commission as the seller's obligation, in either money mode. Nothing is deducted: the seller's sale, the buyer's
+      // payable and every allocation line are the same with and without an affiliate; a bad or ineligible selector earns nothing and never fails the order.
       const referral = { code: typedCode, clickIds };
-      // T-107: a seller-owned order carries no platform affiliate deduction (the store programme with membership is T-108); the seller nets the full sale.
-      const plan = mode === "seller_owned" ? null : await planAffiliateCommission(tx, { storeId, orderId: o.id, productIds: lines.map((l) => l.productId), finance, referral });
+      const plan = await planAffiliateCommission(tx, { storeId, orderId: o.id, productIds: lines.map((l) => l.productId), finance, referral });
       // T-107 (decision 18): the store's two bearers read inside the order transaction; the prepaid plan and the frozen snapshot use the same ones.
       const bearers = mode === "seller_owned" ? await feeBearers(tx, storeId) : null;
       const methods = picked && bearers && picked.methods.account ? { ...picked.methods, account: { ...picked.methods.account, feeBearer: bearers.payment } } : picked?.methods;
@@ -499,11 +499,11 @@ export async function placeOrder(
       await writeOrderFinancials(tx, {
         storeId,
         orderId: o.id,
-        finance: plan?.finance ?? finance,
+        finance,
         platformShippingDiscountIdr: fee.platformDiscount,
         variantIds: lines.map((l) => l.variantId),
         expectedGatewayFeeIdr: pay?.expectedFeeIdr ?? 0,
-        affiliate: plan ? { affiliateId: plan.affiliateId, ratesBps: plan.ratesBps } : undefined,
+        affiliate: plan ? { ratesBps: plan.ratesBps } : undefined,
         money,
       });
       if (plan) await recordAffiliateAttribution(tx, { storeId, orderId: o.id, referral });

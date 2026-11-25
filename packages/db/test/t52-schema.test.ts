@@ -4,13 +4,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createCode, createLink, listOwnLinks, registerAffiliate, reviewAffiliate, revokeCode, revokeLink } from "../src/affiliate/accounts.ts";
 import { listAffiliateCatalog, projectOffers } from "../src/affiliate/catalog.ts";
 import { AFFILIATE_ATTRIBUTION_WINDOW_DAYS_DEFAULT, AFFILIATE_HOLD_DAYS_DEFAULT, AFFILIATE_MAX_RATE_BPS_DEFAULT, AFFILIATE_MIN_RATE_BPS_DEFAULT } from "../src/affiliate/settings.ts";
-import { affiliate, affiliateAttribution, affiliateBlock, affiliateCatalog, affiliateClick, affiliateCode, affiliateLink, affiliateOffer, affiliatePolicy, affiliateSellerPolicy } from "../src/affiliate/schema-affiliate.ts";
+import { affiliate, affiliateAttribution, affiliateBlock, affiliateCommission, affiliateCatalog, affiliateClick, affiliateCode, affiliateLink, affiliateOffer, affiliatePolicy, affiliateSellerPolicy } from "../src/affiliate/schema-affiliate.ts";
 import { affiliateSettings, blockAffiliate, listBlocks, listOffers, optInProduct, saveAffiliatePolicy, setOfferRate, setOfferStatus, unblockAffiliate } from "../src/affiliate/seller.ts";
 import { withAffiliate, withStore } from "../src/platform/tenant.ts";
 import { orderFinancials, orderLineFinancials, product } from "../src/schema.ts";
 import { admin, db, makeStore, makeUser, platform, seller } from "./helpers.ts";
 import { billingTestSetup, operatorWith, sellerAs } from "./t50-fixtures.ts";
-import { addProduct, attributionOf, buy, click, code, errCode, link, makeAffiliate, openStore, optIn, resetFixtures, setAccountStatus, freshPhone, type A } from "./t52-fixtures.ts";
+import { addProduct, attributionOf, buy, click, code, errCode, legacyPending, link, makeAffiliate, member, verifiedUser, openStore, optIn, resetFixtures, setAccountStatus, freshPhone, type A } from "./t52-fixtures.ts";
 
 // T-52 slice 1: the DATA-11 schema as the database enforces it (state machines, uniqueness, matching-store and matching-affiliate foreign keys, immutability), the named
 // defaults, the seller services and the isolation of every table under the real application role. Mutation checks are recorded in docs/tracks/t52.md.
@@ -28,7 +28,8 @@ describe("T-52 the affiliate account state machine is the database's (ADR-0009 s
   it("every one of the 25 moves is accepted exactly when it is on the legal list (closed is final)", async () => {
     for (const from of STATES) {
       for (const to of STATES) {
-        const id = await registerAffiliate(platform, { userId: await makeUser("aff"), displayName: "Uji Status", phone: freshPhone() });
+        const id = await registerAffiliate(platform, { userId: await verifiedUser("aff"), displayName: "Uji Status", phone: freshPhone() });
+        await legacyPending(id); // T-108: the T-52 machine is walked from a pre-0028 pending row; new accounts start active
         for (const step of reach(from)) await admin.execute(sql`update affiliate set status = ${step}, status_reason = 'path' where id = ${id}`);
         const outcome = await throws(admin.execute(sql`update affiliate set status = ${to}, status_reason = 'uji' where id = ${id}`));
         expect(outcome, `${from} -> ${to}`).toBe(from === to || LEGAL.has(`${from}>${to}`) ? "ok" : "23514");
@@ -36,15 +37,20 @@ describe("T-52 the affiliate account state machine is the database's (ADR-0009 s
     }
   });
 
-  it("an account starts pending only, keeps its identity, and a refusal, suspension or closure carries a reason", async () => {
-    const userId = await makeUser("aff");
-    expect(await throws(admin.execute(sql`insert into affiliate (user_id, display_name, contact_phone, status) values (${userId}, 'Langsung Aktif', '6281200000001', 'active')`))).toBe("23514");
+  it("T-108 (C-A3, D-38 C): an account is created only for a verified e-mail and starts active, keeps its identity, and a refusal, suspension or closure carries a reason", async () => {
+    const unverified = await makeUser("aff");
+    expect(await errCode(registerAffiliate(platform, { userId: unverified, displayName: "Belum Verifikasi", phone: freshPhone() }))).toBe("email_unverified");
+    expect(await throws(admin.execute(sql`insert into affiliate (user_id, display_name, contact_phone, status) values (${unverified}, 'Langsung Aktif', '6281200000001', 'active')`))).toBe("23514"); // the database refuses it too
+    const userId = await verifiedUser("aff");
+    expect(await throws(admin.execute(sql`insert into affiliate (user_id, display_name, contact_phone, status) values (${userId}, 'Menunggu', '6281200000001', 'pending')`))).toBe("23514"); // no new pending account
     const id = await registerAffiliate(platform, { userId, displayName: "Satu Akun", phone: freshPhone() });
+    expect((await platform.select({ s: affiliate.status }).from(affiliate).where(eq(affiliate.id, id)))[0]!.s).toBe("active");
+    await legacyPending(id); // the reason rules below are checked from a pre-0028 pending row
     expect(await errCode(registerAffiliate(platform, { userId, displayName: "Akun Ganda", phone: freshPhone() }))).toBe("conflict"); // one account, one affiliate
     expect(await throws(admin.execute(sql`update affiliate set user_id = ${await makeUser("aff")} where id = ${id}`))).toBe("23514");
     expect(await throws(admin.execute(sql`update affiliate set status = 'rejected' where id = ${id}`))).toBe("23514"); // no reason
     expect(await throws(admin.execute(sql`update affiliate set status = 'rejected', status_reason = '   ' where id = ${id}`))).toBe("23514");
-    expect(await errCode(registerAffiliate(platform, { userId: await makeUser("aff"), displayName: "Nomor Salah", phone: "021 5551234" }))).toBe("bad_phone"); // a landline has no canonical identity
+    expect(await errCode(registerAffiliate(platform, { userId: await verifiedUser("aff"), displayName: "Nomor Salah", phone: "021 5551234" }))).toBe("bad_phone"); // a landline has no canonical identity
     expect(await throws(admin.execute(sql`insert into affiliate (user_id, display_name, contact_phone) values (${await makeUser("aff")}, 'Nomor Mentah', '081200000009')`))).toBe("23514"); // only the canonical form is stored
   });
 
@@ -141,6 +147,8 @@ describe("T-52 selectors: globally unique codes, tokens, matching-store and matc
     await optIn(s);
     const a = await makeAffiliate();
     const b = await makeAffiliate({ name: "Afiliasi Dua" });
+    await member(a, s); // T-108: attribution needs an active membership
+    await member(b, s);
     await code(a, "OWNCODE1");
     const bCode = await code(b, "OTHERCODE");
     const bClick = await click((await link(b, s)).token);
@@ -151,6 +159,7 @@ describe("T-52 selectors: globally unique codes, tokens, matching-store and matc
       throws(
         admin.transaction(async (tx) => {
           await tx.execute(sql`select set_config('bukalaris.affiliate_reset', 'demo', true)`);
+          await tx.delete(affiliateCommission).where(eq(affiliateCommission.orderId, o.orderId)); // T-108: the obligation references its attribution
           await tx.delete(affiliateAttribution).where(eq(affiliateAttribution.orderId, o.orderId));
           await tx.insert(affiliateAttribution).values({ ...row, orderId: o.orderId, ...patch });
           tx.rollback();
@@ -167,6 +176,7 @@ describe("T-52 selectors: globally unique codes, tokens, matching-store and matc
     await openStore(s);
     await optIn(s);
     const a = await makeAffiliate();
+    await member(a, s);
     await code(a, "UNIQUE01");
     const o = await buy(s, { code: "UNIQUE01" });
     const other = await makeStore("toko-b", { price: 100_000, stock: 20 });
@@ -197,6 +207,7 @@ describe("T-52 an attribution and a click are immutable evidence", () => {
     await openStore(s);
     await optIn(s);
     const a = await makeAffiliate();
+    await member(a, s);
     await code(a, "FROZEN01");
     const o = await buy(s, { code: "FROZEN01" });
     const id = (await attributionOf(o.orderId))!.id;
@@ -221,6 +232,7 @@ describe("T-52 an attribution and a click are immutable evidence", () => {
     await openStore(s);
     await optIn(s);
     const a = await makeAffiliate();
+    await member(a, s);
     await code(a, "COLUMNS01");
     const o = await buy(s, { code: "COLUMNS01" });
     const rows = await withAffiliate(db, a.affiliateId, (tx) => tx.select({ id: affiliateAttribution.id, storeId: affiliateAttribution.storeId, method: affiliateAttribution.method, commissionIdr: affiliateAttribution.commissionIdr, status: affiliateAttribution.status }).from(affiliateAttribution));
@@ -241,7 +253,7 @@ describe("T-52 the programme limits are named settings pinned to their stored ro
     expect({ min: row!.minRateBps, max: row!.maxRateBps, window: row!.attributionWindowDays, hold: row!.holdDays }).toEqual({ min: AFFILIATE_MIN_RATE_BPS_DEFAULT, max: AFFILIATE_MAX_RATE_BPS_DEFAULT, window: AFFILIATE_ATTRIBUTION_WINDOW_DAYS_DEFAULT, hold: AFFILIATE_HOLD_DAYS_DEFAULT });
     expect(AFFILIATE_HOLD_DAYS_DEFAULT).toBe(3);
     expect(await throws(admin.execute(sql`insert into affiliate_policy (id, min_rate_bps, max_rate_bps, attribution_window_days, hold_days, updated_by) values (2, 1, 2, 3, 4, 'x')`))).toBe("23514");
-    expect(await throws(admin.execute(sql`update affiliate_policy set min_rate_bps = 3000`))).toBe("23514"); // min above max
+    expect(await throws(admin.execute(sql`update affiliate_policy set min_rate_bps = ${AFFILIATE_MAX_RATE_BPS_DEFAULT + 1}`))).toBe("23514"); // min above max
     expect(await throws(admin.execute(sql`update affiliate_policy set max_rate_bps = 10001`))).toBe("23514");
     expect(await throws(admin.execute(sql`update affiliate_policy set attribution_window_days = 0`))).toBe("23514");
     expect(await throws(db.execute(sql`update affiliate_policy set max_rate_bps = 10000`))).toBe("42501"); // read-only for the seller side
@@ -271,7 +283,7 @@ describe("T-52 seller opt-in: closed by default, no invented rate, state machine
     await admin.execute(sql`update product set status = 'draft' where id = ${draft.productId}`);
     expect(await errCode(optInProduct(s.owner, { productId: draft.productId, rateBps: null }))).toBe("product_unavailable");
     expect(await errCode(optInProduct(s.owner, { productId: other.productId, rateBps: null }))).toBe("not_found");
-    expect(await errCode(optInProduct(s.owner, { productId: s.productId, rateBps: 5_000 }))).toBe("rate_out_of_bounds");
+    expect(await errCode(optInProduct(s.owner, { productId: s.productId, rateBps: AFFILIATE_MAX_RATE_BPS_DEFAULT + 1 }))).toBe("rate_out_of_bounds");
     const offerId = await optInProduct(s.owner, { productId: s.productId, rateBps: 1_500 });
     expect(await optInProduct(s.owner, { productId: s.productId, rateBps: 1_200 })).toBe(offerId); // the same row, never two for one product
     expect(await platform.select().from(affiliateOffer)).toHaveLength(1);
@@ -332,7 +344,8 @@ describe("T-52 store isolation of offers, blocks, policies and order snapshots u
     const aff = await makeAffiliate();
     for (const s of [A, B]) await blockAffiliate(s.owner, { affiliateId: aff.affiliateId, reason: `blokir ${s.storeId}` });
     await code(aff, "ISOLATE1");
-    await admin.execute(sql`delete from affiliate_block`); // the block would hide the code: the isolation checks below need real attributions
+    await admin.execute(sql`delete from affiliate_block`);
+    for (const s of [A, B]) await member(aff, s); // T-108: attribution needs an active membership // the block would hide the code: the isolation checks below need real attributions
     const oa = await buy(A, { code: "ISOLATE1" });
     const ob = await buy(B, { code: "ISOLATE1" });
     return { A, B, aff, oa, ob };
@@ -350,7 +363,8 @@ describe("T-52 store isolation of offers, blocks, policies and order snapshots u
     expect(own.offers.map((r) => r.storeId)).toEqual([A.storeId]);
     expect(own.fin.map((r) => r.orderId)).toEqual([oa.orderId]);
     expect(own.lines.map((r) => r.orderId)).toEqual([oa.orderId]);
-    expect(own.fin[0]).toMatchObject({ affiliateCommissionIdr: 10_000 }); // the seller sees its own deduction
+    expect(own.fin[0]).toMatchObject({ affiliateCommissionIdr: 0 }); // T-108: no deduction from the sale
+    expect(own.lines[0]).toMatchObject({ commissionRateBps: 1_000 }); // the seller sees its own frozen rate
     const noContext = await Promise.all([db.select().from(affiliateOffer), db.select().from(affiliateSellerPolicy), db.select().from(affiliateBlock), db.select().from(orderFinancials)]);
     expect(noContext.map((r) => r.length)).toEqual([0, 0, 0, 0]);
     expect(ob.orderId).not.toBe(oa.orderId);
@@ -392,6 +406,8 @@ describe("T-52 store isolation of offers, blocks, policies and order snapshots u
     const b = await makeAffiliate({ name: "Afiliasi Dua" });
     await code(a, "AAAA1111");
     await code(b, "BBBB2222");
+    await member(a, A);
+    await member(b, A);
     const la = await link(a, A);
     const lb = await link(b, A);
     await click(la.token);

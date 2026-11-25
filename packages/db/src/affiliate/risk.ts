@@ -39,8 +39,10 @@ export async function affiliateRiskCounters(exec: Executor, opts: { days?: numbe
              coalesce(sum(c.n) filter (where c.kind = 'click_non_navigation'), 0)::bigint as non_nav
         from affiliate_counter c, win where c.affiliate_id is not null and c.day >= win.since group by c.affiliate_id),
     orders as (
-      select t.affiliate_id, count(*)::bigint as n, count(*) filter (where t.status = 'void')::bigint as voided
-        from affiliate_attribution t, win where t.created_at >= win.since::timestamptz group by t.affiliate_id)
+      -- T-108: the void lives on the seller's obligation (affiliate_commission); a T-52 attribution written before it kept its own state.
+      select t.affiliate_id, count(*)::bigint as n, count(*) filter (where t.status = 'void' or c.status = 'void')::bigint as voided
+        from affiliate_attribution t left join affiliate_commission c on c.store_id = t.store_id and c.order_id = t.order_id, win
+       where t.created_at >= win.since::timestamptz group by t.affiliate_id)
     select a.id as affiliate_id, a.display_name, a.status,
            coalesce(c.clicks, 0) as clicks, coalesce(o.n, 0) as orders, coalesce(o.voided, 0) as voided,
            coalesce(c.self_ref, 0) as self_ref, coalesce(c.refused, 0) as refused, coalesce(c.non_nav, 0) as non_nav

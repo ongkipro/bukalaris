@@ -33,6 +33,8 @@ function refused(err: unknown): never {
 export type SellerAffiliateSettings = {
   participation: "closed" | "open";
   defaultRateBps: number | null;
+  /** T-108 (D-31 OPEN-A5): applications become active without review. Off by default. */
+  autoApprove: boolean;
   revision: number;
   /** The programme's current bounds (the seller cannot set a rate outside them). */
   bounds: { minRateBps: number; maxRateBps: number };
@@ -43,20 +45,24 @@ export async function affiliateSettings(scope: SellerScope): Promise<SellerAffil
   return withStore(scope.exec, scope.storeId, async (tx) => {
     const [row] = await tx.select().from(affiliateSellerPolicy).where(eq(affiliateSellerPolicy.storeId, scope.storeId));
     const [bounds] = await tx.select({ minRateBps: affiliatePolicy.minRateBps, maxRateBps: affiliatePolicy.maxRateBps }).from(affiliatePolicy);
-    return { participation: row?.participation ?? "closed", defaultRateBps: row?.defaultRateBps ?? null, revision: row?.revision ?? 0, bounds: bounds! };
+    return { participation: row?.participation ?? "closed", defaultRateBps: row?.defaultRateBps ?? null, autoApprove: row?.autoApprove ?? false, revision: row?.revision ?? 0, bounds: bounds! };
   });
 }
 
-/** Open or close the store to affiliates and set the default rate (NULL = none chosen). Opening needs a default rate or per-product rates before anything earns; closing stops new attribution at once. */
-export async function saveAffiliatePolicy(scope: SellerScope, raw: { participation: "closed" | "open"; defaultRateBps: number | null }): Promise<void> {
+/**
+ * Open or close the store to affiliates and set the default rate (NULL = none chosen). Opening needs a default rate or per-product rates before anything earns;
+ * closing stops new attribution and new applications at once. T-108: `autoApprove` (default off, left as it is when omitted) admits applicants without review.
+ */
+export async function saveAffiliatePolicy(scope: SellerScope, raw: { participation: "closed" | "open"; defaultRateBps: number | null; autoApprove?: boolean }): Promise<void> {
   requireCap(scope, "affiliate.offers.manage");
-  const input = z.strictObject({ participation: z.enum(["closed", "open"]), defaultRateBps: rateBps.nullable() }).parse(raw);
+  const input = z.strictObject({ participation: z.enum(["closed", "open"]), defaultRateBps: rateBps.nullable(), autoApprove: z.boolean().optional() }).parse(raw);
+  const auto = input.autoApprove === undefined ? {} : { autoApprove: input.autoApprove };
   await withStore(scope.exec, scope.storeId, async (tx) => {
     try {
       await tx
         .insert(affiliateSellerPolicy)
-        .values({ storeId: scope.storeId, participation: input.participation, defaultRateBps: input.defaultRateBps, updatedBy: scope.userId })
-        .onConflictDoUpdate({ target: affiliateSellerPolicy.storeId, set: { participation: input.participation, defaultRateBps: input.defaultRateBps, updatedBy: scope.userId } });
+        .values({ storeId: scope.storeId, participation: input.participation, defaultRateBps: input.defaultRateBps, ...auto, updatedBy: scope.userId })
+        .onConflictDoUpdate({ target: affiliateSellerPolicy.storeId, set: { participation: input.participation, defaultRateBps: input.defaultRateBps, ...auto, updatedBy: scope.userId } });
     } catch (err) {
       refused(err);
     }

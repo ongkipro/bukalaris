@@ -118,6 +118,7 @@ export * from "./affiliate/settings.ts";
 export * from "./affiliate/referral.ts";
 export * from "./affiliate/click.ts";
 export * from "./affiliate/seller.ts";
+export * from "./affiliate/membership.ts";
 export * from "./affiliate/accounts.ts";
 export * from "./affiliate/catalog.ts";
 export * from "./affiliate/jobs.ts";
